@@ -1,0 +1,102 @@
+name: Build and Release Nightly
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up CMake
+        uses: lukka/get-cmake@v3
+
+      - name: Set up Qt
+        uses: jurplel/install-qt-action@v2
+        with:
+          version: '6.2.0'
+          host: ${{ matrix.os }}
+          modules: qtbase, qttools
+
+      - name: Configure CMake
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package
+        run: |
+          if [ ${{ matrix.os }} == 'ubuntu-latest' ]; then
+            cpack -G APPIMAGE -B build
+          elif [ ${{ matrix.os }} == 'windows-latest' ]; then
+            cpack -G NSIS -B build
+          elif [ ${{ matrix.os }} == 'macos-latest' ]; then
+            cpack -G DragNDrop -B build
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: qurcuma-${{ matrix.os }}
+          path: build/*.AppImage, build/*.exe, build/*.dmg
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: qurcuma-ubuntu-latest
+          path: ./artifacts/ubuntu
+      - uses: actions/download-artifact@v2
+        with:
+          name: qurcuma-windows-latest
+          path: ./artifacts/windows
+      - uses: actions/download-artifact@v2
+        with:
+          name: qurcuma-macos-latest
+          path: ./artifacts/macos
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: nightly
+          release_name: 'Nightly Build'
+          draft: false
+          prerelease: true
+          overwrite: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Assets
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/ubuntu/*.AppImage
+          asset_name: qurcuma-ubuntu.AppImage
+          asset_content_type: application/octet-stream
+      - uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/windows/*.exe
+          asset_name: qurcuma-windows.exe
+          asset_content_type: application/octet-stream
+      - uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/macos/*.dmg
+          asset_name: qurcuma-macos.dmg
+          asset_content_type: application/octet-stream
