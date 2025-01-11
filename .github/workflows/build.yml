@@ -14,10 +14,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set up CMake
-        uses: lukka/get-cmake@v3
+        uses: jwlawson/actions-setup-cmake@v1
 
       - name: Set up Qt
         uses: jurplel/install-qt-action@v2
@@ -43,28 +43,31 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: qurcuma-${{ matrix.os }}
-          path: build/*.AppImage, build/*.exe, build/*.dmg
+          path: |
+            build/*.AppImage
+            build/*.exe
+            build/*.dmg
 
   release:
     needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Download artifacts
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: qurcuma-ubuntu-latest
           path: ./artifacts/ubuntu
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: qurcuma-windows-latest
           path: ./artifacts/windows
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: qurcuma-macos-latest
           path: ./artifacts/macos
