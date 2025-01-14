@@ -1,54 +1,56 @@
-// settings.cpp
+// m_settings.cpp
 #include "settings.h"
 #include <QStandardPaths>
 #include <QDir>
 
 const QString Settings::WORKING_DIR_KEY = "workingDirectory";
 const QString Settings::PROGRAM_PATH_PREFIX = "programs/";
+const QString Settings::WORKING_DIRS_KEY = "workingDirectories";
+const QString Settings::LAST_USED_DIR_KEY = "lastUsedWorkingDirectory";
 
-Settings::Settings(QObject *parent)
+Settings::Settings(QObject* parent)
     : QObject(parent)
-    , settings(QSettings::IniFormat, QSettings::UserScope, "Qurcuma", "settings")
+    , m_settings(QSettings::IniFormat, QSettings::UserScope, "Qurcuma", "m_settings")
 {
     // Wenn keine Einstellungen vorhanden, Standardwerte laden
-    if (settings.allKeys().isEmpty()) {
+    if (m_settings.allKeys().isEmpty()) {
         loadDefaults();
     }
 }
 
 QString Settings::workingDirectory() const
 {
-    return settings.value(WORKING_DIR_KEY,
-        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/qurcuma")
+    return m_settings.value(WORKING_DIR_KEY,
+                         QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/qurcuma")
         .toString();
 }
 
 void Settings::setWorkingDirectory(const QString &path)
 {
-    settings.setValue(WORKING_DIR_KEY, path);
-    settings.sync();
+    m_settings.setValue(WORKING_DIR_KEY, path);
+    m_settings.sync();
 }
 
 QString Settings::getProgramPath(const QString &program) const
 {
-    return settings.value(PROGRAM_PATH_PREFIX + program).toString();
+    return m_settings.value(PROGRAM_PATH_PREFIX + program).toString();
 }
 
 void Settings::setProgramPath(const QString &program, const QString &path)
 {
-    settings.setValue(PROGRAM_PATH_PREFIX + program, path);
-    settings.sync();
+    m_settings.setValue(PROGRAM_PATH_PREFIX + program, path);
+    m_settings.sync();
 }
 
 QString Settings::orcaBinaryPath() const
 {
-    return settings.value("orca/binaryPath").toString();
+    return m_settings.value("orca/binaryPath").toString();
 }
 
 void Settings::setOrcaBinaryPath(const QString &path)
 {
-    settings.setValue("orca/binaryPath", path);
-    settings.sync();
+    m_settings.setValue("orca/binaryPath", path);
+    m_settings.sync();
 }
 
 void Settings::loadDefaults()
@@ -56,8 +58,8 @@ void Settings::loadDefaults()
     // Standard-Arbeitsverzeichnis
     QString defaultWorkDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) 
                            + "/qurcuma";
-    
-    if (!settings.contains(WORKING_DIR_KEY)) {
+
+    if (!m_settings.contains(WORKING_DIR_KEY)) {
         setWorkingDirectory(defaultWorkDir);
     }
 
@@ -81,15 +83,47 @@ void Settings::loadDefaults()
     // Nur fehlende Programmpfade setzen
     for (auto it = defaultPaths.constBegin(); it != defaultPaths.constEnd(); ++it) {
         QString key = PROGRAM_PATH_PREFIX + it.key();
-        if (!settings.contains(key)) {
-            settings.setValue(key, it.value());
+        if (!m_settings.contains(key)) {
+            m_settings.setValue(key, it.value());
         }
     }
 
-    settings.sync();
+    m_settings.sync();
 }
 
 void Settings::saveSettings()
 {
-    settings.sync();
+    m_settings.sync();
+}
+
+QStringList Settings::workingDirectories() const
+{
+    return m_settings.value(WORKING_DIRS_KEY).toStringList();
+}
+
+void Settings::addWorkingDirectory(const QString& path)
+{
+    QStringList dirs = workingDirectories();
+    if (!dirs.contains(path)) {
+        dirs.append(path);
+        m_settings.setValue(WORKING_DIRS_KEY, dirs);
+    }
+    setLastUsedWorkingDirectory(path);
+}
+
+void Settings::removeWorkingDirectory(const QString& path)
+{
+    QStringList dirs = workingDirectories();
+    dirs.removeAll(path);
+    m_settings.setValue(WORKING_DIRS_KEY, dirs);
+}
+
+void Settings::setLastUsedWorkingDirectory(const QString& path)
+{
+    m_settings.setValue(LAST_USED_DIR_KEY, path);
+}
+
+QString Settings::lastUsedWorkingDirectory() const
+{
+    return m_settings.value(LAST_USED_DIR_KEY).toString();
 }

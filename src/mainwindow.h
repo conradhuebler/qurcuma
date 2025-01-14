@@ -1,21 +1,31 @@
-#ifndef MAINWINDOW_H
-#define MAINWINDOW_H
+#pragma once
 
-#include <QMainWindow>
-#include <QListView>
-#include <QLineEdit>
-#include <QComboBox>
-#include <QTextEdit>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QProcess>
-#include <QFileSystemModel>
-#include <QSplitter>
-#include <QMenuBar>
-#include <QStatusBar>
-#include <QFileDialog>
-#include <QMessageBox>
 #include "settings.h"
+#include <QComboBox>
+#include <QCompleter>
+#include <QDateTime>
+#include <QFileDialog>
+#include <QFileSystemModel>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListView>
+#include <QListWidget>
+#include <QMainWindow>
+#include <QMap>
+#include <QMenuBar>
+#include <QMessageBox>
+#include <QProcess>
+#include <QPushButton>
+#include <QSpinBox>
+#include <QSplitter>
+#include <QStatusBar>
+#include <QString>
+#include <QStringList>
+#include <QTextEdit>
+#include <QToolButton>
+#include <QVBoxLayout>
+#include <QWidget>
 
 struct CalculationEntry {
     QString id;          // Eindeutige ID (z.B. Zeitstempel)
@@ -46,22 +56,22 @@ private slots:
     void configurePrograms();
     void runSimulation();
     void startNewCalculation();  // Neue Funktion
-  
+
 private:
     void setupUI();
     void createMenus();
+    void setupProjectViewContextMenu();
     void setupConnections();
     void loadSettings();
     bool checkProgramPath(const QString &program);
 
     bool setupCalculationDirectory();
-    void updateOutputView(const QString &logFile);
+    void updateOutputView(const QString& logFile, bool scrollToBottom = false);
 
     void createNewDirectory();
     void setupProgramSpecificDirectory(const QString &dirPath, const QString &program);
     void updateDirectoryContent(const QString &path);
 
-  
     void initializeProgramCommands();
     void updateCommandLineVisibility(const QString &program);
     void setupContextMenu();
@@ -73,32 +83,39 @@ private:
     void addCalculationToHistory(const CalculationEntry &entry);
     QString generateUniqueFileName(const QString &baseFileName, const QString &extension);
 
-    QListView *projectListView;
-    QLineEdit *commandInput, *inputFileEdit, *structureFileEdit;
-    QComboBox *programSelector;
-    QTextEdit *structureView;
-    QTextEdit *inputView;
-    QTextEdit *outputView;
-    QPushButton *newCalculationButton;  // Neuer Button
-    QFileSystemModel *projectModel;
-    QProcess *m_currentProcess;
-    Settings settings;
+    void setupBookmarkView();
+    void updateBookmarkView();
+    void switchWorkingDirectory(const QString& path);
 
-    QPushButton *newDirectoryButton;
-    QListView *directoryContentView;
-    QFileSystemModel *directoryContentModel;
-    QMap<QString, QStringList> programCommands;
-    QCompleter *commandCompleter;
-  
+    void updatePathLabel(const QString& path);
+    void toggleLeftPanel();
 
+    QListWidget* m_bookmarkListView;
+    QListView* m_projectListView;
+    QListView* m_directoryContentView;
+    QLineEdit* m_commandInput;
+    QLineEdit* m_inputFileEdit;
+    QLineEdit* m_structureFileEdit;
+    QComboBox* m_programSelector;
+    QTextEdit* m_structureView;
+    QTextEdit* m_inputView;
+    QTextEdit* m_outputView;
+    QPushButton *m_newCalculationButton, *m_chooseDirectory, *m_runCalculation;
+    QSpinBox* m_threads;
+    QFileSystemModel* m_projectModel;
+    QFileSystemModel* m_directoryContentModel;
+    QProcess* m_currentProcess;
+    Settings m_settings;
+    QMap<QString, QStringList> m_programCommands;
+    QCompleter* m_commandCompleter;
+    QToolButton* m_bookmarkButton;
+    QSplitter* m_splitter;
+    QLabel* m_currentPathLabel;
 
-    // Listen für verschiedene Programmtypen
-    QStringList simulationPrograms{"curcuma", "orca", "xtb"};
-    QStringList visualizerPrograms{"iboview", "avogadro"};
+    QStringList m_simulationPrograms{ "curcuma", "orca", "xtb" };
+    QStringList m_visualizerPrograms{ "iboview", "avogadro" };
 
     QString m_workingDirectory;    
     QString m_currentCalculationDir; // Aktuelles Berechnungsverzeichnis
-
+    int m_lastLeftPanelWidth = 0;
 };
-
-#endif

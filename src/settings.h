@@ -29,12 +29,20 @@ public:
     void loadDefaults();
     void saveSettings();
 
+    QStringList workingDirectories() const;
+    void addWorkingDirectory(const QString& path);
+    void removeWorkingDirectory(const QString& path);
+    void setLastUsedWorkingDirectory(const QString& path);
+    QString lastUsedWorkingDirectory() const;
+
 private:
-    QSettings settings;
+    QSettings m_settings;
 
     // Konstanten für Settings-Keys
     static const QString WORKING_DIR_KEY;
     static const QString PROGRAM_PATH_PREFIX;
+    static const QString WORKING_DIRS_KEY;
+    static const QString LAST_USED_DIR_KEY;
 };
 
 #endif
