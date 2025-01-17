@@ -1,5 +1,6 @@
 #include "settings.h"
 #include <QApplication>
+#include <QCheckBox>
 #include <QCompleter>
 #include <QDateTime>
 #include <QDialogButtonBox>
@@ -143,6 +144,12 @@ void MainWindow::setupUI()
     // m_newCalculationButton->setIcon(QIcon::fromTheme("document-new", QIcon(":/icons/document-new.png")));
     middleLayout->addWidget(m_newCalculationButton);
 
+    m_currentProjectLabel = new QLabel(m_currentCalculationDir);
+    m_currentProjectLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_currentProjectLabel->setWordWrap(true);
+
+    middleLayout->addWidget(m_currentProjectLabel);
+
     // Setup directory content view for files
     m_directoryContentView = new QListView;
     m_directoryContentModel = new QFileSystemModel(this);
@@ -150,7 +157,7 @@ void MainWindow::setupUI()
     // Set file filters for relevant chemistry files
     m_directoryContentModel->setNameFilters(QStringList()
         << "*.xyz" << "*.inp" << "*.log" << "*.out"
-        << "*.hess" << "*.gbw" << "*.txt" << "*.*");
+        << "*.hess" << "*.gbw" << "*.txt" << "*.*" << "input");
     m_directoryContentModel->setNameFilterDisables(false);
     m_directoryContentView->setModel(m_directoryContentModel);
 
@@ -191,11 +198,16 @@ void MainWindow::setupUI()
     m_threads->setRange(1, QThread::idealThreadCount());
     m_threads->setValue(1);
     m_threads->setToolTip(tr("Number of threads to use"));
+
+    m_uniqueFileNames = new QCheckBox(tr("Unique file names"));
+    m_uniqueFileNames->setToolTip(tr("Generate unique file names for each calculation"));
+
     // Run calculation button
     m_runCalculation = new QPushButton(tr("Run calculation"));
 
     commandLayout->addWidget(m_commandInput, 3);
     commandLayout->addWidget(m_threads);
+    commandLayout->addWidget(m_uniqueFileNames);
     commandLayout->addWidget(m_runCalculation);
     rightLayout->addLayout(commandLayout);
 
@@ -208,8 +220,10 @@ void MainWindow::setupUI()
     
     QHBoxLayout *structureFileLayout = new QHBoxLayout;
     structureFileLayout->addWidget(new QLabel(tr("Structure file:")));
-    m_structureFileEdit = new QLineEdit("input.xyz"); // Default name
+    m_structureFileEdit = new QLineEdit("input"); // Default name
+    m_structureFileEditExtension = new QLineEdit("xyz");
     structureFileLayout->addWidget(m_structureFileEdit);
+    structureFileLayout->addWidget(m_structureFileEditExtension);
     structureLayout->addLayout(structureFileLayout);
 
     // Structure editor
@@ -225,8 +239,10 @@ void MainWindow::setupUI()
     
     QHBoxLayout *inputFileLayout = new QHBoxLayout;
     inputFileLayout->addWidget(new QLabel(tr("Input file:")));
-    m_inputFileEdit = new QLineEdit("input.inp"); // Default name
+    m_inputFileEdit = new QLineEdit("input"); // Default name
+    m_inputFileEditExtension = new QLineEdit("");
     inputFileLayout->addWidget(m_inputFileEdit);
+    inputFileLayout->addWidget(m_inputFileEditExtension);
     inputLayout->addLayout(inputFileLayout);
 
     // Input editor
@@ -582,7 +598,7 @@ void MainWindow::updateCommandLineVisibility(const QString &program)
     if (program == "orca") {
         m_commandInput->setVisible(false);
         m_commandInput->setEnabled(false);
-        m_inputFileEdit->setText("input.inp");
+        m_inputFileEdit->setText("input");
         m_inputFileEdit->setReadOnly(true);
     } else {
         m_commandInput->setVisible(true);
@@ -628,7 +644,7 @@ void MainWindow::setupProgramSpecificDirectory(const QString &dirPath, const QSt
 
     if (program == "orca") {
         // ORCA-spezifische Initialisierung
-        QFile inputFile(dirPath + "/input.inp");
+        QFile inputFile(dirPath + "/input");
         if (inputFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
             inputFile.write(m_inputView->toPlainText().toUtf8());
             inputFile.close();
@@ -750,7 +766,8 @@ bool MainWindow::setupCalculationDirectory()
 
     // Erstelle das Unterverzeichnis
     m_currentCalculationDir = workDir.filePath(calcName);
-    QDir calcDir(m_currentCalculationDir);
+    m_currentProjectLabel->setText(m_currentCalculationDir);
+    QDir calcDir(currentCalculationDir());
 
     if (calcDir.exists()) {
         QMessageBox::StandardButton reply = QMessageBox::question(this, tr("Verzeichnis existiert"),
@@ -780,7 +797,7 @@ bool MainWindow::setupCalculationDirectory()
     }
 
     if (!m_inputView->toPlainText().isEmpty()) {
-        QFile inputFile(calcDir.filePath("input.inp"));
+        QFile inputFile(calcDir.filePath("input"));
         if (inputFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
             inputFile.write(m_inputView->toPlainText().toUtf8());
             inputFile.close();
@@ -797,7 +814,7 @@ void MainWindow::createNewDirectory()
     
     // Wenn ein Verzeichnis ausgewählt ist, nutze dessen Namen als Basis
     if (!m_currentCalculationDir.isEmpty()) {
-        QDir dir(m_currentCalculationDir);
+        QDir dir(currentCalculationDir());
         QString baseName = dir.dirName();
         // Füge _1, _2 etc. hinzu, falls das Verzeichnis bereits existiert
         int counter = 1;
@@ -846,7 +863,8 @@ void MainWindow::createNewDirectory()
 
     // Aktualisiere die Ansicht und setze das neue Verzeichnis als aktuell
     updateDirectoryContent(newDirPath);
-    m_currentCalculationDir = newDirPath;
+    m_currentCalculationDir = dirName;
+    m_currentProjectLabel->setText(m_currentCalculationDir);
 
     statusBar()->showMessage(tr("Verzeichnis erstellt: ") + dirName);
 }
@@ -865,6 +883,10 @@ void MainWindow::updateOutputView(const QString& logFile, bool scrollToBottom)
 
 void MainWindow::runSimulation()
 {
+    if (m_currentCalculationDir.isEmpty() || m_currentCalculationDir == m_workingDirectory || m_currentCalculationDir == "/" || m_currentCalculationDir == ".") {
+        setupCalculationDirectory();
+    }
+
     QString program = m_programSelector->currentText();
     if (!m_simulationPrograms.contains(program)) {
         QMessageBox::warning(this, tr("Fehler"), 
@@ -872,20 +894,34 @@ void MainWindow::runSimulation()
         return;
     }
 
+    bool input_empty = true, structure_empty = true, argument_empty = true;
     // Generiere eindeutige Namen für diese Berechnung
     QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
-    QString structureFile = generateUniqueFileName("input", "xyz");
-    QString trjFile = generateUniqueFileName("input", ".trj.xyz");
+    QString structureFile = generateUniqueFileName(m_structureFileEdit->text(), m_structureFileEditExtension->text());
+    QString trjFile = generateUniqueFileName(m_structureFileEdit->text(), "trj" + m_structureFileEditExtension->text());
+    QString inputFile = generateUniqueFileName(m_inputFileEdit->text(), m_inputFileEditExtension->text());
 
     QString outputFile = generateUniqueFileName("output", "log");
-
+    qDebug() << currentCalculationDir() + QDir::separator() + outputFile;
+    qDebug() << "Output file: " << outputFile << "Structure file: " << structureFile << "Input file: " << inputFile << "Timestamp: " << timestamp;
     // Speichere aktuelle Strukturdaten
-    QFile structFile(m_currentCalculationDir + "/" + structureFile);
+    QFile structFile(currentCalculationDir() + QDir::separator() + structureFile);
     if (structFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
         structFile.write(m_structureView->toPlainText().toUtf8());
+        qDebug() << m_structureView->toPlainText().toUtf8();
+        structure_empty = m_structureView->toPlainText().toUtf8().isEmpty();
         structFile.close();
     }
 
+    // Speichere den Text aus dem Eingabefeld in die Input-Datei
+    QFile inputFileObj(currentCalculationDir() + QDir::separator() + inputFile);
+    if (inputFileObj.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        inputFileObj.write(m_inputView->toPlainText().toLatin1());
+        input_empty = m_inputView->toPlainText().toUtf8().isEmpty();
+        inputFileObj.close();
+    }
+    argument_empty = m_commandInput->text().trimmed().isEmpty();
+    // Speichere das Kommando in die Historie
     CalculationEntry entry;
     entry.id = timestamp;
     entry.program = program;
@@ -902,19 +938,32 @@ void MainWindow::runSimulation()
                 tr("Bitte konfigurieren Sie zuerst das ORCA Binärverzeichnis."));
             return;
         }
+        if (input_empty) {
+            QMessageBox::warning(this, tr("Fehler"),
+                tr("Bitte füllen Sie die Input-Datei aus."));
+            return;
+        }
         // ORCA-spezifischer Start
         QString orcaExe = orcaPath + "/orca";
-        m_currentProcess->setWorkingDirectory(m_currentCalculationDir);
+        m_currentProcess->setWorkingDirectory(currentCalculationDir());
         m_currentProcess->setProgram(orcaExe);
         // ORCA erwartet den Input-Dateinamen als Argument
-        m_currentProcess->setArguments(QStringList() << "input.inp");
+
+        m_currentProcess->setArguments(QStringList() << inputFile);
+        qDebug() << "copying file " << structureFile << " to " << m_structureFileEdit->text() + ".xyz";
+        QFile::copy(currentCalculationDir() + QDir::separator() + structureFile, currentCalculationDir() + QDir::separator() + m_structureFileEdit->text() + ".xyz");
     } 
     else {
+        if (structure_empty) {
+            QMessageBox::warning(this, tr("Fehler"),
+                tr("Bitte füllen Sie die Strukturdaten aus."));
+            return;
+        }
         QString programPath = m_settings.getProgramPath(program);
         auto environment = QProcessEnvironment::systemEnvironment();
         environment.insert("OMP_NUM_THREADS", QString::number(m_threads->value()));
         m_currentProcess->setEnvironment(environment.toStringList());
-        m_currentProcess->setWorkingDirectory(m_currentCalculationDir);
+        m_currentProcess->setWorkingDirectory(currentCalculationDir());
         m_currentProcess->setProgram(programPath);
 
         QStringList args;
@@ -928,11 +977,11 @@ void MainWindow::runSimulation()
             args.append(entry.command.split(" ", Qt::SkipEmptyParts));
             connect(m_currentProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                 [this, entry, trjFile](int exitCode, QProcess::ExitStatus exitStatus) {
-                    QString xtbOptLogFile = m_currentCalculationDir + "/xtbopt.xyz";
+                    QString xtbOptLogFile = currentCalculationDir() + QDir::separator() + "xtbopt.xyz";
                     if (QFile::exists(xtbOptLogFile)) {
                         QFile::rename(xtbOptLogFile, trjFile);
                     }
-                    xtbOptLogFile = m_currentCalculationDir + "/xtbopt.log";
+                    xtbOptLogFile = currentCalculationDir() + QDir::separator() + "xtbopt.log";
                     if (QFile::exists(xtbOptLogFile)) {
                         QFile::rename(xtbOptLogFile, trjFile);
                     }
@@ -940,11 +989,13 @@ void MainWindow::runSimulation()
         }
         m_currentProcess->setArguments(args);
     }
-    m_currentProcess->setStandardOutputFile(m_currentCalculationDir + "/" + outputFile, QIODevice::Append);
-    m_currentProcess->setStandardErrorFile(m_currentCalculationDir + "/" + outputFile, QIODevice::Append);
+    qDebug() << currentCalculationDir() + QDir::separator() + outputFile;
+    m_currentProcess->setStandardOutputFile(currentCalculationDir() + QDir::separator() + outputFile, QIODevice::Append);
+    m_currentProcess->setStandardErrorFile(currentCalculationDir() + QDir::separator() + outputFile, QIODevice::Append);
 
     // Starte Prozess und füge Eintrag zur Historie hinzu
     m_currentProcess->start();
+    qDebug() << "Starting process" << m_currentProcess->program() << m_currentProcess->arguments() << m_currentProcess->workingDirectory() << m_currentProcess->error() << m_currentProcess->errorString();
     addCalculationToHistory(entry);
 
     // Verbinde Prozessende
@@ -954,8 +1005,8 @@ void MainWindow::runSimulation()
             CalculationEntry updatedEntry = entry;
             updatedEntry.status = (exitCode == 0) ? "completed" : "error";
             addCalculationToHistory(updatedEntry);
-            
-            updateOutputView(m_currentCalculationDir + "/" + entry.outputFile);
+
+            updateOutputView(currentCalculationDir() + QDir::separator() + entry.outputFile);
             statusBar()->showMessage(exitCode == 0 ? 
                 tr("Berechnung erfolgreich beendet") : 
                 tr("Berechnung mit Fehler beendet (Code: %1)").arg(exitCode));
@@ -967,7 +1018,7 @@ void MainWindow::runSimulation()
     // Timer zum regelmäßigen Aktualisieren der Ausgabedatei
     QPointer<QTimer> outputUpdateTimer = new QTimer(this);
     connect(outputUpdateTimer, &QTimer::timeout, [this, outputFile]() {
-        updateOutputView(m_currentCalculationDir + "/" + outputFile, true);
+        updateOutputView(currentCalculationDir() + QDir::separator() + outputFile, true);
     });
     outputUpdateTimer->start(1000); // Aktualisiere alle 1000 ms (1 Sekunde)
 
@@ -987,15 +1038,25 @@ void MainWindow::runSimulation()
 
 QString MainWindow::generateUniqueFileName(const QString &baseFileName, const QString &extension)
 {
-    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
-    return QString("%1_%2.%3").arg(baseFileName, timestamp, extension);
+    if (m_uniqueFileNames->isChecked()) {
+        QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+        if (extension.isEmpty()) {
+            return QString("%1_%2").arg(baseFileName, timestamp);
+        } else
+            return QString("%1_%2.%3").arg(baseFileName, timestamp, extension);
+    } else {
+        if (extension.isEmpty()) {
+            return QString("%1").arg(baseFileName);
+        } else
+            return QString("%1.%2").arg(baseFileName, extension);
+    }
 }
 
 void MainWindow::addCalculationToHistory(const CalculationEntry &entry)
 {
-    QString historyFile = m_currentCalculationDir + "/calculations.json";
-    QList<CalculationEntry> history = loadCalculationHistory(m_currentCalculationDir);
-    
+    QString historyFile = currentCalculationDir() + QDir::separator() + "calculations.json";
+    QList<CalculationEntry> history = loadCalculationHistory(currentCalculationDir());
+
     // Aktualisiere bestehenden Eintrag oder füge neuen hinzu
     bool updated = false;
     for (int i = 0; i < history.size(); ++i) {
@@ -1020,6 +1081,7 @@ void MainWindow::addCalculationToHistory(const CalculationEntry &entry)
         calcObj["outputFile"] = calc.outputFile;
         calcObj["timestamp"] = calc.timestamp.toString(Qt::ISODate);
         calcObj["status"] = calc.status;
+        calcObj["unqiueFileNames"] = m_uniqueFileNames->isChecked();
         jsonArray.append(calcObj);
     }
 
@@ -1120,7 +1182,7 @@ void MainWindow::projectSelected(const QModelIndex &index)
 {
     if (!index.isValid()) return;
 
-    QString path = m_projectModel->filePath(index);
+    QString path = m_projectModel->fileName(index);
     m_currentCalculationDir = path;
     updateDirectoryContent(path);
     syncRightView(path);
@@ -1174,21 +1236,25 @@ void MainWindow::startNewCalculation()
 
 void MainWindow::updateDirectoryContent(const QString &path)
 {
-    m_currentCalculationDir = path;
-    m_directoryContentModel->setRootPath(path);
-    m_directoryContentView->setRootIndex(m_directoryContentModel->index(path));
+    qDebug() << "Updating directory content:" << path << currentCalculationDir() << m_workingDirectory;
+    // m_currentCalculationDir = QDir::nameFiltersFromString(path).last();
+    m_directoryContentModel->setRootPath(currentCalculationDir());
+    qDebug() << m_directoryContentModel->rootPath();
+    m_directoryContentView->setRootIndex(m_directoryContentModel->index(m_directoryContentModel->rootPath()));
+    qDebug() << "Directory content updated:" << path << currentCalculationDir();
 }
 
 
 void MainWindow::syncRightView(const QString &path)
 {
-    QDir dir(path);
+    qDebug() << "Syncing right view with:" << path << currentCalculationDir();
+    QDir dir(currentCalculationDir());
 
-    QFile defaultStructure(path + "/input.xyz");
-        if (defaultStructure.exists() && defaultStructure.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            m_structureView->setPlainText(QString::fromUtf8(defaultStructure.readAll()));
-            m_structureFileEdit->setText("input.xyz");
-            defaultStructure.close();
+    QFile defaultStructure(currentCalculationDir() + QDir::separator() + "input.xyz");
+    if (defaultStructure.exists() && defaultStructure.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        m_structureView->setPlainText(QString::fromUtf8(defaultStructure.readAll()));
+        m_structureFileEdit->setText("input.xyz");
+        defaultStructure.close();
         } else {
             // Wenn nicht vorhanden, nach anderen xyz-Dateien suchen
             QStringList xyzFiles = dir.entryList(QStringList() << "*.xyz", QDir::Files);
@@ -1218,7 +1284,7 @@ void MainWindow::syncRightView(const QString &path)
     }
 
     // Input-Datei suchen und laden
-    QStringList inputFiles = dir.entryList(QStringList() << "input.inp", QDir::Files);
+    QStringList inputFiles = dir.entryList(QStringList() << "input", QDir::Files);
     if (!inputFiles.isEmpty()) {
         QFile inputFile(dir.filePath(inputFiles.first()));
         if (inputFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -1271,7 +1337,7 @@ void MainWindow::saveCalculationInfo()
     json["systemInfo"] = systemInfo;
 
     // Speichere JSON-Datei
-    QFile jsonFile(m_currentCalculationDir + "/calculation.json");
+    QFile jsonFile(currentCalculationDir() + "/calculation.json");
     if (jsonFile.open(QIODevice::WriteOnly)) {
         QJsonDocument doc(json);
         jsonFile.write(doc.toJson(QJsonDocument::Indented));

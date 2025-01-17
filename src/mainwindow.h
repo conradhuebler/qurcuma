@@ -1,6 +1,7 @@
 #pragma once
 
 #include "settings.h"
+#include <QCheckBox>
 #include <QComboBox>
 #include <QCompleter>
 #include <QDateTime>
@@ -82,7 +83,10 @@ private:
     QList<CalculationEntry> loadCalculationHistory(const QString &path);
     void addCalculationToHistory(const CalculationEntry &entry);
     QString generateUniqueFileName(const QString &baseFileName, const QString &extension);
-
+    QString currentCalculationDir() const
+    {
+        return m_workingDirectory + QDir::separator() + m_currentCalculationDir;
+    }
     void setupBookmarkView();
     void updateBookmarkView();
     void switchWorkingDirectory(const QString& path);
@@ -94,13 +98,14 @@ private:
     QListView* m_projectListView;
     QListView* m_directoryContentView;
     QLineEdit* m_commandInput;
-    QLineEdit* m_inputFileEdit;
-    QLineEdit* m_structureFileEdit;
+    QLineEdit *m_inputFileEdit, *m_inputFileEditExtension;
+    QLineEdit *m_structureFileEdit, *m_structureFileEditExtension;
     QComboBox* m_programSelector;
     QTextEdit* m_structureView;
     QTextEdit* m_inputView;
     QTextEdit* m_outputView;
     QPushButton *m_newCalculationButton, *m_chooseDirectory, *m_runCalculation;
+    QCheckBox* m_uniqueFileNames;
     QSpinBox* m_threads;
     QFileSystemModel* m_projectModel;
     QFileSystemModel* m_directoryContentModel;
@@ -110,7 +115,7 @@ private:
     QCompleter* m_commandCompleter;
     QToolButton* m_bookmarkButton;
     QSplitter* m_splitter;
-    QLabel* m_currentPathLabel;
+    QLabel *m_currentPathLabel, *m_currentProjectLabel;
 
     QStringList m_simulationPrograms{ "curcuma", "orca", "xtb" };
     QStringList m_visualizerPrograms{ "iboview", "avogadro" };
