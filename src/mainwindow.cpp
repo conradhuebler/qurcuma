@@ -26,6 +26,11 @@
 #include <QTimer>
 #include <QToolButton>
 
+#include <QFile>
+#include <QTextStream>
+#include <QString>  
+#include "view.h"
+#include "frequencydialog.h"
 #include "mainwindow.h"
 
 MainWindow::MainWindow(QWidget *parent)
@@ -251,6 +256,10 @@ void MainWindow::setupUI()
     inputLayout->addWidget(m_inputView);
 
     editorTabs->addTab(inputTab, tr("Input"));
+
+    m_moleculeView = new MoleculeViewer;
+    editorTabs->addTab(m_moleculeView, tr("Structure Viewer"));
+
     rightLayout->addWidget(editorTabs);
 
     // Output view (read-only)
@@ -284,25 +293,60 @@ void MainWindow::setupContextMenu()
                 return;
 
             QString filePath = m_directoryContentModel->filePath(index);
-            if (!filePath.endsWith(".xyz", Qt::CaseInsensitive))
-                return;
+            if (filePath.endsWith(".xyz", Qt::CaseInsensitive))
+            {    
+                QMenu contextMenu(this);
+                
+                // Dateiname zur Information anzeigen
+                QAction *fileNameAction = contextMenu.addAction(QFileInfo(filePath).fileName());
+                fileNameAction->setEnabled(false);
+                contextMenu.addSeparator();
+                
+                QAction *avogadroAction = contextMenu.addAction(tr("Mit Avogadro öffnen"));
+                QAction *iboviewAction = contextMenu.addAction(tr("Mit IboView öffnen"));
 
-            QMenu contextMenu(this);
-            
-            // Dateiname zur Information anzeigen
-            QAction *fileNameAction = contextMenu.addAction(QFileInfo(filePath).fileName());
-            fileNameAction->setEnabled(false);
-            contextMenu.addSeparator();
-            
-            QAction *avogadroAction = contextMenu.addAction(tr("Mit Avogadro öffnen"));
-            QAction *iboviewAction = contextMenu.addAction(tr("Mit IboView öffnen"));
+                connect(avogadroAction, &QAction::triggered,
+                    [this, filePath]() { openWithVisualizer(filePath, "avogadro"); });
+                connect(iboviewAction, &QAction::triggered,
+                    [this, filePath]() { openWithVisualizer(filePath, "iboview"); });
 
-            connect(avogadroAction, &QAction::triggered,
-                [this, filePath]() { openWithVisualizer(filePath, "avogadro"); });
-            connect(iboviewAction, &QAction::triggered,
-                [this, filePath]() { openWithVisualizer(filePath, "iboview"); });
+                contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
+            }else if(filePath.endsWith(".gbw", Qt::CaseInsensitive) || filePath.endsWith(".loc", Qt::CaseInsensitive) || filePath.endsWith(".ges", Qt::CaseInsensitive)) 
+            {
+                QMenu contextMenu(this);
+                QAction *fileNameAction = contextMenu.addAction(tr("mit IboView öffnen"));
+                connect(fileNameAction, &QAction::triggered, [this, filePath]() { openWithVisualizer(filePath, "iboview"); });
+                contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
 
-            contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
+            }else if(filePath.contains("molden"))
+            {
+                QMenu contextMenu(this);
+                QAction *fileNameAction = contextMenu.addAction(tr("mit IboView öffnen"));
+                connect(fileNameAction, &QAction::triggered, [this, filePath]() { openWithVisualizer(filePath, "iboview"); });
+                contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
+            }else if(filePath.contains("hess"))
+            {
+                QMenu contextMenu(this);
+
+                QPair<int, int>frequencies = countImaginaryFrequencies(filePath);
+                QAction *freq_action = contextMenu.addAction(tr("Imaginäre Frequenzen: %1\nRegulare Frequenzen %2").arg(frequencies.first).arg(frequencies.second));
+                freq_action->setEnabled(false);
+                contextMenu.addSeparator();
+                QAction *plotvib = contextMenu.addAction(tr("Vibrationsmoden erstellen"));
+
+                connect(plotvib, &QAction::triggered, [this, filePath, frequencies]() 
+                {
+                    // Verwendung:
+                    FrequencyInputDialog dialog(m_frequencies, this);
+                    if (dialog.exec() == QDialog::Accepted) {
+                        int selectedNumber = dialog.getSelectedNumber();
+                        orcaPlotVib(filePath, selectedNumber + 5); // orca starts counting with 0 and the first 6 are not vibrational modes
+                    }
+                });
+
+                contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
+
+            }
         });
 }
 
@@ -456,9 +500,33 @@ void MainWindow::setupConnections()
                 // XYZ-Datei in Structure View laden
                 QFile file(filePath);
                 if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                    m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
+                    QByteArray data = file.readAll();
+                    m_structureView->setPlainText(QString::fromUtf8(data));
                     m_structureFileEdit->setText(QFileInfo(filePath).fileName());
                     file.close();
+                    if(data.isEmpty() || filePath.contains("trj"))
+                        return;
+
+                    QStringList lines = QString::fromUtf8(data).split('\n', Qt::SkipEmptyParts);
+                    int num_atoms = lines[0].toInt();
+                    if(lines.size() < num_atoms + 2)
+                        return;
+                   // qDebug() << "Number of atoms: " << num_atoms << lines.size();
+                    if (num_atoms > 0) {
+                        QVector<MoleculeViewer::Atom> atoms;
+                        for (int i = 2; i < num_atoms + 1; ++i) {
+                            //qDebug() << lines[i];
+                            QStringList parts = lines[i].split(QRegularExpression("\\s+"));
+                            if (parts.size() >= 4) {
+                                MoleculeViewer::Atom atom;
+                                atom.element = parts[0];
+                                atom.position = QVector3D(parts[1].toFloat(), parts[2].toFloat(), parts[3].toFloat());
+                                atoms.append(atom);
+                            }
+                        }
+                        m_moleculeView->addMolecule(atoms);
+                    }
+
                 }
             }
             else if (suffix == "log" || suffix == "out" || suffix == "txt") {
@@ -1123,17 +1191,62 @@ QList<CalculationEntry> MainWindow::loadCalculationHistory(const QString &path)
     return history;
 }
 
-void MainWindow::openWithVisualizer(const QString &filePath, const QString &visualizer)
+void MainWindow::orcaPlotVib(const QString &filename, int frequency)
 {
+    QString orcaPath = m_settings.orcaBinaryPath();
+
+        QString orcaExe = orcaPath + "/orca_pltvib";
+        QString cfilename = QFileInfo(filename).fileName();
+        m_currentProcess->setWorkingDirectory(currentCalculationDir());
+        m_currentProcess->setProgram(orcaExe);
+        m_currentProcess->setArguments(QStringList() << cfilename << QString::number(frequency));
+        m_currentProcess->start();
+        qDebug() << "Starting process" << m_currentProcess->program() << m_currentProcess->arguments() << m_currentProcess->workingDirectory() << m_currentProcess->error() << m_currentProcess->errorString();
+        m_currentProcess->waitForFinished();
+        qDebug() << m_currentProcess->readAllStandardOutput();
+        qDebug() << m_currentProcess->readAllStandardError();
+        qDebug() << m_currentProcess->errorString();
+
+        QString vXXX;
+        if(frequency < 10)
+            vXXX = cfilename + ".v00" + QString::number(frequency);
+        else if(frequency < 100)
+            vXXX = cfilename + ".v0" + QString::number(frequency);
+        else
+            vXXX = cfilename + ".v" + QString::number(frequency);
+        openWithVisualizer(currentCalculationDir() + QDir::separator()+ vXXX + ".xyz", "avogadro");
+}
+
+void MainWindow::openWithVisualizer(const QString &filePath, const QString &visualizer)
+{         
     QString programPath = m_settings.getProgramPath(visualizer);
+
     if (programPath.isEmpty()) {
         QMessageBox::warning(this, tr("Fehler"),
             tr("Pfad für %1 nicht konfiguriert.").arg(visualizer));
         return;
     }
-
+    
     QStringList arguments;
-    arguments << filePath;  // Übergebe den Dateipfad als Argument
+
+    if(filePath.contains("loc") || filePath.contains("gbw") || filePath.contains("ges")) 
+    {
+        QString orcaPath = m_settings.orcaBinaryPath();
+
+        QString orcaExe = orcaPath + "/orca_2mkl";
+        QString filename = QFileInfo(filePath).fileName();
+        QString fileDir = QFileInfo(filePath).absolutePath();
+        QFile::copy(filePath, fileDir + "/tmp.gbw");
+        QString nfilePath = fileDir + "/tmp";
+        qDebug() << fileDir + "/tmp.gbw" << nfilePath;
+        m_currentProcess->setWorkingDirectory(currentCalculationDir());
+        m_currentProcess->setProgram(orcaExe);
+        m_currentProcess->setArguments(QStringList() << nfilePath << "-molden");
+        m_currentProcess->start();
+        m_currentProcess->waitForFinished();
+        arguments << nfilePath + ".molden.input";
+    }else
+        arguments << filePath;  // Übergebe den Dateipfad als Argument
 
     // Debug-Ausgabe
     qDebug() << "Starting" << visualizer << "with file:" << filePath;
@@ -1420,4 +1533,53 @@ void MainWindow::toggleLeftPanel()
         sizes[0] = m_lastLeftPanelWidth > 0 ? m_lastLeftPanelWidth : 240; // Restore previous width
     }
     m_splitter->setSizes(sizes);
+}
+
+QPair<int, int> MainWindow::countImaginaryFrequencies(const QString& filename) {
+    
+    m_frequencies.clear();
+    QFile file(filename);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return QPair<int, int>(0,0); // Error opening file
+    }
+
+    QTextStream in(&file);
+    QString line;
+    int imagCount = 0, freqCount = 0;
+    bool inFreqSection = false;
+
+    // Search for the frequency section
+    while (!in.atEnd()) {
+        line = in.readLine();
+        if (line.contains("$ir_spectrum")) {
+            inFreqSection = true;
+            in.readLine(); // Skip the number line
+            break;
+        }
+    }
+
+    // Count negative frequencies
+    if (inFreqSection) {
+        while (!in.atEnd()) {
+            line = in.readLine().trimmed();
+            if (line.startsWith("$end")) break;
+            QRegularExpression spaceSplit("\\s+");
+            // Split the line and check first number
+            QStringList parts = line.split(spaceSplit, Qt::SkipEmptyParts);
+            if (!parts.isEmpty()) {
+                bool ok;
+                double freq = parts[0].toDouble(&ok);
+                if (ok && freq < 0) {
+                    imagCount++;
+                    m_frequencies.append(QPair<int, double>(m_frequencies.size(), freq));
+                }else if(ok && freq > 0){
+                    m_frequencies.append(QPair<int, double>(m_frequencies.size(), freq));
+                    freqCount++;
+                }
+            }
+        }
+    }
+
+    file.close();
+    return QPair<int, int>(imagCount, freqCount);
 }

@@ -28,6 +28,9 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+class MoleculeViewer;
+
+
 struct CalculationEntry {
     QString id;          // Eindeutige ID (z.B. Zeitstempel)
     QString program;
@@ -73,10 +76,12 @@ private:
     void setupProgramSpecificDirectory(const QString &dirPath, const QString &program);
     void updateDirectoryContent(const QString &path);
 
+    QPair<int, int> countImaginaryFrequencies(const QString &filename);
     void initializeProgramCommands();
     void updateCommandLineVisibility(const QString &program);
     void setupContextMenu();
     void openWithVisualizer(const QString &filePath, const QString &visualizer);
+    void orcaPlotVib(const QString &outputFile, int freqNumber);
     void syncRightView(const QString &path);
     void saveCalculationInfo();
     void loadCalculationInfo(const QString &path);
@@ -116,6 +121,7 @@ private:
     QToolButton* m_bookmarkButton;
     QSplitter* m_splitter;
     QLabel *m_currentPathLabel, *m_currentProjectLabel;
+    MoleculeViewer *m_moleculeView;
 
     QStringList m_simulationPrograms{ "curcuma", "orca", "xtb" };
     QStringList m_visualizerPrograms{ "iboview", "avogadro" };
@@ -123,4 +129,5 @@ private:
     QString m_workingDirectory;    
     QString m_currentCalculationDir; // Aktuelles Berechnungsverzeichnis
     int m_lastLeftPanelWidth = 0;
+    QVector<QPair<int, double>> m_frequencies;
 };
