@@ -31,15 +31,19 @@
 #include <QString>  
 #include "view.h"
 #include "frequencydialog.h"
+
+#include "dialogs/nmrspectrumdialog.h"
 #include "mainwindow.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setupUI();
+    createToolbars();
     createMenus();
     setupConnections();
 
+    m_nmrDialog = new NMRSpectrumDialog(this);
     // Arbeitsverzeichnis aus Settings laden
     m_workingDirectory = m_settings.workingDirectory();
     if (!m_workingDirectory.isEmpty()) {
@@ -284,6 +288,14 @@ void MainWindow::setupUI()
     m_splitter->setSizes(QList<int>() << 240 << 360 << 600);
 }
 
+void MainWindow::createToolbars()
+{
+    QToolBar* toolbar = new QToolBar(this);
+    QAction* toggleNMR = toolbar->addAction(tr("NMR Spektren"));
+    connect(toggleNMR, &QAction::triggered, [this]() { m_nmrDialog->show(); });
+    addToolBar(toolbar);
+}
+
 void MainWindow::setupContextMenu()
 {
     connect(m_directoryContentView, &QListView::customContextMenuRequested,
@@ -346,6 +358,20 @@ void MainWindow::setupContextMenu()
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
 
+            } else if (filePath.contains("out")) {
+                QMenu contextMenu(this);
+                QAction* nmrreferenz = new QAction(tr("NMR Referenz"), this);
+                connect(nmrreferenz, &QAction::triggered, [this, filePath]() {
+                    QString dirname = QFileInfo(filePath).dir().path().split(QDir::separator()).last();
+                    m_nmrDialog->setReference(filePath, dirname);
+                });
+                contextMenu.addAction(nmrreferenz);
+                QAction* nmrstruktur = new QAction(tr("NMR Struktur"), this);
+                connect(nmrstruktur, &QAction::triggered, [this, filePath]() { 
+                    QString dirname = QFileInfo(filePath).dir().path().split(QDir::separator()).last();
+                    m_nmrDialog->addStructure(filePath, dirname); });
+                contextMenu.addAction(nmrstruktur);
+                contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             }
         });
 }

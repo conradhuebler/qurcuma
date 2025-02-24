@@ -28,6 +28,7 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include "dialogs/nmrspectrumdialog.h"
 class MoleculeViewer;
 
 
@@ -63,6 +64,7 @@ private slots:
 
 private:
     void setupUI();
+    void createToolbars();
     void createMenus();
     void setupProjectViewContextMenu();
     void setupConnections();
@@ -122,6 +124,7 @@ private:
     QSplitter* m_splitter;
     QLabel *m_currentPathLabel, *m_currentProjectLabel;
     MoleculeViewer *m_moleculeView;
+    NMRSpectrumDialog* m_nmrDialog;
 
     QStringList m_simulationPrograms{ "curcuma", "orca", "xtb" };
     QStringList m_visualizerPrograms{ "iboview", "avogadro" };
