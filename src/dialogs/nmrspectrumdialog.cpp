@@ -49,6 +49,25 @@ NMRSpectrumDialog::NMRSpectrumDialog(QWidget* parent)
     m_shiftTable = new QTableWidget(this);
     setupTable();
 
+    QHBoxLayout* configLayout = new QHBoxLayout();
+    m_maxPoints = new QSpinBox(this);
+    m_maxPoints->setRange(10, 1000000);
+    m_maxPoints->setValue(1000);
+    configLayout->addWidget(new QLabel(tr("Max. Punkte: "), this));
+    configLayout->addWidget(m_maxPoints);
+    connect(m_maxPoints, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() {
+        m_plotPoints = m_maxPoints->value();
+    });
+    m_lineWidthBox = new QDoubleSpinBox(this);
+    m_lineWidthBox->setRange(0.1, 10.0);
+    m_lineWidthBox->setSingleStep(0.1);
+    m_lineWidthBox->setValue(0.5);
+    connect(m_lineWidthBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this]() {
+        m_lineWidth = m_lineWidthBox->value();
+    });
+    configLayout->addWidget(new QLabel(tr("Linienbreite: "), this));
+    configLayout->addWidget(m_lineWidthBox);
+
     // Buttons
     auto buttonLayout = new QHBoxLayout();
     auto generateButton = new QPushButton(tr("Spektrum generieren"), this);
@@ -63,6 +82,7 @@ NMRSpectrumDialog::NMRSpectrumDialog(QWidget* parent)
 
     mainLayout->addLayout(topLayout);
     mainLayout->addLayout(bottomLayout);
+    mainLayout->addLayout(configLayout);
     mainLayout->addLayout(buttonLayout);
 
     // Connect signals
@@ -87,8 +107,18 @@ void NMRSpectrumDialog::setReference(const QString& filename, const QString& nam
 {
     try {
         auto data = parseOrcaOutput(filename, name, true);
-        m_structures.clear(); // Remove old reference
-        m_structures.push_back(std::make_unique<NMRData>(std::move(data)));
+        data.isReference = true;
+        m_reference = data;
+        std::map<QString, int> count;
+        for (auto [element, shieldings] : m_reference.shieldings) {
+            for (auto [nucIndex, shielding, aniso] : shieldings) {
+                m_reference.reference[element] += shielding;
+                count[element]++;
+            }
+        }
+        for (auto [element, shielding] : m_reference.reference) {
+            m_reference.reference[element] /= count[element];
+        }
         m_fileList->clear();
         m_fileList->addItem(tr("Referenz: %1").arg(name));
     } catch (const std::exception& e) {
@@ -99,9 +129,9 @@ void NMRSpectrumDialog::setReference(const QString& filename, const QString& nam
 void NMRSpectrumDialog::addStructure(const QString& filename, const QString& name)
 {
     try {
-        if (m_structures.empty()) {
-            throw std::runtime_error("Keine Referenzstruktur geladen");
-        }
+        // if (m_structures.empty()) {
+        //     throw std::runtime_error("Keine Referenzstruktur geladen");
+        // }
 
         auto data = parseOrcaOutput(filename, name, false);
         // if (!areStructuresCompatible(*m_structures[0], data)) {
@@ -207,21 +237,21 @@ void NMRSpectrumDialog::generateSpectrum()
         return;
     }
 
-    if (!m_structures[0]->isReference) {
-        QMessageBox::warning(this, tr("Warnung"), tr("Erste Struktur muss Referenz sein"));
-        return;
-    }
+    // if (!m_structures[0]->isReference) {
+    //     QMessageBox::warning(this, tr("Warnung"), tr("Erste Struktur muss Referenz sein"));
+    //     return;
+    // }
 
     // Clear old data
     // m_chart->removeAllSeries();
     m_shiftTable->setRowCount(0);
 
     // Get reference shieldings
-    const auto& reference = m_structures[0]->shieldings;
+    const auto& reference = m_reference.reference;
 
     // Calculate Boltzmann weights for non-reference structures
     std::vector<double> energies;
-    for (size_t i = 1; i < m_structures.size(); ++i) {
+    for (size_t i = 0; i < m_structures.size(); ++i) {
         energies.push_back(m_structures[i]->energy);
     }
     auto weights = calculateBoltzmannWeights(energies);
@@ -231,7 +261,7 @@ void NMRSpectrumDialog::generateSpectrum()
     std::map<QString, std::vector<double>> elementShifts; // for plotting
 
     // Process each non-reference structure
-    for (size_t structIndex = 1; structIndex < m_structures.size(); ++structIndex) {
+    for (size_t structIndex = 0; structIndex < m_structures.size(); ++structIndex) {
         const auto& structure = m_structures[structIndex];
         double weight = weights[structIndex - 1];
 
@@ -241,23 +271,43 @@ void NMRSpectrumDialog::generateSpectrum()
                 // Process each nucleus
                 for (const auto& [nucIndex, shielding, aniso] : shieldings) {
                     // Find matching reference nucleus
-                    for (const auto& [refNucIndex, refShielding, refAniso] : reference.at(element)) {
-                        if (nucIndex == refNucIndex) {
-                            double shift = shielding - refShielding;
+                    // for (const auto& [refNucIndex, refShielding, refAniso] : reference) {
+                    // qDebug() << "Element: " << element << " Nucleus: " << nucIndex
+                    //    << " Ref Nucleus: " << refNucIndex;
+                    double refShielding = m_reference.reference[element];
+                    // if (nucIndex == refNucIndex) {
+                    double shift = shielding - refShielding;
 
-                            ShiftData data{
-                                element,
-                                nucIndex,
-                                refShielding,
-                                shielding,
-                                shift,
-                                weight
-                            };
-                            allShifts.push_back(data);
-                            elementShifts[element].push_back(shift);
-                            break;
-                        }
-                    }
+                    ShiftData data{
+                        element,
+                        nucIndex,
+                        refShielding,
+                        shielding,
+                        shift,
+                        weight
+                    };
+                    allShifts.push_back(data);
+                    elementShifts[element].push_back(shift);
+                    qDebug() << "Element: " << element << " Nucleus: " << nucIndex
+                             << " Shift: " << shift;
+                    // break;
+                    //}else{
+                    /*
+                                                ShiftData data{
+                                                    element,
+                                                    nucIndex,
+                                                    refShielding,
+                                                    shielding,
+                                                    shielding,
+                                                    weight
+                                                };
+                                                allShifts.push_back(data);
+                                                elementShifts[element].push_back(shielding);
+                                                */
+                    qDebug() << "Element: " << element << " Nucleus: " << nucIndex
+                             << " Shift: " << shielding;
+                    //}
+                    //  }
                 }
             }
         }
@@ -315,7 +365,7 @@ void NMRSpectrumDialog::updatePlot(const std::map<QString, std::vector<double>>&
 {
     // Clear previous series
     // m_chart->removeAllSeries();
-
+    m_chart->Clear();
     // Find plot range
     double xMin = 1000, xMax = -1000;
     for (const auto& [element, shifts] : elementShifts) {

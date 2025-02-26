@@ -11,12 +11,16 @@
 #include <memory>
 #include <vector>
 
+class QSPinBox;
+class QDoubleSpinBox;
+
 struct NMRData {
     QString name;
     QString filename;
     double energy;
     // element, nucleus_index, shielding, anisotropy
     std::map<QString, std::vector<std::tuple<int, double, double>>> shieldings;
+    std::map<QString, double> reference;
     bool isReference;
 };
 struct ShiftData {
@@ -53,8 +57,11 @@ private:
     QTableWidget* m_shiftTable;
     ListChart* m_chart;
     ChartView* m_chartView;
+    QSpinBox* m_maxPoints;
+    QDoubleSpinBox* m_lineWidthBox;
     // Data members
     std::vector<std::unique_ptr<NMRData>> m_structures;
+    NMRData m_reference;
 
     // Helper functions
     NMRData parseOrcaOutput(const QString& filename, const QString& name, bool isRef);
@@ -70,6 +77,6 @@ private:
     // Constants
     const double m_temperature = 298.15; // K
     const double m_kBoltzmann = 0.0019872041; // kcal/(mol·K)
-    const double m_lineWidth = 0.1; // ppm
-    const int m_plotPoints = 1000;
+    double m_lineWidth = 0.1; // ppm
+    int m_plotPoints = 1000;
 };
