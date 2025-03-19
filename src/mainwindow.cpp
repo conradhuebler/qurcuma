@@ -367,13 +367,37 @@ void MainWindow::setupContextMenu()
                 });
                 contextMenu.addAction(nmrreferenz);
                 QAction* nmrstruktur = new QAction(tr("NMR Struktur"), this);
-                connect(nmrstruktur, &QAction::triggered, [this, filePath]() { 
-                    QString dirname = QFileInfo(filePath).dir().path().split(QDir::separator()).last();
-                    m_nmrDialog->addStructure(filePath, dirname); });
+                connect(nmrstruktur, &QAction::triggered, [this, filePath]() {
+                    if (QMessageBox::question(this, tr("NMR Spektren"), tr("Do you want to load all files with the name filename from each directory?"), QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                        QString dirname = QFileInfo(filePath).dir().path().split(QDir::separator()).last();
+                        // m_nmrDialog->addStructure(filePath, dirname);
+                        qDebug() << this->currentSubdirectories() << filePath << dirname;
+                        for (const QString& subdir : this->currentSubdirectories()) {
+                            QString current = filePath;
+                            current.replace(dirname, subdir);
+                            m_nmrDialog->addStructure(current, subdir);
+                        }
+                    } else {
+                        QString dirname = QFileInfo(filePath).dir().path().split(QDir::separator()).last();
+                        m_nmrDialog->addStructure(filePath, dirname);
+                    }
+                });
+
                 contextMenu.addAction(nmrstruktur);
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             }
         });
+}
+
+QStringList MainWindow::currentSubdirectories() const
+{
+    QStringList subdirs;
+    QDirIterator it(m_workingDirectory, QDir::Dirs | QDir::NoDotAndDotDot);
+    while (it.hasNext()) {
+        it.next();
+        subdirs << it.fileName();
+    }
+    return subdirs;
 }
 
 void MainWindow::initializeProgramCommands()

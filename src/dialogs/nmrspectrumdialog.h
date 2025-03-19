@@ -52,7 +52,17 @@ private slots:
 
 private:
     // UI elements
-    QListWidget* m_fileList;
+    QTreeWidget* m_structureTree; // Ersetzt m_fileList
+    QLineEdit* m_referenceEdit;
+    QPushButton* m_referenceButton;
+    QPushButton* m_addStructureButton;
+
+    // Tree helper functions
+    QTreeWidgetItem* addStructureToTree(const NMRData& data);
+    QTreeWidgetItem* findOrCreateCompoundGroup(const QString& baseName);
+    void updateTreeVisibility(QTreeWidgetItem* item, int column);
+    void clearData();
+
     // QChartView* m_chartView;
     QTableWidget* m_shiftTable;
     ListChart* m_chart;
@@ -64,19 +74,20 @@ private:
     NMRData m_reference;
 
     // Helper functions
+    bool isConformation(const NMRData& str1, const NMRData& str2);
     NMRData parseOrcaOutput(const QString& filename, const QString& name, bool isRef);
     bool areStructuresCompatible(const NMRData& str1, const NMRData& str2);
     double extractEnergy(const QString& content);
     std::vector<double> calculateBoltzmannWeights(const std::vector<double>& energies);
-    void updatePlot(const std::map<QString, std::vector<double>>& elementShifts);
+    void updatePlot(const std::map<QString, std::vector<double>>& elementShifts, bool showSticks = true);
     void updateTable(const std::vector<ShiftData>& elementShifts);
-    QLineSeries* createGaussianPeak(double shift, double intensity,
-        double xMin, double xMax, int points);
+    // QLineSeries* createGaussianPeak(double shift, double intensity,
+    //     double xMin, double xMax, int points);
     void setupTable();
-
+    void updatePlotBoth(const std::map<QString, std::vector<double>>& elementShifts);
     // Constants
     const double m_temperature = 298.15; // K
-    const double m_kBoltzmann = 0.0019872041; // kcal/(mol·K)
+    const double m_kBoltzmann = 3.166811563e-6; // kcal/(mol·K)
     double m_lineWidth = 0.1; // ppm
-    int m_plotPoints = 1000;
+    int m_plotPoints = 100000;
 };
