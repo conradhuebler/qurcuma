@@ -4,6 +4,7 @@
 #include <QCompleter>
 #include <QDateTime>
 #include <QDialogButtonBox>
+#include <QDirIterator>
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QJsonArray>
@@ -24,6 +25,7 @@
 #include <QSysInfo>
 #include <QThread>
 #include <QTimer>
+#include <QToolBar>
 #include <QToolButton>
 
 #include <QFile>
@@ -360,13 +362,7 @@ void MainWindow::setupContextMenu()
 
             } else if (filePath.contains("out")) {
                 QMenu contextMenu(this);
-                QAction* nmrreferenz = new QAction(tr("NMR Referenz"), this);
-                connect(nmrreferenz, &QAction::triggered, [this, filePath]() {
-                    QString dirname = QFileInfo(filePath).dir().path().split(QDir::separator()).last();
-                    m_nmrDialog->setReference(filePath, dirname);
-                });
-                contextMenu.addAction(nmrreferenz);
-                QAction* nmrstruktur = new QAction(tr("NMR Struktur"), this);
+                QAction* nmrstruktur = new QAction(tr("Add to NMR Spectrum"), this);
                 connect(nmrstruktur, &QAction::triggered, [this, filePath]() {
                     if (QMessageBox::question(this, tr("NMR Spektren"), tr("Do you want to load all files with the name filename from each directory?"), QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
                         QString dirname = QFileInfo(filePath).dir().path().split(QDir::separator()).last();

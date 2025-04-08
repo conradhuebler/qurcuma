@@ -95,6 +95,7 @@ private:
         return m_workingDirectory + QDir::separator() + m_currentCalculationDir;
     }
     QStringList currentSubdirectories() const;
+
     void setupBookmarkView();
     void updateBookmarkView();
     void switchWorkingDirectory(const QString& path);
