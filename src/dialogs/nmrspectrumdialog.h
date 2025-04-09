@@ -37,7 +37,7 @@ struct NMRData {
     QString formula; // Molecular formula
     double energy = 0.0; // Energy in Hartree
     bool isReference = false; // Whether this is a reference
-
+    double scaleFactor = 1.0;
     // Map of element to vector of (nucleus index, shielding, anisotropy)
     std::map<QString, std::vector<std::tuple<int, double, double>>> shieldings;
 
@@ -81,8 +81,6 @@ public:
     int row() const;
     NMRTreeItem* parentItem() const;
     void setData(int column, const QVariant& value);
-    // void setNMRData(NMRData* data) { m_nmrData = data; }
-    // NMRData* getNMRData() const { return m_nmrData; }
     void sortChildren(int column, Qt::SortOrder order);
     ItemType type() const { return m_type; }
     void setType(ItemType type) { m_type = type; }
@@ -90,12 +88,30 @@ public:
     bool isReference() const { return m_isReference; }
     int getStructureIndex() const { return m_structureIndex; }
     void setStructureIndex(int index) { m_structureIndex = index; }
+    /*
+    void setScaleFactor(double factor) {
+        if (m_structureIndex >= 0) {
+            NMRData* data = getStructureData();
+            if (data) {
+                data->scaleFactor = factor;
+            }
+        }
+    }
 
+    double getScaleFactor() const {
+        if (m_structureIndex >= 0) {
+            NMRData* data = getStructureData();
+            if (data) {
+                return data->scaleFactor;
+            }
+        }
+        return 1.0;
+    }
+    */
 private:
     QVector<QVariant> m_itemData;
     QVector<NMRTreeItem*> m_childItems;
     NMRTreeItem* m_parentItem;
-    // NMRData* m_nmrData;
     int m_structureIndex;
     ItemType m_type;
     bool m_isReference;
@@ -112,7 +128,8 @@ public:
         ItemTypeRole = Qt::UserRole + 1,
         NMRDataRole,
         ReferenceRole,
-        ElementRole
+        ElementRole,
+        ScaleFactorRole
     };
 
     explicit NMRStructureModel(QObject* parent = nullptr);
@@ -247,6 +264,7 @@ private:
     QPushButton* m_generateButton = nullptr;
     QPushButton* m_exportButton = nullptr;
     QPushButton* m_clearButton = nullptr;
+    QTimer* m_updateTimer = nullptr;
 
     // Data model
     NMRStructureModel* m_structureModel = nullptr;
@@ -377,7 +395,7 @@ private:
      * @param compoundElementShifts Map of compounds to element shifts
      */
     void updatePlotByCompound(
-        const std::map<QString, std::map<QString, std::vector<double>>>& compoundElementShifts);
+        const std::map<QString, std::map<QString, std::vector<double>>>& compoundElementShifts, const std::map<QString, double>& scalingfactors);
 
     /**
      * Calculates the plot range

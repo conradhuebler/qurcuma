@@ -127,7 +127,7 @@ NMRStructureModel::NMRStructureModel(QObject* parent)
     : QAbstractItemModel(parent)
     , m_structures(nullptr)
 {
-    m_headerLabels << "Struktur" << "Energie (Hartree)" << "Sichtbar";
+    m_headerLabels << "Struktur" << "Energie (Hartree)" << "Sichtbar" << "Scaling Factor";
 
     // Create root item
     QVector<QVariant> rootData;
@@ -151,7 +151,7 @@ QVariant NMRStructureModel::data(const QModelIndex& index, int role) const
 
     NMRTreeItem* item = getItem(index);
 
-    if (role == Qt::DisplayRole) {
+    if (role == Qt::DisplayRole || role == Qt::EditRole) {
         if (index.column() == 2) // Don't show text for checkbox column
             return QVariant();
 
@@ -160,8 +160,6 @@ QVariant NMRStructureModel::data(const QModelIndex& index, int role) const
             return QString("%1 [Referenz]").arg(item->data(0).toString());
         }
 
-        return item->data(index.column());
-    } else if (role == Qt::EditRole) {
         return item->data(index.column());
     } else if (role == Qt::CheckStateRole && index.column() == 2) {
         return item->data(2).toBool() ? Qt::Checked : Qt::Unchecked;
@@ -178,6 +176,14 @@ QVariant NMRStructureModel::data(const QModelIndex& index, int role) const
             QString nucleusText = item->data(0).toString();
             return nucleusText.section('_', 0, 0); // Get the element part before underscore
         }
+    } else if (role == ScaleFactorRole) {
+        if (item->type() == NMRTreeItem::StructureItem) {
+            int structureIndex = item->getStructureIndex();
+            if (structureIndex >= 0 && structureIndex < m_structures->size()) {
+                return (*m_structures)[structureIndex]->scaleFactor;
+            }
+        }
+        return 1.0;
     }
 
     return QVariant();
@@ -187,11 +193,15 @@ Qt::ItemFlags NMRStructureModel::flags(const QModelIndex& index) const
 {
     if (!index.isValid())
         return Qt::NoItemFlags;
-
+    NMRTreeItem* item = getItem(index);
     Qt::ItemFlags flags = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
 
     if (index.column() == 2)
         flags |= Qt::ItemIsUserCheckable;
+
+    if (index.column() == 3 && item->type() == NMRTreeItem::CompoundItem) {
+        flags |= Qt::ItemIsEditable;
+    }
 
     return flags;
 }
@@ -253,6 +263,28 @@ bool NMRStructureModel::setData(const QModelIndex& index, const QVariant& value,
         bool checked = value.toInt() == Qt::Checked;
         NMR_LOG("Setting checked state for item " << item->data(0).toString() << " to " << checked);
         item->setData(index.column(), checked);
+        emit dataChanged(index, index, { role });
+        return true;
+    } else if ((role == Qt::EditRole || role == Qt::DisplayRole) && index.column() == 3) {
+        // Skalierungsfaktor setzen
+        bool ok;
+        double factor = value.toDouble(&ok);
+        if (!ok)
+            return false;
+
+        // Sicherstellen, dass der Wert sinnvoll ist (z.B. > 0)
+        if (factor <= 0)
+            factor = 0.01;
+
+        item->setData(index.column(), factor);
+
+        // Wenn es sich um ein Compound-Item handelt, den Skalierungsfaktor im eigentlichen Datensatz speichern
+        if (item->type() == NMRTreeItem::CompoundItem) {
+            // Bei generateSpectrum diesen Wert aus dem Modell auslesen
+            NMR_LOG("Scale factor for compound " << item->data(0).toString() << " set to " << factor);
+        }
+
+        emit dataChanged(index, index, { Qt::DisplayRole, Qt::EditRole });
         return true;
     } else if (role == ReferenceRole) {
         bool isRef = value.toBool();
@@ -267,6 +299,15 @@ bool NMRStructureModel::setData(const QModelIndex& index, const QVariant& value,
         // Update display
         emit dataChanged(index.sibling(index.row(), 0), index.sibling(index.row(), 0), { Qt::DisplayRole });
         return true;
+    } else if (role == ScaleFactorRole) {
+        if (item->type() == NMRTreeItem::StructureItem) {
+            int structureIndex = item->getStructureIndex();
+            if (structureIndex >= 0 && structureIndex < m_structures->size()) {
+                (*m_structures)[structureIndex]->scaleFactor = value.toDouble();
+                emit dataChanged(index, index, { role });
+                return true;
+            }
+        }
     }
 
     return false;
@@ -312,6 +353,7 @@ QModelIndex NMRStructureModel::addStructure(int structureIndex, const QString& f
     structItemData << QFileInfo(data->filename).fileName();
     structItemData << QString::number(data->energy, 'f', 6);
     structItemData << true; // Visible by default
+    structItemData << 1.0; // Default scale factor
 
     auto structItem = new NMRTreeItem(structItemData, parentItem, NMRTreeItem::StructureItem);
     structItem->setStructureIndex(structureIndex);
@@ -355,7 +397,7 @@ QModelIndex NMRStructureModel::findOrCreateCompound(const QString& formula)
     groupItemData << formula; // Display text is the formula
     groupItemData << QVariant(); // No energy for group
     groupItemData << true; // Visible by default
-
+    groupItemData << 1.0; // Default scale factor
     auto groupItem = new NMRTreeItem(groupItemData, m_rootItem, NMRTreeItem::CompoundItem);
     m_rootItem->appendChild(groupItem);
 
@@ -612,11 +654,12 @@ void NMRSpectrumDialog::setupUI()
     m_structureView->setAlternatingRowColors(true);
     m_structureView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_structureView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_structureView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_structureView->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
     m_structureView->setAnimated(true);
     m_structureView->setExpandsOnDoubleClick(true);
     m_structureView->setIndentation(20);
     m_structureView->header()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_structureView->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents); // Skalierungsspalte
 
     // Structure buttons
     auto buttonLayout = new QHBoxLayout();
@@ -680,6 +723,9 @@ void NMRSpectrumDialog::setupUI()
     mainLayout->addLayout(configLayout);
     mainLayout->addLayout(actionButtonLayout);
 
+    m_updateTimer = new QTimer(this);
+    m_updateTimer->setSingleShot(true);
+    m_updateTimer->setInterval(500); // 500 ms Verzögerung
     NMR_LOG("UI setup completed");
 }
 
@@ -721,6 +767,7 @@ void NMRSpectrumDialog::connectSignals()
     connect(m_exportButton, &QPushButton::clicked, this, &NMRSpectrumDialog::exportData);
     connect(m_clearButton, &QPushButton::clicked, this, &NMRSpectrumDialog::clearData);
 
+    connect(m_updateTimer, &QTimer::timeout, this, &NMRSpectrumDialog::generateSpectrum);
     NMR_LOG("Signals connected");
 }
 
@@ -794,6 +841,9 @@ void NMRSpectrumDialog::elementFilterChanged(int state)
  */
 void NMRSpectrumDialog::handleDataChanged(const QModelIndex& topLeft, const QModelIndex& bottomRight)
 {
+    NMR_LOG("Data changed from (" << topLeft.row() << "," << topLeft.column()
+                                  << ") to (" << bottomRight.row() << "," << bottomRight.column() << ")");
+
     // Check if visibility column changed
     if (topLeft.column() <= 2 && bottomRight.column() >= 2) {
         NMR_LOG("Visibility changed for item at row " << topLeft.row());
@@ -806,6 +856,14 @@ void NMRSpectrumDialog::handleDataChanged(const QModelIndex& topLeft, const QMod
         // updateVisibilityRecursive(topLeft.sibling(topLeft.row(), 0), checked);
 
         // Regenerate spectrum with updated visibility
+        generateSpectrum();
+    }
+
+    // Check if scale factor column changed
+    else if (topLeft.column() <= 3 && bottomRight.column() >= 3) {
+        NMR_LOG("Scale factor changed for item at row " << topLeft.row());
+
+        // Regenerate spectrum with updated scale factor
         generateSpectrum();
     }
 }
@@ -1334,7 +1392,7 @@ void NMRSpectrumDialog::generateSpectrum()
     // Process structures by compound and collect shifts
     std::vector<ShiftData> allShifts;
     std::map<QString, std::map<QString, std::vector<double>>> compoundElementShifts;
-
+    std::map<QString, double> scalingfactors;
     for (const auto& [compound, structures] : compoundStructures) {
         NMR_LOG("Processing compound: " << compound << " with " << structures.size() << " structures");
 
@@ -1379,6 +1437,8 @@ void NMRSpectrumDialog::generateSpectrum()
                     allShifts.push_back(data);
                     compoundElementShifts[compound][element].push_back(shift);
                 }
+                scalingfactors[compound] = structure->scaleFactor;
+                NMR_LOG("    Scaling factor for " << compound << ": " << scalingfactors[compound]);
             }
         }
     }
@@ -1387,7 +1447,7 @@ void NMRSpectrumDialog::generateSpectrum()
     updateTable(allShifts);
 
     // Generate spectrum with separate series for each compound
-    updatePlotByCompound(compoundElementShifts);
+    updatePlotByCompound(compoundElementShifts, scalingfactors);
 
     NMR_LOG("Spectrum generation complete");
 }
@@ -1470,7 +1530,7 @@ void NMRSpectrumDialog::updateTable(const std::vector<ShiftData>& shifts)
  * @param compoundElementShifts Map of compounds to their element shifts
  */
 void NMRSpectrumDialog::updatePlotByCompound(
-    const std::map<QString, std::map<QString, std::vector<double>>>& compoundElementShifts)
+    const std::map<QString, std::map<QString, std::vector<double>>>& compoundElementShifts, const std::map<QString, double>& scalingfactors)
 {
     // Static color map for elements
     static const QMap<QString, QColor> elementColors{
@@ -1511,6 +1571,14 @@ void NMRSpectrumDialog::updatePlotByCompound(
     int seriesIndex = 0;
     for (const auto& [compound, elementShifts] : compoundElementShifts) {
         for (const auto& [element, shifts] : elementShifts) {
+
+            double scaleFactor = 1.0; // Standardwert
+
+            // Suche nach dem Skalierungsfaktor für dieses Compound
+            auto scaleFactorIt = scalingfactors.find(compound);
+            if (scaleFactorIt != scalingfactors.end()) {
+                scaleFactor = scaleFactorIt->second;
+            }
             const QColor& color = elementColors.value(element, QColor(0, 0, 0));
             QColor compoundColor = compoundColors.value(compound, QColor(0, 0, 0));
 
@@ -1533,7 +1601,7 @@ void NMRSpectrumDialog::updatePlotByCompound(
             for (double shift : shifts) {
                 for (int i = 0; i < m_plotPoints; ++i) {
                     double x = xValues[i];
-                    points[i].setY(points[i].y() + std::exp(-std::pow(x - shift, 2) / lineWidth2));
+                    points[i].setY(points[i].y() + scaleFactor * std::exp(-std::pow(x - shift, 2) / lineWidth2));
                 }
             }
 
