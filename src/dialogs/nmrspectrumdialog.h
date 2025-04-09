@@ -2,17 +2,16 @@
 #ifndef NMRSPECTRUMDIALOG_H
 #define NMRSPECTRUMDIALOG_H
 
-#include <QAbstractItemModel>
 #include <QDialog>
+#include <QModelIndex>
 #include <map>
 #include <memory>
-#include <tuple>
-#include <vector>
 
 // Debug-Makros zur einfachen Fehlersuche
 #define NMR_DEBUG 1
 
 #if NMR_DEBUG
+#include <QDebug>
 #define NMR_LOG(msg) qDebug() << "[NMRSpectrumDialog] " << msg
 #else
 #define NMR_LOG(msg)
@@ -26,159 +25,13 @@ class QSpinBox;
 class QDoubleSpinBox;
 class QComboBox;
 class QGroupBox;
+class QCheckBox;
+class QTimer;
 class ListChart;
-
-/**
- * Structure for NMR spectrum data
- */
-struct NMRData {
-    QString name; // Display name
-    QString filename; // Source file
-    QString formula; // Molecular formula
-    double energy = 0.0; // Energy in Hartree
-    bool isReference = false; // Whether this is a reference
-    double scaleFactor = 1.0;
-    // Map of element to vector of (nucleus index, shielding, anisotropy)
-    std::map<QString, std::vector<std::tuple<int, double, double>>> shieldings;
-
-    // Reference shieldings per element (average)
-    std::map<QString, double> reference;
-};
-
-/**
- * Structure for chemical shift data
- */
-struct ShiftData {
-    QString element; // Element symbol
-    int nucleus; // Nucleus index
-    double referenceShielding; // Reference shielding value
-    double shielding; // Actual shielding value
-    double shift; // Chemical shift
-    double weight; // Boltzmann weight
-};
-
-/**
- * Tree item class for NMR structure model
- */
-class NMRTreeItem {
-public:
-    enum ItemType {
-        RootItem,
-        CompoundItem,
-        StructureItem,
-        NucleusItem
-    };
-
-    explicit NMRTreeItem(const QVector<QVariant>& data, NMRTreeItem* parent = nullptr, ItemType type = RootItem);
-    ~NMRTreeItem();
-
-    void appendChild(NMRTreeItem* child);
-    void removeChild(int row);
-    NMRTreeItem* child(int row) const;
-    int childCount() const;
-    int columnCount() const;
-    QVariant data(int column) const;
-    int row() const;
-    NMRTreeItem* parentItem() const;
-    void setData(int column, const QVariant& value);
-    void sortChildren(int column, Qt::SortOrder order);
-    ItemType type() const { return m_type; }
-    void setType(ItemType type) { m_type = type; }
-    void setReference(bool isRef) { m_isReference = isRef; }
-    bool isReference() const { return m_isReference; }
-    int getStructureIndex() const { return m_structureIndex; }
-    void setStructureIndex(int index) { m_structureIndex = index; }
-    /*
-    void setScaleFactor(double factor) {
-        if (m_structureIndex >= 0) {
-            NMRData* data = getStructureData();
-            if (data) {
-                data->scaleFactor = factor;
-            }
-        }
-    }
-
-    double getScaleFactor() const {
-        if (m_structureIndex >= 0) {
-            NMRData* data = getStructureData();
-            if (data) {
-                return data->scaleFactor;
-            }
-        }
-        return 1.0;
-    }
-    */
-private:
-    QVector<QVariant> m_itemData;
-    QVector<NMRTreeItem*> m_childItems;
-    NMRTreeItem* m_parentItem;
-    int m_structureIndex;
-    ItemType m_type;
-    bool m_isReference;
-};
-
-/**
- * Tree model for NMR structures
- */
-class NMRStructureModel : public QAbstractItemModel {
-    Q_OBJECT
-
-public:
-    enum Roles {
-        ItemTypeRole = Qt::UserRole + 1,
-        NMRDataRole,
-        ReferenceRole,
-        ElementRole,
-        ScaleFactorRole
-    };
-
-    explicit NMRStructureModel(QObject* parent = nullptr);
-    ~NMRStructureModel();
-
-    // QAbstractItemModel implementation
-    QVariant data(const QModelIndex& index, int role) const override;
-    Qt::ItemFlags flags(const QModelIndex& index) const override;
-    QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
-    QModelIndex index(int row, int column, const QModelIndex& parent = QModelIndex()) const override;
-    QModelIndex parent(const QModelIndex& index) const override;
-    int rowCount(const QModelIndex& parent = QModelIndex()) const override;
-    int columnCount(const QModelIndex& parent = QModelIndex()) const override;
-    bool setData(const QModelIndex& index, const QVariant& value, int role = Qt::EditRole) override;
-
-    // Model-specific methods
-    // QModelIndex addStructure(NMRData* data, const QString &formula);
-    QModelIndex addStructure(int structureIndex, const QString& formula);
-    int getStructureIndex(const QModelIndex& index) const;
-    void removeItem(const QModelIndex& index);
-    void clearModel();
-    NMRData* findStructureByFilename(const QString& filename);
-    void sortCompoundConformers(const QModelIndex& compoundIndex);
-    QModelIndex findOrCreateCompound(const QString& formula);
-    void setReference(const QModelIndex& index);
-    NMRData* getReferenceStructure() const;
-    QModelIndex getReferenceIndex() const;
-
-    // Filter methods
-    QStringList getAvailableElements() const;
-    void setElementVisibility(const QString& element, bool visible);
-    bool isElementVisible(const QString& element) const;
-
-signals:
-    // void referenceChanged(NMRData* newReference);
-    void referenceChanged(int referenceIndex);
-
-private:
-    NMRTreeItem* m_rootItem;
-    QStringList m_headerLabels;
-    QModelIndex m_referenceIndex;
-    QSet<QString> m_hiddenElements;
-
-    NMRTreeItem* getItem(const QModelIndex& index) const;
-    // QModelIndex findStructureParent(NMRData* data);
-    std::vector<std::unique_ptr<NMRData>>* m_structures;
-    void setStructuresVector(std::vector<std::unique_ptr<NMRData>>* structures) { m_structures = structures; }
-    friend class NMRSpectrumDialog;
-};
+class QItemSelection;
+class NMRDataStore;
+class NMRController;
+class NMRStructureProxyModel;
 
 /**
  * Dialog for NMR spectrum analysis
@@ -194,12 +47,11 @@ public:
     explicit NMRSpectrumDialog(QWidget* parent = nullptr);
 
     /**
-     * Adds a structure
-     * @param filename The structure file
-     * @param name The display name
+     * Adds a structure to the model
+     * @param filename The filename of the structure
+     * @param name The name of the structure
      */
     void addStructure(const QString& filename, const QString& name);
-
 private slots:
     /**
      * Selects structure files to add
@@ -210,16 +62,6 @@ private slots:
      * Sets a structure as reference
      */
     void setAsReference();
-
-    /**
-     * Handles data change in the model
-     */
-    void handleDataChanged(const QModelIndex& topLeft, const QModelIndex& bottomRight);
-
-    /**
-     * Handles reference change
-     */
-    void onReferenceChanged(int referenceIndex);
 
     /**
      * Handles element filter changes
@@ -251,6 +93,26 @@ private slots:
      */
     void clearData();
 
+    /**
+     * Handles selection change in the tree view
+     */
+    // void handleSelectionChanged(const QModelIndex& current, const QModelIndex& previous);
+    void handleSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
+    /**
+     * Handles data change in the model
+     */
+    void handleDataChanged();
+
+    /**
+     * Handles spectrum generation completion
+     */
+    void handleSpectrumGenerated();
+
+    /**
+     * Handles spectrum generation failure
+     */
+    void handleSpectrumGenerationFailed(const QString& message);
+
 private:
     // UI components
     QPushButton* m_setReferenceButton = nullptr;
@@ -266,14 +128,14 @@ private:
     QPushButton* m_clearButton = nullptr;
     QTimer* m_updateTimer = nullptr;
 
-    // Data model
-    NMRStructureModel* m_structureModel = nullptr;
-    std::vector<std::unique_ptr<NMRData>> m_structures;
+    // MVC components
+    NMRDataStore* m_dataStore = nullptr;
+    NMRController* m_controller = nullptr;
+    NMRStructureProxyModel* m_structureModel = nullptr;
+
     // Configuration
-    int m_plotPoints;
-    double m_lineWidth;
-    const double m_kBoltzmann;
-    const double m_temperature;
+    int m_plotPoints = 100000;
+    double m_lineWidth = 0.1;
 
     /**
      * Sets up the user interface
@@ -296,121 +158,19 @@ private:
     void updateElementFilters();
 
     /**
-     * Derives a molecular formula from NMR data
-     * @param data The NMR data
-     * @return The derived formula string
-     */
-    QString deriveMolecularFormula(const NMRData& data);
-
-    /**
-     * Updates visibility of child items
-     * @param index The index that changed
-     * @param checked The new checked state
-     */
-    void updateVisibilityRecursive(const QModelIndex& index, bool checked);
-
-    /**
      * Sets up the table columns
      */
     void setupTable();
 
     /**
-     * Calculates reference shieldings for each element
-     * @param reference The reference structure
-     */
-    void calculateReferenceShieldings(NMRData& reference);
-
-    /**
-     * Handles classification of conformers
-     * @param newStrct The new structure
-     */
-    void handleConformerClassification(NMRData* newStruct);
-
-    /**
-     * Checks if two structures are conformations of each other
-     * @param str1 First structure
-     * @param str2 Second structure
-     * @return true if they are conformations
-     */
-    bool isConformation(const NMRData& str1, const NMRData& str2);
-
-    /**
-     * Checks if a structure is TMS based on formula
-     * @param data The structure to check
-     * @return true if it's TMS
-     */
-    bool isTMS(const NMRData& data);
-
-    /**
-     * Parses an ORCA output file
-     * @param filename The file to parse
-     * @param name The name to assign
-     * @return The parsed NMR data
-     */
-    NMRData parseOrcaOutput(const QString& filename, const QString& name);
-
-    /**
-     * Parses NMR shieldings from ORCA output
-     * @param content The file content
-     * @param data The data structure to populate
-     */
-    void parseNMRShieldings(const QString& content, NMRData& data);
-
-    /**
-     * Extracts energy from ORCA output (in Hartree)
-     * @param content The file content
-     * @return The extracted energy
-     */
-    double extractEnergy(const QString& content);
-
-    /**
-     * Calculates Boltzmann weights (with Hartree energies)
-     * @param energies The energies in Hartree
-     * @return Vector of weights
-     */
-    std::vector<double> calculateBoltzmannWeights(const std::vector<double>& energies);
-
-    /**
-     * Gets visible structures from the model
-     * @return Vector of pointers to visible structures
-     */
-    std::vector<NMRData*> getVisibleStructures();
-
-    /**
-     * Organizes structures by compound
-     * @param structures The structures to organize
-     * @return Map of compound names to structure vectors
-     */
-    std::map<QString, std::vector<NMRData*>> organizeStructuresByCompound(
-        const std::vector<NMRData*>& structures);
-
-    /**
      * Updates the table with shift data
-     * @param shifts The shifts to display
      */
-    void updateTable(const std::vector<ShiftData>& shifts);
+    void updateTable();
 
     /**
      * Updates the plot with compound-element shifts
-     * @param compoundElementShifts Map of compounds to element shifts
      */
-    void updatePlotByCompound(
-        const std::map<QString, std::map<QString, std::vector<double>>>& compoundElementShifts, const std::map<QString, double>& scalingfactors);
-
-    /**
-     * Calculates the plot range
-     * @param compoundElementShifts Map of compounds to element shifts
-     * @return Pair of min and max x values
-     */
-    std::pair<double, double> calculatePlotRange(
-        const std::map<QString, std::map<QString, std::vector<double>>>& compoundElementShifts);
-
-    /**
-     * Gets the structure from a model index
-     * @param index The model index
-     * @return Pointer to the NMR data
-     */
-    NMRData* getStructureFromIndex(const QModelIndex& index);
+    void updatePlot();
 };
 
 #endif // NMRSPECTRUMDIALOG_H

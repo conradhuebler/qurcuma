@@ -26,6 +26,11 @@ set(SOURCES
     src/mainwindow.cpp
     src/settings.cpp
     src/dialogs/nmrspectrumdialog.cpp
+    src/dialogs/nmrcontroller.cpp
+    src/dialogs/nmrdatastore.cpp
+    src/dialogs/nmrstructureproxymodel.cpp
+
+    #src/dialogs/nmrstructuremodel.cpp
 )
 
 # Header-Dateien
@@ -34,6 +39,7 @@ set(HEADERS
     src/settings.h
     src/view.h
     src/dialogs/nmrspectrumdialog.h
+    #src/dialogs/nmrstructuremodel.h
 
 )
 
