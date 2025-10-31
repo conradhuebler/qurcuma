@@ -8,6 +8,11 @@
 #include <Qt3DExtras/QOrbitCameraController>
 #include <QMouseEvent>
 #include <QVBoxLayout>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QInputDialog>
+#include <QImage>
+#include <QPixmap>
 
 const float MoleculeViewer::DEFAULT_BOND_DISTANCE = 3.0f; // Å
 
@@ -249,37 +254,126 @@ void MoleculeViewer::clearScene()
     resetViewToMolecule();
 }
 
+// Claude Generated - Visual settings setters
+void MoleculeViewer::setRenderingMode(RenderingMode mode)
+{
+    if (m_renderingMode != mode) {
+        m_renderingMode = mode;
+        // Refresh display if we have trajectory data
+        if (!m_trajectoryAtoms.isEmpty()) {
+            showFrame(m_currentFrame);
+        }
+    }
+}
+
+void MoleculeViewer::setColorScheme(ColorScheme scheme)
+{
+    if (m_colorScheme != scheme) {
+        m_colorScheme = scheme;
+        // Refresh display if we have trajectory data
+        if (!m_trajectoryAtoms.isEmpty()) {
+            showFrame(m_currentFrame);
+        }
+    }
+}
+
+void MoleculeViewer::setAtomTransparency(float alpha)
+{
+    m_atomTransparency = qBound(0.0f, alpha, 1.0f);
+    // Refresh display
+    if (!m_trajectoryAtoms.isEmpty()) {
+        showFrame(m_currentFrame);
+    }
+}
+
+void MoleculeViewer::setAtomShininess(float shininess)
+{
+    m_atomShininess = qMax(0.0f, shininess);
+    // Refresh display
+    if (!m_trajectoryAtoms.isEmpty()) {
+        showFrame(m_currentFrame);
+    }
+}
+
+void MoleculeViewer::setAtomScaleFactor(float scale)
+{
+    m_atomScaleFactor = qMax(0.1f, scale);  // Min 0.1x scaling
+    // Refresh display
+    if (!m_trajectoryAtoms.isEmpty()) {
+        showFrame(m_currentFrame);
+    }
+}
+
+void MoleculeViewer::setBondThickness(float thickness)
+{
+    m_bondThickness = qMax(0.01f, thickness);  // Min 0.01 radius
+    // Refresh display
+    if (!m_trajectoryAtoms.isEmpty()) {
+        showFrame(m_currentFrame);
+    }
+}
+
 // viewer.cpp
 // Füge diese Implementierungen hinzu:
 
-QColor MoleculeViewer::getAtomColor(const QString& element)
+// Claude Generated - getAtomColor now supports multiple color schemes
+QColor MoleculeViewer::getAtomColor(const QString& element, float charge)
 {
-    // CPK-Farbschema (häufig verwendete Farben in der Moleküldarstellung)
-    static const QMap<QString, QColor> colors = {
-        {"H", QColor(255, 255, 255)},   // Weiß
-        {"C", QColor(128, 128, 128)},   // Grau
-        {"N", QColor(0, 0, 255)},       // Blau
-        {"O", QColor(255, 0, 0)},       // Rot
-        {"P", QColor(255, 165, 0)},     // Orange
-        {"S", QColor(255, 255, 0)},     // Gelb
-        {"Cl", QColor(0, 255, 0)},      // Grün
-        {"Br", QColor(165, 42, 42)},    // Braun
-        {"I", QColor(148, 0, 211)},     // Violett
-        {"F", QColor(218, 165, 32)},    // Goldgelb
-        {"Na", QColor(0, 0, 170)},      // Dunkelblau
-        {"K", QColor(143, 124, 195)},   // Violett
-        {"Mg", QColor(0, 255, 0)},      // Grün
-        {"Ca", QColor(128, 128, 144)},  // Grau
-        {"Fe", QColor(255, 165, 0)},    // Orange
-        {"Zn", QColor(165, 165, 165)}   // Grau
-    };
+    switch (m_colorScheme) {
+        case ColorScheme::CPK: {
+            // CPK-Farbschema (häufig verwendete Farben in der Moleküldarstellung)
+            static const QMap<QString, QColor> colors = {
+                {"H", QColor(255, 255, 255)},   // Weiß
+                {"C", QColor(128, 128, 128)},   // Grau
+                {"N", QColor(0, 0, 255)},       // Blau
+                {"O", QColor(255, 0, 0)},       // Rot
+                {"P", QColor(255, 165, 0)},     // Orange
+                {"S", QColor(255, 255, 0)},     // Gelb
+                {"Cl", QColor(0, 255, 0)},      // Grün
+                {"Br", QColor(165, 42, 42)},    // Braun
+                {"I", QColor(148, 0, 211)},     // Violett
+                {"F", QColor(218, 165, 32)},    // Goldgelb
+                {"Na", QColor(0, 0, 170)},      // Dunkelblau
+                {"K", QColor(143, 124, 195)},   // Violett
+                {"Mg", QColor(0, 255, 0)},      // Grün
+                {"Ca", QColor(128, 128, 144)},  // Grau
+                {"Fe", QColor(255, 165, 0)},    // Orange
+                {"Zn", QColor(165, 165, 165)}   // Grau
+            };
+            return colors.value(element, QColor(200, 200, 200));
+        }
 
-    return colors.value(element, QColor(200, 200, 200)); // Standardfarbe für unbekannte Elemente
+        case ColorScheme::Monochrome:
+            return QColor(180, 180, 180);  // Uniform gray
+
+        case ColorScheme::ByCharge: {
+            // Red for positive, blue for negative, white for neutral
+            if (charge > 0.5f) {
+                return QColor(255, 0, 0);  // Red (positive)
+            } else if (charge < -0.5f) {
+                return QColor(0, 0, 255);  // Blue (negative)
+            } else if (charge > 0.1f) {
+                return QColor(255, 128, 128);  // Light red
+            } else if (charge < -0.1f) {
+                return QColor(128, 128, 255);  // Light blue
+            } else {
+                return QColor(220, 220, 220);  // Nearly white (neutral)
+            }
+        }
+
+        case ColorScheme::Custom:
+            // For now, return CPK colors (can be extended later with custom mapping)
+            return QColor(200, 200, 200);
+
+        default:
+            return QColor(200, 200, 200);
+    }
 }
 
+// Claude Generated - getAtomRadius now applies scale factor
 float MoleculeViewer::getAtomRadius(const QString& element)
 {
-    // Van der Waals Radien in Ångström (skaliert)
+    // Van der Waals Radien in Ångström (base values)
     static const QMap<QString, float> radii = {
         {"H", 0.5f},
         {"C", 0.7f},
@@ -299,54 +393,89 @@ float MoleculeViewer::getAtomRadius(const QString& element)
         {"Zn", 1.35f}
     };
 
-    return radii.value(element, 0.7f); // Standardradius für unbekannte Elemente
+    float baseRadius = radii.value(element, 0.7f);
+
+    // Apply rendering mode adjustments
+    switch (m_renderingMode) {
+        case RenderingMode::SpaceFilling:
+            // Use full Van der Waals radius for space-filling
+            return baseRadius * 2.0f * m_atomScaleFactor;
+        case RenderingMode::BallAndStick:
+        case RenderingMode::Wireframe:
+        case RenderingMode::SticksOnly:
+        default:
+            // Use standard scaled radius
+            return baseRadius * m_atomScaleFactor;
+    }
 }
 
 Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds)
 {
     Qt3DCore::QEntity *moleculeEntity = new Qt3DCore::QEntity();
 
-    // Atome erstellen
-    for (const Atom& atom : atoms) {
-        Qt3DCore::QEntity *atomEntity = new Qt3DCore::QEntity(moleculeEntity);
-        
-        // Mesh
-        Qt3DExtras::QSphereMesh *sphereMesh = new Qt3DExtras::QSphereMesh();
-        sphereMesh->setRadius(getAtomRadius(atom.element));
-        sphereMesh->setRings(32);    // Erhöhe die Qualität der Kugeln
-        sphereMesh->setSlices(32);
-        
-        // Material
-        Qt3DExtras::QPhongMaterial *material = new Qt3DExtras::QPhongMaterial();
-        QColor atomColor = getAtomColor(atom.element);
-        material->setAmbient(atomColor.darker());
-        material->setDiffuse(atomColor);
-        material->setShininess(80.0f);
-        
-        // Transform
-        Qt3DCore::QTransform *transform = new Qt3DCore::QTransform();
-        transform->setTranslation(atom.position);
-        
-        atomEntity->addComponent(sphereMesh);
-        atomEntity->addComponent(transform);
-        atomEntity->addComponent(material);
+    // Claude Generated - Render atoms based on rendering mode
+    bool renderAtoms = (m_renderingMode == RenderingMode::BallAndStick ||
+                        m_renderingMode == RenderingMode::SpaceFilling);
+
+    if (renderAtoms) {
+        for (const Atom& atom : atoms) {
+            Qt3DCore::QEntity *atomEntity = new Qt3DCore::QEntity(moleculeEntity);
+
+            // Mesh
+            Qt3DExtras::QSphereMesh *sphereMesh = new Qt3DExtras::QSphereMesh();
+            sphereMesh->setRadius(getAtomRadius(atom.element));
+            sphereMesh->setRings(32);    // High quality spheres
+            sphereMesh->setSlices(32);
+
+            // Material with transparency support
+            Qt3DExtras::QPhongMaterial *material = new Qt3DExtras::QPhongMaterial();
+            QColor atomColor = getAtomColor(atom.element, atom.charge);
+
+            // Apply transparency
+            if (m_atomTransparency < 1.0f) {
+                atomColor.setAlphaF(m_atomTransparency);
+            }
+
+            material->setAmbient(atomColor.darker());
+            material->setDiffuse(atomColor);
+            material->setShininess(m_atomShininess);
+
+            // Transform
+            Qt3DCore::QTransform *transform = new Qt3DCore::QTransform();
+            transform->setTranslation(atom.position);
+
+            atomEntity->addComponent(sphereMesh);
+            atomEntity->addComponent(transform);
+            atomEntity->addComponent(material);
+        }
     }
 
-    // Bindungen erstellen
-    for (const Bond& bond : bonds) {
-        Qt3DCore::QEntity *bondEntity = new Qt3DCore::QEntity(moleculeEntity);
-        
-        // Mesh
-        Qt3DExtras::QCylinderMesh *cylinderMesh = new Qt3DExtras::QCylinderMesh();
-        cylinderMesh->setRadius(0.15f);  // Dünnere Bindungen
-        cylinderMesh->setRings(16);      // Verbesserte Qualität
-        cylinderMesh->setSlices(16);
-        
-        // Material
-        Qt3DExtras::QPhongMaterial *material = new Qt3DExtras::QPhongMaterial();
-        material->setAmbient(QColor(180, 180, 180));
-        material->setDiffuse(QColor(200, 200, 200));
-        material->setShininess(80.0f);
+    // Claude Generated - Render bonds based on rendering mode
+    bool renderBonds = (m_renderingMode != RenderingMode::SpaceFilling);
+
+    if (renderBonds) {
+        // Determine bond thickness based on mode
+        float bondRadius = m_bondThickness;
+        if (m_renderingMode == RenderingMode::Wireframe) {
+            bondRadius *= 0.5f;  // Thinner for wireframe
+        } else if (m_renderingMode == RenderingMode::SticksOnly) {
+            bondRadius *= 1.5f;  // Thicker for sticks-only
+        }
+
+        for (const Bond& bond : bonds) {
+            Qt3DCore::QEntity *bondEntity = new Qt3DCore::QEntity(moleculeEntity);
+
+            // Mesh
+            Qt3DExtras::QCylinderMesh *cylinderMesh = new Qt3DExtras::QCylinderMesh();
+            cylinderMesh->setRadius(bondRadius);
+            cylinderMesh->setRings(16);      // Good quality
+            cylinderMesh->setSlices(16);
+
+            // Material
+            Qt3DExtras::QPhongMaterial *material = new Qt3DExtras::QPhongMaterial();
+            material->setAmbient(QColor(180, 180, 180));
+            material->setDiffuse(QColor(200, 200, 200));
+            material->setShininess(m_atomShininess);
         
         // Transform
         Qt3DCore::QTransform *transform = new Qt3DCore::QTransform();
@@ -381,17 +510,17 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
         bondEntity->addComponent(transform);
         bondEntity->addComponent(material);
 
-        // Für Mehrfachbindungen
-   if (bond.bondOrder > 1) {
-        // Offset für zusätzliche Bindungen
-        float offset = 0.2f;
-        for (int i = 1; i < bond.bondOrder; ++i) {
-            Qt3DCore::QEntity *additionalBondEntity = new Qt3DCore::QEntity(moleculeEntity);
-            
-            Qt3DExtras::QCylinderMesh *addCylinderMesh = new Qt3DExtras::QCylinderMesh();
-            addCylinderMesh->setRadius(0.15f);
-            addCylinderMesh->setRings(16);
-            addCylinderMesh->setSlices(16);
+            // Für Mehrfachbindungen
+            if (bond.bondOrder > 1) {
+                // Offset für zusätzliche Bindungen
+                float offset = 0.2f;
+                for (int i = 1; i < bond.bondOrder; ++i) {
+                    Qt3DCore::QEntity *additionalBondEntity = new Qt3DCore::QEntity(moleculeEntity);
+
+                    Qt3DExtras::QCylinderMesh *addCylinderMesh = new Qt3DExtras::QCylinderMesh();
+                    addCylinderMesh->setRadius(bondRadius);  // Claude Generated - use variable bond radius
+                    addCylinderMesh->setRings(16);
+                    addCylinderMesh->setSlices(16);
             
             Qt3DCore::QTransform *addTransform = new Qt3DCore::QTransform();
             
@@ -432,11 +561,12 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
                 addTransform->setRotation(QQuaternion::fromAxisAndAngle(rotationAxis.normalized(), rotationAngle));
             }
             
-            additionalBondEntity->addComponent(addCylinderMesh);
-            additionalBondEntity->addComponent(addTransform);
-            additionalBondEntity->addComponent(material);
+                    additionalBondEntity->addComponent(addCylinderMesh);
+                    additionalBondEntity->addComponent(addTransform);
+                    additionalBondEntity->addComponent(material);
+                }
+            }
         }
-   }
     }
     return moleculeEntity;
 }
@@ -657,4 +787,63 @@ void MoleculeViewer::setVTFTrajectoryData(const QVector<QVector<Atom>>& atoms, c
 void MoleculeViewer::clearScenePublic()
 {
     clearScene();
+}
+
+// Claude Generated - Screenshot/Export functionality
+void MoleculeViewer::saveScreenshot(const QString& filename, int scaleFactor)
+{
+    if (!m_container) {
+        qWarning() << "Cannot save screenshot: Container not initialized";
+        return;
+    }
+
+    // Get current widget size
+    QSize originalSize = m_container->size();
+    QSize captureSize = originalSize * scaleFactor;
+
+    // Grab the container widget (which contains the 3D view) as a pixmap
+    QPixmap screenshot = m_container->grab();
+
+    // Scale if needed
+    if (scaleFactor > 1) {
+        // For higher resolution, we scale up the grabbed image
+        // Note: This is upscaling after capture; for true high-res rendering,
+        // Qt3D would need offscreen rendering at higher resolution
+        screenshot = screenshot.scaled(captureSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    }
+
+    // Save to file
+    if (screenshot.save(filename)) {
+        qDebug() << "Screenshot saved to:" << filename;
+    } else {
+        qWarning() << "Failed to save screenshot to:" << filename;
+    }
+}
+
+void MoleculeViewer::saveScreenshotDialog()
+{
+    // Create file dialog
+    QString filter = tr("PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;All Files (*)");
+    QString filename = QFileDialog::getSaveFileName(this, tr("Save Screenshot"), QString(), filter);
+
+    if (filename.isEmpty()) {
+        return;  // User cancelled
+    }
+
+    // Ask for scale factor
+    bool ok;
+    int scaleFactor = QInputDialog::getInt(this, tr("Screenshot Resolution"),
+                                           tr("Resolution multiplier (1x = current size):"),
+                                           1, 1, 4, 1, &ok);
+
+    if (!ok) {
+        return;  // User cancelled
+    }
+
+    // Save screenshot
+    saveScreenshot(filename, scaleFactor);
+
+    // Show confirmation
+    QMessageBox::information(this, tr("Screenshot Saved"),
+                            tr("Screenshot saved to:\n%1").arg(filename));
 }

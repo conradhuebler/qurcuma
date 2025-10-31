@@ -48,7 +48,7 @@ NMRSpectrumDialog::NMRSpectrumDialog(QWidget* parent)
     setupUI();
     connectSignals();
 
-    NMR_LOG("Dialog created");
+    NMR_DIALOG_LOG("Dialog created");
 }
 
 /**
@@ -143,7 +143,7 @@ void NMRSpectrumDialog::setupUI()
     m_updateTimer->setSingleShot(true);
     m_updateTimer->setInterval(500); // 500 ms delay
 
-    NMR_LOG("UI setup completed");
+    NMR_DIALOG_LOG("UI setup completed");
 }
 
 /**
@@ -176,7 +176,7 @@ void NMRSpectrumDialog::connectSignals()
     // Timer connection
     connect(m_updateTimer, &QTimer::timeout, this, &NMRSpectrumDialog::generateSpectrum);
 
-    NMR_LOG("Signals connected");
+    NMR_DIALOG_LOG("Signals connected");
 }
 
 /**
@@ -194,7 +194,7 @@ void NMRSpectrumDialog::setupElementFilters()
     // Get available elements
     QStringList elements = m_controller->getAvailableElements();
 
-    NMR_LOG("Setting up element filters with " << elements.size() << " elements");
+    NMR_DIALOG_LOG("Setting up element filters with " << elements.size() << " elements");
 
     if (elements.isEmpty()) {
         auto label = new QLabel(tr("Keine Elemente verfügbar"), m_elementFilterBox);
@@ -211,7 +211,7 @@ void NMRSpectrumDialog::setupElementFilters()
         connect(checkbox, &QCheckBox::stateChanged, this, &NMRSpectrumDialog::elementFilterChanged);
 
         m_elementFilterBox->layout()->addWidget(checkbox);
-        NMR_LOG("Added checkbox for element: " << element);
+        NMR_DIALOG_LOG("Added checkbox for element: " << element);
     }
 }
 
@@ -235,7 +235,7 @@ void NMRSpectrumDialog::elementFilterChanged(int state)
     QString element = checkbox->objectName();
     bool visible = (state == Qt::Checked);
 
-    NMR_LOG("Element filter changed for " << element << " to " << visible);
+    NMR_DIALOG_LOG("Element filter changed for " << element << " to " << visible);
 
     m_controller->setElementVisibility(element, visible);
 
@@ -262,7 +262,7 @@ void NMRSpectrumDialog::handleSelectionChanged(const QItemSelection& selected, c
     // Only enable reference button for structure items
     m_setReferenceButton->setEnabled(itemType == NMRStructureProxyModel::StructureItem);
 
-    NMR_LOG("Selection changed to item type " << itemType);
+    NMR_DIALOG_LOG("Selection changed to item type " << itemType);
 }
 
 /**
@@ -270,7 +270,7 @@ void NMRSpectrumDialog::handleSelectionChanged(const QItemSelection& selected, c
  */
 void NMRSpectrumDialog::handleDataChanged()
 {
-    NMR_LOG("Model data changed");
+    NMR_DIALOG_LOG("Model data changed");
 
     // Schedule spectrum update
     m_updateTimer->start();
@@ -294,7 +294,7 @@ void NMRSpectrumDialog::setAsReference()
         return;
 
     m_controller->setReference(structureIndex);
-    NMR_LOG("Set reference to structure index " << structureIndex);
+    NMR_DIALOG_LOG("Set reference to structure index " << structureIndex);
 }
 
 /**
@@ -304,7 +304,7 @@ void NMRSpectrumDialog::setAsReference()
 void NMRSpectrumDialog::setPlotPoints(int points)
 {
     m_plotPoints = points;
-    NMR_LOG("Plot points set to " << points);
+    NMR_DIALOG_LOG("Plot points set to " << points);
 }
 
 /**
@@ -314,7 +314,7 @@ void NMRSpectrumDialog::setPlotPoints(int points)
 void NMRSpectrumDialog::setLineWidth(double width)
 {
     m_lineWidth = width;
-    NMR_LOG("Line width set to " << width);
+    NMR_DIALOG_LOG("Line width set to " << width);
 }
 
 /**
@@ -331,14 +331,14 @@ void NMRSpectrumDialog::setupTable()
         tr("Gewicht") });
     m_shiftTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 
-    NMR_LOG("Table setup completed");
+    NMR_DIALOG_LOG("Table setup completed");
 }
 
 void NMRSpectrumDialog::addStructure(const QString& filename, const QString& name)
 {
     m_controller->loadStructure(filename, name);
     updateElementFilters();
-    NMR_LOG("Added structure: " << name);
+    NMR_DIALOG_LOG("Added structure: " << name);
 }
 
 /**
@@ -365,7 +365,7 @@ void NMRSpectrumDialog::selectStructureFiles()
  */
 void NMRSpectrumDialog::generateSpectrum()
 {
-    NMR_LOG("Generating spectrum with " << m_plotPoints << " points and line width " << m_lineWidth);
+    NMR_DIALOG_LOG("Generating spectrum with " << m_plotPoints << " points and line width " << m_lineWidth);
 
     // Clear previous data
     m_chart->Clear();
@@ -380,7 +380,7 @@ void NMRSpectrumDialog::generateSpectrum()
  */
 void NMRSpectrumDialog::handleSpectrumGenerated()
 {
-    NMR_LOG("Spectrum generation completed");
+    NMR_DIALOG_LOG("Spectrum generation completed");
 
     // Update UI components
     updateTable();
@@ -392,7 +392,7 @@ void NMRSpectrumDialog::handleSpectrumGenerated()
  */
 void NMRSpectrumDialog::handleSpectrumGenerationFailed(const QString& message)
 {
-    NMR_LOG("Spectrum generation failed: " << message);
+    NMR_DIALOG_LOG("Spectrum generation failed: " << message);
 
     QMessageBox::warning(this, tr("Fehler"), message);
 }
@@ -417,7 +417,7 @@ void NMRSpectrumDialog::updateTable()
         m_shiftTable->setItem(i, 5, new QTableWidgetItem(QString::number(data.weight, 'f', 3)));
     }
 
-    NMR_LOG("Table updated with " << shifts.size() << " rows");
+    NMR_DIALOG_LOG("Table updated with " << shifts.size() << " rows");
 }
 
 /**
@@ -522,7 +522,7 @@ void NMRSpectrumDialog::updatePlot()
         }
     }
 
-    NMR_LOG("Plot updated with " << seriesIndex << " series");
+    NMR_DIALOG_LOG("Plot updated with " << seriesIndex << " series");
 }
 
 /**
@@ -560,5 +560,5 @@ void NMRSpectrumDialog::clearData()
     m_shiftTable->setRowCount(0);
     updateElementFilters();
 
-    NMR_LOG("All data cleared");
+    NMR_DIALOG_LOG("All data cleared");
 }

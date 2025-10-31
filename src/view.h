@@ -15,9 +15,26 @@ class MoleculeViewer : public QWidget
     Q_OBJECT
 
 public:
+    // Claude Generated - Rendering modes for molecular visualization
+    enum class RenderingMode {
+        BallAndStick,    // Default: Atoms as spheres, bonds as cylinders
+        Wireframe,       // Only bonds (thin cylinders)
+        SpaceFilling,    // Van der Waals spheres only
+        SticksOnly       // Thin cylinders for bonds, no atom spheres
+    };
+
+    // Claude Generated - Color schemes for atom coloring
+    enum class ColorScheme {
+        CPK,            // Standard CPK colors (element-based)
+        Monochrome,     // Single color (uniform gray)
+        ByCharge,       // Color by atomic charge (if available)
+        Custom          // User-defined colors
+    };
+
     struct Atom {
         QVector3D position;
         QString element;
+        float charge = 0.0f;  // Claude Generated - for charge-based coloring
     };
 
     struct Bond {
@@ -31,6 +48,25 @@ public:
 
     void addMolecule(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
     void addMolecule(const QVector<Atom>& atoms) { addMolecule(atoms, {}); }
+
+    // Claude Generated - Visual settings setters
+    void setRenderingMode(RenderingMode mode);
+    RenderingMode getRenderingMode() const { return m_renderingMode; }
+
+    void setColorScheme(ColorScheme scheme);
+    ColorScheme getColorScheme() const { return m_colorScheme; }
+
+    void setAtomTransparency(float alpha);  // 0.0 (transparent) to 1.0 (opaque)
+    float getAtomTransparency() const { return m_atomTransparency; }
+
+    void setAtomShininess(float shininess);
+    float getAtomShininess() const { return m_atomShininess; }
+
+    void setAtomScaleFactor(float scale);  // Global atom size multiplier
+    float getAtomScaleFactor() const { return m_atomScaleFactor; }
+
+    void setBondThickness(float thickness);
+    float getBondThickness() const { return m_bondThickness; }
 
     // Frame navigation support for trajectories
     void setFrameCount(int frameCount) { m_frameCount = frameCount; }
@@ -53,6 +89,10 @@ public slots:
     void nextFrame();               // Show next frame
     void previousFrame();           // Show previous frame
 
+    // Claude Generated - Screenshot/Export functionality
+    void saveScreenshot(const QString& filename, int scaleFactor = 1);
+    void saveScreenshotDialog();
+
 signals:
     void frameChanged(int frameIndex);
     void trajectoryLoaded(int frameCount);
@@ -70,8 +110,8 @@ private:
     void setupViewer();
     void clearScene();  // Private implementation
     Qt3DCore::QEntity* createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
-    static QColor getAtomColor(const QString& element);
-    static float getAtomRadius(const QString& element);
+    QColor getAtomColor(const QString& element, float charge = 0.0f);  // Claude Generated - changed to non-static for ColorScheme support
+    float getAtomRadius(const QString& element);  // Claude Generated - changed to non-static for scaling support
 
     static const float DEFAULT_BOND_DISTANCE; // Maximaler Abstand für automatische Bindungserkennung
     QVector<Bond> detectBonds(const QVector<Atom>& atoms);
@@ -84,6 +124,14 @@ private:
     int m_currentFrame = 0;
     QVector<QVector<Atom>> m_trajectoryAtoms;  // Store all frames
     QVector<QVector<Bond>> m_trajectoryBonds;  // Store all frames
+
+    // Claude Generated - Visual settings state
+    RenderingMode m_renderingMode = RenderingMode::BallAndStick;
+    ColorScheme m_colorScheme = ColorScheme::CPK;
+    float m_atomTransparency = 1.0f;      // Fully opaque by default
+    float m_atomShininess = 80.0f;        // Default Phong shininess
+    float m_atomScaleFactor = 1.0f;       // Default: no scaling
+    float m_bondThickness = 0.15f;        // Default bond radius
 
     // Mouse interaction - Claude Generated
     bool m_leftMousePressed = false;

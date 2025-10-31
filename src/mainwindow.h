@@ -88,6 +88,9 @@ private slots:
     void switchEditorTab();
     void saveCurrentEditor();
 
+    // Claude Generated - Visualization settings
+    void openVisualizationSettings();
+
 private:
     void setupUI();
     void createToolbars();
@@ -215,6 +218,15 @@ private:
 
     // Claude Generated - Quick Win: Zoom to fit molecule
     void zoomToMolecule();
+
+    // Claude Generated - Quick Fix: Clear output view
+    void clearOutputView();
+
+    // Claude Generated - Quick Fix: Copy current path to clipboard
+    void copyCurrentPath();
+
+    // Claude Generated - Quick Fix: Show about dialog
+    void showAboutDialog();
 
     // Claude Generated - Visual Polish: Dark mode
     bool m_darkModeEnabled = false;

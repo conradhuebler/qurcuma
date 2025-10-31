@@ -16,9 +16,9 @@
 
 #if NMR_DEBUG
 #include <QDebug>
-#define NMR_LOG(msg) qDebug() << "[NMRDataStore] " << msg
+#define NMR_DATASTORE_LOG(msg) qDebug() << "[NMRDataStore] " << msg
 #else
-#define NMR_LOG(msg)
+#define NMR_DATASTORE_LOG(msg)
 #endif
 
 class NMRDataStore : public QObject {

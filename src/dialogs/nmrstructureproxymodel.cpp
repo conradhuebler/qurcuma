@@ -34,12 +34,12 @@ NMRStructureProxyModel::NMRStructureProxyModel(NMRDataStore* dataStore, QObject*
     // Build the initial model
     rebuildModel();
 
-    NMR_LOG("Proxy model created");
+    NMR_PROXY_LOG("Proxy model created");
 }
 
 NMRStructureProxyModel::~NMRStructureProxyModel()
 {
-    NMR_LOG("Proxy model destroyed");
+    NMR_PROXY_LOG("Proxy model destroyed");
 }
 
 QModelIndex NMRStructureProxyModel::index(int row, int column, const QModelIndex& parent) const
@@ -418,13 +418,13 @@ void NMRStructureProxyModel::setReference(const QModelIndex& index)
 
 void NMRStructureProxyModel::handleDataStoreChanged()
 {
-    NMR_LOG("DataStore changed, rebuilding model");
+    NMR_PROXY_LOG("DataStore changed, rebuilding model");
     rebuildModel();
 }
 
 void NMRStructureProxyModel::handleStructureAdded(int structureIndex)
 {
-    NMR_LOG("Structure added with index: " << structureIndex);
+    NMR_PROXY_LOG("Structure added with index: " << structureIndex);
 
     const NMRDataStore::NMRStructure* structure = m_dataStore->getStructure(structureIndex);
     if (!structure) {
@@ -511,13 +511,13 @@ void NMRStructureProxyModel::handleStructureAdded(int structureIndex)
 
 void NMRStructureProxyModel::handleStructureRemoved(int structureIndex)
 {
-    NMR_LOG("Structure removed with index: " << structureIndex);
+    NMR_PROXY_LOG("Structure removed with index: " << structureIndex);
     rebuildModel(); // Simple approach: just rebuild the entire model
 }
 
 void NMRStructureProxyModel::handleStructureChanged(int structureIndex)
 {
-    NMR_LOG("Structure changed with index: " << structureIndex);
+    NMR_PROXY_LOG("Structure changed with index: " << structureIndex);
 
     TreeItem* structureItem = findStructureItem(structureIndex);
     if (!structureItem) {
@@ -532,7 +532,7 @@ void NMRStructureProxyModel::handleStructureChanged(int structureIndex)
 
 void NMRStructureProxyModel::handleReferenceChanged(int structureIndex)
 {
-    NMR_LOG("Reference changed to structure with index: " << structureIndex);
+    NMR_PROXY_LOG("Reference changed to structure with index: " << structureIndex);
 
     // Update old reference
     for (auto& compoundItem : m_rootItem->children) {

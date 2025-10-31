@@ -11,12 +11,12 @@
 NMRDataStore::NMRDataStore(QObject* parent)
     : QObject(parent)
 {
-    NMR_LOG("DataStore created");
+    NMR_DATASTORE_LOG("DataStore created");
 }
 
 int NMRDataStore::addStructure(const QString& filename, const QString& name)
 {
-    NMR_LOG("Adding structure: " << filename);
+    NMR_DATASTORE_LOG("Adding structure: " << filename);
 
     try {
         // Parse file and create structure
@@ -48,7 +48,7 @@ int NMRDataStore::addStructure(const QString& filename, const QString& name)
 
         return index;
     } catch (const std::exception& e) {
-        NMR_LOG("Error adding structure: " << e.what());
+        NMR_DATASTORE_LOG("Error adding structure: " << e.what());
         throw;
     }
 }
@@ -56,7 +56,7 @@ int NMRDataStore::addStructure(const QString& filename, const QString& name)
 void NMRDataStore::removeStructure(int index)
 {
     if (index < 0 || index >= static_cast<int>(m_structures.size())) {
-        NMR_LOG("Invalid index for removeStructure: " << index);
+        NMR_DATASTORE_LOG("Invalid index for removeStructure: " << index);
         return;
     }
 
@@ -95,7 +95,7 @@ void NMRDataStore::removeStructure(int index)
 void NMRDataStore::setReference(int index)
 {
     if (index < 0 || index >= static_cast<int>(m_structures.size())) {
-        NMR_LOG("Invalid index for setReference: " << index);
+        NMR_DATASTORE_LOG("Invalid index for setReference: " << index);
         return;
     }
 
@@ -111,7 +111,7 @@ void NMRDataStore::setReference(int index)
     // Calculate reference shieldings
     calculateReferenceShieldings();
 
-    NMR_LOG("Set reference to structure at index " << index << ": " << m_structures[index].name);
+    NMR_DATASTORE_LOG("Set reference to structure at index " << index << ": " << m_structures[index].name);
 
     emit referenceChanged(index);
     emit structureChanged(index);
@@ -121,7 +121,7 @@ void NMRDataStore::setReference(int index)
 void NMRDataStore::setStructureVisible(int index, bool visible)
 {
     if (index < 0 || index >= static_cast<int>(m_structures.size())) {
-        NMR_LOG("Invalid index for setStructureVisible: " << index);
+        NMR_DATASTORE_LOG("Invalid index for setStructureVisible: " << index);
         return;
     }
 
@@ -134,7 +134,7 @@ void NMRDataStore::setStructureVisible(int index, bool visible)
 void NMRDataStore::setStructureScaleFactor(int index, double factor)
 {
     if (index < 0 || index >= static_cast<int>(m_structures.size())) {
-        NMR_LOG("Invalid index for setStructureScaleFactor: " << index);
+        NMR_DATASTORE_LOG("Invalid index for setStructureScaleFactor: " << index);
         return;
     }
 
@@ -143,7 +143,7 @@ void NMRDataStore::setStructureScaleFactor(int index, double factor)
 
     m_structures[index].scaleFactor = factor;
 
-    NMR_LOG("Set scale factor for structure " << index << " to " << factor);
+    NMR_DATASTORE_LOG("Set scale factor for structure " << index << " to " << factor);
 
     emit structureChanged(index);
     emit dataChanged();
@@ -156,7 +156,7 @@ void NMRDataStore::setCompoundScaleFactor(const QString& compound, double factor
 
     m_compoundScaleFactors[compound] = factor;
 
-    NMR_LOG("Set scale factor for compound " << compound << " to " << factor);
+    NMR_DATASTORE_LOG("Set scale factor for compound " << compound << " to " << factor);
 
     emit dataChanged();
 }
@@ -173,7 +173,7 @@ double NMRDataStore::getCompoundScaleFactor(const QString& compound) const
 const NMRDataStore::NMRStructure* NMRDataStore::getStructure(int index) const
 {
     if (index < 0 || index >= static_cast<int>(m_structures.size())) {
-        NMR_LOG("Invalid index for getStructure: " << index);
+        NMR_DATASTORE_LOG("Invalid index for getStructure: " << index);
         return nullptr;
     }
 
@@ -183,7 +183,7 @@ const NMRDataStore::NMRStructure* NMRDataStore::getStructure(int index) const
 NMRDataStore::NMRStructure* NMRDataStore::getStructure(int index)
 {
     if (index < 0 || index >= static_cast<int>(m_structures.size())) {
-        NMR_LOG("Invalid index for getStructure: " << index);
+        NMR_DATASTORE_LOG("Invalid index for getStructure: " << index);
         return nullptr;
     }
 
@@ -193,7 +193,7 @@ NMRDataStore::NMRStructure* NMRDataStore::getStructure(int index)
 const NMRDataStore::NMRStructure* NMRDataStore::getReferenceStructure() const
 {
     if (m_referenceIndex < 0 || m_referenceIndex >= static_cast<int>(m_structures.size())) {
-        NMR_LOG("No valid reference structure");
+        NMR_DATASTORE_LOG("No valid reference structure");
         return nullptr;
     }
 
@@ -222,7 +222,7 @@ void NMRDataStore::clearAllStructures()
     m_elementVisibility.clear();
     m_compoundScaleFactors.clear();
 
-    NMR_LOG("All structures cleared");
+    NMR_DATASTORE_LOG("All structures cleared");
 
     emit dataChanged();
 }
@@ -230,7 +230,7 @@ void NMRDataStore::clearAllStructures()
 void NMRDataStore::setNucleusVisible(int structureIndex, const QString& element, int nucleusIndex, bool visible)
 {
     if (structureIndex < 0 || structureIndex >= static_cast<int>(m_structures.size())) {
-        NMR_LOG("Invalid structure index for setNucleusVisible: " << structureIndex);
+        NMR_DATASTORE_LOG("Invalid structure index for setNucleusVisible: " << structureIndex);
         return;
     }
 
@@ -238,7 +238,7 @@ void NMRDataStore::setNucleusVisible(int structureIndex, const QString& element,
     auto elementIt = structure.nuclei.find(element);
 
     if (elementIt == structure.nuclei.end()) {
-        NMR_LOG("Element not found in structure: " << element);
+        NMR_DATASTORE_LOG("Element not found in structure: " << element);
         return;
     }
 
@@ -258,7 +258,7 @@ void NMRDataStore::setNucleusVisible(int structureIndex, const QString& element,
 
 void NMRDataStore::setAllNucleiVisible(const QString& element, bool visible)
 {
-    NMR_LOG("Setting all nuclei of element " << element << " to " << visible);
+    NMR_DATASTORE_LOG("Setting all nuclei of element " << element << " to " << visible);
 
     m_elementVisibility[element] = visible;
 
@@ -351,7 +351,7 @@ QString NMRDataStore::deriveFormula(const NMRStructure& structure) const
         }
     }
 
-    NMR_LOG("Derived formula: " << formula << " for " << structure.name);
+    NMR_DATASTORE_LOG("Derived formula: " << formula << " for " << structure.name);
     return formula;
 }
 
@@ -374,7 +374,7 @@ QStringList NMRDataStore::getAvailableElements() const
 void NMRDataStore::calculateReferenceShieldings()
 {
     if (m_referenceIndex < 0 || m_referenceIndex >= static_cast<int>(m_structures.size())) {
-        NMR_LOG("No valid reference structure for calculating reference shieldings");
+        NMR_DATASTORE_LOG("No valid reference structure for calculating reference shieldings");
         return;
     }
 
@@ -395,7 +395,7 @@ void NMRDataStore::calculateReferenceShieldings()
     // Calculate average shielding per element
     for (auto& [element, shielding] : reference.referenceShieldings) {
         shielding /= count[element];
-        NMR_LOG("Reference shielding for " << element << ": " << shielding);
+        NMR_DATASTORE_LOG("Reference shielding for " << element << ": " << shielding);
     }
 
     // Calculate shifts for all structures
@@ -473,7 +473,7 @@ std::vector<NMRDataStore::ShiftData> NMRDataStore::getAllShifts()
     // Make sure we have a reference
     const NMRStructure* reference = getReferenceStructure();
     if (!reference) {
-        NMR_LOG("No reference structure for getting shifts");
+        NMR_DATASTORE_LOG("No reference structure for getting shifts");
         return allShifts;
     }
 
@@ -587,7 +587,7 @@ void NMRDataStore::sortCompoundConformers(const QString& compound)
             return m_structures[a].energy < m_structures[b].energy;
         });
 
-    NMR_LOG("Sorted " << conformerIndices.size() << " conformers of compound " << compound);
+    NMR_DATASTORE_LOG("Sorted " << conformerIndices.size() << " conformers of compound " << compound);
 
     // Note: Since we can't reorder the m_structures vector without invalidating pointers,
     // we just notify that the compound has been sorted, and the UI model will need to update
@@ -650,7 +650,7 @@ bool NMRDataStore::isConformation(const NMRStructure& str1, const NMRStructure& 
 
 NMRDataStore::NMRStructure NMRDataStore::parseOrcaOutput(const QString& filename, const QString& name) const
 {
-    NMR_LOG("Parsing ORCA output file: " << filename);
+    NMR_DATASTORE_LOG("Parsing ORCA output file: " << filename);
 
     NMRStructure structure;
     structure.name = name;
@@ -659,7 +659,7 @@ NMRDataStore::NMRStructure NMRDataStore::parseOrcaOutput(const QString& filename
 
     QFile file(filename);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        NMR_LOG("Failed to open file: " << filename);
+        NMR_DATASTORE_LOG("Failed to open file: " << filename);
         throw std::runtime_error("Datei konnte nicht geöffnet werden");
     }
 
@@ -668,12 +668,12 @@ NMRDataStore::NMRStructure NMRDataStore::parseOrcaOutput(const QString& filename
 
     // Extract energy
     structure.energy = extractEnergy(content);
-    NMR_LOG("Extracted energy: " << structure.energy);
+    NMR_DATASTORE_LOG("Extracted energy: " << structure.energy);
 
     // Parse NMR shieldings
     parseNMRShieldings(content, structure);
 
-    NMR_LOG("Parsing completed successfully");
+    NMR_DATASTORE_LOG("Parsing completed successfully");
     return structure;
 }
 
@@ -684,7 +684,7 @@ void NMRDataStore::parseNMRShieldings(const QString& content, NMRStructure& stru
 
     auto headerMatch = headerRx.match(content);
     if (!headerMatch.hasMatch()) {
-        NMR_LOG("Failed to find NMR shielding data in file");
+        NMR_DATASTORE_LOG("Failed to find NMR shielding data in file");
         throw std::runtime_error("NMR Daten nicht gefunden");
     }
 
@@ -703,10 +703,10 @@ void NMRDataStore::parseNMRShieldings(const QString& content, NMRStructure& stru
         nucleus.anisotropy = anisotropy;
 
         structure.nuclei[element].push_back(nucleus);
-        NMR_LOG("Added shielding: " << element << "_" << nucleusIndex << " = " << shielding);
+        NMR_DATASTORE_LOG("Added shielding: " << element << "_" << nucleusIndex << " = " << shielding);
     }
 
-    NMR_LOG("Found " << structure.nuclei.size() << " elements with shieldings");
+    NMR_DATASTORE_LOG("Found " << structure.nuclei.size() << " elements with shieldings");
 }
 
 double NMRDataStore::extractEnergy(const QString& content) const
@@ -717,6 +717,6 @@ double NMRDataStore::extractEnergy(const QString& content) const
         return match.captured(1).toDouble();
     }
 
-    NMR_LOG("Failed to extract energy from file");
+    NMR_DATASTORE_LOG("Failed to extract energy from file");
     throw std::runtime_error("Energie nicht gefunden");
 }

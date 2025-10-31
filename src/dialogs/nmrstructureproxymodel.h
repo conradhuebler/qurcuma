@@ -15,9 +15,9 @@ class NMRDataStore;
 
 #if NMR_DEBUG
 #include <QDebug>
-#define NMR_LOG(msg) qDebug() << "[NMRProxyModel] " << msg
+#define NMR_PROXY_LOG(msg) qDebug() << "[NMRProxyModel] " << msg
 #else
-#define NMR_LOG(msg)
+#define NMR_PROXY_LOG(msg)
 #endif
 
 class NMRStructureProxyModel : public QAbstractItemModel {

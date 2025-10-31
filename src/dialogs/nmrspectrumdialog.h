@@ -12,9 +12,9 @@
 
 #if NMR_DEBUG
 #include <QDebug>
-#define NMR_LOG(msg) qDebug() << "[NMRSpectrumDialog] " << msg
+#define NMR_DIALOG_LOG(msg) qDebug() << "[NMRSpectrumDialog] " << msg
 #else
-#define NMR_LOG(msg)
+#define NMR_DIALOG_LOG(msg)
 #endif
 
 class QLineEdit;

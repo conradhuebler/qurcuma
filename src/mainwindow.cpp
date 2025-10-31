@@ -36,9 +36,10 @@
 
 #include <QFile>
 #include <QTextStream>
-#include <QString>  
+#include <QString>
 #include "view.h"
 #include "frequencydialog.h"
+#include "visualizationsettingsdialog.h"
 
 #include "dialogs/nmrspectrumdialog.h"
 #include "mainwindow.h"
@@ -48,6 +49,9 @@ MainWindow::MainWindow(QWidget *parent)
 {
     // Claude Generated - Initialize m_currentProcess first (needed by setupConnections)
     m_currentProcess = new QProcess(this);
+
+    // Claude Generated - Quick Fix: Set window title and version
+    setWindowTitle("Qurcuma 1.0 - Molecular Visualization");
 
     setupUI();
     createToolbars();
@@ -184,11 +188,24 @@ void MainWindow::setupUI()
     m_newCalculationButton->setIconSize(QSize(16, 16));
     middleLayout->addWidget(m_newCalculationButton);
 
+    // Claude Generated - Quick Fix: Project label with copy button
+    QWidget* pathWidget = new QWidget;
+    QHBoxLayout* pathLayout = new QHBoxLayout(pathWidget);
+    pathLayout->setContentsMargins(0, 0, 0, 0);
+
     m_currentProjectLabel = new QLabel(m_currentCalculationDir);
     m_currentProjectLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_currentProjectLabel->setWordWrap(true);
+    m_currentProjectLabel->setWordWrap(false);
+    pathLayout->addWidget(m_currentProjectLabel);
 
-    middleLayout->addWidget(m_currentProjectLabel);
+    QPushButton* copyPathButton = new QPushButton;
+    copyPathButton->setIcon(QIcon::fromTheme("edit-copy"));
+    copyPathButton->setToolTip(tr("Copy current path to clipboard"));
+    copyPathButton->setMaximumWidth(30);
+    connect(copyPathButton, &QPushButton::clicked, this, &MainWindow::copyCurrentPath);
+    pathLayout->addWidget(copyPathButton);
+
+    middleLayout->addWidget(pathWidget);
 
     // Claude Generated - Phase 3.3: Visual state indicators
     QWidget* stateWidget = new QWidget;
@@ -375,12 +392,20 @@ void MainWindow::setupUI()
     frameControlLayout->addWidget(m_frameJumpBox);
 
     frameControlLayout->addStretch();
-    
+
     // Add View Navigation Buttons
     QPushButton *resetViewButton = new QPushButton("Reset View");
     resetViewButton->setMaximumWidth(80);
     frameControlLayout->addWidget(resetViewButton);
-    
+
+    // Claude Generated - Screenshot button
+    QPushButton *screenshotButton = new QPushButton;
+    screenshotButton->setIcon(QIcon::fromTheme("camera-photo"));
+    screenshotButton->setToolTip(tr("Save Screenshot"));
+    screenshotButton->setMaximumWidth(30);
+    connect(screenshotButton, &QPushButton::clicked, m_moleculeView, &MoleculeViewer::saveScreenshotDialog);
+    frameControlLayout->addWidget(screenshotButton);
+
     structureViewerLayout->addLayout(frameControlLayout);
     
     editorTabs->addTab(structureViewerWidget, QIcon::fromTheme("document-import"), tr("Structure Viewer"));
@@ -403,11 +428,33 @@ void MainWindow::setupUI()
 
     rightLayout->addWidget(editorTabs);
 
-    // Output view (read-only)
+    // Output view (read-only) with clear button
+    // Claude Generated - Quick Fix: Output view with clear button
+    QWidget* outputWidget = new QWidget;
+    QVBoxLayout* outputLayout = new QVBoxLayout(outputWidget);
+    outputLayout->setContentsMargins(0, 0, 0, 0);
+
+    QHBoxLayout* outputHeaderLayout = new QHBoxLayout;
+    QLabel* outputLabel = new QLabel(tr("Output"));
+    outputLabel->setStyleSheet("font-weight: bold;");
+    outputHeaderLayout->addWidget(outputLabel);
+    outputHeaderLayout->addStretch();
+
+    QPushButton* clearOutputButton = new QPushButton;
+    clearOutputButton->setIcon(QIcon::fromTheme("edit-clear"));
+    clearOutputButton->setToolTip(tr("Clear output (Ctrl+L)"));
+    clearOutputButton->setMaximumWidth(30);
+    connect(clearOutputButton, &QPushButton::clicked, this, &MainWindow::clearOutputView);
+    outputHeaderLayout->addWidget(clearOutputButton);
+
+    outputLayout->addLayout(outputHeaderLayout);
+
     m_outputView = new QTextEdit;
     m_outputView->setPlaceholderText("Output");
     m_outputView->setReadOnly(true);
-    rightLayout->addWidget(m_outputView);
+    outputLayout->addWidget(m_outputView);
+
+    rightLayout->addWidget(outputWidget);
 
     // Shortcut for toggling left panel (Ctrl+B)
     QShortcut* toggleLeftPanelShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_B), this);
@@ -643,8 +690,19 @@ void MainWindow::createMenus()
     connect(m_darkModeAction, &QAction::triggered, this, &MainWindow::toggleDarkMode);
 
     settingsMenu->addSeparator();
+
+    // Claude Generated - Visualization Settings
+    QAction *visSettingsAction = settingsMenu->addAction(QIcon::fromTheme("preferences-desktop"), tr("&Visualization Settings..."));
+    connect(visSettingsAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
+
+    settingsMenu->addSeparator();
     QAction *configAction = settingsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure Programs..."));
     connect(configAction, &QAction::triggered, this, &MainWindow::configurePrograms);
+
+    // Help Menu - Claude Generated - Quick Fix: About dialog
+    QMenu *helpMenu = menuBar->addMenu(tr("&Help"));
+    QAction *aboutAction = helpMenu->addAction(tr("&About Qurcuma"));
+    connect(aboutAction, &QAction::triggered, this, &MainWindow::showAboutDialog);
 
     // Statusleiste
     setStatusBar(new QStatusBar);
@@ -954,6 +1012,10 @@ void MainWindow::setupShortcuts()
 
     // Claude Generated - Quick Win: Zoom to fit molecule (Home key)
     new QShortcut(Qt::Key_Home, this, SLOT(zoomToMolecule()));
+
+    // Claude Generated - Quick Fix: Additional shortcuts
+    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_L), this, SLOT(clearOutputView()));  // Ctrl+L
+    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_0), this, SLOT(zoomToMolecule()));   // Ctrl+0
 }
 
 void MainWindow::setupProjectViewContextMenu()
@@ -2240,6 +2302,53 @@ void MainWindow::zoomToMolecule()
         m_moleculeView->resetViewToMolecule();
         statusBar()->showMessage(tr("Zoomed to fit molecule"), 1500);
     }
+}
+
+// Claude Generated - Quick Fix: Clear output view
+void MainWindow::clearOutputView()
+{
+    m_outputView->clear();
+    statusBar()->showMessage(tr("Output cleared"), 1500);
+}
+
+// Claude Generated - Quick Fix: Copy current path to clipboard
+void MainWindow::copyCurrentPath()
+{
+    QString fullPath = m_workingDirectory + QDir::separator() + m_currentCalculationDir;
+    QClipboard* clipboard = QApplication::clipboard();
+    clipboard->setText(fullPath);
+    statusBar()->showMessage(tr("Path copied to clipboard: %1").arg(fullPath), 3000);
+}
+
+// Claude Generated - Visualization Settings Dialog
+void MainWindow::openVisualizationSettings()
+{
+    if (!m_moleculeView) {
+        QMessageBox::warning(this, tr("No Viewer"), tr("Molecule viewer is not available."));
+        return;
+    }
+
+    VisualizationSettingsDialog* dialog = new VisualizationSettingsDialog(m_moleculeView, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->show();
+}
+
+// Claude Generated - Quick Fix: Show about dialog
+void MainWindow::showAboutDialog()
+{
+    QMessageBox aboutBox(this);
+    aboutBox.setWindowTitle(tr("About Qurcuma"));
+    aboutBox.setIcon(QMessageBox::Information);
+    aboutBox.setText(tr("Qurcuma 1.0"));
+    aboutBox.setInformativeText(
+        tr("Interactive molecular visualization for computational chemistry\n\n"
+           "A Qt-based GUI for visualizing molecular structures and trajectories "
+           "from quantum chemistry simulations.\n\n"
+           "Supports: VTF, XYZ file formats"));
+    aboutBox.setDetailedText(
+        tr("Built with Qt %1\n"
+           "Copyright 2025").arg(QT_VERSION_STR));
+    aboutBox.exec();
 }
 
 // Claude Generated - Phase 4.1: Enhanced error dialog with optional fix action
