@@ -68,6 +68,12 @@ public:
     void setBondThickness(float thickness);
     float getBondThickness() const { return m_bondThickness; }
 
+    // Claude Generated - Fog/Depth effect
+    void setFogEnabled(bool enabled);
+    bool getFogEnabled() const { return m_fogEnabled; }
+    void setFogIntensity(float intensity);
+    float getFogIntensity() const { return m_fogIntensity; }
+
     // Frame navigation support for trajectories
     void setFrameCount(int frameCount) { m_frameCount = frameCount; }
     int getFrameCount() const { return m_frameCount; }
@@ -93,6 +99,18 @@ public slots:
     void saveScreenshot(const QString& filename, int scaleFactor = 1);
     void saveScreenshotDialog();
 
+    // Claude Generated - Trajectory animation
+    void startAnimation();
+    void stopAnimation();
+    void setAnimationFPS(int fps);
+    int getAnimationFPS() const { return m_animationFPS; }
+    void setAnimationLoop(bool loop) { m_animationLoop = loop; }
+
+    // Claude Generated - Atom selection and measurement
+    void clearSelection();
+    const QVector<int>& getSelectedAtoms() const { return m_selectedAtoms; }
+    void setMeasurementMode(int mode);  // 0=None, 1=Distance, 2=Angle
+
 signals:
     void frameChanged(int frameIndex);
     void trajectoryLoaded(int frameCount);
@@ -103,12 +121,17 @@ public:
 private:
     Qt3DExtras::Qt3DWindow *m_view;
     QWidget *m_container;
+    QWidget *m_controlPanel;  // Claude Generated - Integrated control panel
     Qt3DCore::QEntity *m_rootEntity;
     Qt3DRender::QCamera *m_camera;
     Qt3DExtras::QOrbitCameraController *m_cameraController;
 
     void setupViewer();
+    void setupControlPanel();  // Claude Generated - Setup integrated control panel
     void clearScene();  // Private implementation
+    void onAnimationTick();  // Claude Generated - Timer callback for animation
+    void updateMeasurementDisplay();  // Claude Generated - Update distance/angle display
+    void refreshVisualization();  // Claude Generated - Refresh without camera reset
     Qt3DCore::QEntity* createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
     QColor getAtomColor(const QString& element, float charge = 0.0f);  // Claude Generated - changed to non-static for ColorScheme support
     float getAtomRadius(const QString& element);  // Claude Generated - changed to non-static for scaling support
@@ -132,6 +155,18 @@ private:
     float m_atomShininess = 80.0f;        // Default Phong shininess
     float m_atomScaleFactor = 1.0f;       // Default: no scaling
     float m_bondThickness = 0.15f;        // Default bond radius
+    bool m_fogEnabled = false;            // Fog effect off by default
+    float m_fogIntensity = 0.5f;          // Fog intensity 0-1
+
+    // Claude Generated - Animation state
+    QTimer *m_animationTimer = nullptr;
+    bool m_isAnimating = false;
+    int m_animationFPS = 10;
+    bool m_animationLoop = true;
+
+    // Claude Generated - Selection and measurement state
+    QVector<int> m_selectedAtoms;
+    int m_measurementMode = 0;  // 0=None, 1=Distance, 2=Angle
 
     // Mouse interaction - Claude Generated
     bool m_leftMousePressed = false;
