@@ -204,4 +204,20 @@ private:
     // Claude Generated - Quick Win: Recent files
     QMenu* m_recentFilesMenu = nullptr;
     QStringList m_recentFiles;
+
+    // Claude Generated - Quick Win: Auto-save drafts
+    QTimer* m_autoSaveTimer = nullptr;
+    void autoSaveDrafts();
+    void loadDrafts();
+
+    // Claude Generated - Quick Win: Copy/Paste structures
+    void pasteStructureFromClipboard();
+
+    // Claude Generated - Quick Win: Zoom to fit molecule
+    void zoomToMolecule();
+
+protected:
+    // Claude Generated - Quick Win: Drag & Drop support
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 };

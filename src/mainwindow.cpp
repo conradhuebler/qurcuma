@@ -1,11 +1,16 @@
 #include "settings.h"
 #include <QApplication>
+#include <QClipboard>
 #include <QCheckBox>
 #include <QCompleter>
 #include <QDateTime>
 #include <QDialogButtonBox>
 #include <QDirIterator>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFileDialog>
+#include <QFileInfo>
+#include <QMimeData>
 #include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -20,6 +25,7 @@
 #include <QRegularExpression>
 #include <QScrollBar>
 #include <QShortcut>
+#include <QStandardPaths>
 #include <QStatusBar>
 #include <QStringListModel>
 #include <QSysInfo>
@@ -48,6 +54,7 @@ MainWindow::MainWindow(QWidget *parent)
     createMenus();
     setupConnections();
     setupShortcuts();  // Claude Generated - Phase 1.2
+    loadDrafts();      // Claude Generated - Quick Win: Auto-save drafts
 
     m_nmrDialog = new NMRSpectrumDialog(this);
     m_vtfParser = new VTFParser();
@@ -74,6 +81,9 @@ MainWindow::~MainWindow()
 
 void MainWindow::setupUI()
 {
+    // Claude Generated - Quick Win: Enable drag and drop
+    setAcceptDrops(true);
+
     // Create main widget
     QWidget *centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
@@ -899,6 +909,14 @@ void MainWindow::setupConnections()
             switchWorkingDirectory(dir);
         }
     });
+
+    // Claude Generated - Quick Win: Auto-save drafts timer
+    m_autoSaveTimer = new QTimer(this);
+    connect(m_autoSaveTimer, &QTimer::timeout, this, &MainWindow::autoSaveDrafts);
+    m_autoSaveTimer->start(30000);  // Auto-save every 30 seconds
+
+    // Claude Generated - Quick Win: Copy/Paste structures shortcut
+    new QShortcut(QKeySequence::Paste, this, SLOT(pasteStructureFromClipboard()));
 }
 
 void MainWindow::setupShortcuts()
@@ -910,6 +928,9 @@ void MainWindow::setupShortcuts()
     new QShortcut(QKeySequence::Save, this, SLOT(saveCurrentEditor()));
     new QShortcut(Qt::Key_Escape, this, SLOT(cancelCalculation()));
     new QShortcut(QKeySequence::NextChild, this, SLOT(switchEditorTab()));  // Ctrl+Tab
+
+    // Claude Generated - Quick Win: Zoom to fit molecule (Home key)
+    new QShortcut(Qt::Key_Home, this, SLOT(zoomToMolecule()));
 }
 
 void MainWindow::setupProjectViewContextMenu()
@@ -2123,6 +2144,81 @@ void MainWindow::saveCurrentEditor()
     }
 }
 
+// Claude Generated - Quick Win: Auto-save drafts
+void MainWindow::autoSaveDrafts()
+{
+    // Create drafts directory if needed
+    QString draftsDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/drafts";
+    QDir().mkpath(draftsDir);
+
+    // Save structure editor
+    if (m_structureView->document()->isModified()) {
+        QFile structDraft(draftsDir + "/structure.draft");
+        if (structDraft.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            structDraft.write(m_structureView->toPlainText().toUtf8());
+            structDraft.close();
+        }
+    }
+
+    // Save input editor
+    if (m_inputView->document()->isModified()) {
+        QFile inputDraft(draftsDir + "/input.draft");
+        if (inputDraft.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            inputDraft.write(m_inputView->toPlainText().toUtf8());
+            inputDraft.close();
+        }
+    }
+}
+
+void MainWindow::loadDrafts()
+{
+    QString draftsDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/drafts";
+
+    // Load structure draft
+    QFile structDraft(draftsDir + "/structure.draft");
+    if (structDraft.exists() && structDraft.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        m_structureView->setPlainText(QString::fromUtf8(structDraft.readAll()));
+        structDraft.close();
+    }
+
+    // Load input draft
+    QFile inputDraft(draftsDir + "/input.draft");
+    if (inputDraft.exists() && inputDraft.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        m_inputView->setPlainText(QString::fromUtf8(inputDraft.readAll()));
+        inputDraft.close();
+    }
+}
+
+// Claude Generated - Quick Win: Copy/Paste structures
+void MainWindow::pasteStructureFromClipboard()
+{
+    QClipboard* clipboard = QApplication::clipboard();
+    QString clipboardText = clipboard->text();
+
+    if (clipboardText.isEmpty()) {
+        statusBar()->showMessage(tr("Clipboard is empty"), 2000);
+        return;
+    }
+
+    // Check if clipboard contains structure data (basic heuristic)
+    if (clipboardText.contains(QRegularExpression("^\\s*\\d+\\s*$", QRegularExpression::MultilineOption)) ||
+        clipboardText.contains("xyz") || clipboardText.contains("atom") || clipboardText.contains("C H O N")) {
+        m_structureView->setPlainText(clipboardText);
+        statusBar()->showMessage(tr("Structure pasted from clipboard"), 2000);
+    } else {
+        statusBar()->showMessage(tr("Clipboard content doesn't look like a structure file"), 2000);
+    }
+}
+
+// Claude Generated - Quick Win: Zoom to fit molecule
+void MainWindow::zoomToMolecule()
+{
+    if (m_moleculeView) {
+        m_moleculeView->resetViewToMolecule();
+        statusBar()->showMessage(tr("Zoomed to fit molecule"), 1500);
+    }
+}
+
 // Claude Generated - Phase 4.1: Enhanced error dialog with optional fix action
 void MainWindow::showEnhancedError(const QString& title, const QString& problem,
                                    const QString& solution, std::function<void()> actionCallback)
@@ -2192,5 +2288,55 @@ void MainWindow::updateWorkflowState(WorkflowState state)
     if (m_stateIcon && m_stateIndicator) {
         m_stateIcon->setStyleSheet(QString("color: %1; font-size: 14px;").arg(stateColor));
         m_stateIndicator->setText(stateMessage);
+    }
+}
+
+// Claude Generated - Quick Win: Drag & Drop support
+void MainWindow::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (event->mimeData()->hasUrls() || event->mimeData()->hasText()) {
+        event->acceptProposedAction();
+    }
+}
+
+void MainWindow::dropEvent(QDropEvent *event)
+{
+    const QMimeData *mimeData = event->mimeData();
+
+    // Handle dropped files (directories or structure files)
+    if (mimeData->hasUrls()) {
+        QList<QUrl> urls = mimeData->urls();
+        for (const QUrl &url : urls) {
+            QString path = url.toLocalFile();
+            QFileInfo info(path);
+
+            // If it's a directory, switch to it
+            if (info.isDir()) {
+                switchWorkingDirectory(path);
+                addToRecentFiles(path);
+                event->acceptProposedAction();
+                return;
+            }
+            // If it's a structure file, load it
+            else if (info.suffix() == "xyz" || info.suffix() == "mol" || info.suffix() == "pdb") {
+                QFile file(path);
+                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
+                    file.close();
+                    statusBar()->showMessage(tr("Structure loaded from: %1").arg(info.fileName()), 3000);
+                    event->acceptProposedAction();
+                    return;
+                }
+            }
+        }
+    }
+    // Handle dropped text (structure data)
+    else if (mimeData->hasText()) {
+        QString text = mimeData->text();
+        if (!text.isEmpty()) {
+            m_structureView->setPlainText(text);
+            statusBar()->showMessage(tr("Structure pasted from drop"), 2000);
+            event->acceptProposedAction();
+        }
     }
 }
