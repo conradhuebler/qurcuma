@@ -21,6 +21,7 @@
 #include <QProcess>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QProgressDialog>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QString>
@@ -29,8 +30,10 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <functional>
 
 #include "dialogs/nmrspectrumdialog.h"
+#include "modifiabletextedit.h"
 class MoleculeViewer;
 
 
@@ -51,6 +54,15 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
+    // Claude Generated - Phase 2.2: Workflow state management
+    enum class WorkflowState {
+        NoDirectory,          // No calculation directory selected
+        DirectoryReady,       // Directory exists, can edit files
+        CalculationRunning,   // Process executing
+        CalculationComplete,  // Process finished successfully
+        CalculationError      // Process failed
+    };
+
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
@@ -71,17 +83,27 @@ private slots:
     void onNextFrame();
     void onFrameSliderChanged(int value);
 
+    // Keyboard shortcuts - Claude Generated Phase 1.2
+    void cancelCalculation();
+    void switchEditorTab();
+    void saveCurrentEditor();
+
 private:
     void setupUI();
     void createToolbars();
     void createMenus();
     void setupProjectViewContextMenu();
     void setupConnections();
+    void setupShortcuts();  // Claude Generated - Phase 1.2
     void loadSettings();
     bool checkProgramPath(const QString &program);
 
     bool setupCalculationDirectory();
     void updateOutputView(const QString& logFile, bool scrollToBottom = false);
+
+    // Claude Generated - Phase 4.1: Enhanced error dialog
+    void showEnhancedError(const QString& title, const QString& problem, const QString& solution,
+                          std::function<void()> actionCallback = nullptr);
 
     void createNewDirectory();
     void setupProgramSpecificDirectory(const QString &dirPath, const QString &program);
@@ -119,6 +141,7 @@ private:
 
     void updatePathLabel(const QString& path);
     void toggleLeftPanel();
+    void updateWorkflowState(WorkflowState state);  // Claude Generated - Phase 2.2
 
     QListWidget* m_bookmarkListView;
     QListView* m_projectListView;
@@ -127,8 +150,8 @@ private:
     QLineEdit *m_inputFileEdit, *m_inputFileEditExtension;
     QLineEdit *m_structureFileEdit, *m_structureFileEditExtension;
     QComboBox* m_programSelector;
-    QTextEdit* m_structureView;
-    QTextEdit* m_inputView;
+    ModifiableTextEdit* m_structureView;  // Claude Generated - Phase 2.3
+    ModifiableTextEdit* m_inputView;      // Claude Generated - Phase 2.3
     QTextEdit* m_outputView;
     QPushButton *m_newCalculationButton, *m_chooseDirectory, *m_runCalculation;
     QCheckBox* m_uniqueFileNames;
@@ -142,6 +165,8 @@ private:
     QToolButton* m_bookmarkButton;
     QSplitter* m_splitter;
     QLabel *m_currentPathLabel, *m_currentProjectLabel;
+    // Claude Generated - Phase 3.3: Visual state indicators
+    QLabel *m_stateIcon, *m_stateIndicator;
     MoleculeViewer *m_moleculeView;
     NMRSpectrumDialog* m_nmrDialog;
 
@@ -154,8 +179,14 @@ private:
     QStringList m_simulationPrograms{ "curcuma", "orca", "xtb" };
     QStringList m_visualizerPrograms{ "iboview", "avogadro" };
 
-    QString m_workingDirectory;    
+    QString m_workingDirectory;
     QString m_currentCalculationDir; // Aktuelles Berechnungsverzeichnis
     int m_lastLeftPanelWidth = 0;
     QVector<QPair<int, double>> m_frequencies;
+
+    // Claude Generated - Phase 2.2: Workflow state
+    WorkflowState m_workflowState = WorkflowState::NoDirectory;
+
+    // Claude Generated - Phase 1.3: Progress dialog for calculations
+    QProgressDialog* m_progressDialog = nullptr;
 };

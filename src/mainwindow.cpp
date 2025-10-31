@@ -47,6 +47,7 @@ MainWindow::MainWindow(QWidget *parent)
     createToolbars();
     createMenus();
     setupConnections();
+    setupShortcuts();  // Claude Generated - Phase 1.2
 
     m_nmrDialog = new NMRSpectrumDialog(this);
     m_vtfParser = new VTFParser();
@@ -92,8 +93,8 @@ void MainWindow::setupUI()
     QHBoxLayout* currentDirLayout = new QHBoxLayout(currentDirWidget);
     currentDirLayout->setContentsMargins(0, 0, 0, 0);
 
-    // Directory icon
-    m_chooseDirectory = new QPushButton(tr("Select Directory"));
+    // Directory icon - Claude Generated Phase 2.1
+    m_chooseDirectory = new QPushButton(tr("Choose Working Directory"));
     m_chooseDirectory->setIcon(QIcon::fromTheme("folder-open", QIcon(":/icons/folder.png")));
     currentDirLayout->addWidget(m_chooseDirectory);
 
@@ -119,8 +120,10 @@ void MainWindow::setupUI()
     leftLayout->addWidget(line1);
 
     // Directory content section
-    QLabel* dirListLabel = new QLabel(tr("Directory Content"));
+    // Claude Generated - Phase 3.1: Renamed for clarity and added tooltip
+    QLabel* dirListLabel = new QLabel(tr("Calculation Directories"));
     dirListLabel->setStyleSheet("font-weight: bold;");
+    dirListLabel->setToolTip(tr("Subdirectories for individual calculations"));
     leftLayout->addWidget(dirListLabel);
 
     // Project list view setup
@@ -156,8 +159,9 @@ void MainWindow::setupUI()
     QWidget *middleWidget = new QWidget;
     QVBoxLayout *middleLayout = new QVBoxLayout(middleWidget);
 
-    // Make new calculation button and create directory
-    m_newCalculationButton = new QPushButton(tr("New Calculation"));
+    // Make new calculation button and create directory - Claude Generated Phase 2.1
+    m_newCalculationButton = new QPushButton(tr("Create Calculation Directory"));
+    m_newCalculationButton->setToolTip(tr("Create a new calculation directory (Ctrl+N)"));
     middleLayout->addWidget(m_newCalculationButton);
 
     m_currentProjectLabel = new QLabel(m_currentCalculationDir);
@@ -165,6 +169,22 @@ void MainWindow::setupUI()
     m_currentProjectLabel->setWordWrap(true);
 
     middleLayout->addWidget(m_currentProjectLabel);
+
+    // Claude Generated - Phase 3.3: Visual state indicators
+    QWidget* stateWidget = new QWidget;
+    QHBoxLayout* stateLayout = new QHBoxLayout(stateWidget);
+    stateLayout->setContentsMargins(0, 0, 0, 0);
+
+    m_stateIcon = new QLabel("●");
+    m_stateIcon->setStyleSheet("color: grey; font-size: 14px;");
+    m_stateIcon->setFixedWidth(20);
+    stateLayout->addWidget(m_stateIcon);
+
+    m_stateIndicator = new QLabel(tr("No directory selected"));
+    stateLayout->addWidget(m_stateIndicator);
+    stateLayout->addStretch();
+
+    middleLayout->addWidget(stateWidget);
 
     // Setup directory content view for files
     m_directoryContentView = new QListView;
@@ -195,6 +215,7 @@ void MainWindow::setupUI()
     QHBoxLayout *programLayout = new QHBoxLayout;
     m_programSelector = new QComboBox;
     m_programSelector->addItems(m_simulationPrograms);
+    m_programSelector->setToolTip(tr("Choose computational chemistry program"));
     programLayout->addWidget(new QLabel(tr("Program:")));
     programLayout->addWidget(m_programSelector);
     rightLayout->addLayout(programLayout);
@@ -203,6 +224,7 @@ void MainWindow::setupUI()
     QHBoxLayout *commandLayout = new QHBoxLayout;
     m_commandInput = new QLineEdit;
     m_commandInput->setPlaceholderText("Enter command...");
+    m_commandInput->setToolTip(tr("Enter program-specific command arguments"));
 
     m_commandCompleter = new QCompleter(this);
     m_commandCompleter->setCaseSensitivity(Qt::CaseInsensitive);
@@ -213,13 +235,14 @@ void MainWindow::setupUI()
     m_threads = new QSpinBox;
     m_threads->setRange(1, QThread::idealThreadCount());
     m_threads->setValue(1);
-    m_threads->setToolTip(tr("Number of threads to use"));
+    m_threads->setToolTip(tr("Number of parallel threads for calculation"));
 
     m_uniqueFileNames = new QCheckBox(tr("Unique file names"));
-    m_uniqueFileNames->setToolTip(tr("Generate unique file names for each calculation"));
+    m_uniqueFileNames->setToolTip(tr("Append timestamp to output filenames"));
 
-    // Run calculation button
-    m_runCalculation = new QPushButton(tr("Run calculation"));
+    // Run calculation button - Claude Generated Phase 2.1
+    m_runCalculation = new QPushButton(tr("Start Calculation"));
+    m_runCalculation->setToolTip(tr("Start calculation with selected program (Ctrl+R)"));
 
     commandLayout->addWidget(m_commandInput, 3);
     commandLayout->addWidget(m_threads);
@@ -237,13 +260,14 @@ void MainWindow::setupUI()
     QHBoxLayout *structureFileLayout = new QHBoxLayout;
     structureFileLayout->addWidget(new QLabel(tr("Structure file:")));
     m_structureFileEdit = new QLineEdit("input"); // Default name
+    m_structureFileEdit->setToolTip(tr("Base name for structure file"));
     m_structureFileEditExtension = new QLineEdit("xyz");
     structureFileLayout->addWidget(m_structureFileEdit);
     structureFileLayout->addWidget(m_structureFileEditExtension);
     structureLayout->addLayout(structureFileLayout);
 
-    // Structure editor
-    m_structureView = new QTextEdit;
+    // Structure editor - Claude Generated Phase 2.3
+    m_structureView = new ModifiableTextEdit;
     m_structureView->setPlaceholderText("Structure data");
     structureLayout->addWidget(m_structureView);
 
@@ -252,17 +276,18 @@ void MainWindow::setupUI()
     // Input tab
     QWidget *inputTab = new QWidget;
     QVBoxLayout *inputLayout = new QVBoxLayout(inputTab);
-    
+
     QHBoxLayout *inputFileLayout = new QHBoxLayout;
     inputFileLayout->addWidget(new QLabel(tr("Input file:")));
     m_inputFileEdit = new QLineEdit("input"); // Default name
+    m_inputFileEdit->setToolTip(tr("Base name for input file"));
     m_inputFileEditExtension = new QLineEdit("");
     inputFileLayout->addWidget(m_inputFileEdit);
     inputFileLayout->addWidget(m_inputFileEditExtension);
     inputLayout->addLayout(inputFileLayout);
 
-    // Input editor
-    m_inputView = new QTextEdit;
+    // Input editor - Claude Generated Phase 2.3
+    m_inputView = new ModifiableTextEdit;
     m_inputView->setPlaceholderText("Input data");
     inputLayout->addWidget(m_inputView);
 
@@ -286,19 +311,23 @@ void MainWindow::setupUI()
     
     frameControlLayout->addWidget(new QLabel(tr("Frame:")));
     
+    // Claude Generated - Phase 3.2: Frame navigation tooltips
     QPushButton *prevFrameButton = new QPushButton("◀");
     prevFrameButton->setMaximumWidth(30);
+    prevFrameButton->setToolTip(tr("Previous Frame"));
     frameControlLayout->addWidget(prevFrameButton);
-    
+
     m_frameSlider = new QSlider(Qt::Horizontal);
     m_frameSlider->setMinimum(0);
     m_frameSlider->setMaximum(0);  // Will be updated when trajectory is loaded
     m_frameSlider->setValue(0);
     m_frameSlider->setEnabled(false);  // Disabled by default
+    m_frameSlider->setToolTip(tr("Navigate through trajectory frames"));
     frameControlLayout->addWidget(m_frameSlider);
-    
+
     QPushButton *nextFrameButton = new QPushButton("▶");
     nextFrameButton->setMaximumWidth(30);
+    nextFrameButton->setToolTip(tr("Next Frame"));
     frameControlLayout->addWidget(nextFrameButton);
     
     m_frameLabel = new QLabel("0 / 0");
@@ -373,8 +402,8 @@ void MainWindow::setupContextMenu()
                 fileNameAction->setEnabled(false);
                 contextMenu.addSeparator();
                 
-                QAction *avogadroAction = contextMenu.addAction(tr("Mit Avogadro öffnen"));
-                QAction *iboviewAction = contextMenu.addAction(tr("Mit IboView öffnen"));
+                QAction *avogadroAction = contextMenu.addAction(tr("Open with Avogadro"));
+                QAction *iboviewAction = contextMenu.addAction(tr("Open with IboView"));
 
                 connect(avogadroAction, &QAction::triggered,
                     [this, filePath]() { openWithVisualizer(filePath, "avogadro"); });
@@ -391,7 +420,7 @@ void MainWindow::setupContextMenu()
                 fileNameAction->setEnabled(false);
                 contextMenu.addSeparator();
                 
-                QAction *visualizerAction = contextMenu.addAction(tr("Mit 3D-Viewer öffnen"));
+                QAction *visualizerAction = contextMenu.addAction(tr("Open with 3D Viewer"));
 
                 connect(visualizerAction, &QAction::triggered,
                     [this, filePath]() { 
@@ -421,14 +450,14 @@ void MainWindow::setupContextMenu()
             }else if(filePath.endsWith(".gbw", Qt::CaseInsensitive) || filePath.endsWith(".loc", Qt::CaseInsensitive) || filePath.endsWith(".ges", Qt::CaseInsensitive)) 
             {
                 QMenu contextMenu(this);
-                QAction *fileNameAction = contextMenu.addAction(tr("mit IboView öffnen"));
+                QAction *fileNameAction = contextMenu.addAction(tr("Open with IboView"));
                 connect(fileNameAction, &QAction::triggered, [this, filePath]() { openWithVisualizer(filePath, "iboview"); });
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
 
             }else if(filePath.contains("molden"))
             {
                 QMenu contextMenu(this);
-                QAction *fileNameAction = contextMenu.addAction(tr("mit IboView öffnen"));
+                QAction *fileNameAction = contextMenu.addAction(tr("Open with IboView"));
                 connect(fileNameAction, &QAction::triggered, [this, filePath]() { openWithVisualizer(filePath, "iboview"); });
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             }else if(filePath.contains("hess"))
@@ -436,10 +465,10 @@ void MainWindow::setupContextMenu()
                 QMenu contextMenu(this);
 
                 QPair<int, int>frequencies = countImaginaryFrequencies(filePath);
-                QAction *freq_action = contextMenu.addAction(tr("Imaginäre Frequenzen: %1\nRegulare Frequenzen %2").arg(frequencies.first).arg(frequencies.second));
+                QAction *freq_action = contextMenu.addAction(tr("Imaginary Frequencies: %1\nRegular Frequencies: %2").arg(frequencies.first).arg(frequencies.second));
                 freq_action->setEnabled(false);
                 contextMenu.addSeparator();
-                QAction *plotvib = contextMenu.addAction(tr("Vibrationsmoden erstellen"));
+                QAction *plotvib = contextMenu.addAction(tr("Generate Vibrational Modes"));
 
                 connect(plotvib, &QAction::triggered, [this, filePath, frequencies]() 
                 {
@@ -543,15 +572,15 @@ void MainWindow::createMenus()
     QMenuBar *menuBar = new QMenuBar;
     setMenuBar(menuBar);
 
-    // Datei-Menü
-    QMenu *fileMenu = menuBar->addMenu(tr("&Datei"));
+    // File Menu
+    QMenu *fileMenu = menuBar->addMenu(tr("&File"));
 
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("Beenden"), this, &QWidget::close);
+    fileMenu->addAction(tr("&Quit"), this, &QWidget::close);
 
-    // Einstellungen-Menü
-    QMenu *settingsMenu = menuBar->addMenu(tr("&Einstellungen"));
-    settingsMenu->addAction(tr("Programme konfigurieren..."), 
+    // Settings Menu
+    QMenu *settingsMenu = menuBar->addMenu(tr("&Settings"));
+    settingsMenu->addAction(tr("Configure Programs..."),
         this, &MainWindow::configurePrograms);
 
     // Statusleiste
@@ -560,6 +589,21 @@ void MainWindow::createMenus()
 
 void MainWindow::setupConnections()
 {
+    // Claude Generated - Phase 2.3: Connect modification tracking for editors
+    // Note: Tab index management will be handled in setupUI where tabs are created
+    // For now, just connect to show modified state in status bar
+    connect(m_structureView, &ModifiableTextEdit::modificationChanged, [this](bool modified) {
+        if (modified) {
+            statusBar()->showMessage(tr("Structure file modified"));
+        }
+    });
+
+    connect(m_inputView, &ModifiableTextEdit::modificationChanged, [this](bool modified) {
+        if (modified) {
+            statusBar()->showMessage(tr("Input file modified"));
+        }
+    });
+
     // Kommandozeilen-Verbindung
     connect(m_commandInput, &QLineEdit::returnPressed,
         this, &MainWindow::runCommand);
@@ -584,7 +628,7 @@ void MainWindow::setupConnections()
             QString program = m_programSelector->itemText(index);
             if (m_simulationPrograms.contains(program)) {
                 m_commandInput->setEnabled(true);
-                m_commandInput->setPlaceholderText("Simulationskommando eingeben...");
+                m_commandInput->setPlaceholderText("Enter simulation command...");
             } else if (m_visualizerPrograms.contains(program)) {
                 m_commandInput->setEnabled(false);
                 m_commandInput->setPlaceholderText("Visualisierungsprogramm - kein Kommando nötig");
@@ -827,6 +871,17 @@ void MainWindow::setupConnections()
     });
 }
 
+void MainWindow::setupShortcuts()
+{
+    // Claude Generated - Phase 1.2: Keyboard shortcuts
+    new QShortcut(QKeySequence::New, this, SLOT(createNewDirectory()));
+    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_R), this, SLOT(runSimulation()));
+    new QShortcut(QKeySequence::Refresh, this, SLOT(runSimulation()));  // F5
+    new QShortcut(QKeySequence::Save, this, SLOT(saveCurrentEditor()));
+    new QShortcut(Qt::Key_Escape, this, SLOT(cancelCalculation()));
+    new QShortcut(QKeySequence::NextChild, this, SLOT(switchEditorTab()));  // Ctrl+Tab
+}
+
 void MainWindow::setupProjectViewContextMenu()
 {
     m_projectListView->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -891,7 +946,7 @@ void MainWindow::updateCommandLineVisibility(const QString &program)
         }
 
         if (m_programCommands.contains(program)) {
-            m_commandInput->setPlaceholderText(tr("Kommando für %1 eingeben...").arg(program));
+            m_commandInput->setPlaceholderText(tr("Enter command for %1...").arg(program));
             m_commandCompleter->setModel(new QStringListModel(m_programCommands[program]));
         }
     }
@@ -953,14 +1008,14 @@ void MainWindow::configurePrograms()
         QLineEdit* pathEdit = new QLineEdit(m_settings.orcaBinaryPath());
         QPushButton *browseBtn = new QPushButton(tr("..."));
         
-        hbox->addWidget(new QLabel(tr("ORCA Binärverzeichnis")));
+        hbox->addWidget(new QLabel(tr("ORCA Binary Directory")));
         hbox->addWidget(pathEdit);
         hbox->addWidget(browseBtn);
         layout->addLayout(hbox);
 
         connect(browseBtn, &QPushButton::clicked, [=]() {
-            QString path = QFileDialog::getExistingDirectory(this, 
-                tr("ORCA Binärverzeichnis wählen"), 
+            QString path = QFileDialog::getExistingDirectory(this,
+                tr("Select ORCA Binary Directory"),
                 QDir::homePath());
             if (!path.isEmpty()) {
                 pathEdit->setText(path);
@@ -986,8 +1041,8 @@ void MainWindow::configurePrograms()
             layout->addLayout(hbox);
 
             connect(browseBtn, &QPushButton::clicked, [=]() {
-                QString path = QFileDialog::getOpenFileName(this, 
-                    tr("Pfad für ") + program, 
+                QString path = QFileDialog::getOpenFileName(this,
+                    tr("Path for ") + program,
                     QDir::homePath());
                 if (!path.isEmpty()) {
                     pathEdit->setText(path);
@@ -1012,7 +1067,7 @@ void MainWindow::configurePrograms()
 bool MainWindow::setupCalculationDirectory()
 {
     bool ok;
-    QString calcName = QInputDialog::getText(this, tr("Neue Rechnung"),
+    QString calcName = QInputDialog::getText(this, tr("New Calculation"),
         tr("Name der Rechnung:"), QLineEdit::Normal, "", &ok);
     
     if (!ok || calcName.isEmpty()) {
@@ -1026,8 +1081,8 @@ bool MainWindow::setupCalculationDirectory()
     // Erstelle das Berechnungsverzeichnis
     QDir workDir(m_workingDirectory);
     if (!workDir.exists()) {
-        QMessageBox::warning(this, tr("Fehler"),
-            tr("Bitte wählen Sie zuerst ein gültiges Arbeitsverzeichnis."));
+        QMessageBox::warning(this, tr("Error"),
+            tr("Please select a valid working directory first."));
         return false;
     }
 
@@ -1037,8 +1092,8 @@ bool MainWindow::setupCalculationDirectory()
     QDir calcDir(currentCalculationDir());
 
     if (calcDir.exists()) {
-        QMessageBox::StandardButton reply = QMessageBox::question(this, tr("Verzeichnis existiert"),
-            tr("Das Verzeichnis existiert bereits. Möchten Sie es überschreiben?"),
+        QMessageBox::StandardButton reply = QMessageBox::question(this, tr("Directory Exists"),
+            tr("Directory already exists. Do you want to overwrite it?"),
             QMessageBox::Yes | QMessageBox::No);
         
         if (reply == QMessageBox::No) {
@@ -1049,7 +1104,7 @@ bool MainWindow::setupCalculationDirectory()
     }
 
     if (!workDir.mkdir(calcName)) {
-        QMessageBox::warning(this, tr("Fehler"),
+        QMessageBox::warning(this, tr("Error"),
             tr("Konnte Berechnungsverzeichnis nicht erstellen."));
         return false;
     }
@@ -1092,8 +1147,8 @@ void MainWindow::createNewDirectory()
         }
     }
 
-    QString dirName = QInputDialog::getText(this, tr("Neues Verzeichnis"),
-        tr("Verzeichnisname:"), QLineEdit::Normal, suggestedName, &ok);
+    QString dirName = QInputDialog::getText(this, tr("New Directory"),
+        tr("Directory name:"), QLineEdit::Normal, suggestedName, &ok);
     
     if (!ok || dirName.isEmpty()) {
         return;
@@ -1110,14 +1165,14 @@ void MainWindow::createNewDirectory()
     QDir newDir(newDirPath);
 
     if (newDir.exists()) {
-        QMessageBox::warning(this, tr("Fehler"),
-            tr("Ein Verzeichnis mit diesem Namen existiert bereits."));
+        QMessageBox::warning(this, tr("Error"),
+            tr("A directory with this name already exists."));
         return;
     }
 
     if (!workDir.mkdir(dirName)) {
-        QMessageBox::warning(this, tr("Fehler"),
-            tr("Konnte Verzeichnis nicht erstellen."));
+        QMessageBox::warning(this, tr("Error"),
+            tr("Could not create directory."));
         return;
     }
     m_structureView->clear();
@@ -1135,7 +1190,7 @@ void MainWindow::createNewDirectory()
     // Now update the view (which uses m_currentCalculationDir)
     updateDirectoryContent();
 
-    statusBar()->showMessage(tr("Verzeichnis erstellt: ") + dirName);
+    statusBar()->showMessage(tr("Directory created: ") + dirName);
 }
 
 void MainWindow::updateOutputView(const QString& logFile, bool scrollToBottom)
@@ -1158,8 +1213,11 @@ void MainWindow::runSimulation()
 
     QString program = m_programSelector->currentText();
     if (!m_simulationPrograms.contains(program)) {
-        QMessageBox::warning(this, tr("Fehler"), 
-            tr("Bitte wählen Sie ein Simulationsprogramm."));
+        // Claude Generated - Phase 4.1: Enhanced error dialog
+        showEnhancedError(tr("No Program Selected"),
+            tr("Please select a simulation program."),
+            tr("Choose one of the available programs (curcuma, orca, or xtb) from the dropdown."),
+            nullptr);
         return;
     }
 
@@ -1200,13 +1258,21 @@ void MainWindow::runSimulation()
     if (program == "orca") {
         QString orcaPath = m_settings.orcaBinaryPath();
         if (orcaPath.isEmpty()) {
-            QMessageBox::warning(this, tr("Fehler"),
-                tr("Bitte konfigurieren Sie zuerst das ORCA Binärverzeichnis."));
+            // Claude Generated - Phase 4.1: Enhanced error dialog
+            showEnhancedError(tr("ORCA Configuration Error"),
+                tr("ORCA binary path is not configured."),
+                tr("Please configure the ORCA binary directory in the settings."),
+                [this]() {
+                    configurePrograms();
+                });
             return;
         }
         if (input_empty) {
-            QMessageBox::warning(this, tr("Fehler"),
-                tr("Bitte füllen Sie die Input-Datei aus."));
+            // Claude Generated - Phase 4.1: Enhanced error dialog
+            showEnhancedError(tr("Input File Empty"),
+                tr("Input file is empty."),
+                tr("Please fill in the input file with ORCA configuration parameters."),
+                nullptr);
             return;
         }
         // ORCA-spezifischer Start
@@ -1217,11 +1283,14 @@ void MainWindow::runSimulation()
 
         m_currentProcess->setArguments(QStringList() << inputFile);
         QFile::copy(currentCalculationDir() + QDir::separator() + structureFile, currentCalculationDir() + QDir::separator() + m_structureFileEdit->text() + ".xyz");
-    } 
+    }
     else {
         if (structure_empty) {
-            QMessageBox::warning(this, tr("Fehler"),
-                tr("Bitte füllen Sie die Strukturdaten aus."));
+            // Claude Generated - Phase 4.1: Enhanced error dialog
+            showEnhancedError(tr("Structure Data Missing"),
+                tr("Structure data is empty."),
+                tr("Please fill in the structure data in the Structure tab. This is required for curcuma and xtb calculations."),
+                nullptr);
             return;
         }
         QString programPath = m_settings.getProgramPath(program);
@@ -1261,18 +1330,51 @@ void MainWindow::runSimulation()
     m_currentProcess->start();
     addCalculationToHistory(entry);
 
+    // Claude Generated - Phase 2.2: Update workflow state
+    updateWorkflowState(WorkflowState::CalculationRunning);
+
+    // Claude Generated - Phase 1.3: Show progress dialog
+    if (m_progressDialog) {
+        delete m_progressDialog;
+    }
+    m_progressDialog = new QProgressDialog(tr("Running calculation..."), tr("Cancel"), 0, 0, this);
+    m_progressDialog->setWindowModality(Qt::WindowModal);
+    m_progressDialog->setWindowTitle(tr("Calculation Progress"));
+    m_progressDialog->show();
+
+    // Connect cancel button to stop process
+    connect(m_progressDialog, &QProgressDialog::canceled, [this]() {
+        if (m_currentProcess && m_currentProcess->state() == QProcess::Running) {
+            m_currentProcess->kill();
+            statusBar()->showMessage(tr("Calculation canceled by user"));
+        }
+    });
+
     // Verbinde Prozessende
     connect(m_currentProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
         [this, entry](int exitCode, QProcess::ExitStatus exitStatus) {
+            // Claude Generated - Phase 1.3: Close progress dialog
+            if (m_progressDialog) {
+                m_progressDialog->close();
+                m_progressDialog = nullptr;
+            }
+
             // Aktualisiere Status in der Historie
             CalculationEntry updatedEntry = entry;
             updatedEntry.status = (exitCode == 0) ? "completed" : "error";
             addCalculationToHistory(updatedEntry);
 
             updateOutputView(currentCalculationDir() + QDir::separator() + entry.outputFile);
-            statusBar()->showMessage(exitCode == 0 ? 
-                tr("Berechnung erfolgreich beendet") : 
-                tr("Berechnung mit Fehler beendet (Code: %1)").arg(exitCode));
+            statusBar()->showMessage(exitCode == 0 ?
+                tr("Calculation completed successfully") :
+                tr("Calculation failed with error (Code: %1)").arg(exitCode));
+
+            // Claude Generated - Phase 2.2: Update workflow state based on exit code
+            if (exitCode == 0) {
+                updateWorkflowState(WorkflowState::CalculationComplete);
+            } else {
+                updateWorkflowState(WorkflowState::CalculationError);
+            }
 
             QApplication::restoreOverrideCursor();
 
@@ -1295,7 +1397,7 @@ void MainWindow::runSimulation()
         });
 
     // Zeige eine Information und setze den Cursor auf "Warten"
-    statusBar()->showMessage(tr("Berechnung läuft..."));
+    statusBar()->showMessage(tr("Calculation running..."));
     QApplication::setOverrideCursor(Qt::WaitCursor);
 }
 
@@ -1413,8 +1515,8 @@ void MainWindow::openWithVisualizer(const QString &filePath, const QString &visu
     QString programPath = m_settings.getProgramPath(visualizer);
 
     if (programPath.isEmpty()) {
-        QMessageBox::warning(this, tr("Fehler"),
-            tr("Pfad für %1 nicht konfiguriert.").arg(visualizer));
+        QMessageBox::warning(this, tr("Error"),
+            tr("Path for %1 not configured.").arg(visualizer));
         return;
     }
     
@@ -1441,8 +1543,8 @@ void MainWindow::openWithVisualizer(const QString &filePath, const QString &visu
     // Debug-Ausgabe
 
     if (!QProcess::startDetached(programPath, arguments)) {
-        QMessageBox::warning(this, tr("Fehler"),
-            tr("Konnte %1 nicht starten.").arg(visualizer));
+        QMessageBox::warning(this, tr("Error"),
+            tr("Could not start %1.").arg(visualizer));
     }
 }
 
@@ -1471,7 +1573,7 @@ void MainWindow::programSelected(int index)
     QString program = m_programSelector->itemText(index);
     if (m_simulationPrograms.contains(program)) {
         m_commandInput->setEnabled(true);
-        m_commandInput->setPlaceholderText("Simulationskommando eingeben...");
+        m_commandInput->setPlaceholderText("Enter simulation command...");
     } else if (m_visualizerPrograms.contains(program)) {
         m_commandInput->setEnabled(false);
         m_commandInput->setPlaceholderText("Visualisierungsprogramm - kein Kommando nötig");
@@ -1480,8 +1582,14 @@ void MainWindow::programSelected(int index)
 
 void MainWindow::projectSelected(const QModelIndex &index)
 {
+    // Claude Generated - Phase 4.2: Add file loading feedback
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+
     // Claude Generated - Fixed to extract relative directory name
-    if (!index.isValid()) return;
+    if (!index.isValid()) {
+        QApplication::restoreOverrideCursor();
+        return;
+    }
 
     QString fullPath = m_projectModel->filePath(index);
     QDir workDir(m_workingDirectory);
@@ -1490,6 +1598,13 @@ void MainWindow::projectSelected(const QModelIndex &index)
     m_currentCalculationDir = relativeName;
     updateDirectoryContent();
     syncRightView();
+
+    statusBar()->showMessage(tr("Loaded calculation directory"), 2000);
+
+    // Claude Generated - Phase 2.2: Update workflow state
+    updateWorkflowState(WorkflowState::DirectoryReady);
+
+    QApplication::restoreOverrideCursor();
 }
 
 void MainWindow::processOutput()
@@ -1519,14 +1634,14 @@ void MainWindow::startNewCalculation()
 
     // Prüfe ob ein Programm ausgewählt ist
     if (program.isEmpty()) {
-        QMessageBox::warning(this, tr("Fehler"),
-            tr("Bitte wählen Sie zuerst ein Programm aus."));
+        QMessageBox::warning(this, tr("Error"),
+            tr("Please select a program first."));
         return;
     }
 
     // Prüfe ob Input vorhanden ist
     if (m_inputView->toPlainText().isEmpty() && program == "orca") {
-        QMessageBox::warning(this, tr("Fehler"),
+        QMessageBox::warning(this, tr("Error"),
             tr("Bitte geben Sie zuerst Input-Daten ein."));
         return;
     }
@@ -1562,9 +1677,20 @@ void MainWindow::syncRightView()
     }
 
     QDir dir(currentCalculationDir());
+    const qint64 LARGE_FILE_THRESHOLD = 1024 * 1024; // 1MB threshold
+
+    // Claude Generated - Phase 4.2: Check file size for progress dialog
+    QProgressDialog* loadingProgress = nullptr;
 
     QFile defaultStructure(currentCalculationDir() + QDir::separator() + "input.xyz");
     if (defaultStructure.exists() && defaultStructure.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        // Show progress for large files
+        if (defaultStructure.size() > LARGE_FILE_THRESHOLD) {
+            loadingProgress = new QProgressDialog(tr("Loading structure file..."), tr("Cancel"), 0, 0, this);
+            loadingProgress->setWindowModality(Qt::WindowModal);
+            loadingProgress->show();
+            QApplication::processEvents();
+        }
         m_structureView->setPlainText(QString::fromUtf8(defaultStructure.readAll()));
         m_structureFileEdit->setText("input.xyz");
         defaultStructure.close();
@@ -1589,6 +1715,16 @@ void MainWindow::syncRightView()
     if (!outputFiles.isEmpty()) {
         QFile outputFile(dir.filePath(outputFiles.first()));
         if (outputFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            // Show progress for large output files
+            if (outputFile.size() > LARGE_FILE_THRESHOLD) {
+                if (!loadingProgress) {
+                    loadingProgress = new QProgressDialog(tr("Loading output file..."), tr("Cancel"), 0, 0, this);
+                    loadingProgress->setWindowModality(Qt::WindowModal);
+                }
+                loadingProgress->setLabelText(tr("Loading output file..."));
+                loadingProgress->show();
+                QApplication::processEvents();
+            }
             m_outputView->setPlainText(QString::fromUtf8(outputFile.readAll()));
             outputFile.close();
         }
@@ -1608,6 +1744,12 @@ void MainWindow::syncRightView()
     } else {
         m_inputView->clear();
         m_inputFileEdit->clear();
+    }
+
+    // Close progress dialog if it was shown
+    if (loadingProgress) {
+        loadingProgress->close();
+        delete loadingProgress;
     }
 }
 
@@ -1725,6 +1867,9 @@ void MainWindow::switchWorkingDirectory(const QString& path)
     updateDirectoryContent();
     updatePathLabel(path); // Aktualisiere das Pfad-Label
     statusBar()->showMessage(tr("Working directory changed to: %1").arg(path));
+
+    // Claude Generated - Phase 2.2: Reset workflow state when switching directories
+    updateWorkflowState(WorkflowState::NoDirectory);
 }
 
 void MainWindow::toggleLeftPanel()
@@ -1814,4 +1959,117 @@ void MainWindow::onNextFrame()
 void MainWindow::onFrameSliderChanged(int value)
 {
     m_moleculeView->showFrame(value);
+}
+
+// Claude Generated - Phase 1.2: Keyboard shortcut handlers
+void MainWindow::cancelCalculation()
+{
+    if (m_currentProcess && m_currentProcess->state() == QProcess::Running) {
+        m_currentProcess->kill();
+        statusBar()->showMessage(tr("Calculation canceled"));
+    }
+}
+
+void MainWindow::switchEditorTab()
+{
+    // Find editor tabs widget and switch to next tab
+    // This is a simple implementation - can be improved
+    QTabWidget* tabWidget = findChild<QTabWidget*>();
+    if (tabWidget) {
+        int currentIndex = tabWidget->currentIndex();
+        int nextIndex = (currentIndex + 1) % tabWidget->count();
+        tabWidget->setCurrentIndex(nextIndex);
+    }
+}
+
+void MainWindow::saveCurrentEditor()
+{
+    // Get current focused editor and save its content
+    // This is a placeholder implementation
+    QTextEdit* currentEditor = nullptr;
+
+    if (m_structureView->hasFocus()) {
+        currentEditor = m_structureView;
+    } else if (m_inputView->hasFocus()) {
+        currentEditor = m_inputView;
+    } else if (m_outputView->hasFocus()) {
+        currentEditor = m_outputView;
+    }
+
+    if (currentEditor) {
+        // In a full implementation, would save to file
+        statusBar()->showMessage(tr("Editor content ready to save"));
+    }
+}
+
+// Claude Generated - Phase 4.1: Enhanced error dialog with optional fix action
+void MainWindow::showEnhancedError(const QString& title, const QString& problem,
+                                   const QString& solution, std::function<void()> actionCallback)
+{
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle(title);
+    msgBox.setIcon(QMessageBox::Warning);
+    msgBox.setText(problem);
+    msgBox.setInformativeText(solution);
+    msgBox.setStandardButtons(QMessageBox::Ok);
+
+    // Add optional "Fix Now" button if callback provided
+    if (actionCallback) {
+        QPushButton* fixButton = msgBox.addButton(tr("Fix Now"), QMessageBox::ActionRole);
+        msgBox.exec();
+        if (msgBox.clickedButton() == fixButton) {
+            actionCallback();
+        }
+    } else {
+        msgBox.exec();
+    }
+}
+
+// Claude Generated - Phase 2.2: Workflow state management
+void MainWindow::updateWorkflowState(WorkflowState state)
+{
+    m_workflowState = state;
+
+    // Update button states based on workflow state
+    bool canCreateDir = (state == WorkflowState::NoDirectory || state == WorkflowState::DirectoryReady);
+    bool canRunCalc = (state == WorkflowState::DirectoryReady);
+    bool canEditFiles = (state == WorkflowState::DirectoryReady || state == WorkflowState::NoDirectory);
+
+    m_newCalculationButton->setEnabled(canCreateDir);
+    m_runCalculation->setEnabled(canRunCalc);
+    m_structureView->setReadOnly(!canEditFiles);
+    m_inputView->setReadOnly(!canEditFiles);
+
+    // Update status bar and visual indicators with state information
+    QString stateMessage;
+    QString stateColor;
+    switch (state) {
+        case WorkflowState::NoDirectory:
+            stateMessage = tr("No calculation directory selected");
+            stateColor = "grey";
+            break;
+        case WorkflowState::DirectoryReady:
+            stateMessage = tr("Ready to run calculation");
+            stateColor = "blue";
+            break;
+        case WorkflowState::CalculationRunning:
+            stateMessage = tr("Calculation running...");
+            stateColor = "orange";
+            break;
+        case WorkflowState::CalculationComplete:
+            stateMessage = tr("Calculation completed successfully");
+            stateColor = "green";
+            break;
+        case WorkflowState::CalculationError:
+            stateMessage = tr("Calculation failed with error");
+            stateColor = "red";
+            break;
+    }
+    statusBar()->showMessage(stateMessage, 5000);
+
+    // Claude Generated - Phase 3.3: Update visual state indicators
+    if (m_stateIcon && m_stateIndicator) {
+        m_stateIcon->setStyleSheet(QString("color: %1; font-size: 14px;").arg(stateColor));
+        m_stateIndicator->setText(stateMessage);
+    }
 }

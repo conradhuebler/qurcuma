@@ -27,6 +27,7 @@ set(SOURCES
     src/settings.cpp
     src/vtfparser.cpp
     src/xyzparser.cpp
+    src/modifiabletextedit.cpp
     src/dialogs/nmrspectrumdialog.cpp
     src/dialogs/nmrcontroller.cpp
     src/dialogs/nmrdatastore.cpp
@@ -42,6 +43,7 @@ set(HEADERS
     src/view.h
     src/vtfparser.h
     src/xyzparser.h
+    src/modifiabletextedit.h
     src/dialogs/nmrspectrumdialog.h
     #src/dialogs/nmrstructuremodel.h
 
