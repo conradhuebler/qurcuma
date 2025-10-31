@@ -1,6 +1,8 @@
 #pragma once
 
 #include "settings.h"
+#include "vtfparser.h"
+#include "xyzparser.h"
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCompleter>
@@ -62,6 +64,13 @@ private slots:
     void runSimulation();
     void startNewCalculation();  // Neue Funktion
 
+    // Frame navigation slots
+    void onFrameChanged(int frameIndex);
+    void onTrajectoryLoaded(int frameCount);
+    void onPreviousFrame();
+    void onNextFrame();
+    void onFrameSliderChanged(int value);
+
 private:
     void setupUI();
     void createToolbars();
@@ -76,7 +85,7 @@ private:
 
     void createNewDirectory();
     void setupProgramSpecificDirectory(const QString &dirPath, const QString &program);
-    void updateDirectoryContent(const QString &path);
+    void updateDirectoryContent();  // Claude Generated - removed unused path parameter
 
     QPair<int, int> countImaginaryFrequencies(const QString &filename);
     void initializeProgramCommands();
@@ -84,15 +93,23 @@ private:
     void setupContextMenu();
     void openWithVisualizer(const QString &filePath, const QString &visualizer);
     void orcaPlotVib(const QString &outputFile, int freqNumber);
-    void syncRightView(const QString &path);
+    void syncRightView();  // Claude Generated - removed unused path parameter
     void saveCalculationInfo();
     void loadCalculationInfo(const QString &path);
     QList<CalculationEntry> loadCalculationHistory(const QString &path);
     void addCalculationToHistory(const CalculationEntry &entry);
     QString generateUniqueFileName(const QString &baseFileName, const QString &extension);
-    QString currentCalculationDir() const
-    {
-        return m_workingDirectory + QDir::separator() + m_currentCalculationDir;
+    // Path helpers - Claude Generated for clarity
+    QString currentCalculationDir() const {
+        return QDir(m_workingDirectory).filePath(m_currentCalculationDir);
+    }
+    QString getCalculationDirName() const {
+        return m_currentCalculationDir;
+    }
+    bool isValidCalculationDir() const {
+        return !m_currentCalculationDir.isEmpty() &&
+               m_currentCalculationDir != "." &&
+               m_currentCalculationDir != "..";
     }
     QStringList currentSubdirectories() const;
 
@@ -127,6 +144,12 @@ private:
     QLabel *m_currentPathLabel, *m_currentProjectLabel;
     MoleculeViewer *m_moleculeView;
     NMRSpectrumDialog* m_nmrDialog;
+
+    // VTF Frame Navigation
+    QSlider* m_frameSlider;
+    QLabel* m_frameLabel;
+    VTFParser* m_vtfParser;
+    XYZParser* m_xyzParser;
 
     QStringList m_simulationPrograms{ "curcuma", "orca", "xtb" };
     QStringList m_visualizerPrograms{ "iboview", "avogadro" };

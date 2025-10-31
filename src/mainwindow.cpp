@@ -40,20 +40,24 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
+    // Claude Generated - Initialize m_currentProcess first (needed by setupConnections)
+    m_currentProcess = new QProcess(this);
+
     setupUI();
     createToolbars();
     createMenus();
     setupConnections();
 
     m_nmrDialog = new NMRSpectrumDialog(this);
+    m_vtfParser = new VTFParser();
+    m_xyzParser = new XYZParser();
+
     // Arbeitsverzeichnis aus Settings laden
     m_workingDirectory = m_settings.workingDirectory();
     if (!m_workingDirectory.isEmpty()) {
         m_projectModel->setRootPath(m_workingDirectory);
         m_projectListView->setRootIndex(m_projectModel->index(m_workingDirectory));
     }
-
-    m_currentProcess = new QProcess(this);
     QString lastDir = m_settings.lastUsedWorkingDirectory();
     if (!lastDir.isEmpty() && QDir(lastDir).exists()) {
         switchWorkingDirectory(lastDir);
@@ -62,6 +66,8 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+    delete m_vtfParser;
+    delete m_xyzParser;
     //delete m_currentProcess;
 }
 
@@ -152,7 +158,6 @@ void MainWindow::setupUI()
 
     // Make new calculation button and create directory
     m_newCalculationButton = new QPushButton(tr("New Calculation"));
-    // m_newCalculationButton->setIcon(QIcon::fromTheme("document-new", QIcon(":/icons/document-new.png")));
     middleLayout->addWidget(m_newCalculationButton);
 
     m_currentProjectLabel = new QLabel(m_currentCalculationDir);
@@ -167,7 +172,7 @@ void MainWindow::setupUI()
     m_directoryContentModel->setFilter(QDir::NoDotAndDotDot | QDir::Files);
     // Set file filters for relevant chemistry files
     m_directoryContentModel->setNameFilters(QStringList()
-        << "*.xyz" << "*.inp" << "*.log" << "*.out"
+        << "*.xyz" << "*.vtf" << "*.inp" << "*.log" << "*.out"
         << "*.hess" << "*.gbw" << "*.txt" << "*.*" << "input");
     m_directoryContentModel->setNameFilterDisables(false);
     m_directoryContentView->setModel(m_directoryContentModel);
@@ -264,7 +269,59 @@ void MainWindow::setupUI()
     editorTabs->addTab(inputTab, tr("Input"));
 
     m_moleculeView = new MoleculeViewer;
-    editorTabs->addTab(m_moleculeView, tr("Structure Viewer"));
+    
+    // Connect molecule viewer signals
+    connect(m_moleculeView, &MoleculeViewer::frameChanged, this, &MainWindow::onFrameChanged);
+    connect(m_moleculeView, &MoleculeViewer::trajectoryLoaded, this, &MainWindow::onTrajectoryLoaded);
+    
+    // Create integrated structure viewer widget with navigation controls
+    QWidget *structureViewerWidget = new QWidget;
+    QVBoxLayout *structureViewerLayout = new QVBoxLayout(structureViewerWidget);
+    
+    // Add the 3D molecule viewer
+    structureViewerLayout->addWidget(m_moleculeView, 1);  // Stretch factor 1
+    
+    // Add frame navigation controls integrated into the tab
+    QHBoxLayout *frameControlLayout = new QHBoxLayout;
+    
+    frameControlLayout->addWidget(new QLabel(tr("Frame:")));
+    
+    QPushButton *prevFrameButton = new QPushButton("◀");
+    prevFrameButton->setMaximumWidth(30);
+    frameControlLayout->addWidget(prevFrameButton);
+    
+    m_frameSlider = new QSlider(Qt::Horizontal);
+    m_frameSlider->setMinimum(0);
+    m_frameSlider->setMaximum(0);  // Will be updated when trajectory is loaded
+    m_frameSlider->setValue(0);
+    m_frameSlider->setEnabled(false);  // Disabled by default
+    frameControlLayout->addWidget(m_frameSlider);
+    
+    QPushButton *nextFrameButton = new QPushButton("▶");
+    nextFrameButton->setMaximumWidth(30);
+    frameControlLayout->addWidget(nextFrameButton);
+    
+    m_frameLabel = new QLabel("0 / 0");
+    m_frameLabel->setMinimumWidth(60);
+    frameControlLayout->addWidget(m_frameLabel);
+    frameControlLayout->addStretch();
+    
+    // Add View Navigation Buttons
+    QPushButton *resetViewButton = new QPushButton("Reset View");
+    resetViewButton->setMaximumWidth(80);
+    frameControlLayout->addWidget(resetViewButton);
+    
+    structureViewerLayout->addLayout(frameControlLayout);
+    
+    editorTabs->addTab(structureViewerWidget, tr("Structure Viewer"));
+    
+    frameControlLayout->setContentsMargins(5, 5, 5, 5);
+    
+    // Connect frame navigation controls
+    connect(prevFrameButton, &QPushButton::clicked, this, &MainWindow::onPreviousFrame);
+    connect(nextFrameButton, &QPushButton::clicked, this, &MainWindow::onNextFrame);
+    connect(m_frameSlider, &QSlider::valueChanged, this, &MainWindow::onFrameSliderChanged);
+    connect(resetViewButton, &QPushButton::clicked, m_moleculeView, &MoleculeViewer::resetViewToMolecule);
 
     rightLayout->addWidget(editorTabs);
 
@@ -325,6 +382,42 @@ void MainWindow::setupContextMenu()
                     [this, filePath]() { openWithVisualizer(filePath, "iboview"); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
+            } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive))
+            {
+                QMenu contextMenu(this);
+                
+                // Dateiname zur Information anzeigen
+                QAction *fileNameAction = contextMenu.addAction(QFileInfo(filePath).fileName());
+                fileNameAction->setEnabled(false);
+                contextMenu.addSeparator();
+                
+                QAction *visualizerAction = contextMenu.addAction(tr("Mit 3D-Viewer öffnen"));
+
+                connect(visualizerAction, &QAction::triggered,
+                    [this, filePath]() { 
+                        // VTF-Datei im 3D-Viewer laden mit Trajektorie-Support
+                        if (m_vtfParser->parseTrajectory(filePath)) {
+                            int frameCount = m_vtfParser->getFrameCount();
+                            m_moleculeView->setFrameCount(frameCount);
+                            
+                            VTFParser::VTFFrame frame;
+                            if (m_vtfParser->getFrame(0, frame)) {
+                                QVector<MoleculeViewer::Atom> atoms;
+                                QVector<MoleculeViewer::Bond> bonds;
+                                VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
+                                m_moleculeView->addMolecule(atoms, bonds);
+                                
+                                // Enable frame navigation if we have multiple frames
+                                if (frameCount > 1) {
+                                    m_frameSlider->setEnabled(true);
+                                    m_frameSlider->setMaximum(frameCount - 1);
+                                    m_frameLabel->setText(QString("1 / %1").arg(frameCount));
+                                }
+                            }
+                        }
+                    });
+
+                contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             }else if(filePath.endsWith(".gbw", Qt::CaseInsensitive) || filePath.endsWith(".loc", Qt::CaseInsensitive) || filePath.endsWith(".ges", Qt::CaseInsensitive)) 
             {
                 QMenu contextMenu(this);
@@ -366,8 +459,6 @@ void MainWindow::setupContextMenu()
                 connect(nmrstruktur, &QAction::triggered, [this, filePath]() {
                     if (QMessageBox::question(this, tr("NMR Spektren"), tr("Do you want to load all files with the name filename from each directory?"), QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
                         QString dirname = QFileInfo(filePath).dir().path().split(QDir::separator()).last();
-                        // m_nmrDialog->addStructure(filePath, dirname);
-                        qDebug() << this->currentSubdirectories() << filePath << dirname;
                         for (const QString& subdir : this->currentSubdirectories()) {
                             QString current = filePath;
                             current.replace(dirname, subdir);
@@ -481,8 +572,7 @@ void MainWindow::setupConnections()
     connect(m_projectListView, &QListView::clicked,
         this, &MainWindow::projectSelected);
 
-    // Prozess-Verbindungen
-    m_currentProcess = new QProcess(this);
+    // Claude Generated - Process connections (m_currentProcess already initialized in constructor)
     connect(m_currentProcess, &QProcess::readyReadStandardOutput,
         this, &MainWindow::processOutput);
     connect(m_currentProcess, &QProcess::readyReadStandardError,
@@ -509,12 +599,13 @@ void MainWindow::setupConnections()
     connect(m_runCalculation, &QPushButton::clicked,
         this, &MainWindow::runSimulation);
 
+    // Claude Generated - Fixed duplicate connection removed below, kept single handler
     connect(m_projectListView->selectionModel(),
         &QItemSelectionModel::currentChanged,
         [this](const QModelIndex& current, const QModelIndex&) {
             if (current.isValid()) {
-                QString path = m_projectModel->filePath(current);
-                updateDirectoryContent(path);
+                // Use projectSelected() slot for consistent handling
+                projectSelected(current);
             }
         });
 
@@ -528,51 +619,144 @@ void MainWindow::setupConnections()
                 m_commandCompleter->setModel(new QStringListModel(m_programCommands[program]));
             }
         });
-
-    connect(m_projectListView->selectionModel(),
-        &QItemSelectionModel::currentChanged,
-        [this](const QModelIndex& current, const QModelIndex&) {
-            if (current.isValid()) {
-                QString path = m_projectModel->filePath(current);
-                updateDirectoryContent(path);
-            }
-        });
     connect(m_directoryContentView, &QListView::clicked,
         [this](const QModelIndex& index) {
             QString filePath = m_directoryContentModel->filePath(index);
             QString suffix = QFileInfo(filePath).suffix().toLower();
             QString basename = QFileInfo(filePath).baseName();
             if (suffix == "xyz") {
-                // XYZ-Datei in Structure View laden
-                QFile file(filePath);
-                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                    QByteArray data = file.readAll();
-                    m_structureView->setPlainText(QString::fromUtf8(data));
-                    m_structureFileEdit->setText(QFileInfo(filePath).fileName());
-                    file.close();
-                    if(data.isEmpty() || filePath.contains("trj"))
-                        return;
-
-                    QStringList lines = QString::fromUtf8(data).split('\n', Qt::SkipEmptyParts);
-                    int num_atoms = lines[0].toInt();
-                    if(lines.size() < num_atoms + 2)
-                        return;
-                   // qDebug() << "Number of atoms: " << num_atoms << lines.size();
-                    if (num_atoms > 0) {
-                        QVector<MoleculeViewer::Atom> atoms;
-                        for (int i = 2; i < num_atoms + 1; ++i) {
-                            //qDebug() << lines[i];
-                            QStringList parts = lines[i].split(QRegularExpression("\\s+"));
-                            if (parts.size() >= 4) {
-                                MoleculeViewer::Atom atom;
-                                atom.element = parts[0];
-                                atom.position = QVector3D(parts[1].toFloat(), parts[2].toFloat(), parts[3].toFloat());
-                                atoms.append(atom);
-                            }
-                        }
-                        m_moleculeView->addMolecule(atoms);
+                // XYZ-Datei mit Parser laden
+                if (m_xyzParser->parseTrajectory(filePath)) {
+                    // Lade XYZ-Daten als Text anzeigen
+                    QFile file(filePath);
+                    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
+                        m_structureFileEdit->setText(QFileInfo(filePath).fileName());
+                        file.close();
                     }
-
+                    
+                    // Get frame count and setup trajectory data
+                    int frameCount = m_xyzParser->getFrameCount();
+                    m_moleculeView->setFrameCount(frameCount);
+                    
+                    // Reset molecule viewer for new file
+                    m_moleculeView->clearScenePublic();
+                    
+                    // Convert all frames to trajectory data
+                    QVector<QVector<MoleculeViewer::Atom>> allAtoms;
+                    QVector<QVector<MoleculeViewer::Bond>> allBonds;
+                    
+                    for (int i = 0; i < frameCount; ++i) {
+                        XYZParser::XYZFrame frame;
+                        if (m_xyzParser->getFrame(i, frame)) {
+                            QVector<MoleculeViewer::Atom> atoms;
+                            QVector<MoleculeViewer::Bond> bonds;
+                            XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
+                            allAtoms.append(atoms);
+                            allBonds.append(bonds);
+                        }
+                    }
+                    
+                    // Set trajectory data in molecule viewer
+                    m_moleculeView->setTrajectoryData(allAtoms, allBonds);
+                    
+                    // Load first frame into molecule viewer
+                    if (frameCount > 0) {
+                        XYZParser::XYZFrame frame;
+                        if (m_xyzParser->getFrame(0, frame)) {
+                            QVector<MoleculeViewer::Atom> atoms;
+                            QVector<MoleculeViewer::Bond> bonds;
+                            XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
+                            m_moleculeView->addMolecule(atoms, bonds);
+                        }
+                    }
+                    
+                    // Reset and enable frame navigation if we have multiple frames
+                    m_frameSlider->setValue(0);
+                    m_frameSlider->setMinimum(0);
+                    if (frameCount > 1) {
+                        m_frameSlider->setEnabled(true);
+                        m_frameSlider->setMaximum(frameCount - 1);
+                        m_frameLabel->setText(QString("1 / %1").arg(frameCount));
+                    } else {
+                        m_frameSlider->setEnabled(false);
+                        m_frameLabel->setText(QString("1 / 1"));
+                    }
+                } else {
+                    // Clear any previous content if parsing fails
+                    m_moleculeView->clearScenePublic();
+                    m_frameSlider->setEnabled(false);
+                    m_frameSlider->setMaximum(0);
+                    m_frameLabel->setText("0 / 0");
+                    qWarning() << "Failed to parse XYZ file:" << filePath;
+                }
+            }
+            else if (suffix == "vtf") {
+                // VTF-Datei mit Parser laden
+                m_vtfParser = new VTFParser(); // Fresh parser for each file
+                if (m_vtfParser->parseTrajectory(filePath)) {
+                    // Lade VTF-Daten als Text anzeigen
+                    QFile file(filePath);
+                    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
+                        m_structureFileEdit->setText(QFileInfo(filePath).fileName());
+                        file.close();
+                    }
+                    
+                    // Get frame count and setup trajectory data
+                    int frameCount = m_vtfParser->getFrameCount();
+                    m_moleculeView->setFrameCount(frameCount);
+                    
+                    // Reset molecule viewer for new file
+                    m_moleculeView->clearScenePublic();
+                    
+                    // Convert all frames to trajectory data
+                    QVector<QVector<MoleculeViewer::Atom>> allAtoms;
+                    QVector<QVector<MoleculeViewer::Bond>> allBonds;
+                    
+                    for (int i = 0; i < frameCount; ++i) {
+                        VTFParser::VTFFrame frame;
+                        if (m_vtfParser->getFrame(i, frame)) {
+                            QVector<MoleculeViewer::Atom> atoms;
+                            QVector<MoleculeViewer::Bond> bonds;
+                            VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
+                            allAtoms.append(atoms);
+                            allBonds.append(bonds);
+                        }
+                    }
+                    
+                    // Set trajectory data in molecule viewer
+                    m_moleculeView->setVTFTrajectoryData(allAtoms, allBonds);
+                    
+                    // Load first frame into viewer
+                    if (frameCount > 0) {
+                        VTFParser::VTFFrame frame;
+                        if (m_vtfParser->getFrame(0, frame)) {
+                            QVector<MoleculeViewer::Atom> atoms;
+                            QVector<MoleculeViewer::Bond> bonds;
+                            VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
+                            m_moleculeView->addMolecule(atoms, bonds);
+                        }
+                    }
+                    
+                    // Reset and enable frame navigation if we have multiple frames
+                    m_frameSlider->setValue(0);
+                    m_frameSlider->setMinimum(0);
+                    if (frameCount > 1) {
+                        m_frameSlider->setEnabled(true);
+                        m_frameSlider->setMaximum(frameCount - 1);
+                        m_frameLabel->setText(QString("1 / %1").arg(frameCount));
+                    } else {
+                        m_frameSlider->setEnabled(false);
+                        m_frameLabel->setText(QString("1 / 1"));
+                    }
+                } else {
+                    // Clear any previous content if parsing fails
+                    m_moleculeView->clearScenePublic();
+                    m_frameSlider->setEnabled(false);
+                    m_frameSlider->setMaximum(0);
+                    m_frameLabel->setText("0 / 0");
+                    qWarning() << "Failed to parse VTF file:" << filePath;
                 }
             }
             else if (suffix == "log" || suffix == "out" || suffix == "txt") {
@@ -630,39 +814,8 @@ void MainWindow::setupConnections()
         }
     });
 
-    // Verbindung für Verzeichniswechsel im projectListView
-    connect(m_projectListView, &QListView::clicked, [this](const QModelIndex& index) {
-        QString path = m_projectModel->filePath(index);
-        if (path.isEmpty())
-            return;
-
-        QDir dir(path);
-        if (dir.exists()) {
-            // Wenn ".." gewählt wurde, gehe zum übergeordneten Verzeichnis
-            if (m_projectModel->fileName(index) == "..") {
-                dir.cdUp();
-                path = dir.absolutePath();
-                switchWorkingDirectory(path);
-            }
-
-            // Wenn es sich um ein übergeordnetes Verzeichnis des Arbeitsverzeichnisses handelt
-            if (!path.startsWith(m_workingDirectory)) {
-                // Optional: Frage den Benutzer, ob das Arbeitsverzeichnis gewechselt werden soll
-                QMessageBox::StandardButton reply = QMessageBox::question(this,
-                    tr("Change Working Directory"),
-                    tr("Do you want to set %1 as your working directory?").arg(path),
-                    QMessageBox::Yes | QMessageBox::No);
-
-                if (reply == QMessageBox::Yes) {
-                    switchWorkingDirectory(path);
-                    m_settings.addWorkingDirectory(path);
-                    updateBookmarkView();
-                }
-            } else {
-                updateDirectoryContent(path);
-            }
-        }
-    });
+    // Claude Generated - Removed duplicate click handler, using projectSelected() slot instead
+    // Navigation is now handled in projectSelected() which calls updateDirectoryContent()
 
     connect(m_chooseDirectory, &QPushButton::clicked, [this]() {
         QString dir = QFileDialog::getExistingDirectory(this,
@@ -975,10 +1128,12 @@ void MainWindow::createNewDirectory()
     QString program = m_programSelector->currentText();
     setupProgramSpecificDirectory(newDirPath, program);
 
-    // Aktualisiere die Ansicht und setze das neue Verzeichnis als aktuell
-    updateDirectoryContent(newDirPath);
+    // Claude Generated - Set current directory before updating view
     m_currentCalculationDir = dirName;
     m_currentProjectLabel->setText(m_currentCalculationDir);
+
+    // Now update the view (which uses m_currentCalculationDir)
+    updateDirectoryContent();
 
     statusBar()->showMessage(tr("Verzeichnis erstellt: ") + dirName);
 }
@@ -1016,13 +1171,10 @@ void MainWindow::runSimulation()
     QString inputFile = generateUniqueFileName(m_inputFileEdit->text(), m_inputFileEditExtension->text());
 
     QString outputFile = generateUniqueFileName("output", "log");
-    qDebug() << currentCalculationDir() + QDir::separator() + outputFile;
-    qDebug() << "Output file: " << outputFile << "Structure file: " << structureFile << "Input file: " << inputFile << "Timestamp: " << timestamp;
     // Speichere aktuelle Strukturdaten
     QFile structFile(currentCalculationDir() + QDir::separator() + structureFile);
     if (structFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
         structFile.write(m_structureView->toPlainText().toUtf8());
-        qDebug() << m_structureView->toPlainText().toUtf8();
         structure_empty = m_structureView->toPlainText().toUtf8().isEmpty();
         structFile.close();
     }
@@ -1064,7 +1216,6 @@ void MainWindow::runSimulation()
         // ORCA erwartet den Input-Dateinamen als Argument
 
         m_currentProcess->setArguments(QStringList() << inputFile);
-        qDebug() << "copying file " << structureFile << " to " << m_structureFileEdit->text() + ".xyz";
         QFile::copy(currentCalculationDir() + QDir::separator() + structureFile, currentCalculationDir() + QDir::separator() + m_structureFileEdit->text() + ".xyz");
     } 
     else {
@@ -1103,13 +1254,11 @@ void MainWindow::runSimulation()
         }
         m_currentProcess->setArguments(args);
     }
-    qDebug() << currentCalculationDir() + QDir::separator() + outputFile;
     m_currentProcess->setStandardOutputFile(currentCalculationDir() + QDir::separator() + outputFile, QIODevice::Append);
     m_currentProcess->setStandardErrorFile(currentCalculationDir() + QDir::separator() + outputFile, QIODevice::Append);
 
     // Starte Prozess und füge Eintrag zur Historie hinzu
     m_currentProcess->start();
-    qDebug() << "Starting process" << m_currentProcess->program() << m_currentProcess->arguments() << m_currentProcess->workingDirectory() << m_currentProcess->error() << m_currentProcess->errorString();
     addCalculationToHistory(entry);
 
     // Verbinde Prozessende
@@ -1247,11 +1396,7 @@ void MainWindow::orcaPlotVib(const QString &filename, int frequency)
         m_currentProcess->setProgram(orcaExe);
         m_currentProcess->setArguments(QStringList() << cfilename << QString::number(frequency));
         m_currentProcess->start();
-        qDebug() << "Starting process" << m_currentProcess->program() << m_currentProcess->arguments() << m_currentProcess->workingDirectory() << m_currentProcess->error() << m_currentProcess->errorString();
         m_currentProcess->waitForFinished();
-        qDebug() << m_currentProcess->readAllStandardOutput();
-        qDebug() << m_currentProcess->readAllStandardError();
-        qDebug() << m_currentProcess->errorString();
 
         QString vXXX;
         if(frequency < 10)
@@ -1284,7 +1429,6 @@ void MainWindow::openWithVisualizer(const QString &filePath, const QString &visu
         QString fileDir = QFileInfo(filePath).absolutePath();
         QFile::copy(filePath, fileDir + "/tmp.gbw");
         QString nfilePath = fileDir + "/tmp";
-        qDebug() << fileDir + "/tmp.gbw" << nfilePath;
         m_currentProcess->setWorkingDirectory(currentCalculationDir());
         m_currentProcess->setProgram(orcaExe);
         m_currentProcess->setArguments(QStringList() << nfilePath << "-molden");
@@ -1295,9 +1439,6 @@ void MainWindow::openWithVisualizer(const QString &filePath, const QString &visu
         arguments << filePath;  // Übergebe den Dateipfad als Argument
 
     // Debug-Ausgabe
-    qDebug() << "Starting" << visualizer << "with file:" << filePath;
-    qDebug() << "Program path:" << programPath;
-    qDebug() << "Arguments:" << arguments;
 
     if (!QProcess::startDetached(programPath, arguments)) {
         QMessageBox::warning(this, tr("Fehler"),
@@ -1339,12 +1480,16 @@ void MainWindow::programSelected(int index)
 
 void MainWindow::projectSelected(const QModelIndex &index)
 {
+    // Claude Generated - Fixed to extract relative directory name
     if (!index.isValid()) return;
 
-    QString path = m_projectModel->fileName(index);
-    m_currentCalculationDir = path;
-    updateDirectoryContent(path);
-    syncRightView(path);
+    QString fullPath = m_projectModel->filePath(index);
+    QDir workDir(m_workingDirectory);
+    QString relativeName = workDir.relativeFilePath(fullPath);
+
+    m_currentCalculationDir = relativeName;
+    updateDirectoryContent();
+    syncRightView();
 }
 
 void MainWindow::processOutput()
@@ -1393,20 +1538,29 @@ void MainWindow::startNewCalculation()
 }
 
 
-void MainWindow::updateDirectoryContent(const QString &path)
+void MainWindow::updateDirectoryContent()
 {
-    qDebug() << "Updating directory content:" << path << currentCalculationDir() << m_workingDirectory;
-    // m_currentCalculationDir = QDir::nameFiltersFromString(path).last();
-    m_directoryContentModel->setRootPath(currentCalculationDir());
-    qDebug() << m_directoryContentModel->rootPath();
-    m_directoryContentView->setRootIndex(m_directoryContentModel->index(m_directoryContentModel->rootPath()));
-    qDebug() << "Directory content updated:" << path << currentCalculationDir();
+    // Claude Generated - Handle empty calculation directory
+    if (!isValidCalculationDir()) {
+        // Show working directory itself if no calculation dir selected
+        QString fullPath = m_workingDirectory;
+        QModelIndex rootIndex = m_directoryContentModel->setRootPath(fullPath);
+        m_directoryContentView->setRootIndex(rootIndex);
+    } else {
+        QString fullPath = currentCalculationDir();
+        QModelIndex rootIndex = m_directoryContentModel->setRootPath(fullPath);
+        m_directoryContentView->setRootIndex(rootIndex);
+    }
 }
 
 
-void MainWindow::syncRightView(const QString &path)
+void MainWindow::syncRightView()
 {
-    qDebug() << "Syncing right view with:" << path << currentCalculationDir();
+    // Claude Generated - Handle empty calculation directory
+    if (!isValidCalculationDir()) {
+        return;  // Nothing to sync if no calculation dir selected
+    }
+
     QDir dir(currentCalculationDir());
 
     QFile defaultStructure(currentCalculationDir() + QDir::separator() + "input.xyz");
@@ -1563,8 +1717,12 @@ void MainWindow::switchWorkingDirectory(const QString& path)
     m_projectModel->setRootPath(path);
     m_projectListView->setRootIndex(m_projectModel->index(path));
 
-    // UI aktualisieren
-    updateDirectoryContent(path);
+    // Claude Generated - Reset current calculation directory when switching working dir
+    m_currentCalculationDir.clear();
+    m_currentProjectLabel->setText("");
+
+    // Update views
+    updateDirectoryContent();
     updatePathLabel(path); // Aktualisiere das Pfad-Label
     statusBar()->showMessage(tr("Working directory changed to: %1").arg(path));
 }
@@ -1628,4 +1786,32 @@ QPair<int, int> MainWindow::countImaginaryFrequencies(const QString& filename) {
 
     file.close();
     return QPair<int, int>(imagCount, freqCount);
+}
+
+void MainWindow::onFrameChanged(int frameIndex)
+{
+    m_frameSlider->setValue(frameIndex);
+    m_frameLabel->setText(QString("%1 / %2").arg(frameIndex + 1).arg(m_frameSlider->maximum() + 1));
+}
+
+void MainWindow::onTrajectoryLoaded(int frameCount)
+{
+    m_frameSlider->setMaximum(frameCount - 1);
+    m_frameSlider->setEnabled(frameCount > 1);
+    m_frameLabel->setText(QString("1 / %1").arg(frameCount));
+}
+
+void MainWindow::onPreviousFrame()
+{
+    m_moleculeView->previousFrame();
+}
+
+void MainWindow::onNextFrame()
+{
+    m_moleculeView->nextFrame();
+}
+
+void MainWindow::onFrameSliderChanged(int value)
+{
+    m_moleculeView->showFrame(value);
 }
