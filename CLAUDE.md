@@ -6,17 +6,14 @@
 
 **Purpose**: Interactive exploration of molecular structures and trajectories with 3D visualization support.
 
-## Current Status (October 2025)
+## Module Documentation
 
-### Recently Fixed ✅
-- ✅ **VTF Bond Parsing Bug** - Changed `QMap<int, VTFBond>` to `QVector<VTFBond>` to allow multiple bonds per atom (was losing 50% of bonds)
-- ✅ **VTF Frame Parsing Bug** - Fixed `parseError` flag stopping loop too early; now detects all 3 frames correctly (was returning 0 frames)
-- ✅ **Test Infrastructure** - Added `test_vtf_bonds.cpp`, `test_vtf_frames.cpp`, `test_vtf_full.cpp` to validate parsing
+- **[src/CLAUDE.md](src/CLAUDE.md)** - VTF/XYZ parsers, 3D viewer, mouse interactions
+- **[src/dialogs/CLAUDE.md](src/dialogs/CLAUDE.md)** - NMR spectrum dialog and analysis
 
-### Architecture
-- **Core**: VTFParser (scnp_cut.vtf support), XYZParser, MoleculeViewer (3D rendering)
-- **File Formats**: VTF (trajectories), XYZ (structures), TXT/LOG (text output)
-- **Visualization**: Qt3D-based 3D molecular display with frame navigation
+## Improvements Tracking
+
+See **[AIChangelog.md](AIChangelog.md)** for significant improvements by date.
 
 ## General Instructions
 
