@@ -139,6 +139,11 @@ private:
     void updateBookmarkView();
     void switchWorkingDirectory(const QString& path);
 
+    // Claude Generated - Quick Win: Recent files management
+    void addToRecentFiles(const QString& path);
+    void updateRecentFilesMenu();
+    void openRecentFile(const QString& path);
+
     void updatePathLabel(const QString& path);
     void toggleLeftPanel();
     void updateWorkflowState(WorkflowState state);  // Claude Generated - Phase 2.2
@@ -173,6 +178,7 @@ private:
     // VTF Frame Navigation
     QSlider* m_frameSlider;
     QLabel* m_frameLabel;
+    QSpinBox* m_frameJumpBox;  // Claude Generated - Quick Win: Frame jump input
     VTFParser* m_vtfParser;
     XYZParser* m_xyzParser;
 
@@ -189,4 +195,13 @@ private:
 
     // Claude Generated - Phase 1.3: Progress dialog for calculations
     QProgressDialog* m_progressDialog = nullptr;
+
+    // Claude Generated - Quick Win: Calculation timer
+    QTimer* m_calculationTimer = nullptr;
+    QLabel* m_timerLabel = nullptr;
+    int m_elapsedSeconds = 0;
+
+    // Claude Generated - Quick Win: Recent files
+    QMenu* m_recentFilesMenu = nullptr;
+    QStringList m_recentFiles;
 };

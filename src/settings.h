@@ -35,6 +35,10 @@ public:
     void setLastUsedWorkingDirectory(const QString& path);
     QString lastUsedWorkingDirectory() const;
 
+    // Claude Generated - Quick Win: Recent files
+    QStringList recentFiles() const;
+    void setRecentFiles(const QStringList& files);
+
 private:
     QSettings m_settings;
 

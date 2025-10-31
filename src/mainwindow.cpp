@@ -218,6 +218,15 @@ void MainWindow::setupUI()
     m_programSelector->setToolTip(tr("Choose computational chemistry program"));
     programLayout->addWidget(new QLabel(tr("Program:")));
     programLayout->addWidget(m_programSelector);
+
+    // Claude Generated - Quick Win: Calculation timer label
+    m_timerLabel = new QLabel("00:00:00");
+    m_timerLabel->setStyleSheet("font-weight: bold; color: #0066cc;");
+    m_timerLabel->setMinimumWidth(70);
+    m_timerLabel->setToolTip(tr("Elapsed calculation time"));
+    programLayout->addStretch();
+    programLayout->addWidget(m_timerLabel);
+
     rightLayout->addLayout(programLayout);
 
     // Command input with auto-completion
@@ -333,6 +342,15 @@ void MainWindow::setupUI()
     m_frameLabel = new QLabel("0 / 0");
     m_frameLabel->setMinimumWidth(60);
     frameControlLayout->addWidget(m_frameLabel);
+
+    // Claude Generated - Quick Win: Frame jump input
+    m_frameJumpBox = new QSpinBox;
+    m_frameJumpBox->setMinimum(0);
+    m_frameJumpBox->setMaximum(0);
+    m_frameJumpBox->setMaximumWidth(60);
+    m_frameJumpBox->setToolTip(tr("Jump to frame number"));
+    frameControlLayout->addWidget(m_frameJumpBox);
+
     frameControlLayout->addStretch();
     
     // Add View Navigation Buttons
@@ -350,6 +368,14 @@ void MainWindow::setupUI()
     connect(prevFrameButton, &QPushButton::clicked, this, &MainWindow::onPreviousFrame);
     connect(nextFrameButton, &QPushButton::clicked, this, &MainWindow::onNextFrame);
     connect(m_frameSlider, &QSlider::valueChanged, this, &MainWindow::onFrameSliderChanged);
+
+    // Claude Generated - Quick Win: Frame jump box connection
+    connect(m_frameJumpBox, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
+        if (value != m_frameSlider->value()) {
+            m_frameSlider->setValue(value);  // This will trigger onFrameSliderChanged
+        }
+    });
+
     connect(resetViewButton, &QPushButton::clicked, m_moleculeView, &MoleculeViewer::resetViewToMolecule);
 
     rightLayout->addWidget(editorTabs);
@@ -574,6 +600,10 @@ void MainWindow::createMenus()
 
     // File Menu
     QMenu *fileMenu = menuBar->addMenu(tr("&File"));
+
+    // Claude Generated - Quick Win: Recent files menu
+    m_recentFilesMenu = fileMenu->addMenu(tr("&Recent Files"));
+    m_recentFilesMenu->setEnabled(false);
 
     fileMenu->addSeparator();
     fileMenu->addAction(tr("&Quit"), this, &QWidget::close);
@@ -1333,6 +1363,24 @@ void MainWindow::runSimulation()
     // Claude Generated - Phase 2.2: Update workflow state
     updateWorkflowState(WorkflowState::CalculationRunning);
 
+    // Claude Generated - Quick Win: Start calculation timer
+    m_elapsedSeconds = 0;
+    m_timerLabel->setText("00:00:00");
+    if (!m_calculationTimer) {
+        m_calculationTimer = new QTimer(this);
+        connect(m_calculationTimer, &QTimer::timeout, [this]() {
+            m_elapsedSeconds++;
+            int hours = m_elapsedSeconds / 3600;
+            int minutes = (m_elapsedSeconds % 3600) / 60;
+            int seconds = m_elapsedSeconds % 60;
+            m_timerLabel->setText(QString("%1:%2:%3")
+                .arg(hours, 2, 10, QChar('0'))
+                .arg(minutes, 2, 10, QChar('0'))
+                .arg(seconds, 2, 10, QChar('0')));
+        });
+    }
+    m_calculationTimer->start(1000);  // Update every second
+
     // Claude Generated - Phase 1.3: Show progress dialog
     if (m_progressDialog) {
         delete m_progressDialog;
@@ -1357,6 +1405,11 @@ void MainWindow::runSimulation()
             if (m_progressDialog) {
                 m_progressDialog->close();
                 m_progressDialog = nullptr;
+            }
+
+            // Claude Generated - Quick Win: Stop calculation timer
+            if (m_calculationTimer) {
+                m_calculationTimer->stop();
             }
 
             // Aktualisiere Status in der Historie
@@ -1604,6 +1657,9 @@ void MainWindow::projectSelected(const QModelIndex &index)
     // Claude Generated - Phase 2.2: Update workflow state
     updateWorkflowState(WorkflowState::DirectoryReady);
 
+    // Claude Generated - Quick Win: Add to recent files
+    addToRecentFiles(currentCalculationDir());
+
     QApplication::restoreOverrideCursor();
 }
 
@@ -1626,6 +1682,9 @@ void MainWindow::loadSettings()
         m_projectModel->setRootPath(m_workingDirectory);
         m_projectListView->setRootIndex(m_projectModel->index(m_workingDirectory));
     }
+    // Claude Generated - Quick Win: Load recent files
+    m_recentFiles = m_settings.recentFiles();
+    updateRecentFilesMenu();
 }
 
 void MainWindow::startNewCalculation()
@@ -1936,6 +1995,10 @@ QPair<int, int> MainWindow::countImaginaryFrequencies(const QString& filename) {
 void MainWindow::onFrameChanged(int frameIndex)
 {
     m_frameSlider->setValue(frameIndex);
+    // Claude Generated - Quick Win: Update frame jump box
+    m_frameJumpBox->blockSignals(true);
+    m_frameJumpBox->setValue(frameIndex);
+    m_frameJumpBox->blockSignals(false);
     m_frameLabel->setText(QString("%1 / %2").arg(frameIndex + 1).arg(m_frameSlider->maximum() + 1));
 }
 
@@ -1943,6 +2006,9 @@ void MainWindow::onTrajectoryLoaded(int frameCount)
 {
     m_frameSlider->setMaximum(frameCount - 1);
     m_frameSlider->setEnabled(frameCount > 1);
+    // Claude Generated - Quick Win: Update frame jump box range
+    m_frameJumpBox->setMaximum(frameCount - 1);
+    m_frameJumpBox->setEnabled(frameCount > 1);
     m_frameLabel->setText(QString("1 / %1").arg(frameCount));
 }
 
@@ -1959,6 +2025,61 @@ void MainWindow::onNextFrame()
 void MainWindow::onFrameSliderChanged(int value)
 {
     m_moleculeView->showFrame(value);
+}
+
+// Claude Generated - Quick Win: Recent files management
+void MainWindow::addToRecentFiles(const QString& path)
+{
+    // Remove if already exists
+    m_recentFiles.removeAll(path);
+    // Add to front
+    m_recentFiles.prepend(path);
+    // Keep only last 10
+    while (m_recentFiles.size() > 10) {
+        m_recentFiles.removeLast();
+    }
+    // Save to settings
+    m_settings.setRecentFiles(m_recentFiles);
+    // Update menu
+    updateRecentFilesMenu();
+}
+
+void MainWindow::updateRecentFilesMenu()
+{
+    m_recentFilesMenu->clear();
+    if (m_recentFiles.isEmpty()) {
+        m_recentFilesMenu->setEnabled(false);
+        return;
+    }
+    m_recentFilesMenu->setEnabled(true);
+    for (const QString& path : m_recentFiles) {
+        QFileInfo info(path);
+        QAction* action = m_recentFilesMenu->addAction(info.fileName());
+        action->setData(path);
+        connect(action, &QAction::triggered, [this, path]() {
+            openRecentFile(path);
+        });
+    }
+    m_recentFilesMenu->addSeparator();
+    m_recentFilesMenu->addAction(tr("Clear Recent Files"), [this]() {
+        m_recentFiles.clear();
+        m_settings.setRecentFiles(m_recentFiles);
+        updateRecentFilesMenu();
+    });
+}
+
+void MainWindow::openRecentFile(const QString& path)
+{
+    if (!QDir(path).exists()) {
+        QMessageBox::warning(this, tr("Directory Not Found"),
+            tr("The directory '%1' no longer exists.").arg(path));
+        m_recentFiles.removeAll(path);
+        m_settings.setRecentFiles(m_recentFiles);
+        updateRecentFilesMenu();
+        return;
+    }
+    switchWorkingDirectory(path);
+    addToRecentFiles(path);
 }
 
 // Claude Generated - Phase 1.2: Keyboard shortcut handlers

@@ -127,3 +127,15 @@ QString Settings::lastUsedWorkingDirectory() const
 {
     return m_settings.value(LAST_USED_DIR_KEY).toString();
 }
+
+// Claude Generated - Quick Win: Recent files
+QStringList Settings::recentFiles() const
+{
+    return m_settings.value("recentFiles", QStringList()).toStringList();
+}
+
+void Settings::setRecentFiles(const QStringList& files)
+{
+    m_settings.setValue("recentFiles", files);
+    m_settings.sync();
+}
