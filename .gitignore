@@ -48,12 +48,29 @@ CMakeLists.txt.user*
 # QtCreator local machine specific files for imported projects
 *creator.user*
 
-# Build directories
+# Build directories (CMake)
 build/
 debug/
 release/
 bin/
 lib/
+blob/
+
+# CMake build artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+.cmake/
+
+# Test executables and artifacts (generated in root)
+test_vtf*
+test_frame_detection*
+test_trajectory.xyz
+test_xyz_parser
+qt_vtf_test
+vtf_test_qt
+scnp_cut.vtf
 
 # IDE specific files
 .vscode/

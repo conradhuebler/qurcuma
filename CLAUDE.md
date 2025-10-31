@@ -71,3 +71,24 @@ See **[AIChangelog.md](AIChangelog.md)** for significant improvements by date.
 - Keep track of significant improvements in AIChangelog.md, one line per fact
 - **Complex Architecture Documentation**: Factory patterns, dispatchers, and multi-step workflows require comprehensive inline documentation following ARCHITECTURE_DOCUMENTATION.md standards
 
+### Build & Git Management
+
+#### Build Directories
+- **`debug/`** - Development build: full debug symbols, no optimizations, slower runtime
+  - Use: Testing features, debugging crashes, development workflow
+  - Build: `cmake --build debug 2>&1 | tail -20` for quick status
+  - Executable: `./debug/qurcuma`
+
+- **`release/`** - Optimized build: stripped symbols, O3 optimizations, fast runtime
+  - Use: Performance testing, final deployment, production runs
+  - Build: `cmake --build release 2>&1 | tail -20`
+  - Executable: `./release/qurcuma`
+
+#### Git Best Practices
+- **Only commit source files**: Use `git add <file>` for specific files, never `git add -A` without review
+- **Test executables stay local**: Build artifacts (test_vtf*, test_frame_detection, etc.) are ignored
+- **Review before committing**: Always check `git diff` and `git status` to avoid accidental commits
+- **Build before commit**: Ensure `cmake --build debug` succeeds and no compiler warnings/errors exist
+- **Commit message format**: Start with action verb (Fix, Add, Improve, Refactor), follow with brief description
+- **.gitignore is comprehensive**: CMake files, build directories, test artifacts, OS files are all ignored
+
