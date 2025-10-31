@@ -10,8 +10,9 @@ const QString Settings::LAST_USED_DIR_KEY = "lastUsedWorkingDirectory";
 
 Settings::Settings(QObject* parent)
     : QObject(parent)
-    , m_settings(QSettings::IniFormat, QSettings::UserScope, "Qurcuma", "m_settings")
+    , m_settings(QSettings::IniFormat, QSettings::UserScope, "Qurcuma", "qurcuma")
 {
+    // Claude Generated - Fixed application name from "m_settings" to "qurcuma"
     // Wenn keine Einstellungen vorhanden, Standardwerte laden
     if (m_settings.allKeys().isEmpty()) {
         loadDefaults();
@@ -137,5 +138,17 @@ QStringList Settings::recentFiles() const
 void Settings::setRecentFiles(const QStringList& files)
 {
     m_settings.setValue("recentFiles", files);
+    m_settings.sync();
+}
+
+// Claude Generated - Visual Polish: Dark mode
+bool Settings::darkModeEnabled() const
+{
+    return m_settings.value("darkMode", false).toBool();
+}
+
+void Settings::setDarkMode(bool enabled)
+{
+    m_settings.setValue("darkMode", enabled);
     m_settings.sync();
 }

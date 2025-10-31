@@ -70,6 +70,13 @@ MainWindow::MainWindow(QWidget *parent)
     if (!lastDir.isEmpty() && QDir(lastDir).exists()) {
         switchWorkingDirectory(lastDir);
     }
+
+    // Claude Generated - Visual Polish: Load dark mode setting and update checkbox
+    m_darkModeEnabled = m_settings.darkModeEnabled();
+    if (m_darkModeAction) {
+        m_darkModeAction->setChecked(m_darkModeEnabled);
+    }
+    applyStylesheet(m_darkModeEnabled);
 }
 
 MainWindow::~MainWindow()
@@ -170,8 +177,11 @@ void MainWindow::setupUI()
     QVBoxLayout *middleLayout = new QVBoxLayout(middleWidget);
 
     // Make new calculation button and create directory - Claude Generated Phase 2.1
+    // Claude Generated - Visual Polish: Button icons
     m_newCalculationButton = new QPushButton(tr("Create Calculation Directory"));
+    m_newCalculationButton->setIcon(QIcon::fromTheme("folder-new", QIcon()));
     m_newCalculationButton->setToolTip(tr("Create a new calculation directory (Ctrl+N)"));
+    m_newCalculationButton->setIconSize(QSize(16, 16));
     middleLayout->addWidget(m_newCalculationButton);
 
     m_currentProjectLabel = new QLabel(m_currentCalculationDir);
@@ -261,7 +271,9 @@ void MainWindow::setupUI()
 
     // Run calculation button - Claude Generated Phase 2.1
     m_runCalculation = new QPushButton(tr("Start Calculation"));
+    m_runCalculation->setIcon(QIcon::fromTheme("system-run", QIcon()));
     m_runCalculation->setToolTip(tr("Start calculation with selected program (Ctrl+R)"));
+    m_runCalculation->setIconSize(QSize(16, 16));
 
     commandLayout->addWidget(m_commandInput, 3);
     commandLayout->addWidget(m_threads);
@@ -290,7 +302,8 @@ void MainWindow::setupUI()
     m_structureView->setPlaceholderText("Structure data");
     structureLayout->addWidget(m_structureView);
 
-    editorTabs->addTab(structureTab, tr("Structure"));
+    // Claude Generated - Visual Polish: Tab icons
+    editorTabs->addTab(structureTab, QIcon::fromTheme("document-properties"), tr("Structure"));
 
     // Input tab
     QWidget *inputTab = new QWidget;
@@ -310,7 +323,7 @@ void MainWindow::setupUI()
     m_inputView->setPlaceholderText("Input data");
     inputLayout->addWidget(m_inputView);
 
-    editorTabs->addTab(inputTab, tr("Input"));
+    editorTabs->addTab(inputTab, QIcon::fromTheme("document-edit"), tr("Input"));
 
     m_moleculeView = new MoleculeViewer;
     
@@ -370,7 +383,7 @@ void MainWindow::setupUI()
     
     structureViewerLayout->addLayout(frameControlLayout);
     
-    editorTabs->addTab(structureViewerWidget, tr("Structure Viewer"));
+    editorTabs->addTab(structureViewerWidget, QIcon::fromTheme("document-import"), tr("Structure Viewer"));
     
     frameControlLayout->setContentsMargins(5, 5, 5, 5);
     
@@ -616,12 +629,22 @@ void MainWindow::createMenus()
     m_recentFilesMenu->setEnabled(false);
 
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("&Quit"), this, &QWidget::close);
+    // Claude Generated - Visual Polish: Menu icons
+    QAction *quitAction = fileMenu->addAction(QIcon::fromTheme("application-exit"), tr("&Quit"));
+    connect(quitAction, &QAction::triggered, this, &QWidget::close);
 
     // Settings Menu
     QMenu *settingsMenu = menuBar->addMenu(tr("&Settings"));
-    settingsMenu->addAction(tr("Configure Programs..."),
-        this, &MainWindow::configurePrograms);
+
+    // Claude Generated - Visual Polish: Dark mode toggle (checkbox state set later after loading settings)
+    m_darkModeAction = settingsMenu->addAction(tr("&Dark Mode"));
+    m_darkModeAction->setCheckable(true);
+    // Note: checkbox state will be updated in constructor after loading settings
+    connect(m_darkModeAction, &QAction::triggered, this, &MainWindow::toggleDarkMode);
+
+    settingsMenu->addSeparator();
+    QAction *configAction = settingsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure Programs..."));
+    connect(configAction, &QAction::triggered, this, &MainWindow::configurePrograms);
 
     // Statusleiste
     setStatusBar(new QStatusBar);
@@ -2288,6 +2311,43 @@ void MainWindow::updateWorkflowState(WorkflowState state)
     if (m_stateIcon && m_stateIndicator) {
         m_stateIcon->setStyleSheet(QString("color: %1; font-size: 14px;").arg(stateColor));
         m_stateIndicator->setText(stateMessage);
+    }
+}
+
+// Claude Generated - Visual Polish: Apply stylesheet (dark/light mode)
+void MainWindow::applyStylesheet(bool darkMode)
+{
+    QString stylesheetPath = darkMode ?
+        ":/stylesheets/dark.qss" :
+        ":/stylesheets/light.qss";
+
+    qDebug() << "[Dark Mode] Attempting to load stylesheet:" << stylesheetPath;
+
+    QFile styleFile(stylesheetPath);
+    if (styleFile.open(QFile::ReadOnly)) {
+        QString styleSheet = QString::fromUtf8(styleFile.readAll());
+        qDebug() << "[Dark Mode] Stylesheet loaded successfully, size:" << styleSheet.length() << "bytes";
+        qApp->setStyleSheet(styleSheet);
+        styleFile.close();
+        m_darkModeEnabled = darkMode;
+        m_settings.setDarkMode(darkMode);
+        qDebug() << "[Dark Mode] Settings saved: darkMode =" << darkMode;
+        statusBar()->showMessage(
+            darkMode ? tr("Dark Mode enabled") : tr("Light Mode enabled"),
+            2000);
+    } else {
+        qWarning() << "[Dark Mode] FAILED to open stylesheet file:" << stylesheetPath;
+        qWarning() << "[Dark Mode] Error:" << styleFile.errorString();
+    }
+}
+
+void MainWindow::toggleDarkMode()
+{
+    bool newMode = !m_darkModeEnabled;
+    applyStylesheet(newMode);
+    // Update checkbox state after toggle
+    if (m_darkModeAction) {
+        m_darkModeAction->setChecked(newMode);
     }
 }
 

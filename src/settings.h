@@ -39,6 +39,10 @@ public:
     QStringList recentFiles() const;
     void setRecentFiles(const QStringList& files);
 
+    // Claude Generated - Visual Polish: Dark mode
+    bool darkModeEnabled() const;
+    void setDarkMode(bool enabled);
+
 private:
     QSettings m_settings;
 

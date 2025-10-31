@@ -216,6 +216,12 @@ private:
     // Claude Generated - Quick Win: Zoom to fit molecule
     void zoomToMolecule();
 
+    // Claude Generated - Visual Polish: Dark mode
+    bool m_darkModeEnabled = false;
+    QAction* m_darkModeAction = nullptr;  // Store checkbox reference
+    void applyStylesheet(bool darkMode);
+    void toggleDarkMode();
+
 protected:
     // Claude Generated - Quick Win: Drag & Drop support
     void dragEnterEvent(QDragEnterEvent *event) override;

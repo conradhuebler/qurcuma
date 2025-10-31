@@ -52,6 +52,7 @@ set(HEADERS
 add_executable(qurcuma
     ${SOURCES}
     ${HEADERS}
+    resources.qrc
 )
 
 target_link_libraries(qurcuma PRIVATE
