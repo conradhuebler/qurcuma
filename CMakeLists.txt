@@ -25,6 +25,8 @@ set(SOURCES
     src/main.cpp
     src/mainwindow.cpp
     src/settings.cpp
+    src/vtfparser.cpp
+    src/xyzparser.cpp
     src/dialogs/nmrspectrumdialog.cpp
     src/dialogs/nmrcontroller.cpp
     src/dialogs/nmrdatastore.cpp
@@ -38,6 +40,8 @@ set(HEADERS
     src/mainwindow.h
     src/settings.h
     src/view.h
+    src/vtfparser.h
+    src/xyzparser.h
     src/dialogs/nmrspectrumdialog.h
     #src/dialogs/nmrstructuremodel.h
 
@@ -62,6 +66,46 @@ cutechart
 
 # Include-Verzeichnisse
 target_include_directories(qurcuma PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+)
+
+# VTF Parser Test
+add_executable(test_vtf_minimal test_vtf_minimal.cpp)
+target_link_libraries(test_vtf_minimal PRIVATE
+Qt6::Core
+)
+target_include_directories(test_vtf_minimal PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+)
+
+# VTF Bond Test - Claude Generated
+add_executable(test_vtf_bonds test_vtf_bonds.cpp)
+target_link_libraries(test_vtf_bonds PRIVATE
+Qt6::Core
+)
+target_include_directories(test_vtf_bonds PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+)
+
+# VTF Frame Test - Claude Generated
+add_executable(test_vtf_frames test_vtf_frames.cpp)
+target_link_libraries(test_vtf_frames PRIVATE
+Qt6::Core
+)
+target_include_directories(test_vtf_frames PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+)
+
+# VTF Full Test - Claude Generated
+add_executable(test_vtf_full test_vtf_full.cpp)
+target_link_libraries(test_vtf_full PRIVATE
+Qt6::Core
+)
+target_include_directories(test_vtf_full PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/external/
 )
