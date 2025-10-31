@@ -13,6 +13,8 @@ const float MoleculeViewer::DEFAULT_BOND_DISTANCE = 3.0f; // Å
 
 MoleculeViewer::MoleculeViewer(QWidget *parent)
     : QWidget(parent)
+    , m_frameCount(1)
+    , m_currentFrame(0)
 {
     setupViewer();
 }
@@ -37,30 +39,199 @@ void MoleculeViewer::setupViewer()
 
     // Kamera einrichten
     m_camera = m_view->camera();
-    m_camera->lens()->setPerspectiveProjection(45.0f, 16.0f/9.0f, 0.1f, 1000.0f);
-    m_camera->setPosition(QVector3D(0, 0, 40.0f));
+    m_camera->lens()->setPerspectiveProjection(45.0f, 16.0f/9.0f, 0.1f, 5000.0f);
+    
+    // Initialize with default position - will be updated by setDefaultView()
+    m_camera->setPosition(QVector3D(0, 0, 100.0f));
     m_camera->setViewCenter(QVector3D(0, 0, 0));
 
-    // Kamera-Controller
-    m_cameraController = nullptr;
+    // Kamera-Controller erstellen aber NICHT aktivieren
+    // Stattdessen verwenden wir custom mouse handling im eventFilter
+    m_cameraController = new Qt3DExtras::QOrbitCameraController(m_rootEntity);
+    // NICHT aktivieren: m_cameraController->setCamera(m_camera);
 
     m_view->setRootEntity(m_rootEntity);
 
+    // Install event filter für custom mouse interactions
     m_view->installEventFilter(this);
 }
 
 bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == m_view) {
-        if (event->type() == QEvent::MouseButtonPress) {
-            QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-            if (mouseEvent->button() == Qt::MiddleButton) {
-                resetView();
-                return true; // Event wurde behandelt
+        switch (event->type()) {
+            case QEvent::MouseButtonPress: {
+                QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+                if (mouseEvent->button() == Qt::LeftButton) {
+                    m_leftMousePressed = true;
+                    m_lastMousePos = mouseEvent->position().toPoint();
+                    return true;
+                } else if (mouseEvent->button() == Qt::RightButton) {
+                    m_rightMousePressed = true;
+                    m_lastMousePos = mouseEvent->position().toPoint();
+                    return true;
+                } else if (mouseEvent->button() == Qt::MiddleButton) {
+                    // Reset View auf Molekülzentrum
+                    resetView();
+                    return true;
+                }
+                break;
             }
+            case QEvent::MouseButtonRelease: {
+                QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+                if (mouseEvent->button() == Qt::LeftButton) {
+                    m_leftMousePressed = false;
+                    return true;
+                } else if (mouseEvent->button() == Qt::RightButton) {
+                    m_rightMousePressed = false;
+                    return true;
+                }
+                break;
+            }
+            case QEvent::MouseMove: {
+                QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+                QPoint currentPos = mouseEvent->position().toPoint();
+
+                if (m_leftMousePressed) {
+                    handleMouseRotation(currentPos);
+                    m_lastMousePos = currentPos;
+                    return true;
+                } else if (m_rightMousePressed) {
+                    handleMousePan(currentPos);
+                    m_lastMousePos = currentPos;
+                    return true;
+                }
+                break;
+            }
+            case QEvent::Wheel: {
+                QWheelEvent *wheelEvent = static_cast<QWheelEvent*>(event);
+                handleMouseZoom(wheelEvent->angleDelta().y());
+                return true;
+            }
+            default:
+                break;
         }
     }
     return QWidget::eventFilter(watched, event);
+}
+
+void MoleculeViewer::handleMouseRotation(const QPoint& currentPos)
+{
+    // Claude Generated - Arcball rotation around view center
+    if (!m_camera) return;
+
+    QPoint delta = currentPos - m_lastMousePos;
+
+    // Sensitivity parameters
+    const float rotationSensitivity = 0.5f; // degrees per pixel
+
+    // Get current camera state
+    QVector3D viewCenter = m_camera->viewCenter();
+    QVector3D camPos = m_camera->position();
+    QVector3D upVector = m_camera->upVector();
+
+    // Calculate vector from view center to camera
+    QVector3D radiusVector = camPos - viewCenter;
+    float distance = radiusVector.length();
+
+    if (distance < 0.01f) return; // Prevent division by zero
+
+    // Normalize radius vector
+    QVector3D radialDir = radiusVector.normalized();
+
+    // Calculate rotation axes
+    // Vertical rotation: around the "right" vector (perpendicular to view direction and up vector)
+    QVector3D rightVector = QVector3D::crossProduct(radialDir, upVector).normalized();
+
+    // Horizontal rotation: around the up vector
+    QVector3D actualUpVector = QVector3D::crossProduct(rightVector, radialDir).normalized();
+
+    // Apply rotations using quaternions
+    QQuaternion verticalRotation = QQuaternion::fromAxisAndAngle(rightVector, -delta.y() * rotationSensitivity);
+    QQuaternion horizontalRotation = QQuaternion::fromAxisAndAngle(actualUpVector, delta.x() * rotationSensitivity);
+
+    // Combined rotation
+    QQuaternion totalRotation = horizontalRotation * verticalRotation;
+
+    // Rotate the radius vector
+    QVector3D newRadiusVector = totalRotation.rotatedVector(radiusVector);
+
+    // Calculate new camera position
+    QVector3D newCamPos = viewCenter + newRadiusVector;
+
+    // Update camera position and up vector
+    m_camera->setPosition(newCamPos);
+
+    // Rotate up vector
+    QVector3D newUpVector = totalRotation.rotatedVector(upVector);
+    m_camera->setUpVector(newUpVector.normalized());
+}
+
+void MoleculeViewer::handleMousePan(const QPoint& currentPos)
+{
+    // Claude Generated - Pan the view
+    if (!m_camera) return;
+
+    QPoint delta = currentPos - m_lastMousePos;
+
+    // Get current camera state
+    QVector3D viewCenter = m_camera->viewCenter();
+    QVector3D camPos = m_camera->position();
+    QVector3D upVector = m_camera->upVector();
+
+    // Calculate pan vector based on camera orientation
+    QVector3D viewDir = (viewCenter - camPos).normalized();
+    QVector3D rightVector = QVector3D::crossProduct(viewDir, upVector).normalized();
+    QVector3D actualUpVector = QVector3D::crossProduct(rightVector, viewDir).normalized();
+
+    // Pan sensitivity - proportional to distance
+    float distance = (viewCenter - camPos).length();
+    float panSensitivity = distance * 0.005f; // Adjust this value for pan speed
+
+    // Calculate pan offset
+    QVector3D panOffset = rightVector * (-delta.x() * panSensitivity) +
+                          actualUpVector * (delta.y() * panSensitivity);
+
+    // Move both view center and camera position
+    m_camera->setViewCenter(viewCenter + panOffset);
+    m_camera->setPosition(camPos + panOffset);
+}
+
+void MoleculeViewer::handleMouseZoom(int delta)
+{
+    // Claude Generated - Zoom by moving camera along view direction
+    if (!m_camera) return;
+
+    // Zoom sensitivity
+    const float zoomSensitivity = 1.1f; // Multiplication factor per wheel click
+
+    QVector3D viewCenter = m_camera->viewCenter();
+    QVector3D camPos = m_camera->position();
+
+    // Calculate zoom factor
+    float zoomFactor = (delta > 0) ? (1.0f / zoomSensitivity) : zoomSensitivity;
+
+    // Calculate distance from view center to camera
+    QVector3D radiusVector = camPos - viewCenter;
+    float distance = radiusVector.length();
+
+    // Minimum distance to prevent zooming into the structure
+    const float minDistance = 0.5f;
+
+    // New distance
+    float newDistance = distance * zoomFactor;
+
+    // Clamp to minimum distance
+    if (newDistance < minDistance) {
+        newDistance = minDistance;
+    }
+
+    // Calculate new camera position
+    if (distance > 0.01f) {
+        QVector3D direction = radiusVector.normalized();
+        QVector3D newCamPos = viewCenter + direction * newDistance;
+        m_camera->setPosition(newCamPos);
+    }
 }
 
 void MoleculeViewer::clearScene()
@@ -74,8 +245,8 @@ void MoleculeViewer::clearScene()
 
     void MoleculeViewer::resetCamera()
 {
-    m_camera->setPosition(QVector3D(0, 0, 40.0f));
-    m_camera->setViewCenter(QVector3D(0, 0, 0));
+    // Reset auf gespeichertes Molekülzentrum
+    resetViewToMolecule();
 }
 
 // viewer.cpp
@@ -274,16 +445,43 @@ void MoleculeViewer::setDefaultView()
 {
     if (!m_camera) return;
     
-    // Setze die Kamera auf eine Position, die das gesamte Molekül zeigt
-    float distance = m_moleculeRadius * 2.5f; // Faktor für guten Überblick
-    m_camera->setPosition(m_moleculeCenter + QVector3D(0.0f, 0.0f, distance));
+    // Berechne optimale Kamera-Distanz basierend auf Molekülgröße
+    float effectiveRadius = m_moleculeRadius;
+    if (effectiveRadius < 1.0f) {
+        effectiveRadius = 10.0f; // Mindestradius für kleine Moleküle
+    }
+    
+    // Distanz für gute Übersicht - adaptiv zur Molekülgröße
+    float distance = effectiveRadius * 3.0f;
+    
+    // Position Kamera auf Z-Achse vom Molekülzentrum aus
+    QVector3D cameraPos = m_moleculeCenter + QVector3D(0.0f, 0.0f, distance);
+    
+    m_camera->setPosition(cameraPos);
     m_camera->setViewCenter(m_moleculeCenter);
     m_camera->setUpVector(QVector3D(0.0f, 1.0f, 0.0f));
+    
+    // Kamera-Lens erweitern für große Moleküle
+    float maxDistance = distance + effectiveRadius * 2.0f;
+    m_camera->lens()->setNearPlane(qMax(0.1f, effectiveRadius * 0.1f));
+    m_camera->lens()->setFarPlane(qMax(1000.0f, maxDistance));
 }
 
 void MoleculeViewer::resetView()
 {
     setDefaultView();
+}
+
+void MoleculeViewer::resetViewToMolecule()
+{
+    // Reset auf gespeichertes Molekülzentrum und optimierte Kamera-Position
+    if (m_moleculeCenter != QVector3D(0, 0, 0) || m_moleculeRadius > 0) {
+        setDefaultView();
+    } else {
+        // Fallback für Fall wenn noch kein Molekül geladen wurde
+        m_camera->setPosition(QVector3D(0, 0, 100.0f));
+        m_camera->setViewCenter(QVector3D(0, 0, 0));
+    }
 }
 
 QVector<MoleculeViewer::Bond> MoleculeViewer::detectBonds(const QVector<Atom>& atoms)
@@ -315,7 +513,12 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
 {
     clearScene();
 
-    // Berechne Molekülzentrum und Radius
+    // Berechne Molekülzentrum und Radius für die aktuellen Atome
+    if (atoms.isEmpty()) {
+        qWarning() << "Empty atom list - cannot calculate molecule center";
+        return;
+    }
+    
     QVector3D min = atoms[0].position;
     QVector3D max = atoms[0].position;
     
@@ -334,20 +537,124 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
     
     m_moleculeCenter = (min + max) * 0.5f;
     m_moleculeRadius = (max - min).length() * 0.5f;
+    
+    // Stelle sicher, dass der Radius nicht zu klein ist
+    if (m_moleculeRadius < 1.0f) {
+        m_moleculeRadius = 10.0f; // Mindestradius für kleine Moleküle
+    }
 
     // Verwende die übergebenen Bindungen oder erkenne sie automatisch
     QVector<Bond> actualBonds = bonds.isEmpty() ? detectBonds(atoms) : bonds;
 
-    Qt3DCore::QEntity *moleculeEntity = createMoleculeEntity(atoms, actualBonds);
-    
-    // Kamera-Controller und Entity-Setup
-    m_cameraController = new Qt3DExtras::QOrbitCameraController(moleculeEntity);
-    m_cameraController->setLinearSpeed(50.0f);
-    m_cameraController->setLookSpeed(180.0f);
-    m_cameraController->setCamera(m_camera);
-    
-    moleculeEntity->setParent(m_rootEntity);
+    // If we have multiple frames stored (trajectory), show current frame
+    if (m_trajectoryAtoms.size() > 1 && m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
+        Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[m_currentFrame], m_trajectoryBonds[m_currentFrame]);
+        moleculeEntity->setParent(m_rootEntity);
+    } else {
+        // Single frame or first frame
+        Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(atoms, actualBonds);
+        moleculeEntity->setParent(m_rootEntity);
+    }
 
-    // Setze die Standardansicht
+    // Kamera-Controller aktivieren (falls noch nicht aktiv)
+    if (!m_cameraController) {
+        m_cameraController = new Qt3DExtras::QOrbitCameraController(m_rootEntity);
+        m_cameraController->setLinearSpeed(50.0f);
+        m_cameraController->setLookSpeed(180.0f);
+        m_cameraController->setCamera(m_camera);
+    }
+
+    // Setze die Standardansicht auf das Molekülzentrum
     setDefaultView();
+}
+
+void MoleculeViewer::showFrame(int frameIndex)
+{
+    if (frameIndex >= 0 && frameIndex < m_trajectoryAtoms.size()) {
+        m_currentFrame = frameIndex;
+        
+        // Berechne Molekülzentrum für diese Frame
+        const auto& atoms = m_trajectoryAtoms[frameIndex];
+        if (!atoms.isEmpty()) {
+            QVector3D min = atoms[0].position;
+            QVector3D max = atoms[0].position;
+            
+            for (const Atom& atom : atoms) {
+                min = QVector3D(
+                    qMin(min.x(), atom.position.x()),
+                    qMin(min.y(), atom.position.y()),
+                    qMin(min.z(), atom.position.z())
+                );
+                max = QVector3D(
+                    qMax(max.x(), atom.position.x()),
+                    qMax(max.y(), atom.position.y()),
+                    qMax(max.z(), atom.position.z())
+                );
+            }
+            
+            m_moleculeCenter = (min + max) * 0.5f;
+            m_moleculeRadius = (max - min).length() * 0.5f;
+        }
+        
+        clearScene();
+        Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[frameIndex], m_trajectoryBonds[frameIndex]);
+        moleculeEntity->setParent(m_rootEntity);
+        
+        // Setze Kamera für diese Frame
+        setDefaultView();
+        
+        emit frameChanged(m_currentFrame);
+    }
+}
+
+void MoleculeViewer::nextFrame()
+{
+    if (m_currentFrame < m_trajectoryAtoms.size() - 1) {
+        showFrame(m_currentFrame + 1);
+    }
+}
+
+void MoleculeViewer::previousFrame()
+{
+    if (m_currentFrame > 0) {
+        showFrame(m_currentFrame - 1);
+    }
+}
+
+void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, const QVector<QVector<Bond>>& bonds)
+{
+    m_trajectoryAtoms = atoms;
+    m_trajectoryBonds = bonds;
+    m_frameCount = atoms.size();
+    m_currentFrame = 0;
+    
+    // Emit signals for UI updates
+    emit trajectoryLoaded(m_frameCount);
+    emit frameChanged(m_currentFrame);
+}
+
+void MoleculeViewer::showTrajectoryFrame(int frameIndex)
+{
+    if (frameIndex >= 0 && frameIndex < m_trajectoryAtoms.size()) {
+        m_currentFrame = frameIndex;
+        clearScene();
+        
+        // Use stored trajectory data
+        Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[frameIndex], m_trajectoryBonds[frameIndex]);
+        moleculeEntity->setParent(m_rootEntity);
+        setDefaultView();
+        
+        emit frameChanged(m_currentFrame);
+    }
+}
+
+void MoleculeViewer::setVTFTrajectoryData(const QVector<QVector<Atom>>& atoms, const QVector<QVector<Bond>>& bonds)
+{
+    // Same as setTrajectoryData, but specifically for VTF data
+    setTrajectoryData(atoms, bonds);
+}
+
+void MoleculeViewer::clearScenePublic()
+{
+    clearScene();
 }
