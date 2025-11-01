@@ -4,6 +4,7 @@
 
 #include <QWidget>
 #include <Qt3DExtras/Qt3DWindow>
+#include <Qt3DExtras/QPhongMaterial>  // Claude Generated - For storing material references
 #include <Qt3DRender/QCamera>
 #include <Qt3DCore/QEntity>
 #include <Qt3DCore/QTransform>
@@ -138,6 +139,12 @@ private:
     void onAnimationTick();  // Claude Generated - Timer callback for animation
     void updateMeasurementDisplay();  // Claude Generated - Update distance/angle display
     void refreshVisualization();  // Claude Generated - Refresh without camera reset
+
+    // Claude Generated - Incremental update methods (Fix 2) - more efficient than full refresh
+    void updateMaterials();     // Update only atom colors/transparency/shininess
+    void updateAtomGeometry();  // Update only atom scales (transform)
+    void updateBondGeometry();  // Update only bond thickness (transform scale)
+
     Qt3DCore::QEntity* createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
     QColor getAtomColor(const QString& element, float charge = 0.0f);  // Claude Generated - changed to non-static for ColorScheme support
     float getAtomRadius(const QString& element);  // Claude Generated - changed to non-static for scaling support
@@ -172,6 +179,11 @@ private:
 
     // Claude Generated - Selection and measurement state
     QVector<int> m_selectedAtoms;
+
+    // Claude Generated - Entity references for incremental updates (Fix 2)
+    QVector<Qt3DCore::QEntity*> m_atomEntities;      // References to atom sphere entities
+    QVector<Qt3DCore::QEntity*> m_bondEntities;      // References to bond cylinder entities
+    QVector<Qt3DExtras::QPhongMaterial*> m_atomMaterials;  // References to atom materials
     int m_measurementMode = 0;  // 0=None, 1=Distance, 2=Angle
 
     // Mouse interaction - Claude Generated

@@ -286,51 +286,144 @@ void MoleculeViewer::setColorScheme(ColorScheme scheme)
 {
     if (m_colorScheme != scheme) {
         m_colorScheme = scheme;
-        // Refresh display if we have trajectory data (without camera reset)
+        // Claude Generated - Fix 2: Only update materials, not entire scene
         if (!m_trajectoryAtoms.isEmpty()) {
-            refreshVisualization();  // Claude Generated - use refresh instead of showFrame
+            updateMaterials();
         }
     }
 }
 
 void MoleculeViewer::setAtomTransparency(float alpha)
 {
-    m_atomTransparency = qBound(0.0f, alpha, 1.0f);
-    // Refresh display (without camera reset)
-    if (!m_trajectoryAtoms.isEmpty()) {
-        refreshVisualization();  // Claude Generated - use refresh instead of showFrame
+    float newAlpha = qBound(0.0f, alpha, 1.0f);
+    if (m_atomTransparency != newAlpha) {
+        m_atomTransparency = newAlpha;
+        // Claude Generated - Fix 2: Only update materials, not entire scene
+        if (!m_trajectoryAtoms.isEmpty()) {
+            updateMaterials();
+        }
     }
 }
 
 void MoleculeViewer::setAtomShininess(float shininess)
 {
-    m_atomShininess = qMax(0.0f, shininess);
-    // Refresh display (without camera reset)
-    if (!m_trajectoryAtoms.isEmpty()) {
-        refreshVisualization();  // Claude Generated - use refresh instead of showFrame
+    float newShininess = qMax(0.0f, shininess);
+    if (m_atomShininess != newShininess) {
+        m_atomShininess = newShininess;
+        // Claude Generated - Fix 2: Only update materials, not entire scene
+        if (!m_trajectoryAtoms.isEmpty()) {
+            updateMaterials();
+        }
     }
 }
 
 void MoleculeViewer::setAtomScaleFactor(float scale)
 {
-    m_atomScaleFactor = qMax(0.1f, scale);  // Min 0.1x scaling
-    // Refresh display (without camera reset)
-    if (!m_trajectoryAtoms.isEmpty()) {
-        refreshVisualization();  // Claude Generated - use refresh instead of showFrame
+    float newScale = qMax(0.1f, scale);  // Min 0.1x scaling
+    if (m_atomScaleFactor != newScale) {
+        m_atomScaleFactor = newScale;
+        // Claude Generated - Fix 2: Only update atom geometry, not entire scene
+        if (!m_trajectoryAtoms.isEmpty()) {
+            updateAtomGeometry();
+        }
     }
 }
 
 void MoleculeViewer::setBondThickness(float thickness)
 {
-    m_bondThickness = qMax(0.01f, thickness);  // Min 0.01 radius
-    // Refresh display (without camera reset)
-    if (!m_trajectoryAtoms.isEmpty()) {
-        refreshVisualization();  // Claude Generated - use refresh instead of showFrame
+    float newThickness = qMax(0.01f, thickness);  // Min 0.01 radius
+    if (m_bondThickness != newThickness) {
+        m_bondThickness = newThickness;
+        // Claude Generated - Fix 2: Only update bond geometry, not entire scene
+        if (!m_trajectoryAtoms.isEmpty()) {
+            updateBondGeometry();
+        }
     }
 }
 
-// viewer.cpp
-// Füge diese Implementierungen hinzu:
+// Claude Generated - Fix 2: Incremental update methods for smooth rendering
+void MoleculeViewer::updateMaterials()
+{
+    // Update only the material properties of existing atoms (colors, transparency, shininess)
+    // This is much faster than full scene rebuild
+    for (int i = 0; i < m_atomMaterials.size(); ++i) {
+        Qt3DExtras::QPhongMaterial *material = m_atomMaterials[i];
+        if (!material) continue;
+
+        // Get atom for color calculation
+        if (m_currentFrame >= m_trajectoryAtoms.size() || i >= m_trajectoryAtoms[m_currentFrame].size()) {
+            continue;
+        }
+        const Atom& atom = m_trajectoryAtoms[m_currentFrame][i];
+
+        // Update color based on current color scheme
+        QColor atomColor = getAtomColor(atom.element, atom.charge);
+
+        // Apply transparency
+        if (m_atomTransparency < 1.0f) {
+            atomColor.setAlphaF(m_atomTransparency);
+        }
+
+        // Update material colors
+        material->setAmbient(atomColor.darker());
+        material->setDiffuse(atomColor);
+        material->setShininess(m_atomShininess);
+    }
+}
+
+void MoleculeViewer::updateAtomGeometry()
+{
+    // Update only atom scales (transforms) - used when changing atom size
+    for (int i = 0; i < m_atomEntities.size(); ++i) {
+        Qt3DCore::QEntity *atomEntity = m_atomEntities[i];
+        if (!atomEntity) continue;
+
+        // Find transform component
+        auto transforms = atomEntity->componentsOfType<Qt3DCore::QTransform>();
+        for (auto transform : transforms) {
+            // Get current position from atom
+            if (m_currentFrame >= m_trajectoryAtoms.size() || i >= m_trajectoryAtoms[m_currentFrame].size()) {
+                continue;
+            }
+            const Atom& atom = m_trajectoryAtoms[m_currentFrame][i];
+
+            // Update mesh scale
+            auto meshes = atomEntity->componentsOfType<Qt3DExtras::QSphereMesh>();
+            for (auto mesh : meshes) {
+                float radius = getAtomRadius(atom.element);
+                mesh->setRadius(radius);
+            }
+
+            // Keep transform position (don't change translation)
+            transform->setTranslation(atom.position);
+        }
+    }
+}
+
+void MoleculeViewer::updateBondGeometry()
+{
+    // Update only bond thickness (transforms) - used when changing bond thickness
+    for (int i = 0; i < m_bondEntities.size(); ++i) {
+        Qt3DCore::QEntity *bondEntity = m_bondEntities[i];
+        if (!bondEntity) continue;
+
+        // Find transform component
+        auto transforms = bondEntity->componentsOfType<Qt3DCore::QTransform>();
+        for (auto transform : transforms) {
+            // Update mesh radius
+            auto meshes = bondEntity->componentsOfType<Qt3DExtras::QCylinderMesh>();
+            for (auto mesh : meshes) {
+                float bondRadius = m_bondThickness;
+                if (m_renderingMode == RenderingMode::Wireframe) {
+                    bondRadius *= 0.5f;
+                } else if (m_renderingMode == RenderingMode::SticksOnly) {
+                    bondRadius *= 1.5f;
+                }
+                mesh->setRadius(bondRadius);
+            }
+        }
+    }
+}
 
 // Claude Generated - getAtomColor now supports multiple color schemes
 QColor MoleculeViewer::getAtomColor(const QString& element, float charge)

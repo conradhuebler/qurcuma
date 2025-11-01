@@ -169,6 +169,9 @@ void VisualizationSettingsDialog::loadCurrentSettings()
 {
     if (!m_viewer) return;
 
+    // Claude Generated - Block signals to prevent refresh cascade when loading settings
+    blockSignals(true);
+
     // Claude Generated - Load from saved settings if available
     if (m_settings) {
         Settings::VisualizationSettings saved = m_settings->getVisualizationSettings();
@@ -226,6 +229,9 @@ void VisualizationSettingsDialog::loadCurrentSettings()
         m_fogIntensityLabel->setText(QString("%1%").arg(static_cast<int>(m_viewer->getFogIntensity() * 100.0f)));
         m_fogIntensitySlider->setEnabled(m_viewer->getFogEnabled());
     }
+
+    // Claude Generated - Unblock signals after all widgets are updated
+    blockSignals(false);
 }
 
 void VisualizationSettingsDialog::onRenderingModeChanged(int index)
