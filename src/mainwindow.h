@@ -40,6 +40,7 @@
 class MoleculeViewer;
 class VisualizationSettingsDialog;  // Claude Generated - For shortcut synchronization
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
+class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
 
 
 struct CalculationEntry {
@@ -215,6 +216,7 @@ private:
     QLabel *m_stateIcon, *m_stateIndicator;
     MoleculeViewer *m_moleculeView;
     NMRSpectrumDialog* m_nmrDialog;
+    AtomListPanel* m_atomListPanel = nullptr;  // Claude Generated Phase 2C - Atom list panel
 
     // VTF/XYZ Parser
     VTFParser* m_vtfParser;

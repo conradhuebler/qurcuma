@@ -123,6 +123,11 @@ public slots:
     SelectionManager* getSelectionManager() const { return m_selectionManager; }  // Claude Generated - Phase 2A
     MeasurementOverlay* getMeasurementOverlay() const { return m_measurementOverlay; }  // Claude Generated - Phase 2B
 
+    // Claude Generated - Phase 2C: Atom data accessors for AtomListPanel
+    QVector<QVector3D> getAtomPositions() const;
+    QVector<QString> getAtomElements() const;
+    QVector<float> getAtomCharges() const;
+
     // Claude Generated - Focus & Zoom commands
     void centerOnAtom(int atomIndex);
     void zoomToSelection(const QVector<int>& atomIndices);

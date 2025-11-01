@@ -37,6 +37,7 @@ set(SOURCES
     src/workspacemanager.cpp  # Claude Generated Phase 4.2
     src/selectionmanager.cpp  # Claude Generated Phase 2A
     src/measurementoverlay.cpp  # Claude Generated Phase 2B
+    src/atomlistpanel.cpp  # Claude Generated Phase 2C
 
     #src/dialogs/nmrstructuremodel.cpp
 )
@@ -55,6 +56,7 @@ set(HEADERS
     src/workspacemanager.h  # Claude Generated Phase 4.2
     src/selectionmanager.h  # Claude Generated Phase 2A
     src/measurementoverlay.h  # Claude Generated Phase 2B
+    src/atomlistpanel.h  # Claude Generated Phase 2C
     #src/dialogs/nmrstructuremodel.h
 
 )

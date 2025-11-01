@@ -1654,3 +1654,37 @@ void MoleculeViewer::selectAtom(int index, bool append)
         emit selectionChanged(m_selectedAtoms);
     }
 }
+
+// Claude Generated - Phase 2C: Atom data accessors for AtomListPanel
+QVector<QVector3D> MoleculeViewer::getAtomPositions() const
+{
+    QVector<QVector3D> positions;
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
+        for (const Atom& atom : m_trajectoryAtoms[m_currentFrame]) {
+            positions.append(atom.position);
+        }
+    }
+    return positions;
+}
+
+QVector<QString> MoleculeViewer::getAtomElements() const
+{
+    QVector<QString> elements;
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
+        for (const Atom& atom : m_trajectoryAtoms[m_currentFrame]) {
+            elements.append(atom.element);
+        }
+    }
+    return elements;
+}
+
+QVector<float> MoleculeViewer::getAtomCharges() const
+{
+    QVector<float> charges;
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
+        for (const Atom& atom : m_trajectoryAtoms[m_currentFrame]) {
+            charges.append(atom.charge);
+        }
+    }
+    return charges;
+}

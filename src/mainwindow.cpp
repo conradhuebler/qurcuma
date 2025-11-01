@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "selectionmanager.h"  // Claude Generated - Phase 2A
+#include "atomlistpanel.h"  // Claude Generated - Phase 2C
 #include <algorithm>  // Claude Generated - for std::min/std::max
 #include <QApplication>
 #include <QClipboard>
@@ -9,6 +10,7 @@
 #include <QDateTime>
 #include <QDialogButtonBox>
 #include <QDirIterator>
+#include <QDockWidget>  // Claude Generated - Phase 2C - For AtomListPanel dock
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
@@ -410,6 +412,13 @@ void MainWindow::setupUI()
     structureViewerLayout->addWidget(m_moleculeView, 1);  // Stretch factor 1
     
     editorTabs->addTab(structureViewerWidget, QIcon::fromTheme("document-import"), tr("Structure Viewer"));
+
+    // Claude Generated - Phase 2C: Create Atom List Panel as DockWidget
+    m_atomListPanel = new AtomListPanel(this);
+    QDockWidget *atomListDock = new QDockWidget(tr("Atom List"), this);
+    atomListDock->setWidget(m_atomListPanel);
+    atomListDock->setObjectName("AtomListDock");  // For saving/restoring state
+    addDockWidget(Qt::RightDockWidgetArea, atomListDock);
 
     rightLayout->addWidget(editorTabs);
 
@@ -985,6 +994,61 @@ void MainWindow::setupConnections()
 
     // Claude Generated - Quick Win: Copy/Paste structures shortcut
     new QShortcut(QKeySequence::Paste, this, SLOT(pasteStructureFromClipboard()));
+
+    // Claude Generated - Phase 2C: AtomListPanel Connections
+    if (m_atomListPanel && m_moleculeView) {
+        // When MoleculeViewer selection changes → Update AtomListPanel
+        connect(m_moleculeView, &MoleculeViewer::selectionChanged,
+                [this](const QVector<int>& selectedAtoms) {
+                    if (m_atomListPanel) {
+                        m_atomListPanel->setSelectedAtoms(selectedAtoms);
+                    }
+                });
+
+        // When AtomListPanel selection changes → Update MoleculeViewer
+        connect(m_atomListPanel, &AtomListPanel::atomSelectionChanged,
+                [this](const QVector<int>& selectedAtoms) {
+                    if (m_moleculeView) {
+                        m_moleculeView->getSelectionManager()->clearSelection();
+                        for (int idx : selectedAtoms) {
+                            m_moleculeView->getSelectionManager()->selectAtom(idx, true);
+                        }
+                        m_moleculeView->update();
+                    }
+                });
+
+        // When user double-clicks atom in table → Focus on it
+        connect(m_atomListPanel, &AtomListPanel::focusAtom,
+                [this](int atomIndex) {
+                    if (m_moleculeView) {
+                        m_moleculeView->centerOnAtom(atomIndex);
+                    }
+                });
+
+        // When MoleculeViewer loads molecule → Update AtomListPanel
+        connect(m_moleculeView, &MoleculeViewer::trajectoryLoaded,
+                [this]() {
+                    if (m_atomListPanel && m_moleculeView) {
+                        m_atomListPanel->updateAtomList(
+                            m_moleculeView->getAtomPositions(),
+                            m_moleculeView->getAtomElements(),
+                            m_moleculeView->getAtomCharges()
+                        );
+                    }
+                });
+
+        // When frame changes → Update AtomListPanel with new positions
+        connect(m_moleculeView, &MoleculeViewer::frameChanged,
+                [this]() {
+                    if (m_atomListPanel && m_moleculeView) {
+                        m_atomListPanel->updateAtomList(
+                            m_moleculeView->getAtomPositions(),
+                            m_moleculeView->getAtomElements(),
+                            m_moleculeView->getAtomCharges()
+                        );
+                    }
+                });
+    }
 }
 
 void MainWindow::setupShortcuts()
