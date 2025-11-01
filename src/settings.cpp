@@ -7,6 +7,7 @@ const QString Settings::WORKING_DIR_KEY = "workingDirectory";
 const QString Settings::PROGRAM_PATH_PREFIX = "programs/";
 const QString Settings::WORKING_DIRS_KEY = "workingDirectories";
 const QString Settings::LAST_USED_DIR_KEY = "lastUsedWorkingDirectory";
+const QString Settings::VIZ_SETTINGS_PREFIX = "visualization/";
 
 Settings::Settings(QObject* parent)
     : QObject(parent)
@@ -150,5 +151,35 @@ bool Settings::darkModeEnabled() const
 void Settings::setDarkMode(bool enabled)
 {
     m_settings.setValue("darkMode", enabled);
+    m_settings.sync();
+}
+
+// Claude Generated - Visualization Settings Persistence
+Settings::VisualizationSettings Settings::getVisualizationSettings() const
+{
+    VisualizationSettings settings;
+
+    settings.renderingMode = m_settings.value(VIZ_SETTINGS_PREFIX + "renderingMode", 0).toInt();
+    settings.colorScheme = m_settings.value(VIZ_SETTINGS_PREFIX + "colorScheme", 0).toInt();
+    settings.atomTransparency = m_settings.value(VIZ_SETTINGS_PREFIX + "atomTransparency", 1.0f).toFloat();
+    settings.atomShininess = m_settings.value(VIZ_SETTINGS_PREFIX + "atomShininess", 80.0f).toFloat();
+    settings.atomScaleFactor = m_settings.value(VIZ_SETTINGS_PREFIX + "atomScaleFactor", 1.0f).toFloat();
+    settings.bondThickness = m_settings.value(VIZ_SETTINGS_PREFIX + "bondThickness", 0.15f).toFloat();
+    settings.fogEnabled = m_settings.value(VIZ_SETTINGS_PREFIX + "fogEnabled", false).toBool();
+    settings.fogIntensity = m_settings.value(VIZ_SETTINGS_PREFIX + "fogIntensity", 0.5f).toFloat();
+
+    return settings;
+}
+
+void Settings::setVisualizationSettings(const VisualizationSettings& settings)
+{
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "renderingMode", settings.renderingMode);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "colorScheme", settings.colorScheme);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "atomTransparency", settings.atomTransparency);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "atomShininess", settings.atomShininess);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "atomScaleFactor", settings.atomScaleFactor);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "bondThickness", settings.bondThickness);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "fogEnabled", settings.fogEnabled);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "fogIntensity", settings.fogIntensity);
     m_settings.sync();
 }

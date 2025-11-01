@@ -11,7 +11,9 @@
 #include <QHBoxLayout>
 #include <QGroupBox>
 #include <QDoubleSpinBox>
+#include <QCheckBox>  // Claude Generated
 #include "view.h"
+#include "settings.h"
 
 /**
  * @brief Dialog for adjusting molecular visualization settings
@@ -27,8 +29,13 @@ class VisualizationSettingsDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit VisualizationSettingsDialog(MoleculeViewer* viewer, QWidget *parent = nullptr);
+    // Claude Generated - Constructor with Settings integration
+    explicit VisualizationSettingsDialog(MoleculeViewer* viewer, Settings* settings = nullptr, QWidget *parent = nullptr);
     ~VisualizationSettingsDialog() override;
+
+protected:
+    // Claude Generated - Load saved settings on dialog show
+    void showEvent(QShowEvent* event) override;
 
 private slots:
     void onRenderingModeChanged(int index);
@@ -37,6 +44,8 @@ private slots:
     void onAtomShininessChanged(double value);
     void onAtomScaleChanged(double value);
     void onBondThicknessChanged(double value);
+    void onFogEnabledChanged(bool enabled);  // Claude Generated
+    void onFogIntensityChanged(int value);   // Claude Generated
     void onResetDefaults();
     void onApply();
 
@@ -46,6 +55,7 @@ private:
     void createRenderingGroup(QVBoxLayout* mainLayout);
     void createMaterialGroup(QVBoxLayout* mainLayout);
     void createSizeGroup(QVBoxLayout* mainLayout);
+    void createAppearanceGroup(QVBoxLayout* mainLayout);  // Claude Generated - Fog effects
 
     // Widgets
     QComboBox* m_renderingModeCombo;
@@ -56,11 +66,17 @@ private:
     QDoubleSpinBox* m_atomScaleSpinBox;
     QDoubleSpinBox* m_bondThicknessSpinBox;
 
+    // Claude Generated - Fog effect controls
+    QCheckBox* m_fogEnabledCheckBox;
+    QSlider* m_fogIntensitySlider;
+    QLabel* m_fogIntensityLabel;
+
     QPushButton* m_resetButton;
     QPushButton* m_applyButton;
     QPushButton* m_closeButton;
 
     MoleculeViewer* m_viewer;
+    Settings* m_settings;  // Claude Generated - For persistence
 };
 
 #endif // VISUALIZATIONSETTINGSDIALOG_H

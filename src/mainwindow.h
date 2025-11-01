@@ -91,6 +91,18 @@ private slots:
     // Claude Generated - Visualization settings
     void openVisualizationSettings();
 
+    // Claude Generated - Rendering shortcuts (1-4 for rendering modes)
+    void setRenderingModeBallAndStick();
+    void setRenderingModeSpaceFilling();
+    void setRenderingModeWireframe();
+    void setRenderingModeSticks();
+
+    // Claude Generated - Size adjustment shortcuts
+    void increaseAtomSize();
+    void decreaseAtomSize();
+    void increaseBondThickness();
+    void decreaseBondThickness();
+
 private:
     void setupUI();
     void createToolbars();

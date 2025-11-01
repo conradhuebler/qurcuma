@@ -43,6 +43,22 @@ public:
     bool darkModeEnabled() const;
     void setDarkMode(bool enabled);
 
+    // Claude Generated - Visualization Settings Persistence
+    // Structure to hold all visualization parameters
+    struct VisualizationSettings {
+        int renderingMode = 0;      // RenderingMode enum value
+        int colorScheme = 0;        // ColorScheme enum value
+        float atomTransparency = 1.0f;
+        float atomShininess = 80.0f;
+        float atomScaleFactor = 1.0f;
+        float bondThickness = 0.15f;
+        bool fogEnabled = false;
+        float fogIntensity = 0.5f;
+    };
+
+    VisualizationSettings getVisualizationSettings() const;
+    void setVisualizationSettings(const VisualizationSettings& settings);
+
 private:
     QSettings m_settings;
 
@@ -51,6 +67,7 @@ private:
     static const QString PROGRAM_PATH_PREFIX;
     static const QString WORKING_DIRS_KEY;
     static const QString LAST_USED_DIR_KEY;
+    static const QString VIZ_SETTINGS_PREFIX;
 };
 
 #endif

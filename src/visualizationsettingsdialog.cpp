@@ -2,10 +2,12 @@
 #include "visualizationsettingsdialog.h"
 #include <QFormLayout>
 #include <QDialogButtonBox>
+#include <QShowEvent>
 
-VisualizationSettingsDialog::VisualizationSettingsDialog(MoleculeViewer* viewer, QWidget *parent)
+VisualizationSettingsDialog::VisualizationSettingsDialog(MoleculeViewer* viewer, Settings* settings, QWidget *parent)
     : QDialog(parent)
     , m_viewer(viewer)
+    , m_settings(settings)
 {
     setWindowTitle(tr("Visualization Settings"));
     setMinimumWidth(400);
@@ -25,6 +27,7 @@ void VisualizationSettingsDialog::setupUI()
     createRenderingGroup(mainLayout);
     createMaterialGroup(mainLayout);
     createSizeGroup(mainLayout);
+    createAppearanceGroup(mainLayout);  // Claude Generated - Fog controls
 
     // Buttons
     QHBoxLayout* buttonLayout = new QHBoxLayout();
@@ -132,35 +135,97 @@ void VisualizationSettingsDialog::createSizeGroup(QVBoxLayout* mainLayout)
     mainLayout->addWidget(sizeGroup);
 }
 
+// Claude Generated - Appearance Group for Fog Effects
+void VisualizationSettingsDialog::createAppearanceGroup(QVBoxLayout* mainLayout)
+{
+    QGroupBox* appearanceGroup = new QGroupBox(tr("Appearance"), this);
+    QFormLayout* formLayout = new QFormLayout(appearanceGroup);
+
+    // Fog enabled checkbox
+    m_fogEnabledCheckBox = new QCheckBox(this);
+    m_fogEnabledCheckBox->setChecked(false);
+    connect(m_fogEnabledCheckBox, &QCheckBox::toggled,
+            this, &VisualizationSettingsDialog::onFogEnabledChanged);
+    formLayout->addRow(tr("Enable Fog:"), m_fogEnabledCheckBox);
+
+    // Fog intensity slider (0-100)
+    QHBoxLayout* fogIntensityLayout = new QHBoxLayout();
+    m_fogIntensitySlider = new QSlider(Qt::Horizontal, this);
+    m_fogIntensitySlider->setRange(0, 100);
+    m_fogIntensitySlider->setValue(50);
+    m_fogIntensitySlider->setEnabled(false);  // Disabled until fog is enabled
+    m_fogIntensityLabel = new QLabel("50%", this);
+    m_fogIntensityLabel->setMinimumWidth(50);
+    fogIntensityLayout->addWidget(m_fogIntensitySlider);
+    fogIntensityLayout->addWidget(m_fogIntensityLabel);
+    connect(m_fogIntensitySlider, &QSlider::valueChanged,
+            this, &VisualizationSettingsDialog::onFogIntensityChanged);
+    formLayout->addRow(tr("Fog Intensity:"), fogIntensityLayout);
+
+    mainLayout->addWidget(appearanceGroup);
+}
+
 void VisualizationSettingsDialog::loadCurrentSettings()
 {
     if (!m_viewer) return;
 
-    // Load rendering mode
-    int modeIndex = m_renderingModeCombo->findData(static_cast<int>(m_viewer->getRenderingMode()));
-    if (modeIndex >= 0) {
-        m_renderingModeCombo->setCurrentIndex(modeIndex);
+    // Claude Generated - Load from saved settings if available
+    if (m_settings) {
+        Settings::VisualizationSettings saved = m_settings->getVisualizationSettings();
+
+        // Load rendering mode
+        int modeIndex = m_renderingModeCombo->findData(saved.renderingMode);
+        if (modeIndex >= 0) {
+            m_renderingModeCombo->setCurrentIndex(modeIndex);
+        }
+
+        // Load color scheme
+        int schemeIndex = m_colorSchemeCombo->findData(saved.colorScheme);
+        if (schemeIndex >= 0) {
+            m_colorSchemeCombo->setCurrentIndex(schemeIndex);
+        }
+
+        // Load transparency (0.0-1.0 -> 0-100)
+        int transparencyPercent = static_cast<int>(saved.atomTransparency * 100);
+        m_transparencySlider->setValue(transparencyPercent);
+        m_transparencyLabel->setText(QString("%1%").arg(transparencyPercent));
+
+        // Load other settings
+        m_shininessSpinBox->setValue(saved.atomShininess);
+        m_atomScaleSpinBox->setValue(saved.atomScaleFactor);
+        m_bondThicknessSpinBox->setValue(saved.bondThickness);
+
+        // Claude Generated - Load fog settings
+        m_fogEnabledCheckBox->setChecked(saved.fogEnabled);
+        m_fogIntensitySlider->setValue(static_cast<int>(saved.fogIntensity * 100.0f));
+        m_fogIntensityLabel->setText(QString("%1%").arg(static_cast<int>(saved.fogIntensity * 100.0f)));
+        m_fogIntensitySlider->setEnabled(saved.fogEnabled);
+    } else {
+        // Fallback: Load from viewer (when no Settings available)
+        int modeIndex = m_renderingModeCombo->findData(static_cast<int>(m_viewer->getRenderingMode()));
+        if (modeIndex >= 0) {
+            m_renderingModeCombo->setCurrentIndex(modeIndex);
+        }
+
+        int schemeIndex = m_colorSchemeCombo->findData(static_cast<int>(m_viewer->getColorScheme()));
+        if (schemeIndex >= 0) {
+            m_colorSchemeCombo->setCurrentIndex(schemeIndex);
+        }
+
+        int transparencyPercent = static_cast<int>(m_viewer->getAtomTransparency() * 100);
+        m_transparencySlider->setValue(transparencyPercent);
+        m_transparencyLabel->setText(QString("%1%").arg(transparencyPercent));
+
+        m_shininessSpinBox->setValue(m_viewer->getAtomShininess());
+        m_atomScaleSpinBox->setValue(m_viewer->getAtomScaleFactor());
+        m_bondThicknessSpinBox->setValue(m_viewer->getBondThickness());
+
+        // Load fog settings from viewer
+        m_fogEnabledCheckBox->setChecked(m_viewer->getFogEnabled());
+        m_fogIntensitySlider->setValue(static_cast<int>(m_viewer->getFogIntensity() * 100.0f));
+        m_fogIntensityLabel->setText(QString("%1%").arg(static_cast<int>(m_viewer->getFogIntensity() * 100.0f)));
+        m_fogIntensitySlider->setEnabled(m_viewer->getFogEnabled());
     }
-
-    // Load color scheme
-    int schemeIndex = m_colorSchemeCombo->findData(static_cast<int>(m_viewer->getColorScheme()));
-    if (schemeIndex >= 0) {
-        m_colorSchemeCombo->setCurrentIndex(schemeIndex);
-    }
-
-    // Load transparency (0.0-1.0 -> 0-100)
-    int transparencyPercent = static_cast<int>(m_viewer->getAtomTransparency() * 100);
-    m_transparencySlider->setValue(transparencyPercent);
-    m_transparencyLabel->setText(QString("%1%").arg(transparencyPercent));
-
-    // Load shininess
-    m_shininessSpinBox->setValue(m_viewer->getAtomShininess());
-
-    // Load atom scale
-    m_atomScaleSpinBox->setValue(m_viewer->getAtomScaleFactor());
-
-    // Load bond thickness
-    m_bondThicknessSpinBox->setValue(m_viewer->getBondThickness());
 }
 
 void VisualizationSettingsDialog::onRenderingModeChanged(int index)
@@ -212,13 +277,59 @@ void VisualizationSettingsDialog::onResetDefaults()
     m_shininessSpinBox->setValue(80.0);       // Default shininess
     m_atomScaleSpinBox->setValue(1.0);        // 1x scale
     m_bondThicknessSpinBox->setValue(0.15);   // Default thickness
+
+    // Claude Generated - Reset fog settings
+    m_fogEnabledCheckBox->setChecked(false);  // Fog disabled by default
+    m_fogIntensitySlider->setValue(50);       // 50% intensity
 }
 
 void VisualizationSettingsDialog::onApply()
 {
+    // Claude Generated - Save settings to persistent storage
+    if (m_settings && m_viewer) {
+        Settings::VisualizationSettings current;
+        current.renderingMode = m_renderingModeCombo->currentData().toInt();
+        current.colorScheme = m_colorSchemeCombo->currentData().toInt();
+        current.atomTransparency = m_viewer->getAtomTransparency();
+        current.atomShininess = m_viewer->getAtomShininess();
+        current.atomScaleFactor = m_viewer->getAtomScaleFactor();
+        current.bondThickness = m_viewer->getBondThickness();
+        current.fogEnabled = m_viewer->getFogEnabled();
+        current.fogIntensity = m_viewer->getFogIntensity();
+
+        m_settings->setVisualizationSettings(current);
+    }
+
     // Settings are applied in real-time, but this can trigger a refresh
     if (m_viewer) {
-        // Force a refresh if needed
         m_viewer->update();
     }
+}
+
+void VisualizationSettingsDialog::onFogEnabledChanged(bool enabled)
+{
+    if (!m_viewer) return;
+
+    m_viewer->setFogEnabled(enabled);
+    m_fogIntensitySlider->setEnabled(enabled);
+
+    if (enabled) {
+        m_viewer->setFogIntensity(m_fogIntensitySlider->value() / 100.0f);
+    }
+}
+
+void VisualizationSettingsDialog::onFogIntensityChanged(int value)
+{
+    if (!m_viewer) return;
+
+    float intensity = value / 100.0f;
+    m_fogIntensityLabel->setText(QString("%1%").arg(value));
+    m_viewer->setFogIntensity(intensity);
+}
+
+// Claude Generated - Load saved settings on dialog show
+void VisualizationSettingsDialog::showEvent(QShowEvent* event)
+{
+    QDialog::showEvent(event);
+    loadCurrentSettings();
 }

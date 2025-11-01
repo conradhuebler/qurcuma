@@ -1,4 +1,5 @@
 #include "settings.h"
+#include <algorithm>  // Claude Generated - for std::min/std::max
 #include <QApplication>
 #include <QClipboard>
 #include <QCheckBox>
@@ -343,7 +344,18 @@ void MainWindow::setupUI()
     editorTabs->addTab(inputTab, QIcon::fromTheme("document-edit"), tr("Input"));
 
     m_moleculeView = new MoleculeViewer;
-    
+
+    // Claude Generated - Apply saved visualization settings
+    Settings::VisualizationSettings vizSettings = m_settings.getVisualizationSettings();
+    m_moleculeView->setRenderingMode(static_cast<MoleculeViewer::RenderingMode>(vizSettings.renderingMode));
+    m_moleculeView->setColorScheme(static_cast<MoleculeViewer::ColorScheme>(vizSettings.colorScheme));
+    m_moleculeView->setAtomTransparency(vizSettings.atomTransparency);
+    m_moleculeView->setAtomShininess(vizSettings.atomShininess);
+    m_moleculeView->setAtomScaleFactor(vizSettings.atomScaleFactor);
+    m_moleculeView->setBondThickness(vizSettings.bondThickness);
+    m_moleculeView->setFogEnabled(vizSettings.fogEnabled);
+    m_moleculeView->setFogIntensity(vizSettings.fogIntensity);
+
     // Connect molecule viewer signals
     connect(m_moleculeView, &MoleculeViewer::frameChanged, this, &MainWindow::onFrameChanged);
     connect(m_moleculeView, &MoleculeViewer::trajectoryLoaded, this, &MainWindow::onTrajectoryLoaded);
@@ -459,6 +471,23 @@ void MainWindow::setupUI()
     // Shortcut for toggling left panel (Ctrl+B)
     QShortcut* toggleLeftPanelShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_B), this);
     connect(toggleLeftPanelShortcut, &QShortcut::activated, this, &MainWindow::toggleLeftPanel);
+
+    // Claude Generated - Rendering mode shortcuts (Keys 1-4)
+    new QShortcut(Qt::Key_1, this, SLOT(setRenderingModeBallAndStick()));
+    new QShortcut(Qt::Key_2, this, SLOT(setRenderingModeSpaceFilling()));
+    new QShortcut(Qt::Key_3, this, SLOT(setRenderingModeWireframe()));
+    new QShortcut(Qt::Key_4, this, SLOT(setRenderingModeSticks()));
+
+    // Claude Generated - Atom size shortcuts (Plus/Minus)
+    new QShortcut(Qt::Key_Plus, this, SLOT(increaseAtomSize()));
+    new QShortcut(Qt::Key_Equal, this, SLOT(increaseAtomSize()));  // Plus key often requires Shift on some keyboards
+    new QShortcut(Qt::Key_Minus, this, SLOT(decreaseAtomSize()));
+
+    // Claude Generated - Bond thickness shortcuts (< / >)
+    new QShortcut(Qt::SHIFT | Qt::Key_Less, this, SLOT(decreaseBondThickness()));
+    new QShortcut(Qt::SHIFT | Qt::Key_Greater, this, SLOT(increaseBondThickness()));
+    new QShortcut(Qt::Key_Comma, this, SLOT(decreaseBondThickness()));      // Fallback for < key
+    new QShortcut(Qt::Key_Period, this, SLOT(increaseBondThickness()));     // Fallback for > key
 
     // Initial updates
     updatePathLabel(m_workingDirectory);
@@ -2328,7 +2357,8 @@ void MainWindow::openVisualizationSettings()
         return;
     }
 
-    VisualizationSettingsDialog* dialog = new VisualizationSettingsDialog(m_moleculeView, this);
+    // Claude Generated - Pass Settings object for persistence
+    VisualizationSettingsDialog* dialog = new VisualizationSettingsDialog(m_moleculeView, &m_settings, this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->show();
 }
@@ -2508,4 +2538,71 @@ void MainWindow::dropEvent(QDropEvent *event)
             event->acceptProposedAction();
         }
     }
+}
+
+// Claude Generated - Rendering mode shortcuts implementation
+void MainWindow::setRenderingModeBallAndStick()
+{
+    if (!m_moleculeView) return;
+    m_moleculeView->setRenderingMode(MoleculeViewer::RenderingMode::BallAndStick);
+    statusBar()->showMessage(tr("Rendering Mode: Ball and Stick"), 1500);
+}
+
+void MainWindow::setRenderingModeSpaceFilling()
+{
+    if (!m_moleculeView) return;
+    m_moleculeView->setRenderingMode(MoleculeViewer::RenderingMode::SpaceFilling);
+    statusBar()->showMessage(tr("Rendering Mode: Space Filling"), 1500);
+}
+
+void MainWindow::setRenderingModeWireframe()
+{
+    if (!m_moleculeView) return;
+    m_moleculeView->setRenderingMode(MoleculeViewer::RenderingMode::Wireframe);
+    statusBar()->showMessage(tr("Rendering Mode: Wireframe"), 1500);
+}
+
+void MainWindow::setRenderingModeSticks()
+{
+    if (!m_moleculeView) return;
+    m_moleculeView->setRenderingMode(MoleculeViewer::RenderingMode::SticksOnly);
+    statusBar()->showMessage(tr("Rendering Mode: Sticks Only"), 1500);
+}
+
+// Claude Generated - Atom size adjustment shortcuts
+void MainWindow::increaseAtomSize()
+{
+    if (!m_moleculeView) return;
+    float currentScale = m_moleculeView->getAtomScaleFactor();
+    float newScale = std::min(3.0f, currentScale + 0.1f);
+    m_moleculeView->setAtomScaleFactor(newScale);
+    statusBar()->showMessage(QString(tr("Atom Size: %1x")).arg(newScale, 0, 'f', 1), 1500);
+}
+
+void MainWindow::decreaseAtomSize()
+{
+    if (!m_moleculeView) return;
+    float currentScale = m_moleculeView->getAtomScaleFactor();
+    float newScale = std::max(0.1f, currentScale - 0.1f);
+    m_moleculeView->setAtomScaleFactor(newScale);
+    statusBar()->showMessage(QString(tr("Atom Size: %1x")).arg(newScale, 0, 'f', 1), 1500);
+}
+
+// Claude Generated - Bond thickness adjustment shortcuts
+void MainWindow::increaseBondThickness()
+{
+    if (!m_moleculeView) return;
+    float currentThickness = m_moleculeView->getBondThickness();
+    float newThickness = std::min(0.5f, currentThickness + 0.02f);
+    m_moleculeView->setBondThickness(newThickness);
+    statusBar()->showMessage(QString(tr("Bond Thickness: %1")).arg(newThickness, 0, 'f', 2), 1500);
+}
+
+void MainWindow::decreaseBondThickness()
+{
+    if (!m_moleculeView) return;
+    float currentThickness = m_moleculeView->getBondThickness();
+    float newThickness = std::max(0.05f, currentThickness - 0.02f);
+    m_moleculeView->setBondThickness(newThickness);
+    statusBar()->showMessage(QString(tr("Bond Thickness: %1")).arg(newThickness, 0, 'f', 2), 1500);
 }
