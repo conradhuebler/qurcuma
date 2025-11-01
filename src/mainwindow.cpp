@@ -356,10 +356,9 @@ void MainWindow::setupUI()
     m_moleculeView->setFogEnabled(vizSettings.fogEnabled);
     m_moleculeView->setFogIntensity(vizSettings.fogIntensity);
 
-    // Connect molecule viewer signals
-    connect(m_moleculeView, &MoleculeViewer::frameChanged, this, &MainWindow::onFrameChanged);
-    connect(m_moleculeView, &MoleculeViewer::trajectoryLoaded, this, &MainWindow::onTrajectoryLoaded);
-    
+    // Frame navigation is now handled directly in MoleculeViewer control panel
+
+
     // Create integrated structure viewer widget with navigation controls
     QWidget *structureViewerWidget = new QWidget;
     QVBoxLayout *structureViewerLayout = new QVBoxLayout(structureViewerWidget);
@@ -367,76 +366,7 @@ void MainWindow::setupUI()
     // Add the 3D molecule viewer
     structureViewerLayout->addWidget(m_moleculeView, 1);  // Stretch factor 1
     
-    // Add frame navigation controls integrated into the tab
-    QHBoxLayout *frameControlLayout = new QHBoxLayout;
-    
-    frameControlLayout->addWidget(new QLabel(tr("Frame:")));
-    
-    // Claude Generated - Phase 3.2: Frame navigation tooltips
-    QPushButton *prevFrameButton = new QPushButton("◀");
-    prevFrameButton->setMaximumWidth(30);
-    prevFrameButton->setToolTip(tr("Previous Frame"));
-    frameControlLayout->addWidget(prevFrameButton);
-
-    m_frameSlider = new QSlider(Qt::Horizontal);
-    m_frameSlider->setMinimum(0);
-    m_frameSlider->setMaximum(0);  // Will be updated when trajectory is loaded
-    m_frameSlider->setValue(0);
-    m_frameSlider->setEnabled(false);  // Disabled by default
-    m_frameSlider->setToolTip(tr("Navigate through trajectory frames"));
-    frameControlLayout->addWidget(m_frameSlider);
-
-    QPushButton *nextFrameButton = new QPushButton("▶");
-    nextFrameButton->setMaximumWidth(30);
-    nextFrameButton->setToolTip(tr("Next Frame"));
-    frameControlLayout->addWidget(nextFrameButton);
-    
-    m_frameLabel = new QLabel("0 / 0");
-    m_frameLabel->setMinimumWidth(60);
-    frameControlLayout->addWidget(m_frameLabel);
-
-    // Claude Generated - Quick Win: Frame jump input
-    m_frameJumpBox = new QSpinBox;
-    m_frameJumpBox->setMinimum(0);
-    m_frameJumpBox->setMaximum(0);
-    m_frameJumpBox->setMaximumWidth(60);
-    m_frameJumpBox->setToolTip(tr("Jump to frame number"));
-    frameControlLayout->addWidget(m_frameJumpBox);
-
-    frameControlLayout->addStretch();
-
-    // Add View Navigation Buttons
-    QPushButton *resetViewButton = new QPushButton("Reset View");
-    resetViewButton->setMaximumWidth(80);
-    frameControlLayout->addWidget(resetViewButton);
-
-    // Claude Generated - Screenshot button
-    QPushButton *screenshotButton = new QPushButton;
-    screenshotButton->setIcon(QIcon::fromTheme("camera-photo"));
-    screenshotButton->setToolTip(tr("Save Screenshot"));
-    screenshotButton->setMaximumWidth(30);
-    connect(screenshotButton, &QPushButton::clicked, m_moleculeView, &MoleculeViewer::saveScreenshotDialog);
-    frameControlLayout->addWidget(screenshotButton);
-
-    structureViewerLayout->addLayout(frameControlLayout);
-    
     editorTabs->addTab(structureViewerWidget, QIcon::fromTheme("document-import"), tr("Structure Viewer"));
-    
-    frameControlLayout->setContentsMargins(5, 5, 5, 5);
-    
-    // Connect frame navigation controls
-    connect(prevFrameButton, &QPushButton::clicked, this, &MainWindow::onPreviousFrame);
-    connect(nextFrameButton, &QPushButton::clicked, this, &MainWindow::onNextFrame);
-    connect(m_frameSlider, &QSlider::valueChanged, this, &MainWindow::onFrameSliderChanged);
-
-    // Claude Generated - Quick Win: Frame jump box connection
-    connect(m_frameJumpBox, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
-        if (value != m_frameSlider->value()) {
-            m_frameSlider->setValue(value);  // This will trigger onFrameSliderChanged
-        }
-    });
-
-    connect(resetViewButton, &QPushButton::clicked, m_moleculeView, &MoleculeViewer::resetViewToMolecule);
 
     rightLayout->addWidget(editorTabs);
 
@@ -566,12 +496,7 @@ void MainWindow::setupContextMenu()
                                 VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
                                 m_moleculeView->addMolecule(atoms, bonds);
                                 
-                                // Enable frame navigation if we have multiple frames
-                                if (frameCount > 1) {
-                                    m_frameSlider->setEnabled(true);
-                                    m_frameSlider->setMaximum(frameCount - 1);
-                                    m_frameLabel->setText(QString("1 / %1").arg(frameCount));
-                                }
+                                // Frame controls are now managed by MoleculeViewer
                             }
                         }
                     });
@@ -844,18 +769,19 @@ void MainWindow::setupConnections()
                         m_structureFileEdit->setText(QFileInfo(filePath).fileName());
                         file.close();
                     }
-                    
+
                     // Get frame count and setup trajectory data
                     int frameCount = m_xyzParser->getFrameCount();
+                    qDebug() << "XYZ: frameCount =" << frameCount;
                     m_moleculeView->setFrameCount(frameCount);
-                    
+
                     // Reset molecule viewer for new file
                     m_moleculeView->clearScenePublic();
-                    
+
                     // Convert all frames to trajectory data
                     QVector<QVector<MoleculeViewer::Atom>> allAtoms;
                     QVector<QVector<MoleculeViewer::Bond>> allBonds;
-                    
+
                     for (int i = 0; i < frameCount; ++i) {
                         XYZParser::XYZFrame frame;
                         if (m_xyzParser->getFrame(i, frame)) {
@@ -864,40 +790,21 @@ void MainWindow::setupConnections()
                             XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
                             allAtoms.append(atoms);
                             allBonds.append(bonds);
+                            qDebug() << "XYZ: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
+                        } else {
+                            qDebug() << "XYZ: Failed to load frame" << i;
                         }
                     }
-                    
+
+                    qDebug() << "XYZ: Total frames loaded:" << allAtoms.size();
                     // Set trajectory data in molecule viewer
+                    // This automatically loads and displays the first frame
                     m_moleculeView->setTrajectoryData(allAtoms, allBonds);
-                    
-                    // Load first frame into molecule viewer
-                    if (frameCount > 0) {
-                        XYZParser::XYZFrame frame;
-                        if (m_xyzParser->getFrame(0, frame)) {
-                            QVector<MoleculeViewer::Atom> atoms;
-                            QVector<MoleculeViewer::Bond> bonds;
-                            XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
-                            m_moleculeView->addMolecule(atoms, bonds);
-                        }
-                    }
-                    
-                    // Reset and enable frame navigation if we have multiple frames
-                    m_frameSlider->setValue(0);
-                    m_frameSlider->setMinimum(0);
-                    if (frameCount > 1) {
-                        m_frameSlider->setEnabled(true);
-                        m_frameSlider->setMaximum(frameCount - 1);
-                        m_frameLabel->setText(QString("1 / %1").arg(frameCount));
-                    } else {
-                        m_frameSlider->setEnabled(false);
-                        m_frameLabel->setText(QString("1 / 1"));
-                    }
+
+                    // Frame controls are now managed by MoleculeViewer
                 } else {
                     // Clear any previous content if parsing fails
                     m_moleculeView->clearScenePublic();
-                    m_frameSlider->setEnabled(false);
-                    m_frameSlider->setMaximum(0);
-                    m_frameLabel->setText("0 / 0");
                     qWarning() << "Failed to parse XYZ file:" << filePath;
                 }
             }
@@ -915,15 +822,16 @@ void MainWindow::setupConnections()
                     
                     // Get frame count and setup trajectory data
                     int frameCount = m_vtfParser->getFrameCount();
+                    qDebug() << "VTF: frameCount =" << frameCount;
                     m_moleculeView->setFrameCount(frameCount);
-                    
+
                     // Reset molecule viewer for new file
                     m_moleculeView->clearScenePublic();
-                    
+
                     // Convert all frames to trajectory data
                     QVector<QVector<MoleculeViewer::Atom>> allAtoms;
                     QVector<QVector<MoleculeViewer::Bond>> allBonds;
-                    
+
                     for (int i = 0; i < frameCount; ++i) {
                         VTFParser::VTFFrame frame;
                         if (m_vtfParser->getFrame(i, frame)) {
@@ -932,40 +840,21 @@ void MainWindow::setupConnections()
                             VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
                             allAtoms.append(atoms);
                             allBonds.append(bonds);
+                            qDebug() << "VTF: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
+                        } else {
+                            qDebug() << "VTF: Failed to load frame" << i;
                         }
                     }
-                    
+
+                    qDebug() << "VTF: Total frames loaded:" << allAtoms.size();
                     // Set trajectory data in molecule viewer
+                    // This automatically loads and displays the first frame
                     m_moleculeView->setVTFTrajectoryData(allAtoms, allBonds);
-                    
-                    // Load first frame into viewer
-                    if (frameCount > 0) {
-                        VTFParser::VTFFrame frame;
-                        if (m_vtfParser->getFrame(0, frame)) {
-                            QVector<MoleculeViewer::Atom> atoms;
-                            QVector<MoleculeViewer::Bond> bonds;
-                            VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
-                            m_moleculeView->addMolecule(atoms, bonds);
-                        }
-                    }
-                    
-                    // Reset and enable frame navigation if we have multiple frames
-                    m_frameSlider->setValue(0);
-                    m_frameSlider->setMinimum(0);
-                    if (frameCount > 1) {
-                        m_frameSlider->setEnabled(true);
-                        m_frameSlider->setMaximum(frameCount - 1);
-                        m_frameLabel->setText(QString("1 / %1").arg(frameCount));
-                    } else {
-                        m_frameSlider->setEnabled(false);
-                        m_frameLabel->setText(QString("1 / 1"));
-                    }
+
+                    // Frame controls are now managed by MoleculeViewer
                 } else {
                     // Clear any previous content if parsing fails
                     m_moleculeView->clearScenePublic();
-                    m_frameSlider->setEnabled(false);
-                    m_frameSlider->setMaximum(0);
-                    m_frameLabel->setText("0 / 0");
                     qWarning() << "Failed to parse VTF file:" << filePath;
                 }
             }
@@ -2141,41 +2030,6 @@ QPair<int, int> MainWindow::countImaginaryFrequencies(const QString& filename) {
 
     file.close();
     return QPair<int, int>(imagCount, freqCount);
-}
-
-void MainWindow::onFrameChanged(int frameIndex)
-{
-    m_frameSlider->setValue(frameIndex);
-    // Claude Generated - Quick Win: Update frame jump box
-    m_frameJumpBox->blockSignals(true);
-    m_frameJumpBox->setValue(frameIndex);
-    m_frameJumpBox->blockSignals(false);
-    m_frameLabel->setText(QString("%1 / %2").arg(frameIndex + 1).arg(m_frameSlider->maximum() + 1));
-}
-
-void MainWindow::onTrajectoryLoaded(int frameCount)
-{
-    m_frameSlider->setMaximum(frameCount - 1);
-    m_frameSlider->setEnabled(frameCount > 1);
-    // Claude Generated - Quick Win: Update frame jump box range
-    m_frameJumpBox->setMaximum(frameCount - 1);
-    m_frameJumpBox->setEnabled(frameCount > 1);
-    m_frameLabel->setText(QString("1 / %1").arg(frameCount));
-}
-
-void MainWindow::onPreviousFrame()
-{
-    m_moleculeView->previousFrame();
-}
-
-void MainWindow::onNextFrame()
-{
-    m_moleculeView->nextFrame();
-}
-
-void MainWindow::onFrameSliderChanged(int value)
-{
-    m_moleculeView->showFrame(value);
 }
 
 // Claude Generated - Quick Win: Recent files management

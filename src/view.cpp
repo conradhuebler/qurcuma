@@ -829,13 +829,13 @@ void MoleculeViewer::showFrame(int frameIndex)
 {
     if (frameIndex >= 0 && frameIndex < m_trajectoryAtoms.size()) {
         m_currentFrame = frameIndex;
-        
+
         // Berechne Molekülzentrum für diese Frame
         const auto& atoms = m_trajectoryAtoms[frameIndex];
         if (!atoms.isEmpty()) {
             QVector3D min = atoms[0].position;
             QVector3D max = atoms[0].position;
-            
+
             for (const Atom& atom : atoms) {
                 min = QVector3D(
                     qMin(min.x(), atom.position.x()),
@@ -848,20 +848,96 @@ void MoleculeViewer::showFrame(int frameIndex)
                     qMax(max.z(), atom.position.z())
                 );
             }
-            
+
             m_moleculeCenter = (min + max) * 0.5f;
             m_moleculeRadius = (max - min).length() * 0.5f;
         }
-        
+
         clearScene();
         Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[frameIndex], m_trajectoryBonds[frameIndex]);
         moleculeEntity->setParent(m_rootEntity);
-        
+
         // Setze Kamera für diese Frame
         setDefaultView();
-        
+
+        // Claude Generated - Synchronize frame controls when frame changes
+        if (m_frameSlider && m_frameLabel && m_frameJumpBox) {
+            m_frameSlider->blockSignals(true);
+            m_frameSlider->setValue(m_currentFrame);
+            m_frameSlider->blockSignals(false);
+
+            m_frameJumpBox->blockSignals(true);
+            m_frameJumpBox->setValue(m_currentFrame);
+            m_frameJumpBox->blockSignals(false);
+
+            m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
+        }
+
         emit frameChanged(m_currentFrame);
     }
+}
+
+// Claude Generated - Fast position-only update for animation (no scene rebuild)
+void MoleculeViewer::updateFramePositions(int frameIndex)
+{
+    if (frameIndex < 0 || frameIndex >= m_trajectoryAtoms.size()) {
+        return;
+    }
+
+    m_currentFrame = frameIndex;
+    const auto& atoms = m_trajectoryAtoms[frameIndex];
+
+    // Update atom positions only (no scene rebuild, no camera reset)
+    for (int i = 0; i < m_atomEntities.size() && i < atoms.size(); ++i) {
+        Qt3DCore::QEntity *atomEntity = m_atomEntities[i];
+        if (!atomEntity) continue;
+
+        // Find and update the transform component
+        auto transforms = atomEntity->componentsOfType<Qt3DCore::QTransform>();
+        for (auto transform : transforms) {
+            transform->setTranslation(atoms[i].position);
+        }
+    }
+
+    // Update bond positions too
+    int bondIndex = 0;
+    for (int i = 0; i < m_trajectoryBonds[frameIndex].size() && bondIndex < m_bondEntities.size(); ++i) {
+        const Bond& bond = m_trajectoryBonds[frameIndex][i];
+        Qt3DCore::QEntity *bondEntity = m_bondEntities[bondIndex];
+        if (!bondEntity) {
+            bondIndex++;
+            continue;
+        }
+
+        // Update bond position and scale
+        QVector3D start = atoms[bond.atom1].position;
+        QVector3D end = atoms[bond.atom2].position;
+        QVector3D direction = end - start;
+        float length = direction.length();
+
+        auto transforms = bondEntity->componentsOfType<Qt3DCore::QTransform>();
+        for (auto transform : transforms) {
+            transform->setTranslation(start + direction * 0.5f);
+            transform->setScale3D(QVector3D(1.0f, length, 1.0f));
+        }
+
+        bondIndex++;
+    }
+
+    // Synchronize UI controls
+    if (m_frameSlider && m_frameLabel && m_frameJumpBox) {
+        m_frameSlider->blockSignals(true);
+        m_frameSlider->setValue(m_currentFrame);
+        m_frameSlider->blockSignals(false);
+
+        m_frameJumpBox->blockSignals(true);
+        m_frameJumpBox->setValue(m_currentFrame);
+        m_frameJumpBox->blockSignals(false);
+
+        m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
+    }
+
+    emit frameChanged(m_currentFrame);
 }
 
 void MoleculeViewer::nextFrame()
@@ -884,10 +960,25 @@ void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, cons
     m_trajectoryBonds = bonds;
     m_frameCount = atoms.size();
     m_currentFrame = 0;
-    
+
+    // Claude Generated - Update frame controls based on frame count
+    if (m_frameSlider && m_frameLabel && m_frameJumpBox && m_frameControlWidget) {
+        m_frameSlider->setMaximum(m_frameCount - 1);
+        m_frameJumpBox->setMaximum(m_frameCount - 1);
+        m_frameLabel->setText(QString("1/%1").arg(m_frameCount));
+
+        // Show/hide frame controls based on whether we have multiple frames
+        bool hasMultipleFrames = m_frameCount > 1;
+        m_frameControlWidget->setVisible(hasMultipleFrames);
+    }
+
+    // Load and display the first frame
+    if (m_frameCount > 0) {
+        showFrame(0);
+    }
+
     // Emit signals for UI updates
     emit trajectoryLoaded(m_frameCount);
-    emit frameChanged(m_currentFrame);
 }
 
 void MoleculeViewer::showTrajectoryFrame(int frameIndex)
@@ -991,12 +1082,16 @@ void MoleculeViewer::setFogIntensity(float intensity)
 // Claude Generated - Trajectory animation functions
 void MoleculeViewer::startAnimation()
 {
+    qDebug() << "▶ startAnimation() called - trajectorySize:" << m_trajectoryAtoms.size()
+             << "currentFrame:" << m_currentFrame << "isAnimating:" << m_isAnimating;
+
     if (m_trajectoryAtoms.size() <= 1) {
         qWarning() << "Cannot start animation: no trajectory data";
         return;
     }
 
     if (m_isAnimating) {
+        qDebug() << "Already animating, returning";
         return;  // Already animating
     }
 
@@ -1005,11 +1100,13 @@ void MoleculeViewer::startAnimation()
     if (!m_animationTimer) {
         m_animationTimer = new QTimer(this);
         connect(m_animationTimer, &QTimer::timeout, this, &MoleculeViewer::onAnimationTick);
+        qDebug() << "Created new animation timer";
     }
 
     // Set interval based on FPS (1000ms / FPS = interval in ms)
     int intervalMs = qMax(1, 1000 / m_animationFPS);
     m_animationTimer->start(intervalMs);
+    qDebug() << "Timer started with interval:" << intervalMs << "ms (FPS:" << m_animationFPS << ")";
 }
 
 void MoleculeViewer::stopAnimation()
@@ -1049,14 +1146,25 @@ void MoleculeViewer::onAnimationTick()
         }
     }
 
-    showFrame(nextFrame);
+    // Claude Generated - Use fast position-only update for smooth animation (no scene rebuild)
+    updateFramePositions(nextFrame);
 }
 
-// Claude Generated - Setup integrated control panel
+// Claude Generated - Create a separator widget
+QFrame* MoleculeViewer::createSeparator()
+{
+    QFrame *separator = new QFrame;
+    separator->setFrameShape(QFrame::VLine);
+    separator->setFrameShadow(QFrame::Sunken);
+    separator->setMaximumWidth(2);
+    return separator;
+}
+
+// Claude Generated - Setup integrated control panel (refactored for frame navigation)
 void MoleculeViewer::setupControlPanel()
 {
     m_controlPanel = new QWidget;
-    m_controlPanel->setMaximumHeight(45);
+    m_controlPanel->setMaximumHeight(50);
 
     // Claude Generated - Adaptive styling for light/dark mode
     m_controlPanel->setAutoFillBackground(true);
@@ -1069,89 +1177,66 @@ void MoleculeViewer::setupControlPanel()
 
     QHBoxLayout *panelLayout = new QHBoxLayout(m_controlPanel);
     panelLayout->setContentsMargins(5, 3, 5, 3);
-    panelLayout->setSpacing(8);
+    panelLayout->setSpacing(5);
 
-    // Mode selector
-    QComboBox *modeCombo = new QComboBox;
-    modeCombo->addItem(tr("Ball & Stick"), static_cast<int>(RenderingMode::BallAndStick));
-    modeCombo->addItem(tr("Space-Filling"), static_cast<int>(RenderingMode::SpaceFilling));
-    modeCombo->addItem(tr("Wireframe"), static_cast<int>(RenderingMode::Wireframe));
-    modeCombo->addItem(tr("Sticks"), static_cast<int>(RenderingMode::SticksOnly));
-    modeCombo->setMaximumWidth(120);
-    // Claude Generated - Fixed: Capture combo pointer instead of using sender()
-    connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            [this, modeCombo](int index) {
-        setRenderingMode(static_cast<RenderingMode>(modeCombo->itemData(index).toInt()));
+    // Claude Generated - FRAME NAVIGATION SECTION (hidden when frameCount == 1)
+    m_frameControlWidget = new QWidget;
+    QHBoxLayout *frameLayout = new QHBoxLayout(m_frameControlWidget);
+    frameLayout->setContentsMargins(0, 0, 0, 0);
+    frameLayout->setSpacing(3);
+
+    // Previous frame button
+    QPushButton *prevButton = new QPushButton("◀");
+    prevButton->setMaximumWidth(30);
+    prevButton->setToolTip(tr("Previous Frame"));
+    connect(prevButton, &QPushButton::clicked, this, &MoleculeViewer::previousFrame);
+    frameLayout->addWidget(prevButton);
+
+    // Next frame button
+    QPushButton *nextButton = new QPushButton("▶");
+    nextButton->setMaximumWidth(30);
+    nextButton->setToolTip(tr("Next Frame"));
+    connect(nextButton, &QPushButton::clicked, this, &MoleculeViewer::nextFrame);
+    frameLayout->addWidget(nextButton);
+
+    // Frame slider
+    m_frameSlider = new QSlider(Qt::Horizontal);
+    m_frameSlider->setMinimum(0);
+    m_frameSlider->setMaximum(0);
+    m_frameSlider->setToolTip(tr("Navigate through trajectory frames"));
+    connect(m_frameSlider, &QSlider::valueChanged, this, &MoleculeViewer::showFrame);
+    frameLayout->addWidget(m_frameSlider, 1);  // Stretch to fill available space
+
+    // Frame label
+    m_frameLabel = new QLabel("0/0");
+    m_frameLabel->setMinimumWidth(50);
+    m_frameLabel->setAlignment(Qt::AlignCenter);
+    frameLayout->addWidget(m_frameLabel);
+
+    // Frame jump spinbox
+    m_frameJumpBox = new QSpinBox;
+    m_frameJumpBox->setMinimum(0);
+    m_frameJumpBox->setMaximum(0);
+    m_frameJumpBox->setMaximumWidth(60);
+    m_frameJumpBox->setToolTip(tr("Jump to frame number"));
+    // Bidirectional sync: spinbox → slider
+    connect(m_frameJumpBox, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
+        if (value != m_frameSlider->value()) {
+            m_frameSlider->blockSignals(true);
+            m_frameSlider->setValue(value);
+            m_frameSlider->blockSignals(false);
+        }
     });
-    panelLayout->addWidget(new QLabel(tr("Render:")));
-    panelLayout->addWidget(modeCombo);
+    frameLayout->addWidget(m_frameJumpBox);
 
-    // Color scheme selector
-    QComboBox *colorCombo = new QComboBox;
-    colorCombo->addItem(tr("CPK"), static_cast<int>(ColorScheme::CPK));
-    colorCombo->addItem(tr("Monochrome"), static_cast<int>(ColorScheme::Monochrome));
-    colorCombo->addItem(tr("By Charge"), static_cast<int>(ColorScheme::ByCharge));
-    // Claude Generated - Removed "Custom" color scheme (not implemented)
-    colorCombo->setMaximumWidth(100);
-    // Claude Generated - Fixed: Capture combo pointer instead of using sender()
-    connect(colorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            [this, colorCombo](int index) {
-        setColorScheme(static_cast<ColorScheme>(colorCombo->itemData(index).toInt()));
-    });
-    panelLayout->addWidget(new QLabel(tr("Color:")));
-    panelLayout->addWidget(colorCombo);
+    m_frameControlWidget->setVisible(false);  // Hidden by default (shown when frameCount > 1)
+    panelLayout->addWidget(m_frameControlWidget, 1);
 
-    panelLayout->addSpacing(10);
+    // Separator
+    panelLayout->addWidget(createSeparator());
 
-    // Transparency slider
-    QSlider *transSlider = new QSlider(Qt::Horizontal);
-    transSlider->setRange(0, 100);
-    transSlider->setValue(100);
-    transSlider->setMaximumWidth(80);
-    connect(transSlider, &QSlider::valueChanged, [this](int value) {
-        setAtomTransparency(value / 100.0f);
-    });
-    panelLayout->addWidget(new QLabel(tr("Alpha:")));
-    panelLayout->addWidget(transSlider);
-
-    // Claude Generated - Shininess spinbox (was applied but had no UI control)
-    QSpinBox *shineSpinBox = new QSpinBox;
-    shineSpinBox->setRange(0, 200);
-    shineSpinBox->setValue(80);
-    shineSpinBox->setMaximumWidth(60);
-    connect(shineSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
-        setAtomShininess(static_cast<float>(value));
-    });
-    panelLayout->addWidget(new QLabel(tr("Shine:")));
-    panelLayout->addWidget(shineSpinBox);
-
-    panelLayout->addSpacing(10);
-
-    // Atom size slider
-    QSlider *sizeSlider = new QSlider(Qt::Horizontal);
-    sizeSlider->setRange(10, 300);
-    sizeSlider->setValue(100);
-    sizeSlider->setMaximumWidth(80);
-    connect(sizeSlider, &QSlider::valueChanged, [this](int value) {
-        setAtomScaleFactor(value / 100.0f);
-    });
-    panelLayout->addWidget(new QLabel(tr("Size:")));
-    panelLayout->addWidget(sizeSlider);
-
-    // Claude Generated - Bond thickness slider (was applied but had no UI control)
-    QSlider *bondSlider = new QSlider(Qt::Horizontal);
-    bondSlider->setRange(5, 50);  // 0.05 to 0.50 (× 100)
-    bondSlider->setValue(15);     // 0.15 default
-    bondSlider->setMaximumWidth(80);
-    connect(bondSlider, &QSlider::valueChanged, [this](int value) {
-        setBondThickness(value / 100.0f);
-    });
-    panelLayout->addWidget(new QLabel(tr("Bond:")));
-    panelLayout->addWidget(bondSlider);
-
-    panelLayout->addSpacing(10);
-
-    // Animation controls
+    // Claude Generated - PLAYBACK SECTION
+    // Play button
     QPushButton *playButton = new QPushButton;
     playButton->setIcon(QIcon::fromTheme("media-playback-start"));
     playButton->setToolTip(tr("Play Animation"));
@@ -1159,6 +1244,7 @@ void MoleculeViewer::setupControlPanel()
     connect(playButton, &QPushButton::clicked, this, &MoleculeViewer::startAnimation);
     panelLayout->addWidget(playButton);
 
+    // Pause button
     QPushButton *pauseButton = new QPushButton;
     pauseButton->setIcon(QIcon::fromTheme("media-playback-pause"));
     pauseButton->setToolTip(tr("Pause Animation"));
@@ -1175,7 +1261,6 @@ void MoleculeViewer::setupControlPanel()
     connect(fpsSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
         setAnimationFPS(value);
     });
-    panelLayout->addWidget(new QLabel(tr("FPS:")));
     panelLayout->addWidget(fpsSpinBox);
 
     // Loop checkbox
@@ -1184,7 +1269,37 @@ void MoleculeViewer::setupControlPanel()
     connect(loopCheckbox, &QCheckBox::toggled, this, &MoleculeViewer::setAnimationLoop);
     panelLayout->addWidget(loopCheckbox);
 
-    panelLayout->addSpacing(10);
+    // Separator
+    panelLayout->addWidget(createSeparator());
+
+    // Claude Generated - RENDERING SECTION
+    // Mode selector
+    QComboBox *modeCombo = new QComboBox;
+    modeCombo->addItem(tr("Ball & Stick"), static_cast<int>(RenderingMode::BallAndStick));
+    modeCombo->addItem(tr("Space-Filling"), static_cast<int>(RenderingMode::SpaceFilling));
+    modeCombo->addItem(tr("Wireframe"), static_cast<int>(RenderingMode::Wireframe));
+    modeCombo->addItem(tr("Sticks"), static_cast<int>(RenderingMode::SticksOnly));
+    modeCombo->setMaximumWidth(110);
+    connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [this, modeCombo](int index) {
+        setRenderingMode(static_cast<RenderingMode>(modeCombo->itemData(index).toInt()));
+    });
+    panelLayout->addWidget(modeCombo);
+
+    // Color scheme selector
+    QComboBox *colorCombo = new QComboBox;
+    colorCombo->addItem(tr("CPK"), static_cast<int>(ColorScheme::CPK));
+    colorCombo->addItem(tr("Monochrome"), static_cast<int>(ColorScheme::Monochrome));
+    colorCombo->addItem(tr("By Charge"), static_cast<int>(ColorScheme::ByCharge));
+    colorCombo->setMaximumWidth(100);
+    connect(colorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [this, colorCombo](int index) {
+        setColorScheme(static_cast<ColorScheme>(colorCombo->itemData(index).toInt()));
+    });
+    panelLayout->addWidget(colorCombo);
+
+    // Separator
+    panelLayout->addWidget(createSeparator());
 
     // Measurement selector
     QComboBox *measureCombo = new QComboBox;
@@ -1192,53 +1307,15 @@ void MoleculeViewer::setupControlPanel()
     measureCombo->addItem(tr("Distance"), 1);
     measureCombo->addItem(tr("Angle"), 2);
     measureCombo->setMaximumWidth(120);
-    // Claude Generated - Fixed: Capture combo pointer instead of using sender()
     connect(measureCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             [this, measureCombo](int index) {
         setMeasurementMode(measureCombo->itemData(index).toInt());
     });
-    panelLayout->addWidget(new QLabel(tr("Measure:")));
     panelLayout->addWidget(measureCombo);
-
-    // Atom index spinboxes for selection
-    QSpinBox *atom1Box = new QSpinBox;
-    atom1Box->setRange(0, 9999);
-    atom1Box->setMaximumWidth(50);
-    connect(atom1Box, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
-        while (m_selectedAtoms.size() < 1) m_selectedAtoms.append(0);
-        m_selectedAtoms[0] = value;
-        updateMeasurementDisplay();
-    });
-    panelLayout->addWidget(new QLabel(tr("Atom1:")));
-    panelLayout->addWidget(atom1Box);
-
-    QSpinBox *atom2Box = new QSpinBox;
-    atom2Box->setRange(0, 9999);
-    atom2Box->setMaximumWidth(50);
-    connect(atom2Box, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
-        while (m_selectedAtoms.size() < 2) m_selectedAtoms.append(0);
-        m_selectedAtoms[1] = value;
-        updateMeasurementDisplay();
-    });
-    panelLayout->addWidget(new QLabel(tr("Atom2:")));
-    panelLayout->addWidget(atom2Box);
-
-    QSpinBox *atom3Box = new QSpinBox;
-    atom3Box->setRange(0, 9999);
-    atom3Box->setMaximumWidth(50);
-    connect(atom3Box, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
-        while (m_selectedAtoms.size() < 3) m_selectedAtoms.append(0);
-        m_selectedAtoms[2] = value;
-        updateMeasurementDisplay();
-    });
-    panelLayout->addWidget(new QLabel(tr("Atom3:")));
-    panelLayout->addWidget(atom3Box);
-
-    // Claude Generated - Fog controls removed (requires custom shaders, not yet implemented)
-    // TODO: Implement fog with Qt3D custom shaders in future
 
     panelLayout->addStretch();
 }
+
 
 // Claude Generated - Selection and measurement functions
 void MoleculeViewer::clearSelection()

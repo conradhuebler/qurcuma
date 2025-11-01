@@ -3,6 +3,10 @@
 #define MOLECULEVIEWER_H
 
 #include <QWidget>
+#include <QSlider>
+#include <QLabel>
+#include <QSpinBox>
+#include <QFrame>
 #include <Qt3DExtras/Qt3DWindow>
 #include <Qt3DExtras/QPhongMaterial>  // Claude Generated - For storing material references
 #include <Qt3DRender/QCamera>
@@ -129,12 +133,21 @@ private:
     Qt3DExtras::Qt3DWindow *m_view;
     QWidget *m_container;
     QWidget *m_controlPanel;  // Claude Generated - Integrated control panel
+
+    // Claude Generated - Frame control widgets (shown/hidden based on frame count)
+    QWidget *m_frameControlWidget = nullptr;
+    QSlider *m_frameSlider = nullptr;
+    QLabel *m_frameLabel = nullptr;
+    QSpinBox *m_frameJumpBox = nullptr;
+
     Qt3DCore::QEntity *m_rootEntity;
     Qt3DRender::QCamera *m_camera;
     Qt3DExtras::QOrbitCameraController *m_cameraController;
 
     void setupViewer();
     void setupControlPanel();  // Claude Generated - Setup integrated control panel
+    QFrame* createSeparator();  // Claude Generated - Helper to create vertical separator in panel
+    void updateFramePositions(int frameIndex);  // Claude Generated - Fast position-only update for animation
     void clearScene();  // Private implementation
     void onAnimationTick();  // Claude Generated - Timer callback for animation
     void updateMeasurementDisplay();  // Claude Generated - Update distance/angle display

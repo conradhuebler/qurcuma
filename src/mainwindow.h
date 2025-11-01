@@ -78,12 +78,6 @@ private slots:
     void runSimulation();
     void startNewCalculation();  // Neue Funktion
 
-    // Frame navigation slots
-    void onFrameChanged(int frameIndex);
-    void onTrajectoryLoaded(int frameCount);
-    void onPreviousFrame();
-    void onNextFrame();
-    void onFrameSliderChanged(int value);
 
     // Keyboard shortcuts - Claude Generated Phase 1.2
     void cancelCalculation();
@@ -202,10 +196,7 @@ private:
     MoleculeViewer *m_moleculeView;
     NMRSpectrumDialog* m_nmrDialog;
 
-    // VTF Frame Navigation
-    QSlider* m_frameSlider;
-    QLabel* m_frameLabel;
-    QSpinBox* m_frameJumpBox;  // Claude Generated - Quick Win: Frame jump input
+    // VTF/XYZ Parser
     VTFParser* m_vtfParser;
     XYZParser* m_xyzParser;
 
