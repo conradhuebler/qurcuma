@@ -186,8 +186,22 @@ Run tests: `./release/test_vtf_bonds`, `./release/test_vtf_frames`, `./release/t
 - ✅ **UI Integration** - Combo-box with 4 modes (None/Distance/Angle/Dihedral)
 - Implementation: 416 lines, 2 new classes, 1 git commit
 
-**3D Visualization - Phase 2C (Next)**:
-- AtomListPanel with QTableView for structure browsing (2-2.5h)
-  - Atom properties: Index, Element, X/Y/Z, Charge
-  - Bidirectional selection sync with 3D viewer
-  - Sort/filter capabilities
+### 3D Visualization - Phase 2C ✅ COMPLETE
+- ✅ **AtomListPanel Widget** - QTableView for atom data browsing
+  - Columns: Index, Element, X/Y/Z (Å), Charge
+  - Sortable: Click headers to sort by any column
+  - Context menu: Copy to clipboard, Focus on atom
+- ✅ **AtomTableModel** - Custom QAbstractTableModel with dynamic data
+  - Live updates on frame changes
+  - Proper formatting (3 decimal places for coordinates)
+- ✅ **Bidirectional Selection Sync** - Full MoleculeViewer ↔ Table sync
+  - 3D click → Table auto-selects and scrolls
+  - Table click → 3D viewer highlights atoms
+  - Multi-select with Ctrl+Click in both contexts
+- ✅ **DockWidget Integration** - Dockable panel on right side
+  - Saves/restores position with window state
+  - Non-blocking for 3D viewer
+- ✅ **Dynamic Frame Updates** - Table refreshes on trajectory navigation
+  - Positions update when changing frames
+  - Charges and elements updated automatically
+- Implementation: 471 lines, 2 new classes, 1 git commit

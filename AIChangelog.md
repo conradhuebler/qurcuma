@@ -22,6 +22,16 @@
 - UI integration: Combo-box modes (None/Distance/Angle/Dihedral) with auto-detection
 - Selection-driven: Measurements auto-trigger when correct number of atoms selected (2/3/4)
 
+### 3D Visualization Phase 2C - Atom List Panel (COMPLETE)
+- AtomListPanel widget: QTableView for browsing atom properties (Index/Element/X/Y/Z/Charge)
+- AtomTableModel: Custom QAbstractTableModel with sortable columns and live data updates
+- Bidirectional selection: 3D clicks → table highlights + auto-scroll; table clicks → 3D highlighting
+- Context menu: Copy atom data (tab-separated), Focus on atom (center camera)
+- DockWidget integration: Dockable panel on right side with state persistence
+- Dynamic updates: Table refreshes on frame changes, positions update in real-time during animation
+- Multi-select support: Ctrl+Click in both 3D viewer and table for multiple atom selection
+- Full synchronization: SelectionManager signals keep table and viewer in sync automatically
+
 ### Directory Navigation & Workspace System (COMPLETE - Iteration 2)
 
 **Phase 1-2: UI Navigation (Complete)**
