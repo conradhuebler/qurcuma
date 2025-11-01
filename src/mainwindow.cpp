@@ -1998,7 +1998,12 @@ void MainWindow::updateBookmarkTree()
             item->setIcon(0, QIcon::fromTheme("folder", QIcon(":/icons/folder.png")));
         } else {
             item->setIcon(0, QIcon::fromTheme("bookmark", QIcon(":/icons/bookmark.png")));
-            item->setToolTip(0, bm.path);
+            // Claude Generated Phase 3.5 - Show path and tags in tooltip
+            QString tooltip = bm.path;
+            if (!bm.tags.isEmpty()) {
+                tooltip += "\nTags: " + bm.tags.join(", ");
+            }
+            item->setToolTip(0, tooltip);
         }
 
         // Set color if defined
@@ -2144,6 +2149,37 @@ void MainWindow::onBookmarkContextMenu(const QPoint& pos)
                         }
                     }
                     updateBookmarkTree();
+                }
+            });
+
+            // Claude Generated Phase 3.5 - Minimal tag system
+            QAction* tagsAction = contextMenu.addAction(tr("Edit Tags..."));
+            connect(tagsAction, &QAction::triggered, [this, itemId]() {
+                auto bookmarks = m_settings.bookmarks();
+                Settings::BookmarkItem* targetBm = nullptr;
+                for (auto& b : bookmarks) {
+                    if (b.id == itemId) {
+                        targetBm = &b;
+                        break;
+                    }
+                }
+
+                if (targetBm) {
+                    QString tagsStr = targetBm->tags.join(", ");
+                    QString newTagsStr = QInputDialog::getText(this,
+                        tr("Edit Bookmark Tags"),
+                        tr("Tags (comma-separated, e.g. #dft, #md):"),
+                        QLineEdit::Normal,
+                        tagsStr);
+
+                    if (!newTagsStr.isEmpty() || !tagsStr.isEmpty()) {
+                        targetBm->tags = newTagsStr.split(",", Qt::SkipEmptyParts);
+                        for (auto& tag : targetBm->tags) {
+                            tag = tag.trimmed();
+                        }
+                        m_settings.updateBookmark(itemId, *targetBm);
+                        updateBookmarkTree();
+                    }
                 }
             });
 
