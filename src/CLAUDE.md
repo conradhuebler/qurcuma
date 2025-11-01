@@ -165,8 +165,22 @@ Run tests: `./release/test_vtf_bonds`, `./release/test_vtf_frames`, `./release/t
 - All compilation successful, no warnings/errors
 - 100% persistence layer functional
 
-**3D Visualization - Phase 2 (Deferred)**:
-- 3D Atom picking with Qt3D ObjectPicker (High priority, 2-3h)
-- Visual selection highlighting with emissive materials (Medium, 1h)
-- AtomListPanel with QTableView for structure browsing (High, 2-2.5h)
-- Measurement overlay text and lines in 3D view (Medium, 1-1.5h)
+### 3D Visualization - Phase 2A ✅ COMPLETE (Just finished!)
+- ✅ **3D Atom Picking** - Qt3D ObjectPicker on each atom, click-based selection
+  - Left Click: Single selection
+  - Ctrl+Click: Multi-select (append to selection)
+  - Shift+Click: Toggle selection state
+- ✅ **Visual Selection Highlighting** - Bright orange-yellow colors + extra shininess
+- ✅ **SelectionManager Integration** - Full bidirectional state sync
+- ✅ **Keyboard Shortcuts** - Ctrl+A (select all), Escape (clear selection)
+- Implementation: 157 lines of new code, 1 new class (SelectionManager)
+
+**3D Visualization - Phase 2B/2C (Next)**:
+- Measurement overlay with Text2DEntity + line visualization (1-1.5h)
+  - Distance measurement (2 atoms)
+  - Angle measurement (3 atoms)
+  - Dihedral measurement (4 atoms)
+- AtomListPanel with QTableView for structure browsing (2-2.5h)
+  - Atom properties: Index, Element, X/Y/Z, Charge
+  - Bidirectional selection sync with 3D viewer
+  - Sort/filter capabilities

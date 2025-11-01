@@ -1,6 +1,15 @@
 # AIChangelog - Qurcuma Improvements
 
-## November 2025
+## November 2025 (Iteration 3 - In Progress)
+
+### 3D Visualization Phase 2A - Atom Selection & Picking (COMPLETE)
+- Implemented Qt3D ObjectPicker on each atom for direct 3D click-based selection
+- Single-click selection, Ctrl+Click multi-select, Shift+Click toggle modes fully functional
+- Visual selection feedback: Orange-yellow highlighting with increased shininess
+- SelectionManager class: Centralized selection state management with signals
+- Keyboard shortcuts: Ctrl+A (select all atoms), Escape (clear selection)
+- Direct integration: MoleculeViewer → SelectionManager bidirectional state sync
+- Fully tested: All selection modes working, colors visible, signals propagating
 
 ### Directory Navigation & Workspace System (COMPLETE - Iteration 2)
 
