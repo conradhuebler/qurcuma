@@ -35,6 +35,7 @@
 
 #include "dialogs/nmrspectrumdialog.h"
 #include "modifiabletextedit.h"
+#include "widgets/breadcrumbbar.h"
 class MoleculeViewer;
 class VisualizationSettingsDialog;  // Claude Generated - For shortcut synchronization
 
@@ -162,7 +163,7 @@ private:
     void updateRecentFilesMenu();
     void openRecentFile(const QString& path);
 
-    void updatePathLabel(const QString& path);
+    void updatePathLabel(const QString& path);  // Claude Generated Phase 1 - Updates breadcrumb bar
     void toggleLeftPanel();
     void updateWorkflowState(WorkflowState state);  // Claude Generated - Phase 2.2
 
@@ -190,7 +191,8 @@ private:
     QCompleter* m_commandCompleter;
     QToolButton* m_bookmarkButton;
     QSplitter* m_splitter;
-    QLabel *m_currentPathLabel, *m_currentProjectLabel;
+    BreadcrumbBar* m_breadcrumbBar;  // Claude Generated Phase 1 - Clickable path navigation
+    QLabel *m_currentProjectLabel;
     // Claude Generated - Phase 3.3: Visual state indicators
     QLabel *m_stateIcon, *m_stateIndicator;
     MoleculeViewer *m_moleculeView;
@@ -221,7 +223,7 @@ private:
 
     // Claude Generated - Quick Win: Recent files
     QMenu* m_recentFilesMenu = nullptr;
-    QStringList m_recentFiles;
+    QVector<Settings::RecentFileEntry> m_recentFiles;  // Claude Generated Phase 2 - Now with timestamps
 
     // Claude Generated - Quick Win: Auto-save drafts
     QTimer* m_autoSaveTimer = nullptr;

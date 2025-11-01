@@ -5,6 +5,8 @@
 #include <QObject>
 #include <QSettings>
 #include <QString>
+#include <QDateTime>
+#include <QVector>
 
 class Settings : public QObject
 {
@@ -38,6 +40,20 @@ public:
     // Claude Generated - Quick Win: Recent files
     QStringList recentFiles() const;
     void setRecentFiles(const QStringList& files);
+
+    // Claude Generated Phase 2 - Enhanced recent files with timestamps
+    struct RecentFileEntry {
+        QString path;
+        QDateTime lastAccessed;
+
+        // For JSON serialization
+        bool isValid() const { return !path.isEmpty(); }
+    };
+
+    QVector<RecentFileEntry> recentFilesV2() const;
+    void addRecentFileV2(const QString& path);
+    void setRecentFilesV2(const QVector<RecentFileEntry>& files);
+    void clearRecentFilesV2();
 
     // Claude Generated - Visual Polish: Dark mode
     bool darkModeEnabled() const;

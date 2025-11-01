@@ -4,6 +4,7 @@
 #include <QClipboard>
 #include <QCheckBox>
 #include <QCompleter>
+#include <QDir>
 #include <QDateTime>
 #include <QDialogButtonBox>
 #include <QDirIterator>
@@ -18,6 +19,7 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QListWidget>
+#include <QMap>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPointer>
@@ -31,6 +33,7 @@
 #include <QStringListModel>
 #include <QSysInfo>
 #include <QThread>
+#include <QTime>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
@@ -120,12 +123,11 @@ void MainWindow::setupUI()
     m_chooseDirectory->setIcon(QIcon::fromTheme("folder-open", QIcon(":/icons/folder.png")));
     currentDirLayout->addWidget(m_chooseDirectory);
 
-    // Current path label with selection support
-    m_currentPathLabel = new QLabel;
-    m_currentPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_currentPathLabel->setWordWrap(true);
-    m_currentPathLabel->setStyleSheet("QLabel { padding: 5px; background-color: palette(base); border: 1px solid palette(mid); }");
-    currentDirLayout->addWidget(m_currentPathLabel, 1);
+    // Claude Generated Phase 1 - Breadcrumb navigation bar
+    m_breadcrumbBar = new BreadcrumbBar;
+    m_breadcrumbBar->setHomeDirectory(QDir::homePath());
+    connect(m_breadcrumbBar, &BreadcrumbBar::pathSelected, this, &MainWindow::switchWorkingDirectory);
+    currentDirLayout->addWidget(m_breadcrumbBar, 1);
 
     // Bookmark button
     m_bookmarkButton = new QToolButton;
@@ -1722,8 +1724,8 @@ void MainWindow::loadSettings()
         m_projectModel->setRootPath(m_workingDirectory);
         m_projectListView->setRootIndex(m_projectModel->index(m_workingDirectory));
     }
-    // Claude Generated - Quick Win: Load recent files
-    m_recentFiles = m_settings.recentFiles();
+    // Claude Generated - Quick Win: Load recent files (now V2 with timestamps)
+    m_recentFiles = m_settings.recentFilesV2();
     updateRecentFilesMenu();
 }
 
@@ -1939,9 +1941,8 @@ void MainWindow::updateBookmarkView()
 
 void MainWindow::updatePathLabel(const QString& path)
 {
-    QString displayPath = QDir::toNativeSeparators(path); // Korrekte Pfadtrenner für das OS
-    m_currentPathLabel->setText(displayPath);
-    m_currentPathLabel->setToolTip(displayPath); // Zeigt den vollen Pfad als Tooltip
+    // Claude Generated Phase 1 - Update breadcrumb bar with current path
+    m_breadcrumbBar->setPath(path);
 }
 
 // Aktualisiere die switchWorkingDirectory Funktion
@@ -2035,17 +2036,9 @@ QPair<int, int> MainWindow::countImaginaryFrequencies(const QString& filename) {
 // Claude Generated - Quick Win: Recent files management
 void MainWindow::addToRecentFiles(const QString& path)
 {
-    // Remove if already exists
-    m_recentFiles.removeAll(path);
-    // Add to front
-    m_recentFiles.prepend(path);
-    // Keep only last 10
-    while (m_recentFiles.size() > 10) {
-        m_recentFiles.removeLast();
-    }
-    // Save to settings
-    m_settings.setRecentFiles(m_recentFiles);
-    // Update menu
+    // Claude Generated Phase 2 - Now using V2 with timestamps
+    m_settings.addRecentFileV2(path);
+    m_recentFiles = m_settings.recentFilesV2();
     updateRecentFilesMenu();
 }
 
@@ -2057,18 +2050,61 @@ void MainWindow::updateRecentFilesMenu()
         return;
     }
     m_recentFilesMenu->setEnabled(true);
-    for (const QString& path : m_recentFiles) {
-        QFileInfo info(path);
-        QAction* action = m_recentFilesMenu->addAction(info.fileName());
-        action->setData(path);
-        connect(action, &QAction::triggered, [this, path]() {
-            openRecentFile(path);
-        });
+
+    // Claude Generated Phase 2 - Group by date: Today, Yesterday, This Week, Older
+    QDateTime today = QDateTime::currentDateTime();
+    today.setTime(QTime(0, 0, 0));
+
+    QMap<QString, QVector<Settings::RecentFileEntry>> grouped;
+    const QString TODAY = "Today";
+    const QString YESTERDAY = "Yesterday";
+    const QString THIS_WEEK = "This Week";
+    const QString OLDER = "Older";
+
+    for (const auto& entry : m_recentFiles) {
+        QDateTime entryDateTime = entry.lastAccessed;
+        entryDateTime.setTime(QTime(0, 0, 0));
+
+        int daysAgo = entryDateTime.daysTo(today);
+
+        QString group;
+        if (daysAgo == 0) group = TODAY;
+        else if (daysAgo == 1) group = YESTERDAY;
+        else if (daysAgo < 7) group = THIS_WEEK;
+        else group = OLDER;
+
+        grouped[group].append(entry);
     }
-    m_recentFilesMenu->addSeparator();
+
+    // Add items by group in order
+    QStringList groupOrder = {TODAY, YESTERDAY, THIS_WEEK, OLDER};
+    for (const QString& group : groupOrder) {
+        if (!grouped[group].isEmpty()) {
+            // Add group label
+            QAction* groupAction = m_recentFilesMenu->addAction(group);
+            groupAction->setEnabled(false);
+            QFont f = groupAction->font();
+            f.setBold(true);
+            groupAction->setFont(f);
+
+            // Add items in this group
+            for (const auto& entry : grouped[group]) {
+                QFileInfo info(entry.path);
+                QString displayText = info.fileName() + " (" + QDir(info.absolutePath()).dirName() + ")";
+                QAction* action = m_recentFilesMenu->addAction(displayText);
+                action->setData(entry.path);
+                connect(action, &QAction::triggered, [this, path = entry.path]() {
+                    openRecentFile(path);
+                });
+            }
+
+            m_recentFilesMenu->addSeparator();
+        }
+    }
+
     m_recentFilesMenu->addAction(tr("Clear Recent Files"), [this]() {
         m_recentFiles.clear();
-        m_settings.setRecentFiles(m_recentFiles);
+        m_settings.clearRecentFilesV2();
         updateRecentFilesMenu();
     });
 }
@@ -2078,8 +2114,10 @@ void MainWindow::openRecentFile(const QString& path)
     if (!QDir(path).exists()) {
         QMessageBox::warning(this, tr("Directory Not Found"),
             tr("The directory '%1' no longer exists.").arg(path));
-        m_recentFiles.removeAll(path);
-        m_settings.setRecentFiles(m_recentFiles);
+        // Claude Generated Phase 2 - Remove from V2 recent files
+        m_recentFiles.erase(std::remove_if(m_recentFiles.begin(), m_recentFiles.end(),
+            [&path](const Settings::RecentFileEntry& e) { return e.path == path; }), m_recentFiles.end());
+        m_settings.setRecentFilesV2(m_recentFiles);
         updateRecentFilesMenu();
         return;
     }

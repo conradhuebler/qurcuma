@@ -2,6 +2,7 @@
 #include "settings.h"
 #include <QStandardPaths>
 #include <QDir>
+#include <algorithm>
 
 const QString Settings::WORKING_DIR_KEY = "workingDirectory";
 const QString Settings::PROGRAM_PATH_PREFIX = "programs/";
@@ -283,4 +284,90 @@ void Settings::initializeDefaultPresets()
     presentSettings.fogEnabled = true;
     presentSettings.fogIntensity = 0.3f;
     savePreset("Presentation", presentSettings);
+}
+
+// Claude Generated Phase 2 - Enhanced recent files with timestamps
+QVector<Settings::RecentFileEntry> Settings::recentFilesV2() const
+{
+    QVector<RecentFileEntry> entries;
+
+    // Try to load new format first
+    if (m_settings.contains("recentFilesV2")) {
+        // Load from JSON format (simple string parsing)
+        // Format: "path1|timestamp1;path2|timestamp2;..."
+        QString data = m_settings.value("recentFilesV2", "").toString();
+        if (!data.isEmpty()) {
+            QStringList entryStrings = data.split(";");
+            for (const QString& entryStr : entryStrings) {
+                if (entryStr.isEmpty()) continue;
+                QStringList parts = entryStr.split("|");
+                if (parts.size() == 2) {
+                    RecentFileEntry entry;
+                    entry.path = parts[0];
+                    entry.lastAccessed = QDateTime::fromString(parts[1], Qt::ISODate);
+                    if (entry.isValid()) {
+                        entries.append(entry);
+                    }
+                }
+            }
+            return entries;
+        }
+    }
+
+    // Migration from old format (QStringList)
+    QStringList oldFiles = m_settings.value("recentFiles", QStringList()).toStringList();
+    for (const QString& path : oldFiles) {
+        RecentFileEntry entry;
+        entry.path = path;
+        entry.lastAccessed = QDateTime::currentDateTime();
+        if (entry.isValid()) {
+            entries.append(entry);
+        }
+    }
+
+    return entries;
+}
+
+void Settings::addRecentFileV2(const QString& path)
+{
+    if (path.isEmpty()) return;
+
+    QVector<RecentFileEntry> entries = recentFilesV2();
+
+    // Remove if already exists
+    entries.erase(std::remove_if(entries.begin(), entries.end(),
+        [&path](const RecentFileEntry& e) { return e.path == path; }), entries.end());
+
+    // Add to front with current timestamp
+    RecentFileEntry newEntry;
+    newEntry.path = path;
+    newEntry.lastAccessed = QDateTime::currentDateTime();
+    entries.prepend(newEntry);
+
+    // Keep only last 10
+    while (entries.size() > 10) {
+        entries.removeLast();
+    }
+
+    setRecentFilesV2(entries);
+}
+
+void Settings::setRecentFilesV2(const QVector<RecentFileEntry>& files)
+{
+    // Save as string format: "path1|timestamp1;path2|timestamp2;..."
+    QStringList parts;
+    for (const auto& entry : files) {
+        if (entry.isValid()) {
+            parts.append(entry.path + "|" + entry.lastAccessed.toString(Qt::ISODate));
+        }
+    }
+
+    m_settings.setValue("recentFilesV2", parts.join(";"));
+    m_settings.sync();
+}
+
+void Settings::clearRecentFilesV2()
+{
+    m_settings.remove("recentFilesV2");
+    m_settings.sync();
 }

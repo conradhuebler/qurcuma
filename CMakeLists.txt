@@ -33,6 +33,7 @@ set(SOURCES
     src/dialogs/nmrcontroller.cpp
     src/dialogs/nmrdatastore.cpp
     src/dialogs/nmrstructureproxymodel.cpp
+    src/widgets/breadcrumbbar.cpp  # Claude Generated Phase 1
 
     #src/dialogs/nmrstructuremodel.cpp
 )
@@ -47,6 +48,7 @@ set(HEADERS
     src/modifiabletextedit.h
     src/visualizationsettingsdialog.h
     src/dialogs/nmrspectrumdialog.h
+    src/widgets/breadcrumbbar.h  # Claude Generated Phase 1
     #src/dialogs/nmrstructuremodel.h
 
 )
