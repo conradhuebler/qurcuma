@@ -2856,7 +2856,84 @@ void MainWindow::onWorkspaceItemClicked(QListWidgetItem* item)
 
 void MainWindow::onWorkspaceContextMenu(const QPoint& pos)
 {
-    // TODO: Implement workspace context menu
+    // Claude Generated Phase 4.5 - Workspace context menu
+    QListWidgetItem* item = m_workspaceListView->itemAt(pos);
+    if (!item || !m_workspaceManager) return;
+
+    QString wsId = item->data(Qt::UserRole).toString();
+    Settings::Workspace ws = m_workspaceManager->getWorkspace(wsId);
+    if (!ws.isValid()) return;
+
+    QMenu contextMenu(this);
+
+    // Load Workspace
+    QAction* loadAction = contextMenu.addAction(tr("Load Workspace"));
+    connect(loadAction, &QAction::triggered, [this, ws]() {
+        restoreWorkspaceState(ws);
+    });
+
+    contextMenu.addSeparator();
+
+    // Rename Workspace
+    QAction* renameAction = contextMenu.addAction(tr("Rename..."));
+    connect(renameAction, &QAction::triggered, [this, wsId, item]() {
+        QString newName = QInputDialog::getText(this,
+            tr("Rename Workspace"),
+            tr("New name:"),
+            QLineEdit::Normal,
+            item->text());
+
+        if (!newName.isEmpty() && newName != item->text()) {
+            m_workspaceManager->renameWorkspace(wsId, newName);
+            updateWorkspaceList();
+            statusBar()->showMessage(tr("Workspace renamed to '%1'").arg(newName), 2000);
+        }
+    });
+
+    // Edit Description
+    QAction* descAction = contextMenu.addAction(tr("Edit Description..."));
+    connect(descAction, &QAction::triggered, [this, wsId]() {
+        auto workspaces = m_workspaceManager->listWorkspaces();
+        Settings::Workspace targetWs;
+        for (const auto& w : workspaces) {
+            if (w.id == wsId) {
+                targetWs = w;
+                break;
+            }
+        }
+
+        QString newDesc = QInputDialog::getText(this,
+            tr("Edit Workspace Description"),
+            tr("Description:"),
+            QLineEdit::Normal,
+            targetWs.description);
+
+        if (!newDesc.isEmpty() || !targetWs.description.isEmpty()) {
+            targetWs.description = newDesc;
+            m_workspaceManager->saveWorkspace(targetWs);
+            statusBar()->showMessage(tr("Workspace description updated"), 2000);
+        }
+    });
+
+    contextMenu.addSeparator();
+
+    // Delete Workspace
+    QAction* deleteAction = contextMenu.addAction(tr("Delete..."));
+    deleteAction->setIcon(QIcon::fromTheme("edit-delete"));
+    connect(deleteAction, &QAction::triggered, [this, wsId, item]() {
+        QMessageBox::StandardButton reply = QMessageBox::question(this,
+            tr("Delete Workspace"),
+            tr("Are you sure you want to delete workspace '%1'?").arg(item->text()),
+            QMessageBox::Yes | QMessageBox::No);
+
+        if (reply == QMessageBox::Yes) {
+            m_workspaceManager->deleteWorkspace(wsId);
+            updateWorkspaceList();
+            statusBar()->showMessage(tr("Workspace deleted"), 2000);
+        }
+    });
+
+    contextMenu.exec(m_workspaceListView->viewport()->mapToGlobal(pos));
 }
 
 void MainWindow::saveCurrentWorkspace()
