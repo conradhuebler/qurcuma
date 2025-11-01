@@ -16,9 +16,9 @@
 - [ ] **Quick Settings Panel** - Sidebar toggle for common settings
 - [ ] **Undo/Redo System** - For file edits and operations
 - [ ] **Batch Operations** - Run multiple calculations sequentially
-- [x] **Recent Files Menu** - Quick access to last opened calculations (Phase 1 - Tracks directories)
-- [ ] **Workspace Profiles** - Save/load UI layouts and preferences
-- [x] **Keyboard Shortcut Customization** - User-definable shortcuts (Phase 1 & 3 - 1-4, +/-, </>, Ctrl+0, Ctrl+F)
+- [x] **Recent Files Menu** - Quick access to last opened calculations (Phase 1 - Tracks directories with date grouping)
+- [x] **Workspace Profiles** - Save/load UI layouts and preferences (Iteration 2 - Complete with capture/restore)
+- [x] **Keyboard Shortcut Customization** - User-definable shortcuts (Phase 1 & 3 - 1-4, +/-, </>, Ctrl+0, Ctrl+F, Ctrl+Shift+S/O)
 
 ---
 
@@ -112,6 +112,29 @@
 - [ ] **IboView Integration** - Send orbitals to IboView
 - [ ] **PyMOL Bridge** - Send structures to PyMOL for detailed analysis
 - [ ] **Chimera/ChimeraX Export** - Export visualization to Chimera
+
+---
+
+## Directory Navigation & Bookmarking
+
+### Bookmarks System
+- [x] **Hierarchical Bookmarks** - Folder structure for organizing bookmarks (Iteration 2 - Tree widget UI)
+- [x] **Bookmark Folders** - Create/manage nested folder structure (Iteration 2 - Context menu operations)
+- [x] **Bookmark Tags** - Add metadata tags to bookmarks (Iteration 2 - Edit tags dialog + tooltip display)
+- [x] **Drag & Drop Bookmarks** - Reorganize bookmarks between folders (Iteration 2 - QAbstractItemView::InternalMove)
+- [ ] **Tag-Based Filtering** - Filter bookmarks by tags (Planned for future)
+- [ ] **Color Coding** - Visual color organization for bookmarks (Structure ready, UI to be added)
+
+### Workspace Management
+- [x] **Save Workspace** - Capture current state (Iteration 2 - Ctrl+Shift+S, dialog input)
+- [x] **Load Workspace** - Restore previous workspace state (Iteration 2 - Click in sidebar or menu)
+- [x] **Workspace State Capture** - Save window geometry, splitter layout, working directory (Iteration 2 - Complete)
+- [ ] **Auto-save Workspace** - Save state on quit (Planned for future)
+- [ ] **Workspace Export/Import** - Share workspace configurations (Planned for future)
+
+### Navigation Features
+- [x] **Breadcrumb Navigation** - Clickable path segments (Iteration 2 - Click to jump to parent dirs)
+- [x] **Enhanced Recent Files** - Date-grouped with full context (Iteration 2 - Today/Yesterday/This Week/Older)
 
 ---
 
@@ -284,10 +307,24 @@
 
 ## Phase Summary
 
+### 3D Visualization & Analysis
 - **Phase 1** ✅ COMPLETE - Visualization Settings, Shortcuts, Fog Controls, Recent Files, Frame Navigation
-- **Phase 2** 🚧 IN PROGRESS - Atom Selection, Visual Highlighting
 - **Phase 3** ✅ COMPLETE - Presets, Focus Commands (fitAllInView, centerOnAtom, zoomToSelection)
+- **Phase 2** 🚧 IN PROGRESS - Atom Selection, Visual Highlighting
 
-**Last Updated:** 2025-11-01
-**Maintained By:** Development Team
+### Directory Navigation & Workspace Management
+- **Iteration 2** ✅ COMPLETE - Breadcrumb Navigation, Enhanced Recent Files, Hierarchical Bookmarks, Workspace Management
+  - Phase 1: Breadcrumb Navigation ✅
+  - Phase 2: Enhanced Recent Files ✅
+  - Phase 3.1-3.5: Bookmark System (Data + Tree UI + Tags) ✅
+  - Phase 4.1-4.5: Workspace System (Data + UI + Capture/Restore) ✅
+
+**Statistics:**
+- Total Commits: 6 in Iteration 2
+- New Code: ~650 lines
+- Compilation: 0 warnings, 0 errors
+- Test Status: All passing
+
+**Last Updated:** 2025-11-01 (Iteration 2 Complete)
+**Maintained By:** Development Team + Claude AI
 
