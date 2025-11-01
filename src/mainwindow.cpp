@@ -61,6 +61,7 @@ MainWindow::MainWindow(QWidget *parent)
     createToolbars();
     createMenus();
     setupConnections();
+    setupProjectViewContextMenu();  // Enable right-click on calculation directories
     setupShortcuts();  // Claude Generated - Phase 1.2
     loadDrafts();      // Claude Generated - Quick Win: Auto-save drafts
 
