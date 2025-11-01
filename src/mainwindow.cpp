@@ -180,6 +180,35 @@ void MainWindow::setupUI()
     m_bookmarkTreeView->setDragDropMode(QAbstractItemView::InternalMove);
     leftLayout->addWidget(m_bookmarkTreeView);
 
+    // Claude Generated Phase 4.3 - Workspace list section
+    QFrame* line3 = new QFrame;
+    line3->setFrameShape(QFrame::HLine);
+    line3->setFrameShadow(QFrame::Sunken);
+    leftLayout->addWidget(line3);
+
+    // Workspace header with add button
+    QWidget* workspaceHeader = new QWidget;
+    QHBoxLayout* wsHeaderLayout = new QHBoxLayout(workspaceHeader);
+    wsHeaderLayout->setContentsMargins(0, 0, 0, 0);
+    wsHeaderLayout->setSpacing(5);
+
+    QLabel* workspacesLabel = new QLabel(tr("Workspaces"));
+    workspacesLabel->setStyleSheet("font-weight: bold;");
+    wsHeaderLayout->addWidget(workspacesLabel);
+
+    QPushButton* newWorkspaceButton = new QPushButton("+");
+    newWorkspaceButton->setMaximumWidth(30);
+    newWorkspaceButton->setToolTip(tr("Save current state as workspace"));
+    connect(newWorkspaceButton, &QPushButton::clicked, this, &MainWindow::saveCurrentWorkspace);
+    wsHeaderLayout->addWidget(newWorkspaceButton);
+
+    leftLayout->addWidget(workspaceHeader);
+
+    // Workspace list
+    m_workspaceListView = new QListWidget;
+    m_workspaceListView->setContextMenuPolicy(Qt::CustomContextMenu);
+    leftLayout->addWidget(m_workspaceListView);
+
     // Add left widget to splitter
     m_splitter->addWidget(leftWidget);
 
@@ -889,6 +918,15 @@ void MainWindow::setupConnections()
 
     connect(m_bookmarkTreeView, &QTreeWidget::customContextMenuRequested,
         this, &MainWindow::onBookmarkContextMenu);
+
+    // Claude Generated Phase 4.3 - Workspace list signals
+    if (m_workspaceListView) {
+        connect(m_workspaceListView, &QListWidget::itemClicked,
+            this, &MainWindow::onWorkspaceItemClicked);
+
+        connect(m_workspaceListView, &QListWidget::customContextMenuRequested,
+            this, &MainWindow::onWorkspaceContextMenu);
+    }
 
     connect(m_bookmarkButton, &QToolButton::clicked, [this]() {
         if (!m_workingDirectory.isEmpty()) {
@@ -1712,6 +1750,15 @@ void MainWindow::loadSettings()
     // Claude Generated - Quick Win: Load recent files (now V2 with timestamps)
     m_recentFiles = m_settings.recentFilesV2();
     updateRecentFilesMenu();
+
+    // Claude Generated Phase 4.3 - Initialize workspace manager and load UI
+    if (!m_workspaceManager) {
+        m_workspaceManager = new WorkspaceManager(this);
+    }
+
+    // Load bookmarks and workspaces into UI
+    updateBookmarkTree();
+    updateWorkspaceList();
 }
 
 void MainWindow::startNewCalculation()
