@@ -57,10 +57,13 @@ private slots:
     void onDeletePreset();
     void loadQuickPreset(const QString& presetName);
 
+public:
+    // Claude Generated - Make public for synchronization with shortcuts
+    void loadCurrentSettings();
+
 private:
     void setupUI();
     void setupTabs();  // Claude Generated - Setup tabbed interface
-    void loadCurrentSettings();
     void refreshPresetList();  // Claude Generated
     void createRenderingGroup(QVBoxLayout* mainLayout);
     void createMaterialGroup(QVBoxLayout* mainLayout);

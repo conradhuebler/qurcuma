@@ -18,6 +18,7 @@
 #include <QMap>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPointer>  // Claude Generated - For dialog pointer management
 #include <QProcess>
 #include <QPushButton>
 #include <QSpinBox>
@@ -35,6 +36,7 @@
 #include "dialogs/nmrspectrumdialog.h"
 #include "modifiabletextedit.h"
 class MoleculeViewer;
+class VisualizationSettingsDialog;  // Claude Generated - For shortcut synchronization
 
 
 struct CalculationEntry {
@@ -106,6 +108,9 @@ private slots:
     // Claude Generated - Focus & centering commands
     void fitMoleculeInView();
     void centerViewOnSelection();
+
+    // Claude Generated - Helper for shortcut synchronization with dialog
+    void syncVisualizationDialog();
 
 private:
     void setupUI();
@@ -185,6 +190,9 @@ private:
     QProcess* m_currentProcess;
     Settings m_settings;
     QMap<QString, QStringList> m_programCommands;
+
+    // Claude Generated - For shortcut dialog synchronization
+    QPointer<VisualizationSettingsDialog> m_visualizationDialog;
     QCompleter* m_commandCompleter;
     QToolButton* m_bookmarkButton;
     QSplitter* m_splitter;

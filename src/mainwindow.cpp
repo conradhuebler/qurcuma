@@ -2363,9 +2363,10 @@ void MainWindow::openVisualizationSettings()
     }
 
     // Claude Generated - Pass Settings object for persistence
-    VisualizationSettingsDialog* dialog = new VisualizationSettingsDialog(m_moleculeView, &m_settings, this);
-    dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->show();
+    // Store dialog pointer for shortcut synchronization (Fix: Shortcuts sync with dialog)
+    m_visualizationDialog = new VisualizationSettingsDialog(m_moleculeView, &m_settings, this);
+    m_visualizationDialog->setAttribute(Qt::WA_DeleteOnClose);
+    m_visualizationDialog->show();
 }
 
 // Claude Generated - Quick Fix: Show about dialog
@@ -2551,6 +2552,7 @@ void MainWindow::setRenderingModeBallAndStick()
     if (!m_moleculeView) return;
     m_moleculeView->setRenderingMode(MoleculeViewer::RenderingMode::BallAndStick);
     statusBar()->showMessage(tr("Rendering Mode: Ball and Stick"), 1500);
+    syncVisualizationDialog();  // Claude Generated - Fix: Sync dialog
 }
 
 void MainWindow::setRenderingModeSpaceFilling()
@@ -2558,6 +2560,7 @@ void MainWindow::setRenderingModeSpaceFilling()
     if (!m_moleculeView) return;
     m_moleculeView->setRenderingMode(MoleculeViewer::RenderingMode::SpaceFilling);
     statusBar()->showMessage(tr("Rendering Mode: Space Filling"), 1500);
+    syncVisualizationDialog();  // Claude Generated - Fix: Sync dialog
 }
 
 void MainWindow::setRenderingModeWireframe()
@@ -2565,6 +2568,7 @@ void MainWindow::setRenderingModeWireframe()
     if (!m_moleculeView) return;
     m_moleculeView->setRenderingMode(MoleculeViewer::RenderingMode::Wireframe);
     statusBar()->showMessage(tr("Rendering Mode: Wireframe"), 1500);
+    syncVisualizationDialog();  // Claude Generated - Fix: Sync dialog
 }
 
 void MainWindow::setRenderingModeSticks()
@@ -2572,6 +2576,7 @@ void MainWindow::setRenderingModeSticks()
     if (!m_moleculeView) return;
     m_moleculeView->setRenderingMode(MoleculeViewer::RenderingMode::SticksOnly);
     statusBar()->showMessage(tr("Rendering Mode: Sticks Only"), 1500);
+    syncVisualizationDialog();  // Claude Generated - Fix: Sync dialog
 }
 
 // Claude Generated - Atom size adjustment shortcuts
@@ -2582,6 +2587,7 @@ void MainWindow::increaseAtomSize()
     float newScale = std::min(3.0f, currentScale + 0.1f);
     m_moleculeView->setAtomScaleFactor(newScale);
     statusBar()->showMessage(QString(tr("Atom Size: %1x")).arg(newScale, 0, 'f', 1), 1500);
+    syncVisualizationDialog();  // Claude Generated - Fix: Sync dialog
 }
 
 void MainWindow::decreaseAtomSize()
@@ -2591,6 +2597,7 @@ void MainWindow::decreaseAtomSize()
     float newScale = std::max(0.1f, currentScale - 0.1f);
     m_moleculeView->setAtomScaleFactor(newScale);
     statusBar()->showMessage(QString(tr("Atom Size: %1x")).arg(newScale, 0, 'f', 1), 1500);
+    syncVisualizationDialog();  // Claude Generated - Fix: Sync dialog
 }
 
 // Claude Generated - Bond thickness adjustment shortcuts
@@ -2601,6 +2608,7 @@ void MainWindow::increaseBondThickness()
     float newThickness = std::min(0.5f, currentThickness + 0.02f);
     m_moleculeView->setBondThickness(newThickness);
     statusBar()->showMessage(QString(tr("Bond Thickness: %1")).arg(newThickness, 0, 'f', 2), 1500);
+    syncVisualizationDialog();  // Claude Generated - Fix: Sync dialog
 }
 
 void MainWindow::decreaseBondThickness()
@@ -2610,6 +2618,17 @@ void MainWindow::decreaseBondThickness()
     float newThickness = std::max(0.05f, currentThickness - 0.02f);
     m_moleculeView->setBondThickness(newThickness);
     statusBar()->showMessage(QString(tr("Bond Thickness: %1")).arg(newThickness, 0, 'f', 2), 1500);
+    syncVisualizationDialog();  // Claude Generated - Fix: Sync dialog
+}
+
+// Claude Generated - Helper: Update visualization dialog when settings change via shortcuts
+void MainWindow::syncVisualizationDialog()
+{
+    // Synchronize dialog widgets with current viewer state when shortcut is used
+    // This ensures dialog shows correct values even if shortcuts were used while dialog open
+    if (m_visualizationDialog && m_visualizationDialog->isVisible()) {
+        m_visualizationDialog->loadCurrentSettings();
+    }
 }
 
 // Claude Generated - Focus & Centering Commands
@@ -2618,6 +2637,8 @@ void MainWindow::fitMoleculeInView()
     if (!m_moleculeView) return;
     m_moleculeView->fitAllInView();
     statusBar()->showMessage(tr("Fitted molecule in view"), 1500);
+    // Claude Generated - Sync dialog if open
+    syncVisualizationDialog();
 }
 
 void MainWindow::centerViewOnSelection()
@@ -2628,4 +2649,6 @@ void MainWindow::centerViewOnSelection()
         m_moleculeView->zoomToSelection(selected);
         statusBar()->showMessage(tr("Centered on selection"), 1500);
     }
+    // Claude Generated - Sync dialog if open
+    syncVisualizationDialog();
 }
