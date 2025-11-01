@@ -111,6 +111,12 @@ public slots:
     const QVector<int>& getSelectedAtoms() const { return m_selectedAtoms; }
     void setMeasurementMode(int mode);  // 0=None, 1=Distance, 2=Angle
 
+    // Claude Generated - Focus & Zoom commands
+    void centerOnAtom(int atomIndex);
+    void zoomToSelection(const QVector<int>& atomIndices);
+    void fitAllInView();
+    void getSelectedBounds(QVector3D& center, float& radius);  // Helper for focus commands
+
 signals:
     void frameChanged(int frameIndex);
     void trajectoryLoaded(int frameCount);

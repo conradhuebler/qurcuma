@@ -12,6 +12,8 @@
 #include <QGroupBox>
 #include <QDoubleSpinBox>
 #include <QCheckBox>  // Claude Generated
+#include <QTabWidget>  // Claude Generated - Presets tab
+#include <QListWidget>  // Claude Generated - Preset list
 #include "view.h"
 #include "settings.h"
 
@@ -49,13 +51,22 @@ private slots:
     void onResetDefaults();
     void onApply();
 
+    // Claude Generated - Preset management slots
+    void onLoadPreset(int index);
+    void onSavePreset();
+    void onDeletePreset();
+    void loadQuickPreset(const QString& presetName);
+
 private:
     void setupUI();
+    void setupTabs();  // Claude Generated - Setup tabbed interface
     void loadCurrentSettings();
+    void refreshPresetList();  // Claude Generated
     void createRenderingGroup(QVBoxLayout* mainLayout);
     void createMaterialGroup(QVBoxLayout* mainLayout);
     void createSizeGroup(QVBoxLayout* mainLayout);
     void createAppearanceGroup(QVBoxLayout* mainLayout);  // Claude Generated - Fog effects
+    void createPresetsTab(QTabWidget* tabs);  // Claude Generated
 
     // Widgets
     QComboBox* m_renderingModeCombo;
@@ -70,6 +81,16 @@ private:
     QCheckBox* m_fogEnabledCheckBox;
     QSlider* m_fogIntensitySlider;
     QLabel* m_fogIntensityLabel;
+
+    // Claude Generated - Preset management widgets
+    QTabWidget* m_tabWidget;
+    QListWidget* m_presetList;
+    QPushButton* m_loadPresetButton;
+    QPushButton* m_savePresetButton;
+    QPushButton* m_deletePresetButton;
+    QPushButton* m_publicationPresetButton;
+    QPushButton* m_analysisPresetButton;
+    QPushButton* m_presentationPresetButton;
 
     QPushButton* m_resetButton;
     QPushButton* m_applyButton;

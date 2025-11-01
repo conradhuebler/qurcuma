@@ -1209,3 +1209,115 @@ void MoleculeViewer::refreshVisualization()
 
     // NOTE: Intentionally NO setDefaultView() call - preserve camera position!
 }
+
+// Claude Generated - Focus & Zoom Commands
+void MoleculeViewer::getSelectedBounds(QVector3D& center, float& radius)
+{
+    if (m_trajectoryAtoms.isEmpty() || m_currentFrame >= m_trajectoryAtoms.size()) {
+        center = m_moleculeCenter;
+        radius = m_moleculeRadius;
+        return;
+    }
+
+    const auto& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (atoms.isEmpty()) {
+        center = m_moleculeCenter;
+        radius = m_moleculeRadius;
+        return;
+    }
+
+    // Calculate bounding sphere for selected atoms
+    if (m_selectedAtoms.isEmpty()) {
+        // Use all atoms if nothing selected
+        center = m_moleculeCenter;
+        radius = m_moleculeRadius;
+    } else {
+        // Calculate center of selected atoms
+        QVector3D sum(0, 0, 0);
+        for (int idx : m_selectedAtoms) {
+            if (idx < atoms.size()) {
+                sum += atoms[idx].position;
+            }
+        }
+        center = sum / m_selectedAtoms.size();
+
+        // Calculate radius as max distance from center
+        radius = 0.0f;
+        for (int idx : m_selectedAtoms) {
+            if (idx < atoms.size()) {
+                float dist = (atoms[idx].position - center).length();
+                if (dist > radius) radius = dist;
+            }
+        }
+        radius += 2.0f;  // Add padding
+    }
+}
+
+void MoleculeViewer::centerOnAtom(int atomIndex)
+{
+    if (m_trajectoryAtoms.isEmpty() || m_currentFrame >= m_trajectoryAtoms.size()) return;
+    const auto& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (atomIndex < 0 || atomIndex >= atoms.size()) return;
+
+    // Move camera to look at selected atom
+    const auto& atom = atoms[atomIndex];
+    QVector3D direction = m_camera->position() - atom.position;
+    if (direction.length() < 0.001f) {
+        direction = QVector3D(0, 0, 1);  // Default if too close
+    }
+    direction.normalize();
+
+    float distance = 5.0f;  // Default viewing distance
+    m_camera->setPosition(atom.position + direction * distance);
+    m_camera->setViewCenter(atom.position);
+}
+
+void MoleculeViewer::zoomToSelection(const QVector<int>& atomIndices)
+{
+    if (atomIndices.isEmpty()) {
+        fitAllInView();
+        return;
+    }
+
+    m_selectedAtoms = atomIndices;
+    QVector3D center;
+    float radius;
+    getSelectedBounds(center, radius);
+
+    // Position camera to view selection
+    QVector3D direction = m_camera->position() - center;
+    if (direction.length() < 0.001f) {
+        direction = QVector3D(0, 0, 1);
+    }
+    direction.normalize();
+
+    // Calculate distance to frame the sphere in view
+    // For 45 degree FOV, distance = radius / tan(22.5 degrees)
+    float distance = radius / 0.4142f;  // ~tan(22.5°)
+    if (distance < 1.0f) distance = 1.0f;
+
+    m_camera->setPosition(center + direction * distance);
+    m_camera->setViewCenter(center);
+}
+
+void MoleculeViewer::fitAllInView()
+{
+    if (m_trajectoryAtoms.isEmpty() || m_currentFrame >= m_trajectoryAtoms.size()) return;
+
+    QVector3D center = m_moleculeCenter;
+    float radius = m_moleculeRadius;
+
+    // Position camera to view entire molecule
+    QVector3D direction = m_camera->position() - center;
+    if (direction.length() < 0.001f) {
+        direction = QVector3D(0, 0, 1);
+    }
+    direction.normalize();
+
+    // Calculate distance to frame the entire molecule
+    float distance = radius / 0.4142f;  // ~tan(22.5°) for 45 degree FOV
+    if (distance < 1.0f) distance = 5.0f;
+
+    m_camera->setPosition(center + direction * distance);
+    m_camera->setViewCenter(center);
+}

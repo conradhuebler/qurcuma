@@ -183,3 +183,104 @@ void Settings::setVisualizationSettings(const VisualizationSettings& settings)
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "fogIntensity", settings.fogIntensity);
     m_settings.sync();
 }
+
+// Claude Generated - Visualization Preset Management
+QVector<Settings::VisualizationPreset> Settings::getVisualizationPresets()
+{
+    QVector<VisualizationPreset> presets;
+
+    m_settings.beginGroup(VIZ_SETTINGS_PREFIX + "presets");
+    QStringList presetNames = m_settings.childGroups();
+
+    for (const QString& presetName : presetNames) {
+        m_settings.beginGroup(presetName);
+
+        VisualizationPreset preset;
+        preset.name = presetName;
+        preset.settings.renderingMode = m_settings.value("renderingMode", 0).toInt();
+        preset.settings.colorScheme = m_settings.value("colorScheme", 0).toInt();
+        preset.settings.atomTransparency = m_settings.value("atomTransparency", 1.0f).toFloat();
+        preset.settings.atomShininess = m_settings.value("atomShininess", 80.0f).toFloat();
+        preset.settings.atomScaleFactor = m_settings.value("atomScaleFactor", 1.0f).toFloat();
+        preset.settings.bondThickness = m_settings.value("bondThickness", 0.15f).toFloat();
+        preset.settings.fogEnabled = m_settings.value("fogEnabled", false).toBool();
+        preset.settings.fogIntensity = m_settings.value("fogIntensity", 0.5f).toFloat();
+
+        presets.append(preset);
+        m_settings.endGroup();
+    }
+
+    m_settings.endGroup();
+    return presets;
+}
+
+void Settings::savePreset(const QString& name, const VisualizationSettings& settings)
+{
+    QString presetPath = VIZ_SETTINGS_PREFIX + "presets/" + name;
+
+    m_settings.setValue(presetPath + "/renderingMode", settings.renderingMode);
+    m_settings.setValue(presetPath + "/colorScheme", settings.colorScheme);
+    m_settings.setValue(presetPath + "/atomTransparency", settings.atomTransparency);
+    m_settings.setValue(presetPath + "/atomShininess", settings.atomShininess);
+    m_settings.setValue(presetPath + "/atomScaleFactor", settings.atomScaleFactor);
+    m_settings.setValue(presetPath + "/bondThickness", settings.bondThickness);
+    m_settings.setValue(presetPath + "/fogEnabled", settings.fogEnabled);
+    m_settings.setValue(presetPath + "/fogIntensity", settings.fogIntensity);
+
+    m_settings.sync();
+}
+
+void Settings::deletePreset(const QString& name)
+{
+    m_settings.remove(VIZ_SETTINGS_PREFIX + "presets/" + name);
+    m_settings.sync();
+}
+
+bool Settings::presetExists(const QString& name) const
+{
+    return m_settings.contains(VIZ_SETTINGS_PREFIX + "presets/" + name + "/renderingMode");
+}
+
+void Settings::initializeDefaultPresets()
+{
+    // Only create defaults if no presets exist
+    auto presets = getVisualizationPresets();
+    if (!presets.isEmpty()) {
+        return;
+    }
+
+    // Publication: Professional look - CPK colors, Ball-and-stick, high shininess
+    VisualizationSettings pubSettings;
+    pubSettings.renderingMode = 0;      // BallAndStick
+    pubSettings.colorScheme = 0;        // CPK
+    pubSettings.atomTransparency = 1.0f;
+    pubSettings.atomShininess = 120.0f;
+    pubSettings.atomScaleFactor = 1.0f;
+    pubSettings.bondThickness = 0.15f;
+    pubSettings.fogEnabled = false;
+    savePreset("Publication", pubSettings);
+
+    // Analysis: Space-filling with monochrome - good for electron density
+    VisualizationSettings analysisSettings;
+    analysisSettings.renderingMode = 2;     // SpaceFilling
+    analysisSettings.colorScheme = 1;       // Monochrome
+    analysisSettings.atomTransparency = 0.8f;
+    analysisSettings.atomShininess = 60.0f;
+    analysisSettings.atomScaleFactor = 1.0f;
+    analysisSettings.bondThickness = 0.1f;
+    analysisSettings.fogEnabled = true;
+    analysisSettings.fogIntensity = 0.5f;
+    savePreset("Analysis", analysisSettings);
+
+    // Presentation: Bright, high transparency, fog for depth
+    VisualizationSettings presentSettings;
+    presentSettings.renderingMode = 0;      // BallAndStick
+    presentSettings.colorScheme = 0;        // CPK
+    presentSettings.atomTransparency = 0.7f;
+    presentSettings.atomShininess = 100.0f;
+    presentSettings.atomScaleFactor = 1.2f;
+    presentSettings.bondThickness = 0.18f;
+    presentSettings.fogEnabled = true;
+    presentSettings.fogIntensity = 0.3f;
+    savePreset("Presentation", presentSettings);
+}

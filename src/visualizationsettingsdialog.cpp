@@ -3,6 +3,8 @@
 #include <QFormLayout>
 #include <QDialogButtonBox>
 #include <QShowEvent>
+#include <QInputDialog>  // Claude Generated - For preset naming
+#include <QMessageBox>   // Claude Generated - For warnings
 
 VisualizationSettingsDialog::VisualizationSettingsDialog(MoleculeViewer* viewer, Settings* settings, QWidget *parent)
     : QDialog(parent)
@@ -23,11 +25,9 @@ void VisualizationSettingsDialog::setupUI()
 {
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
-    // Create grouped sections
-    createRenderingGroup(mainLayout);
-    createMaterialGroup(mainLayout);
-    createSizeGroup(mainLayout);
-    createAppearanceGroup(mainLayout);  // Claude Generated - Fog controls
+    // Claude Generated - Create tabbed interface
+    setupTabs();
+    mainLayout->addWidget(m_tabWidget);
 
     // Buttons
     QHBoxLayout* buttonLayout = new QHBoxLayout();
@@ -327,9 +327,188 @@ void VisualizationSettingsDialog::onFogIntensityChanged(int value)
     m_viewer->setFogIntensity(intensity);
 }
 
+// Claude Generated - Setup tabbed interface with all settings
+void VisualizationSettingsDialog::setupTabs()
+{
+    m_tabWidget = new QTabWidget(this);
+
+    // Settings Tab
+    QWidget* settingsTab = new QWidget();
+    QVBoxLayout* settingsLayout = new QVBoxLayout(settingsTab);
+    createRenderingGroup(settingsLayout);
+    createMaterialGroup(settingsLayout);
+    createSizeGroup(settingsLayout);
+    createAppearanceGroup(settingsLayout);
+    settingsLayout->addStretch();
+    m_tabWidget->addTab(settingsTab, tr("Settings"));
+
+    // Presets Tab
+    createPresetsTab(m_tabWidget);
+}
+
+// Claude Generated - Create and manage presets tab
+void VisualizationSettingsDialog::createPresetsTab(QTabWidget* tabs)
+{
+    QWidget* presetsTab = new QWidget();
+    QVBoxLayout* mainLayout = new QVBoxLayout(presetsTab);
+
+    // Quick preset buttons
+    QGroupBox* quickGroup = new QGroupBox(tr("Quick Presets"), this);
+    QHBoxLayout* quickLayout = new QHBoxLayout(quickGroup);
+
+    m_publicationPresetButton = new QPushButton(tr("Publication"), this);
+    m_analysisPresetButton = new QPushButton(tr("Analysis"), this);
+    m_presentationPresetButton = new QPushButton(tr("Presentation"), this);
+
+    quickLayout->addWidget(m_publicationPresetButton);
+    quickLayout->addWidget(m_analysisPresetButton);
+    quickLayout->addWidget(m_presentationPresetButton);
+
+    connect(m_publicationPresetButton, &QPushButton::clicked, this, [this]() { loadQuickPreset("Publication"); });
+    connect(m_analysisPresetButton, &QPushButton::clicked, this, [this]() { loadQuickPreset("Analysis"); });
+    connect(m_presentationPresetButton, &QPushButton::clicked, this, [this]() { loadQuickPreset("Presentation"); });
+
+    mainLayout->addWidget(quickGroup);
+
+    // Custom presets management
+    QGroupBox* customGroup = new QGroupBox(tr("Custom Presets"), this);
+    QVBoxLayout* customLayout = new QVBoxLayout(customGroup);
+
+    // Preset list
+    m_presetList = new QListWidget(this);
+    customLayout->addWidget(new QLabel(tr("Saved Presets:"), this));
+    customLayout->addWidget(m_presetList);
+
+    // Preset buttons
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    m_loadPresetButton = new QPushButton(tr("Load"), this);
+    m_savePresetButton = new QPushButton(tr("Save As..."), this);
+    m_deletePresetButton = new QPushButton(tr("Delete"), this);
+
+    buttonLayout->addWidget(m_loadPresetButton);
+    buttonLayout->addWidget(m_savePresetButton);
+    buttonLayout->addWidget(m_deletePresetButton);
+    customLayout->addLayout(buttonLayout);
+
+    // Connect signals
+    connect(m_presetList, &QListWidget::itemSelectionChanged,
+            this, [this]() { onLoadPreset(m_presetList->currentRow()); });
+    connect(m_loadPresetButton, &QPushButton::clicked, this,
+            [this]() { onLoadPreset(m_presetList->currentRow()); });
+    connect(m_savePresetButton, &QPushButton::clicked, this, &VisualizationSettingsDialog::onSavePreset);
+    connect(m_deletePresetButton, &QPushButton::clicked, this, &VisualizationSettingsDialog::onDeletePreset);
+
+    mainLayout->addWidget(customGroup);
+    mainLayout->addStretch();
+
+    tabs->addTab(presetsTab, tr("Presets"));
+
+    // Initialize presets list on first show
+    refreshPresetList();
+}
+
+// Claude Generated - Refresh the preset list from settings
+void VisualizationSettingsDialog::refreshPresetList()
+{
+    if (!m_settings) return;
+
+    m_presetList->clear();
+    auto presets = m_settings->getVisualizationPresets();
+
+    for (const auto& preset : presets) {
+        m_presetList->addItem(preset.name);
+    }
+}
+
+// Claude Generated - Load selected preset
+void VisualizationSettingsDialog::onLoadPreset(int index)
+{
+    if (!m_settings || index < 0 || !m_viewer) return;
+
+    auto presets = m_settings->getVisualizationPresets();
+    if (index >= presets.size()) return;
+
+    const auto& preset = presets[index];
+    const auto& settings = preset.settings;
+
+    // Apply preset to viewer
+    m_viewer->setRenderingMode(static_cast<MoleculeViewer::RenderingMode>(settings.renderingMode));
+    m_viewer->setColorScheme(static_cast<MoleculeViewer::ColorScheme>(settings.colorScheme));
+    m_viewer->setAtomTransparency(settings.atomTransparency);
+    m_viewer->setAtomShininess(settings.atomShininess);
+    m_viewer->setAtomScaleFactor(settings.atomScaleFactor);
+    m_viewer->setBondThickness(settings.bondThickness);
+    m_viewer->setFogEnabled(settings.fogEnabled);
+    m_viewer->setFogIntensity(settings.fogIntensity);
+
+    // Update dialog controls
+    loadCurrentSettings();
+}
+
+// Claude Generated - Save current settings as preset
+void VisualizationSettingsDialog::onSavePreset()
+{
+    if (!m_settings || !m_viewer) return;
+
+    // Get preset name from user
+    bool ok;
+    QString presetName = QInputDialog::getText(this, tr("Save Preset"),
+        tr("Preset name:"), QLineEdit::Normal, "", &ok);
+
+    if (ok && !presetName.isEmpty()) {
+        Settings::VisualizationSettings current;
+        current.renderingMode = m_renderingModeCombo->currentData().toInt();
+        current.colorScheme = m_colorSchemeCombo->currentData().toInt();
+        current.atomTransparency = m_viewer->getAtomTransparency();
+        current.atomShininess = m_viewer->getAtomShininess();
+        current.atomScaleFactor = m_viewer->getAtomScaleFactor();
+        current.bondThickness = m_viewer->getBondThickness();
+        current.fogEnabled = m_viewer->getFogEnabled();
+        current.fogIntensity = m_viewer->getFogIntensity();
+
+        m_settings->savePreset(presetName, current);
+        refreshPresetList();
+    }
+}
+
+// Claude Generated - Delete selected preset
+void VisualizationSettingsDialog::onDeletePreset()
+{
+    if (!m_settings || m_presetList->currentRow() < 0) return;
+
+    QString presetName = m_presetList->currentItem()->text();
+
+    // Don't allow deleting built-in presets
+    if (presetName == "Publication" || presetName == "Analysis" || presetName == "Presentation") {
+        QMessageBox::warning(this, tr("Cannot Delete"), tr("Built-in presets cannot be deleted."));
+        return;
+    }
+
+    m_settings->deletePreset(presetName);
+    refreshPresetList();
+}
+
+// Claude Generated - Load quick preset by name
+void VisualizationSettingsDialog::loadQuickPreset(const QString& presetName)
+{
+    if (!m_settings || !m_viewer) return;
+
+    auto presets = m_settings->getVisualizationPresets();
+    for (int i = 0; i < presets.size(); ++i) {
+        if (presets[i].name == presetName) {
+            onLoadPreset(i);
+            return;
+        }
+    }
+}
+
 // Claude Generated - Load saved settings on dialog show
 void VisualizationSettingsDialog::showEvent(QShowEvent* event)
 {
     QDialog::showEvent(event);
     loadCurrentSettings();
+    if (m_settings) {
+        m_settings->initializeDefaultPresets();  // Ensure defaults exist
+        refreshPresetList();
+    }
 }

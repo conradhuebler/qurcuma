@@ -59,6 +59,18 @@ public:
     VisualizationSettings getVisualizationSettings() const;
     void setVisualizationSettings(const VisualizationSettings& settings);
 
+    // Claude Generated - Visualization Preset Management
+    struct VisualizationPreset {
+        QString name;
+        VisualizationSettings settings;
+    };
+
+    QVector<VisualizationPreset> getVisualizationPresets();  // Claude Generated - Note: non-const due to QSettings::beginGroup
+    void savePreset(const QString& name, const VisualizationSettings& settings);
+    void deletePreset(const QString& name);
+    bool presetExists(const QString& name) const;
+    void initializeDefaultPresets();  // Create built-in presets
+
 private:
     QSettings m_settings;
 

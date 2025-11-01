@@ -489,6 +489,11 @@ void MainWindow::setupUI()
     new QShortcut(Qt::Key_Comma, this, SLOT(decreaseBondThickness()));      // Fallback for < key
     new QShortcut(Qt::Key_Period, this, SLOT(increaseBondThickness()));     // Fallback for > key
 
+    // Claude Generated - Focus & view shortcuts
+    new QShortcut(Qt::CTRL | Qt::Key_0, this, SLOT(fitMoleculeInView()));   // Ctrl+0 for fit all
+    new QShortcut(Qt::Key_Home, this, SLOT(fitMoleculeInView()));            // Home key also fits
+    new QShortcut(Qt::CTRL | Qt::Key_F, this, SLOT(centerViewOnSelection())); // Ctrl+F for focus
+
     // Initial updates
     updatePathLabel(m_workingDirectory);
     updateBookmarkView();
@@ -2605,4 +2610,22 @@ void MainWindow::decreaseBondThickness()
     float newThickness = std::max(0.05f, currentThickness - 0.02f);
     m_moleculeView->setBondThickness(newThickness);
     statusBar()->showMessage(QString(tr("Bond Thickness: %1")).arg(newThickness, 0, 'f', 2), 1500);
+}
+
+// Claude Generated - Focus & Centering Commands
+void MainWindow::fitMoleculeInView()
+{
+    if (!m_moleculeView) return;
+    m_moleculeView->fitAllInView();
+    statusBar()->showMessage(tr("Fitted molecule in view"), 1500);
+}
+
+void MainWindow::centerViewOnSelection()
+{
+    if (!m_moleculeView) return;
+    auto selected = m_moleculeView->getSelectedAtoms();
+    if (!selected.isEmpty()) {
+        m_moleculeView->zoomToSelection(selected);
+        statusBar()->showMessage(tr("Centered on selection"), 1500);
+    }
 }

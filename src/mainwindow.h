@@ -103,6 +103,10 @@ private slots:
     void increaseBondThickness();
     void decreaseBondThickness();
 
+    // Claude Generated - Focus & centering commands
+    void fitMoleculeInView();
+    void centerViewOnSelection();
+
 private:
     void setupUI();
     void createToolbars();
