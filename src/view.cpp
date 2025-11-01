@@ -522,6 +522,11 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
 {
     Qt3DCore::QEntity *moleculeEntity = new Qt3DCore::QEntity();
 
+    // Claude Generated - Fix 2: Clear entity/material references for incremental updates
+    m_atomEntities.clear();
+    m_bondEntities.clear();
+    m_atomMaterials.clear();
+
     // Claude Generated - Render atoms based on rendering mode
     bool renderAtoms = (m_renderingMode == RenderingMode::BallAndStick ||
                         m_renderingMode == RenderingMode::SpaceFilling);
@@ -556,6 +561,10 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             atomEntity->addComponent(sphereMesh);
             atomEntity->addComponent(transform);
             atomEntity->addComponent(material);
+
+            // Claude Generated - Fix 2: Store references for incremental updates
+            m_atomEntities.append(atomEntity);
+            m_atomMaterials.append(material);
         }
     }
 
@@ -619,6 +628,9 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
         bondEntity->addComponent(transform);
         bondEntity->addComponent(material);
 
+        // Claude Generated - Fix 2: Store bond reference for incremental updates
+        m_bondEntities.append(bondEntity);
+
             // Für Mehrfachbindungen
             if (bond.bondOrder > 1) {
                 // Offset für zusätzliche Bindungen
@@ -673,6 +685,9 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
                     additionalBondEntity->addComponent(addCylinderMesh);
                     additionalBondEntity->addComponent(addTransform);
                     additionalBondEntity->addComponent(material);
+
+                    // Claude Generated - Fix 2: Store additional bond reference
+                    m_bondEntities.append(additionalBondEntity);
                 }
             }
         }

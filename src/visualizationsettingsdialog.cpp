@@ -169,8 +169,15 @@ void VisualizationSettingsDialog::loadCurrentSettings()
 {
     if (!m_viewer) return;
 
-    // Claude Generated - Block signals to prevent refresh cascade when loading settings
-    blockSignals(true);
+    // Claude Generated - Block signals on individual widgets (not dialog) to prevent refresh cascade
+    m_renderingModeCombo->blockSignals(true);
+    m_colorSchemeCombo->blockSignals(true);
+    m_transparencySlider->blockSignals(true);
+    m_shininessSpinBox->blockSignals(true);
+    m_atomScaleSpinBox->blockSignals(true);
+    m_bondThicknessSpinBox->blockSignals(true);
+    m_fogEnabledCheckBox->blockSignals(true);
+    m_fogIntensitySlider->blockSignals(true);
 
     // Claude Generated - Load from saved settings if available
     if (m_settings) {
@@ -230,8 +237,15 @@ void VisualizationSettingsDialog::loadCurrentSettings()
         m_fogIntensitySlider->setEnabled(m_viewer->getFogEnabled());
     }
 
-    // Claude Generated - Unblock signals after all widgets are updated
-    blockSignals(false);
+    // Claude Generated - Unblock signals on all widgets after loading complete
+    m_renderingModeCombo->blockSignals(false);
+    m_colorSchemeCombo->blockSignals(false);
+    m_transparencySlider->blockSignals(false);
+    m_shininessSpinBox->blockSignals(false);
+    m_atomScaleSpinBox->blockSignals(false);
+    m_bondThicknessSpinBox->blockSignals(false);
+    m_fogEnabledCheckBox->blockSignals(false);
+    m_fogIntensitySlider->blockSignals(false);
 }
 
 void VisualizationSettingsDialog::onRenderingModeChanged(int index)
