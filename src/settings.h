@@ -7,6 +7,8 @@
 #include <QString>
 #include <QDateTime>
 #include <QVector>
+#include <QColor>
+#include <QUuid>
 
 class Settings : public QObject
 {
@@ -86,6 +88,55 @@ public:
     void deletePreset(const QString& name);
     bool presetExists(const QString& name) const;
     void initializeDefaultPresets();  // Create built-in presets
+
+    // Claude Generated Phase 3 - Organized bookmarks with hierarchical folder support
+    struct BookmarkItem {
+        QString id;              // Unique identifier (UUID)
+        QString name;            // User-defined name or auto from path
+        QString path;            // Filesystem path (empty for folders)
+        QStringList tags;        // ["#dft", "#md", "#test"]
+        QColor color;            // Optional color coding
+        QString parentId;        // "" for root, parent's ID for nested items
+        bool isFolder;           // True if this is a folder container
+        QDateTime created;       // Creation timestamp
+
+        bool isValid() const { return !name.isEmpty(); }
+    };
+
+    QVector<BookmarkItem> bookmarks() const;
+    void setBookmarks(const QVector<BookmarkItem>& items);
+    void addBookmark(const BookmarkItem& item);
+    void removeBookmark(const QString& id);
+    void updateBookmark(const QString& id, const BookmarkItem& item);
+
+    // Claude Generated Phase 4 - Workspace/project state management
+    struct Workspace {
+        QString id;                      // Unique identifier (UUID)
+        QString name;                    // "DFT Benzene Study"
+        QString description;             // Optional notes
+        QString workingDirectory;        // Main working directory
+        QStringList openCalculations;   // Selected calculation directories
+        QByteArray windowGeometry;       // Window size/position
+        QByteArray splitterStates;       // Panel/splitter layout
+        QDateTime created;               // Creation timestamp
+        QDateTime lastUsed;              // Last access time
+
+        bool isValid() const { return !id.isEmpty() && !name.isEmpty(); }
+    };
+
+    QVector<Workspace> workspaces() const;
+    void saveWorkspace(const Workspace& ws);
+    void deleteWorkspace(const QString& id);
+    Workspace loadWorkspace(const QString& id) const;
+    void updateWorkspaceLastUsed(const QString& id);
+    QString lastActiveWorkspaceId() const;
+    void setLastActiveWorkspaceId(const QString& id);
+
+    // Workspace preferences
+    bool autoSaveWorkspaceEnabled() const;
+    void setAutoSaveWorkspace(bool enabled);
+    bool restoreLastWorkspaceEnabled() const;
+    void setRestoreLastWorkspace(bool enabled);
 
 private:
     QSettings m_settings;

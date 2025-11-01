@@ -2,6 +2,7 @@
 #include "settings.h"
 #include <QStandardPaths>
 #include <QDir>
+#include <QFileInfo>
 #include <algorithm>
 
 const QString Settings::WORKING_DIR_KEY = "workingDirectory";
@@ -369,5 +370,269 @@ void Settings::setRecentFilesV2(const QVector<RecentFileEntry>& files)
 void Settings::clearRecentFilesV2()
 {
     m_settings.remove("recentFilesV2");
+    m_settings.sync();
+}
+
+// Claude Generated Phase 3 - Bookmark management
+QVector<Settings::BookmarkItem> Settings::bookmarks() const
+{
+    QVector<BookmarkItem> items;
+
+    // Try to load new format first
+    if (m_settings.contains("bookmarksV3")) {
+        QString data = m_settings.value("bookmarksV3", "").toString();
+        if (!data.isEmpty()) {
+            // Parse JSON-like format (simplified for now)
+            // Format: id|name|path|tags|color|parentId|isFolder|created;...
+            QStringList itemStrings = data.split("\n");
+            for (const QString& itemStr : itemStrings) {
+                if (itemStr.isEmpty()) continue;
+                QStringList parts = itemStr.split("|");
+                if (parts.size() >= 8) {
+                    BookmarkItem item;
+                    item.id = parts[0];
+                    item.name = parts[1];
+                    item.path = parts[2];
+                    item.tags = parts[3].split(",");
+                    item.color = QColor(parts[4]);
+                    item.parentId = parts[5];
+                    item.isFolder = parts[6] == "1";
+                    item.created = QDateTime::fromString(parts[7], Qt::ISODate);
+                    if (item.isValid()) {
+                        items.append(item);
+                    }
+                }
+            }
+            return items;
+        }
+    }
+
+    // If new format doesn't exist, try to load from legacy format
+    QStringList oldDirs = m_settings.value(WORKING_DIRS_KEY).toStringList();
+    for (const QString& path : oldDirs) {
+        if (path.isEmpty()) continue;
+
+        BookmarkItem item;
+        item.id = QUuid::createUuid().toString();
+        // Extract directory name from path
+        QFileInfo fi(path);
+        item.name = fi.fileName().isEmpty() ? QDir(path).dirName() : fi.fileName();
+        item.path = path;
+        item.tags = QStringList();
+        item.color = QColor();
+        item.parentId = "";
+        item.isFolder = false;
+        item.created = QDateTime::currentDateTime();
+
+        if (item.isValid()) {
+            items.append(item);
+        }
+    }
+
+    return items;
+}
+
+void Settings::setBookmarks(const QVector<BookmarkItem>& items)
+{
+    QStringList parts;
+    for (const auto& item : items) {
+        if (item.isValid()) {
+            parts.append(item.id + "|" + item.name + "|" + item.path + "|" +
+                        item.tags.join(",") + "|" + item.color.name() + "|" +
+                        item.parentId + "|" + (item.isFolder ? "1" : "0") + "|" +
+                        item.created.toString(Qt::ISODate));
+        }
+    }
+
+    m_settings.setValue("bookmarksV3", parts.join("\n"));
+    m_settings.sync();
+}
+
+void Settings::addBookmark(const BookmarkItem& item)
+{
+    QVector<BookmarkItem> items = bookmarks();
+
+    // Check if ID already exists
+    for (auto& existing : items) {
+        if (existing.id == item.id) {
+            existing = item;
+            setBookmarks(items);
+            return;
+        }
+    }
+
+    // Add new
+    items.append(item);
+    setBookmarks(items);
+}
+
+void Settings::removeBookmark(const QString& id)
+{
+    QVector<BookmarkItem> items = bookmarks();
+    items.erase(std::remove_if(items.begin(), items.end(),
+        [&id](const BookmarkItem& item) { return item.id == id; }), items.end());
+    setBookmarks(items);
+}
+
+void Settings::updateBookmark(const QString& id, const BookmarkItem& newItem)
+{
+    QVector<BookmarkItem> items = bookmarks();
+    for (auto& item : items) {
+        if (item.id == id) {
+            item = newItem;
+            break;
+        }
+    }
+    setBookmarks(items);
+}
+
+
+// Claude Generated Phase 4 - Workspace management
+QVector<Settings::Workspace> Settings::workspaces() const
+{
+    QVector<Workspace> workspaces;
+
+    if (m_settings.contains("workspacesV1")) {
+        QString data = m_settings.value("workspacesV1", "").toString();
+        if (!data.isEmpty()) {
+            // Parse format: id|name|description|workdir|calcDirs|geometry|splitterState|created|lastUsed;...
+            QStringList wsStrings = data.split("\n");
+            for (const QString& wsStr : wsStrings) {
+                if (wsStr.isEmpty()) continue;
+                QStringList parts = wsStr.split("|");
+                if (parts.size() >= 9) {
+                    Workspace ws;
+                    ws.id = parts[0];
+                    ws.name = parts[1];
+                    ws.description = parts[2];
+                    ws.workingDirectory = parts[3];
+                    ws.openCalculations = parts[4].split(",");
+                    ws.windowGeometry = QByteArray::fromHex(parts[5].toLatin1());
+                    ws.splitterStates = QByteArray::fromHex(parts[6].toLatin1());
+                    ws.created = QDateTime::fromString(parts[7], Qt::ISODate);
+                    ws.lastUsed = QDateTime::fromString(parts[8], Qt::ISODate);
+                    if (ws.isValid()) {
+                        workspaces.append(ws);
+                    }
+                }
+            }
+        }
+    }
+
+    return workspaces;
+}
+
+void Settings::saveWorkspace(const Workspace& ws)
+{
+    QVector<Workspace> workspaces_list = workspaces();
+
+    // Check if exists and update, else append
+    bool found = false;
+    for (auto& existing : workspaces_list) {
+        if (existing.id == ws.id) {
+            existing = ws;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        workspaces_list.append(ws);
+    }
+
+    // Serialize all
+    QStringList parts;
+    for (const auto& w : workspaces_list) {
+        if (w.isValid()) {
+            parts.append(w.id + "|" + w.name + "|" + w.description + "|" +
+                        w.workingDirectory + "|" + w.openCalculations.join(",") + "|" +
+                        QString(w.windowGeometry.toHex()) + "|" +
+                        QString(w.splitterStates.toHex()) + "|" +
+                        w.created.toString(Qt::ISODate) + "|" +
+                        w.lastUsed.toString(Qt::ISODate));
+        }
+    }
+
+    m_settings.setValue("workspacesV1", parts.join("\n"));
+    m_settings.sync();
+}
+
+void Settings::deleteWorkspace(const QString& id)
+{
+    QVector<Workspace> workspaces_list = workspaces();
+    workspaces_list.erase(std::remove_if(workspaces_list.begin(), workspaces_list.end(),
+        [&id](const Workspace& ws) { return ws.id == id; }), workspaces_list.end());
+
+    // Serialize remaining
+    QStringList parts;
+    for (const auto& w : workspaces_list) {
+        if (w.isValid()) {
+            parts.append(w.id + "|" + w.name + "|" + w.description + "|" +
+                        w.workingDirectory + "|" + w.openCalculations.join(",") + "|" +
+                        QString(w.windowGeometry.toHex()) + "|" +
+                        QString(w.splitterStates.toHex()) + "|" +
+                        w.created.toString(Qt::ISODate) + "|" +
+                        w.lastUsed.toString(Qt::ISODate));
+        }
+    }
+
+    if (parts.isEmpty()) {
+        m_settings.remove("workspacesV1");
+    } else {
+        m_settings.setValue("workspacesV1", parts.join("\n"));
+    }
+    m_settings.sync();
+}
+
+Settings::Workspace Settings::loadWorkspace(const QString& id) const
+{
+    QVector<Workspace> workspaces_list = workspaces();
+    for (const auto& ws : workspaces_list) {
+        if (ws.id == id) {
+            return ws;
+        }
+    }
+    return Workspace();  // Return empty workspace if not found
+}
+
+void Settings::updateWorkspaceLastUsed(const QString& id)
+{
+    Workspace ws = loadWorkspace(id);
+    if (ws.isValid()) {
+        ws.lastUsed = QDateTime::currentDateTime();
+        saveWorkspace(ws);
+    }
+}
+
+QString Settings::lastActiveWorkspaceId() const
+{
+    return m_settings.value("lastActiveWorkspaceId", "").toString();
+}
+
+void Settings::setLastActiveWorkspaceId(const QString& id)
+{
+    m_settings.setValue("lastActiveWorkspaceId", id);
+    m_settings.sync();
+}
+
+bool Settings::autoSaveWorkspaceEnabled() const
+{
+    return m_settings.value("autoSaveWorkspace", false).toBool();
+}
+
+void Settings::setAutoSaveWorkspace(bool enabled)
+{
+    m_settings.setValue("autoSaveWorkspace", enabled);
+    m_settings.sync();
+}
+
+bool Settings::restoreLastWorkspaceEnabled() const
+{
+    return m_settings.value("restoreLastWorkspace", false).toBool();
+}
+
+void Settings::setRestoreLastWorkspace(bool enabled)
+{
+    m_settings.setValue("restoreLastWorkspace", enabled);
     m_settings.sync();
 }
