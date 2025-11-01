@@ -129,6 +129,7 @@
 - [x] **Save Workspace** - Capture current state (Iteration 2 - Ctrl+Shift+S, dialog input)
 - [x] **Load Workspace** - Restore previous workspace state (Iteration 2 - Click in sidebar or menu)
 - [x] **Workspace State Capture** - Save window geometry, splitter layout, working directory (Iteration 2 - Complete)
+- [x] **Workspace Context Menu** - Rename, Delete, Edit Description (Iteration 2 Polish - Right-click on workspace)
 - [ ] **Auto-save Workspace** - Save state on quit (Planned for future)
 - [ ] **Workspace Export/Import** - Share workspace configurations (Planned for future)
 
@@ -318,13 +319,15 @@
   - Phase 2: Enhanced Recent Files ✅
   - Phase 3.1-3.5: Bookmark System (Data + Tree UI + Tags) ✅
   - Phase 4.1-4.5: Workspace System (Data + UI + Capture/Restore) ✅
+  - Polish: Workspace Context Menu (Rename/Delete/Edit Description) ✅
 
 **Statistics:**
-- Total Commits: 6 in Iteration 2
-- New Code: ~650 lines
+- Total Commits: 7 in Iteration 2 (+ Polish)
+- New Code: ~728 lines (including context menu)
 - Compilation: 0 warnings, 0 errors
 - Test Status: All passing
+- Testing: Full code review + feature validation completed
 
-**Last Updated:** 2025-11-01 (Iteration 2 Complete)
+**Last Updated:** 2025-11-01 (Iteration 2 Complete + Polish)
 **Maintained By:** Development Team + Claude AI
 
