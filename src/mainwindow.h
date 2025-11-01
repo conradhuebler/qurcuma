@@ -238,6 +238,7 @@ private:
     void loadDrafts();
 
     // Claude Generated - Quick Win: Copy/Paste structures
+    void copyStructureToClipboard();
     void pasteStructureFromClipboard();
 
     // Claude Generated - Quick Win: Zoom to fit molecule

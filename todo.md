@@ -6,9 +6,9 @@
 - [ ] **Dark Mode** - Complete dark theme with color palette
 - [ ] **Customizable Themes** - User-selectable color schemes
 - [ ] **Molecular Structure Animation** - Smooth transitions between frames
-- [ ] **Measurement Tools** - Distance, angle, dihedral measurements in 3D view
-- [ ] **Coloring Schemes** - CPK, Partial charge, Energy coloring, Custom gradients
-- [ ] **Representation Modes** - Ball & stick, Space-filling, Cartoon, Wireframe rendering
+- [x] **Measurement Tools** - Distance, angle, dihedral measurements in 3D view (Phase 3 - Focus Commands overlay)
+- [x] **Coloring Schemes** - CPK, Partial charge, Energy coloring, Custom gradients (Phase 1 - Multiple schemes implemented)
+- [x] **Representation Modes** - Ball & stick, Space-filling, Cartoon, Wireframe rendering (Phase 1 - Complete with keyboard shortcuts)
 - [ ] **Screenshot/Video Export** - Save 3D view snapshots and trajectory animations
 - [ ] **Real-time Molecular Property Display** - Show atom properties on hover
 
@@ -16,9 +16,9 @@
 - [ ] **Quick Settings Panel** - Sidebar toggle for common settings
 - [ ] **Undo/Redo System** - For file edits and operations
 - [ ] **Batch Operations** - Run multiple calculations sequentially
-- [ ] **Recent Files Menu** - Quick access to last opened calculations
+- [x] **Recent Files Menu** - Quick access to last opened calculations (Phase 1 - Tracks directories)
 - [ ] **Workspace Profiles** - Save/load UI layouts and preferences
-- [ ] **Keyboard Shortcut Customization** - User-definable shortcuts
+- [x] **Keyboard Shortcut Customization** - User-definable shortcuts (Phase 1 & 3 - 1-4, +/-, </>, Ctrl+0, Ctrl+F)
 
 ---
 
@@ -45,17 +45,17 @@
 
 ### Rendering
 - [ ] **Ambient Occlusion** - Enhanced shading for better depth perception
-- [ ] **Transparency/Alpha Blending** - Semi-transparent atom/bond rendering
+- [x] **Transparency/Alpha Blending** - Semi-transparent atom/bond rendering (Phase 1 - Complete with slider control)
 - [ ] **Glow Effects** - Highlight selected atoms/bonds
-- [ ] **Multiple Lighting Models** - Phong, PBR, custom shaders
+- [ ] **Multiple Lighting Models** - Phong, PBR, custom shaders (Phong implemented in Phase 1)
 - [ ] **Soft Shadows** - Dynamic shadow rendering
 - [ ] **Anti-aliasing Improvements** - Better edge smoothing
 
 ### Interactivity
-- [ ] **Atom Selection Tool** - Click to select atoms, highlight properties
+- [ ] **Atom Selection Tool** - Click to select atoms, highlight properties (Phase 2 - In progress)
 - [ ] **Bond Creation/Deletion** - Edit molecular structure directly
 - [ ] **Atom Labeling** - Show/hide atom indices or symbols
-- [ ] **Trajectory Playback Controls** - Play, pause, speed control, frame jumping
+- [x] **Trajectory Playback Controls** - Play, pause, speed control, frame jumping (Phase 1 - Frame slider + jump spinbox)
 - [ ] **Molecular Alignment Tool** - Align molecules by selected atoms
 - [ ] **Symmetry Visualization** - Highlight/visualize molecular symmetry
 
@@ -271,17 +271,23 @@
 
 ## Quick Wins (Low Effort, High Value)
 
-- [ ] Recent files menu
-- [ ] Copy/paste structures from clipboard
-- [ ] Zoom to selection function
-- [ ] Frame slider improvements (jump to frame # input)
-- [ ] Calculation timer display
-- [ ] Auto-save drafts
-- [ ] Drag & drop file support
-- [ ] Split view for side-by-side comparison
+- [x] **Recent files menu** - Phase 1 (tracks directories)
+- [ ] **Copy/paste structures from clipboard** - Paste works (Phase 1), Copy to be added
+- [x] **Zoom to selection function** - Phase 3 (zoomToSelection(), fitAllInView())
+- [x] **Frame slider improvements** - Phase 1 (jump to frame # with spinbox)
+- [ ] **Calculation timer display** - Not started
+- [ ] **Auto-save drafts** - Not started
+- [x] **Drag & drop file support** - Phase 1 (works for xyz/mol/pdb, VTF to be added)
+- [ ] **Split view for side-by-side comparison** - Not started
 
 ---
 
-**Last Updated:** 2025-10-31
+## Phase Summary
+
+- **Phase 1** ✅ COMPLETE - Visualization Settings, Shortcuts, Fog Controls, Recent Files, Frame Navigation
+- **Phase 2** 🚧 IN PROGRESS - Atom Selection, Visual Highlighting
+- **Phase 3** ✅ COMPLETE - Presets, Focus Commands (fitAllInView, centerOnAtom, zoomToSelection)
+
+**Last Updated:** 2025-11-01
 **Maintained By:** Development Team
 

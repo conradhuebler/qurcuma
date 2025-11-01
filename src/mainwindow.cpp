@@ -714,6 +714,17 @@ void MainWindow::createMenus()
     QAction *quitAction = fileMenu->addAction(QIcon::fromTheme("application-exit"), tr("&Quit"));
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
 
+    // Claude Generated - Quick Win: Edit Menu with Copy/Paste
+    QMenu *editMenu = menuBar->addMenu(tr("&Edit"));
+
+    QAction *copyAction = editMenu->addAction(QIcon::fromTheme("edit-copy"), tr("&Copy Structure"));
+    copyAction->setShortcut(QKeySequence::Copy);
+    connect(copyAction, &QAction::triggered, this, &MainWindow::copyStructureToClipboard);
+
+    QAction *pasteAction = editMenu->addAction(QIcon::fromTheme("edit-paste"), tr("&Paste Structure"));
+    pasteAction->setShortcut(QKeySequence::Paste);
+    connect(pasteAction, &QAction::triggered, this, &MainWindow::pasteStructureFromClipboard);
+
     // Settings Menu
     QMenu *settingsMenu = menuBar->addMenu(tr("&Settings"));
 
@@ -2309,6 +2320,20 @@ void MainWindow::loadDrafts()
 }
 
 // Claude Generated - Quick Win: Copy/Paste structures
+void MainWindow::copyStructureToClipboard()
+{
+    QString structureText = m_structureView->toPlainText();
+
+    if (structureText.isEmpty()) {
+        statusBar()->showMessage(tr("No structure to copy"), 2000);
+        return;
+    }
+
+    QClipboard* clipboard = QApplication::clipboard();
+    clipboard->setText(structureText);
+    statusBar()->showMessage(tr("Structure copied to clipboard"), 2000);
+}
+
 void MainWindow::pasteStructureFromClipboard()
 {
     QClipboard* clipboard = QApplication::clipboard();
@@ -2523,7 +2548,7 @@ void MainWindow::dropEvent(QDropEvent *event)
                 return;
             }
             // If it's a structure file, load it
-            else if (info.suffix() == "xyz" || info.suffix() == "mol" || info.suffix() == "pdb") {
+            else if (info.suffix() == "xyz" || info.suffix() == "vtf" || info.suffix() == "mol" || info.suffix() == "pdb") {
                 QFile file(path);
                 if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
                     m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
