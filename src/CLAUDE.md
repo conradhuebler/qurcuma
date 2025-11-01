@@ -6,6 +6,17 @@ Core modules for file parsing, 3D visualization, and user interface.
 
 ## Current Status (November 2025)
 
+### Directory Navigation UX ✅ IN PROGRESS
+- ✅ **Phase 1: Breadcrumb Navigation** - Clickable path segments in sidebar (src/widgets/breadcrumbbar.h/cpp)
+  - Click segments to jump to parent directories, Home shown as ~
+  - Replaces plain text label for interactive navigation
+- ✅ **Phase 2: Enhanced Recent Files** - Dated groups + full path context
+  - RecentFileEntry struct with QDateTime timestamps
+  - Menu grouped: Today, Yesterday, This Week, Older
+  - Shows filename (parent directory) for better context
+- ⏳ **Phase 3: Bookmark Organization** - Planned (Tree widget, folders, tags, colors)
+- ⏳ **Phase 4: Workspace System** - Planned (save/restore full environment)
+
 ### Phase 1: Visualization Settings & Shortcuts ✅ COMPLETE
 - ✅ **Settings Persistence** - All visualization settings now saved to QSettings, restored on startup
 - ✅ **Fog Controls** - Enable/disable fog with intensity slider in VisualizationSettingsDialog
@@ -73,6 +84,8 @@ src/
 ├── selectionmanager.cpp/h   - Atom selection state management (Phase 2 stub)
 ├── modifiabletextedit.h     - Custom text edit widget
 ├── frequencydialog.h        - Frequency analysis dialog
+├── widgets/
+│   └── breadcrumbbar.cpp/h  - Clickable path navigation widget (Directory Navigation Phase 1)
 └── dialogs/                 - Modal dialogs for specialized features
 ```
 
@@ -92,12 +105,46 @@ Run tests: `./release/test_vtf_bonds`, `./release/test_vtf_frames`, `./release/t
 - Keep camera interactions intuitive: rotate around view center, not origin
 - Maintain backward compatibility for file format support
 
-## Future Work (Phase 2 - Deferred)
+### Directory Navigation - Implementation Details (Claude Generated Nov 2025)
+- **BreadcrumbBar** (widgets/breadcrumbbar.h/cpp):
+  - Custom QWidget with mouse events and painting
+  - Splits filesystem paths into clickable segments
+  - Home directory displayed as ~ for readability
+  - Hover effects and PointingHandCursor for UX
+  - Emits pathSelected(QString) signal on segment click
 
-See **[../TODO.md](../TODO.md)** for detailed Phase 2 roadmap:
+- **RecentFileEntry** (settings.h):
+  - Struct with QString path + QDateTime lastAccessed
+  - Serialized as "path|timestamp" format in QSettings
+  - Automatic migration from old QStringList format
+  - Max 10 entries with automatic old-entry removal
+
+- **Recent Files Menu** (mainwindow.cpp:updateRecentFilesMenu):
+  - Date-based grouping: Today, Yesterday, This Week, Older
+  - Shows full context: filename (parent directory)
+  - Bold group headers for visual separation
+  - Validates directory existence before opening
+
+## Future Work (Directory Navigation Phase 3 & 4)
+
+**Phase 3 - Bookmark Organization** (estimated 4-6h):
+- Tree widget replacing QListWidget for hierarchical folders
+- Bookmarks can be organized in collapsible folder groups
+- Tag system (#dft, #md, #test) for flexible categorization
+- Color coding for different project types
+- Drag & drop to reorganize bookmarks and folders
+- Context menu: New Folder, Add Bookmark, Edit Tags, Change Color, Delete
+
+**Phase 4 - Workspace System** (estimated 6-8h):
+- Save/restore complete working environment state
+- Stores: working directory, open calculation dirs, window geometry, panel sizes
+- Workspace manager with save/load/list/delete operations
+- Recent workspaces menu in File menu
+- Auto-save on quit option in settings
+- JSON storage in ~/.config/Qurcuma/workspaces/
+
+**3D Visualization - Phase 2 (Deferred)**:
 - 3D Atom picking with Qt3D ObjectPicker (High priority, 2-3h)
 - Visual selection highlighting with emissive materials (Medium, 1h)
 - AtomListPanel with QTableView for structure browsing (High, 2-2.5h)
 - Measurement overlay text and lines in 3D view (Medium, 1-1.5h)
-
-These features require significant 3D interaction infrastructure and are documented for future implementation.
