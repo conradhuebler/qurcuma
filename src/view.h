@@ -17,6 +17,7 @@
 #include <Qt3DExtras/QOrbitCameraController>
 
 class SelectionManager;  // Forward declaration
+class MeasurementOverlay;  // Claude Generated - Phase 2B - Forward declaration
 
 class MoleculeViewer : public QWidget
 {
@@ -117,9 +118,10 @@ public slots:
     // Claude Generated - Atom selection and measurement
     void clearSelection();
     const QVector<int>& getSelectedAtoms() const { return m_selectedAtoms; }
-    void setMeasurementMode(int mode);  // 0=None, 1=Distance, 2=Angle
+    void setMeasurementMode(int mode);  // 0=None, 1=Distance, 2=Angle, 3=Dihedral - Claude Generated Phase 2B
     void selectAtom(int index, bool append = false);  // Claude Generated - Phase 2A - Direct selection from 3D picker
     SelectionManager* getSelectionManager() const { return m_selectionManager; }  // Claude Generated - Phase 2A
+    MeasurementOverlay* getMeasurementOverlay() const { return m_measurementOverlay; }  // Claude Generated - Phase 2B
 
     // Claude Generated - Focus & Zoom commands
     void centerOnAtom(int atomIndex);
@@ -211,6 +213,9 @@ private:
     // Claude Generated - Phase 2A: Selection management
     SelectionManager *m_selectionManager = nullptr;
     QMap<Qt3DRender::QObjectPicker*, int> m_atomPickerToIndex;  // Map ObjectPicker to atom index for picking
+
+    // Claude Generated - Phase 2B: Measurement overlay
+    MeasurementOverlay *m_measurementOverlay = nullptr;
 
     // Mouse interaction - Claude Generated
     bool m_leftMousePressed = false;

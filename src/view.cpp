@@ -1,6 +1,7 @@
 // viewer.cpp
 #include "view.h"
 #include "selectionmanager.h"  // Claude Generated - Phase 2A
+#include "measurementoverlay.h"  // Claude Generated - Phase 2B
 #include <Qt3DCore/QTransform>
 #include <Qt3DExtras/QSphereMesh>
 #include <Qt3DExtras/QCylinderMesh>
@@ -36,6 +37,9 @@ MoleculeViewer::MoleculeViewer(QWidget *parent)
     m_selectionManager = new SelectionManager(this);
 
     setupViewer();
+
+    // Claude Generated - Phase 2B: Initialize MeasurementOverlay
+    m_measurementOverlay = new MeasurementOverlay(m_rootEntity);
 }
 
 MoleculeViewer::~MoleculeViewer()
@@ -904,6 +908,16 @@ void MoleculeViewer::showFrame(int frameIndex)
             m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
         }
 
+        // Claude Generated - Phase 2B: Update measurement visualization for new frame
+        if (m_measurementOverlay && m_measurementMode != 0) {
+            // Convert atom positions to QVector for measurement overlay
+            QVector<QVector3D> positions;
+            for (const Atom& atom : m_trajectoryAtoms[frameIndex]) {
+                positions.append(atom.position);
+            }
+            m_measurementOverlay->updateMeasurement(positions);
+        }
+
         emit frameChanged(m_currentFrame);
     }
 }
@@ -966,6 +980,15 @@ void MoleculeViewer::updateFramePositions(int frameIndex)
         m_frameJumpBox->blockSignals(false);
 
         m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
+    }
+
+    // Claude Generated - Phase 2B: Update measurement visualization for new frame (animation)
+    if (m_measurementOverlay && m_measurementMode != 0) {
+        QVector<QVector3D> positions;
+        for (const Atom& atom : atoms) {
+            positions.append(atom.position);
+        }
+        m_measurementOverlay->updateMeasurement(positions);
     }
 
     emit frameChanged(m_currentFrame);
@@ -1332,12 +1355,13 @@ void MoleculeViewer::setupControlPanel()
     // Separator
     panelLayout->addWidget(createSeparator());
 
-    // Measurement selector
+    // Measurement selector - Claude Generated Phase 2B: Added Dihedral measurement
     QComboBox *measureCombo = new QComboBox;
     measureCombo->addItem(tr("No Measurement"), 0);
-    measureCombo->addItem(tr("Distance"), 1);
-    measureCombo->addItem(tr("Angle"), 2);
-    measureCombo->setMaximumWidth(120);
+    measureCombo->addItem(tr("Distance (2 atoms)"), 1);
+    measureCombo->addItem(tr("Angle (3 atoms)"), 2);
+    measureCombo->addItem(tr("Dihedral (4 atoms)"), 3);
+    measureCombo->setMaximumWidth(150);
     connect(measureCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             [this, measureCombo](int index) {
         setMeasurementMode(measureCombo->itemData(index).toInt());
@@ -1363,7 +1387,21 @@ void MoleculeViewer::clearSelection()
 
 void MoleculeViewer::setMeasurementMode(int mode)
 {
-    m_measurementMode = qBound(0, mode, 2);  // Clamp 0-2
+    m_measurementMode = qBound(0, mode, 3);  // Claude Generated - Phase 2B: Clamp 0-3 (None, Distance, Angle, Dihedral)
+
+    // Handle measurement mode changes
+    if (m_measurementMode == 0) {
+        // No measurement - clear visualization
+        if (m_measurementOverlay) {
+            m_measurementOverlay->clearMeasurement();
+        }
+    } else {
+        // Active measurement mode - will be updated when atoms are selected
+        // Type is determined by number of selected atoms:
+        // 2 atoms = Distance (mode 1)
+        // 3 atoms = Angle (mode 2)
+        // 4+ atoms = Dihedral (mode 3)
+    }
 }
 
 void MoleculeViewer::updateMeasurementDisplay()
@@ -1567,6 +1605,36 @@ void MoleculeViewer::onAtomPicked(Qt3DRender::QPickEvent *pickEvent)
 
     // Update materials to show selection highlighting
     updateMaterials();
+
+    // Claude Generated - Phase 2B: Update measurement if in measurement mode
+    if (m_measurementMode != 0 && m_measurementOverlay) {
+        const auto& selectedAtoms = m_selectionManager->selectedAtoms();
+        int numSelected = selectedAtoms.size();
+
+        // Determine measurement type based on selection count
+        MeasurementOverlay::MeasurementType measurementType = MeasurementOverlay::NoMeasurement;
+        if (numSelected == 2 && m_measurementMode >= 1) {
+            measurementType = MeasurementOverlay::Distance;
+        } else if (numSelected == 3 && m_measurementMode >= 2) {
+            measurementType = MeasurementOverlay::Angle;
+        } else if (numSelected >= 4 && m_measurementMode >= 3) {
+            measurementType = MeasurementOverlay::Dihedral;
+        }
+
+        // Set measurement and update visualization
+        if (measurementType != MeasurementOverlay::NoMeasurement) {
+            m_measurementOverlay->setMeasurement(measurementType, QVector<int>(selectedAtoms));
+
+            // Update with current frame positions
+            if (m_currentFrame < m_trajectoryAtoms.size()) {
+                QVector<QVector3D> positions;
+                for (const Atom& atom : m_trajectoryAtoms[m_currentFrame]) {
+                    positions.append(atom.position);
+                }
+                m_measurementOverlay->updateMeasurement(positions);
+            }
+        }
+    }
 
     // Emit signal for downstream UI updates
     emit selectionChanged(m_selectionManager->selectedAtoms());

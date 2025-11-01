@@ -36,6 +36,7 @@ set(SOURCES
     src/widgets/breadcrumbbar.cpp  # Claude Generated Phase 1
     src/workspacemanager.cpp  # Claude Generated Phase 4.2
     src/selectionmanager.cpp  # Claude Generated Phase 2A
+    src/measurementoverlay.cpp  # Claude Generated Phase 2B
 
     #src/dialogs/nmrstructuremodel.cpp
 )
@@ -53,6 +54,7 @@ set(HEADERS
     src/widgets/breadcrumbbar.h  # Claude Generated Phase 1
     src/workspacemanager.h  # Claude Generated Phase 4.2
     src/selectionmanager.h  # Claude Generated Phase 2A
+    src/measurementoverlay.h  # Claude Generated Phase 2B
     #src/dialogs/nmrstructuremodel.h
 
 )
