@@ -6,7 +6,7 @@ Core modules for file parsing, 3D visualization, and user interface.
 
 ## Current Status (November 2025)
 
-### Directory Navigation UX ✅ IN PROGRESS
+### Directory Navigation & Workspace Management ✅ FOUNDATION COMPLETE
 - ✅ **Phase 1: Breadcrumb Navigation** - Clickable path segments in sidebar (src/widgets/breadcrumbbar.h/cpp)
   - Click segments to jump to parent directories, Home shown as ~
   - Replaces plain text label for interactive navigation
@@ -14,8 +14,16 @@ Core modules for file parsing, 3D visualization, and user interface.
   - RecentFileEntry struct with QDateTime timestamps
   - Menu grouped: Today, Yesterday, This Week, Older
   - Shows filename (parent directory) for better context
-- ⏳ **Phase 3: Bookmark Organization** - Planned (Tree widget, folders, tags, colors)
-- ⏳ **Phase 4: Workspace System** - Planned (save/restore full environment)
+- ✅ **Phase 3.1: BookmarkItem Structure** - Hierarchical bookmark system with metadata
+  - BookmarkItem struct: id, name, path, tags, color, parentId, isFolder, created
+  - Methods: bookmarks(), addBookmark(), removeBookmark(), updateBookmark()
+  - Auto-migration from legacy workingDirectories format
+- ✅ **Phase 4.1-4.2: Workspace System** - Foundation for complete state management
+  - Workspace struct: id, name, description, workingDirectory, geometry, splitterStates
+  - WorkspaceManager class for save/restore/list operations
+  - Timestamp tracking and persistence
+- ⏳ **Phase 3.2-3.5: Bookmark UI** - Deferred (Tree widget, drag & drop, tag system)
+- ⏳ **Phase 4.3-4.5: Workspace UI** - Deferred (Sidebar widget, menu integration, auto-save)
 
 ### Phase 1: Visualization Settings & Shortcuts ✅ COMPLETE
 - ✅ **Settings Persistence** - All visualization settings now saved to QSettings, restored on startup
@@ -86,6 +94,7 @@ src/
 ├── frequencydialog.h        - Frequency analysis dialog
 ├── widgets/
 │   └── breadcrumbbar.cpp/h  - Clickable path navigation widget (Directory Navigation Phase 1)
+├── workspacemanager.cpp/h   - Workspace capture/restore manager (Phase 4.2)
 └── dialogs/                 - Modal dialogs for specialized features
 ```
 
@@ -125,23 +134,32 @@ Run tests: `./release/test_vtf_bonds`, `./release/test_vtf_frames`, `./release/t
   - Bold group headers for visual separation
   - Validates directory existence before opening
 
-## Future Work (Directory Navigation Phase 3 & 4)
+## Next Iteration Work (Directory Navigation Phase 3.2-3.5 & 4.3-4.5)
 
-**Phase 3 - Bookmark Organization** (estimated 4-6h):
-- Tree widget replacing QListWidget for hierarchical folders
-- Bookmarks can be organized in collapsible folder groups
-- Tag system (#dft, #md, #test) for flexible categorization
-- Color coding for different project types
-- Drag & drop to reorganize bookmarks and folders
-- Context menu: New Folder, Add Bookmark, Edit Tags, Change Color, Delete
+**Phase 3.2-3.5 - Bookmark UI & Features** (estimated 4-5h):
+- Replace QListWidget with QTreeWidget for hierarchical bookmarks
+- Implement folder creation/management in tree
+- Drag & drop to reorganize bookmarks between folders
+- Context menu: New Folder, Add Bookmark, Edit Tags, Change Color, Delete, Move
+- Tag system UI: Input dialog, tag display as badges
+- Color selector for bookmark categorization
+- Bookmark search/filter by tag
 
-**Phase 4 - Workspace System** (estimated 6-8h):
-- Save/restore complete working environment state
-- Stores: working directory, open calculation dirs, window geometry, panel sizes
-- Workspace manager with save/load/list/delete operations
-- Recent workspaces menu in File menu
-- Auto-save on quit option in settings
-- JSON storage in ~/.config/Qurcuma/workspaces/
+**Phase 4.3-4.5 - Workspace UI & Integration** (estimated 4-5h):
+- Add workspace list widget to sidebar (after bookmarks)
+- Workspace context menu: Rename, Delete, Duplicate, Edit description
+- File menu integration: "Save Workspace...", "Load Workspace..."
+- Manage Workspaces dialog with table view
+- MainWindow integration: captureCurrentState() using real window/splitter state
+- Auto-save on quit with user confirmation
+- Restore last workspace on app startup (with preference toggle)
+- Keyboard shortcuts: Ctrl+Shift+S (save), Ctrl+Shift+O (load), Ctrl+1-9 (quick switch)
+
+**Implementation Foundation (Complete ✅):**
+- All data structures in place (BookmarkItem, Workspace)
+- All Settings methods implemented with serialization
+- WorkspaceManager logic ready for UI integration
+- Persistence layer functional
 
 **3D Visualization - Phase 2 (Deferred)**:
 - 3D Atom picking with Qt3D ObjectPicker (High priority, 2-3h)

@@ -2,10 +2,27 @@
 
 ## November 2025
 
-### Directory Navigation UX (Phases 1-2 Complete)
-- Added BreadcrumbBar widget: Clickable path segments replacing plain text label; users can jump to parent dirs by clicking breadcrumb items; Home shown as ~
-- Enhanced Recent Files: Added RecentFileEntry struct with QDateTime timestamps; menu now groups by date (Today/Yesterday/This Week/Older); displays full context (filename with parent directory)
-- Settings migration: Automatic migration from old QStringList to timestamped format; backward compatible with existing bookmarks
+### Directory Navigation & Workspace System (Foundation Complete)
+
+**Phase 1-2: UI Navigation (Complete)**
+- Added BreadcrumbBar widget: Clickable path segments replacing plain text label; users jump to parent dirs by clicking breadcrumb segments; Home shown as ~
+- Enhanced Recent Files: RecentFileEntry struct with QDateTime timestamps; menu groups by date (Today/Yesterday/This Week/Older); shows context (filename with parent directory)
+
+**Phase 3.1: Bookmark Foundation (Complete)**
+- BookmarkItem struct: Hierarchical support with id, name, path, tags, color, parentId, isFolder, created timestamp
+- Settings methods: bookmarks(), setBookmarks(), addBookmark(), removeBookmark(), updateBookmark()
+- Serialization: Pipe-delimited format in QSettings with auto-migration from legacy workingDirectories
+- Ready for UI: Tree widget integration deferred to next iteration
+
+**Phase 4.1-4.2: Workspace Foundation (Complete)**
+- Workspace struct: Captures complete state - working directory, calculation directories, window geometry, splitter states, timestamps
+- WorkspaceManager class: Methods for save/restore/list/delete/rename workspace operations
+- Settings persistence: All workspace data serialized and persisted in QSettings
+- Ready for UI: Sidebar widget and menu integration deferred to next iteration
+
+**Context Menu Activation (Bonus)**
+- Enabled missing setupProjectViewContextMenu() call in MainWindow constructor
+- Right-click on calculation directories now shows context menu: "Add to Bookmarks", "Set as Working Directory"
 
 ## October 2025
 
