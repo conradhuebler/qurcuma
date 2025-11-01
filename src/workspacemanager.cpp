@@ -21,12 +21,13 @@ Settings::Workspace WorkspaceManager::captureCurrentState(MainWindow* window,
     ws.created = QDateTime::currentDateTime();
     ws.lastUsed = QDateTime::currentDateTime();
 
-    // These would be captured from MainWindow in full implementation
-    // For now, storing placeholder values that can be filled in during integration
-    ws.workingDirectory = "";          // Will be set from MainWindow::m_workingDirectory
-    ws.openCalculations = QStringList(); // Will be set from MainWindow state
-    ws.windowGeometry = QByteArray();    // Will be set from MainWindow::geometry()
-    ws.splitterStates = QByteArray();    // Will be set from m_splitter->saveState()
+    // Capture actual state from MainWindow
+    // Note: These member variables would need public accessors or friend declaration
+    // For now, we store empty values - the mainwindow.cpp implementation will fill them
+    ws.workingDirectory = "";
+    ws.openCalculations = QStringList();
+    ws.windowGeometry = QByteArray();
+    ws.splitterStates = QByteArray();
 
     return ws;
 }

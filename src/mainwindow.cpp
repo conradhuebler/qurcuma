@@ -669,6 +669,22 @@ void MainWindow::createMenus()
     m_recentFilesMenu = fileMenu->addMenu(tr("&Recent Files"));
     m_recentFilesMenu->setEnabled(false);
 
+    // Claude Generated Phase 4.5 - Workspace menu
+    m_workspaceMenu = fileMenu->addMenu(tr("&Workspaces"));
+
+    QAction *saveWorkspaceAction = m_workspaceMenu->addAction(tr("&Save Current Workspace..."));
+    saveWorkspaceAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    connect(saveWorkspaceAction, &QAction::triggered, this, &MainWindow::saveCurrentWorkspace);
+
+    QAction *loadWorkspaceAction = m_workspaceMenu->addAction(tr("&Load Workspace..."));
+    loadWorkspaceAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
+    connect(loadWorkspaceAction, &QAction::triggered, [this]() {
+        // For now, load workspace can be done via the sidebar list
+        statusBar()->showMessage(tr("Use workspace list in sidebar to load"), 2000);
+    });
+
+    m_workspaceMenu->addSeparator();
+
     fileMenu->addSeparator();
     // Claude Generated - Visual Polish: Menu icons
     QAction *quitAction = fileMenu->addAction(QIcon::fromTheme("application-exit"), tr("&Quit"));
@@ -2809,11 +2825,24 @@ void MainWindow::onWorkspaceContextMenu(const QPoint& pos)
 
 void MainWindow::saveCurrentWorkspace()
 {
+    // Claude Generated Phase 4.4 - Capture and save workspace
     QString name = QInputDialog::getText(this, tr("Save Workspace"), tr("Workspace name:"));
     if (name.isEmpty() || !m_workspaceManager) return;
 
     QString desc = QInputDialog::getText(this, tr("Workspace Description"), tr("Description (optional):"));
-    Settings::Workspace ws = m_workspaceManager->captureCurrentState(this, name, desc);
+
+    // Create workspace with current state
+    Settings::Workspace ws;
+    ws.id = QUuid::createUuid().toString();
+    ws.name = name;
+    ws.description = desc;
+    ws.workingDirectory = m_workingDirectory;
+    ws.openCalculations = m_currentCalculationDir.isEmpty() ? QStringList() : QStringList() << m_currentCalculationDir;
+    ws.windowGeometry = saveGeometry();
+    ws.splitterStates = m_splitter->saveState();
+    ws.created = QDateTime::currentDateTime();
+    ws.lastUsed = QDateTime::currentDateTime();
+
     m_workspaceManager->saveWorkspace(ws);
     updateWorkspaceList();
     statusBar()->showMessage(tr("Workspace '%1' saved").arg(name), 3000);
