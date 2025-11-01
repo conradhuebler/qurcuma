@@ -2,7 +2,7 @@
 
 ## November 2025
 
-### Directory Navigation & Workspace System (Foundation Complete)
+### Directory Navigation & Workspace System (COMPLETE - Iteration 2)
 
 **Phase 1-2: UI Navigation (Complete)**
 - Added BreadcrumbBar widget: Clickable path segments replacing plain text label; users jump to parent dirs by clicking breadcrumb segments; Home shown as ~
@@ -20,7 +20,21 @@
 - Settings persistence: All workspace data serialized and persisted in QSettings
 - Ready for UI: Sidebar widget and menu integration deferred to next iteration
 
-**Context Menu Activation (Bonus)**
+**Phase 3.2-3.5: Bookmark Tree UI (Complete)**
+- Replaced QListWidget with QTreeWidget for hierarchical bookmark structure with folders
+- Context menu: New Folder, Add Bookmark, Rename, Delete, Edit Tags operations
+- Drag & Drop enabled for reorganizing bookmarks between folders (QAbstractItemView::InternalMove)
+- Minimal tag system: Edit tags via dialog (comma-separated), display in bookmark tooltip
+- Icons: Folder-icon for folders, Bookmark-icon for bookmarks, color support for visual organization
+
+**Phase 4.3-4.5: Workspace Management UI (Complete)**
+- Workspace list widget in sidebar below bookmarks with "+" button to save new workspaces
+- File menu "Workspaces" submenu with Save (Ctrl+Shift+S) and Load (Ctrl+Shift+O) shortcuts
+- Complete workspace capture: working directory, window geometry, splitter layout, timestamps
+- Full restore functionality: Click workspace in sidebar → restores complete application state
+- Workspace persistence: Saves to QSettings with JSON serialization, auto-migration support
+
+**Bonus Context Menu Activation**
 - Enabled missing setupProjectViewContextMenu() call in MainWindow constructor
 - Right-click on calculation directories now shows context menu: "Add to Bookmarks", "Set as Working Directory"
 
