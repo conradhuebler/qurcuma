@@ -10,10 +10,13 @@
 #include <Qt3DExtras/Qt3DWindow>
 #include <Qt3DExtras/QPhongMaterial>  // Claude Generated - For storing material references
 #include <Qt3DRender/QCamera>
+#include <Qt3DRender/QObjectPicker>    // Claude Generated - For 3D atom picking
 #include <Qt3DCore/QEntity>
 #include <Qt3DCore/QTransform>
 #include <QVector3D>
 #include <Qt3DExtras/QOrbitCameraController>
+
+class SelectionManager;  // Forward declaration
 
 class MoleculeViewer : public QWidget
 {
@@ -115,6 +118,8 @@ public slots:
     void clearSelection();
     const QVector<int>& getSelectedAtoms() const { return m_selectedAtoms; }
     void setMeasurementMode(int mode);  // 0=None, 1=Distance, 2=Angle
+    void selectAtom(int index, bool append = false);  // Claude Generated - Phase 2A - Direct selection from 3D picker
+    SelectionManager* getSelectionManager() const { return m_selectionManager; }  // Claude Generated - Phase 2A
 
     // Claude Generated - Focus & Zoom commands
     void centerOnAtom(int atomIndex);
@@ -125,9 +130,13 @@ public slots:
 signals:
     void frameChanged(int frameIndex);
     void trajectoryLoaded(int frameCount);
+    void selectionChanged(const QVector<int>& selectedAtoms);  // Claude Generated - Phase 2A
 
 public:
     void clearScenePublic();  // Public wrapper for file loading
+
+private slots:
+    void onAtomPicked(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated - Phase 2A - Handle ObjectPicker clicks
 
 private:
     Qt3DExtras::Qt3DWindow *m_view;
@@ -198,6 +207,10 @@ private:
     QVector<Qt3DCore::QEntity*> m_bondEntities;      // References to bond cylinder entities
     QVector<Qt3DExtras::QPhongMaterial*> m_atomMaterials;  // References to atom materials
     int m_measurementMode = 0;  // 0=None, 1=Distance, 2=Angle
+
+    // Claude Generated - Phase 2A: Selection management
+    SelectionManager *m_selectionManager = nullptr;
+    QMap<Qt3DRender::QObjectPicker*, int> m_atomPickerToIndex;  // Map ObjectPicker to atom index for picking
 
     // Mouse interaction - Claude Generated
     bool m_leftMousePressed = false;

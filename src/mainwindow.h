@@ -106,6 +106,10 @@ private slots:
     void fitMoleculeInView();
     void centerViewOnSelection();
 
+    // Claude Generated - Phase 2A: Selection commands
+    void selectAllAtoms();
+    void clearAtomSelection();
+
     // Claude Generated - Helper for shortcut synchronization with dialog
     void syncVisualizationDialog();
 

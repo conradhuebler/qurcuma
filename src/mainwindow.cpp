@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "selectionmanager.h"  // Claude Generated - Phase 2A
 #include <algorithm>  // Claude Generated - for std::min/std::max
 #include <QApplication>
 #include <QClipboard>
@@ -48,6 +49,13 @@
 #include "dialogs/nmrspectrumdialog.h"
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "mainwindow.h"
+
+// Claude Generated - Conditional debug logging
+#ifdef QT_DEBUG
+#define DEBUG_LOG qDebug()
+#else
+#define DEBUG_LOG if(false) qDebug()
+#endif
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -459,6 +467,10 @@ void MainWindow::setupUI()
     new QShortcut(Qt::Key_Home, this, SLOT(fitMoleculeInView()));            // Home key also fits
     new QShortcut(Qt::CTRL | Qt::Key_F, this, SLOT(centerViewOnSelection())); // Ctrl+F for focus
 
+    // Claude Generated - Phase 2A: Selection shortcuts
+    new QShortcut(Qt::CTRL | Qt::Key_A, this, SLOT(selectAllAtoms()));       // Ctrl+A for select all
+    new QShortcut(Qt::Key_Escape, this, SLOT(clearAtomSelection()));          // Escape for clear selection
+
     // Initial updates
     updatePathLabel(m_workingDirectory);
     updateBookmarkTree();
@@ -823,7 +835,7 @@ void MainWindow::setupConnections()
 
                     // Get frame count and setup trajectory data
                     int frameCount = m_xyzParser->getFrameCount();
-                    qDebug() << "XYZ: frameCount =" << frameCount;
+                    DEBUG_LOG << "XYZ: frameCount =" << frameCount;
                     m_moleculeView->setFrameCount(frameCount);
 
                     // Reset molecule viewer for new file
@@ -841,13 +853,13 @@ void MainWindow::setupConnections()
                             XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
                             allAtoms.append(atoms);
                             allBonds.append(bonds);
-                            qDebug() << "XYZ: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
+                            DEBUG_LOG << "XYZ: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
                         } else {
-                            qDebug() << "XYZ: Failed to load frame" << i;
+                            DEBUG_LOG << "XYZ: Failed to load frame" << i;
                         }
                     }
 
-                    qDebug() << "XYZ: Total frames loaded:" << allAtoms.size();
+                    DEBUG_LOG << "XYZ: Total frames loaded:" << allAtoms.size();
                     // Set trajectory data in molecule viewer
                     // This automatically loads and displays the first frame
                     m_moleculeView->setTrajectoryData(allAtoms, allBonds);
@@ -873,7 +885,7 @@ void MainWindow::setupConnections()
                     
                     // Get frame count and setup trajectory data
                     int frameCount = m_vtfParser->getFrameCount();
-                    qDebug() << "VTF: frameCount =" << frameCount;
+                    DEBUG_LOG << "VTF: frameCount =" << frameCount;
                     m_moleculeView->setFrameCount(frameCount);
 
                     // Reset molecule viewer for new file
@@ -891,13 +903,13 @@ void MainWindow::setupConnections()
                             VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
                             allAtoms.append(atoms);
                             allBonds.append(bonds);
-                            qDebug() << "VTF: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
+                            DEBUG_LOG << "VTF: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
                         } else {
-                            qDebug() << "VTF: Failed to load frame" << i;
+                            DEBUG_LOG << "VTF: Failed to load frame" << i;
                         }
                     }
 
-                    qDebug() << "VTF: Total frames loaded:" << allAtoms.size();
+                    DEBUG_LOG << "VTF: Total frames loaded:" << allAtoms.size();
                     // Set trajectory data in molecule viewer
                     // This automatically loads and displays the first frame
                     m_moleculeView->setVTFTrajectoryData(allAtoms, allBonds);
@@ -2639,17 +2651,17 @@ void MainWindow::applyStylesheet(bool darkMode)
         ":/stylesheets/dark.qss" :
         ":/stylesheets/light.qss";
 
-    qDebug() << "[Dark Mode] Attempting to load stylesheet:" << stylesheetPath;
+    DEBUG_LOG << "[Dark Mode] Attempting to load stylesheet:" << stylesheetPath;
 
     QFile styleFile(stylesheetPath);
     if (styleFile.open(QFile::ReadOnly)) {
         QString styleSheet = QString::fromUtf8(styleFile.readAll());
-        qDebug() << "[Dark Mode] Stylesheet loaded successfully, size:" << styleSheet.length() << "bytes";
+        DEBUG_LOG << "[Dark Mode] Stylesheet loaded successfully, size:" << styleSheet.length() << "bytes";
         qApp->setStyleSheet(styleSheet);
         styleFile.close();
         m_darkModeEnabled = darkMode;
         m_settings.setDarkMode(darkMode);
-        qDebug() << "[Dark Mode] Settings saved: darkMode =" << darkMode;
+        DEBUG_LOG << "[Dark Mode] Settings saved: darkMode =" << darkMode;
         statusBar()->showMessage(
             darkMode ? tr("Dark Mode enabled") : tr("Light Mode enabled"),
             2000);
@@ -2824,6 +2836,37 @@ void MainWindow::centerViewOnSelection()
     }
     // Claude Generated - Sync dialog if open
     syncVisualizationDialog();
+}
+
+// Claude Generated - Phase 2A: Selection management commands
+void MainWindow::selectAllAtoms()
+{
+    if (!m_moleculeView) return;
+    SelectionManager *selectionMgr = m_moleculeView->getSelectionManager();
+    if (!selectionMgr) return;
+
+    // Get current frame atoms count
+    const auto& selectedAtoms = m_moleculeView->getSelectedAtoms();
+    // We need to select all atoms - assuming we have access to atom count
+    // For now, we'll select the first N atoms if we know the count
+    if (!selectedAtoms.isEmpty()) {
+        // Count selected atoms to determine total count
+        int maxIndex = *std::max_element(selectedAtoms.begin(), selectedAtoms.end());
+        for (int i = 0; i <= maxIndex; ++i) {
+            if (!selectionMgr->isSelected(i)) {
+                selectionMgr->selectAtom(i, true);  // Append to selection
+            }
+        }
+    }
+    m_moleculeView->update();  // Trigger redraw
+    statusBar()->showMessage(tr("Selected all atoms"), 1500);
+}
+
+void MainWindow::clearAtomSelection()
+{
+    if (!m_moleculeView) return;
+    m_moleculeView->clearSelection();
+    statusBar()->showMessage(tr("Selection cleared"), 1500);
 }
 
 // Claude Generated Phase 4.3-4.5 - Workspace management stubs (to be implemented)

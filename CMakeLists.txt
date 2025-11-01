@@ -35,6 +35,7 @@ set(SOURCES
     src/dialogs/nmrstructureproxymodel.cpp
     src/widgets/breadcrumbbar.cpp  # Claude Generated Phase 1
     src/workspacemanager.cpp  # Claude Generated Phase 4.2
+    src/selectionmanager.cpp  # Claude Generated Phase 2A
 
     #src/dialogs/nmrstructuremodel.cpp
 )
@@ -51,6 +52,7 @@ set(HEADERS
     src/dialogs/nmrspectrumdialog.h
     src/widgets/breadcrumbbar.h  # Claude Generated Phase 1
     src/workspacemanager.h  # Claude Generated Phase 4.2
+    src/selectionmanager.h  # Claude Generated Phase 2A
     #src/dialogs/nmrstructuremodel.h
 
 )

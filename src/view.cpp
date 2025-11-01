@@ -1,10 +1,12 @@
 // viewer.cpp
 #include "view.h"
+#include "selectionmanager.h"  // Claude Generated - Phase 2A
 #include <Qt3DCore/QTransform>
 #include <Qt3DExtras/QSphereMesh>
 #include <Qt3DExtras/QCylinderMesh>
 #include <Qt3DExtras/QPhongMaterial>
 #include <Qt3DRender/QCamera>
+#include <Qt3DRender/QPickEvent>      // Claude Generated - Phase 2A
 #include <Qt3DExtras/QOrbitCameraController>
 #include <QMouseEvent>
 #include <QVBoxLayout>
@@ -30,6 +32,9 @@ MoleculeViewer::MoleculeViewer(QWidget *parent)
     , m_frameCount(1)
     , m_currentFrame(0)
 {
+    // Claude Generated - Phase 2A: Initialize SelectionManager
+    m_selectionManager = new SelectionManager(this);
+
     setupViewer();
 }
 
@@ -257,6 +262,9 @@ void MoleculeViewer::handleMouseZoom(int delta)
 
 void MoleculeViewer::clearScene()
 {
+    // Claude Generated - Phase 2A: Clear picker mappings
+    m_atomPickerToIndex.clear();
+
     // Alle Entities löschen
     for (Qt3DCore::QNode *node : m_rootEntity->childNodes()) {
         delete node;
@@ -364,10 +372,21 @@ void MoleculeViewer::updateMaterials()
             atomColor.setAlphaF(m_atomTransparency);
         }
 
+        // Claude Generated - Phase 2A: Apply selection highlighting with bright colors
+        bool isSelected = m_selectionManager && m_selectionManager->isSelected(i);
+
         // Update material colors
-        material->setAmbient(atomColor.darker());
-        material->setDiffuse(atomColor);
-        material->setShininess(m_atomShininess);
+        if (isSelected) {
+            // Bright yellow/orange highlighting for selected atoms
+            QColor selectedColor(255, 200, 50);  // Bright orange-yellow
+            material->setAmbient(selectedColor.darker());
+            material->setDiffuse(selectedColor);
+            material->setShininess(m_atomShininess + 20);  // Extra shine for visual emphasis
+        } else {
+            material->setAmbient(atomColor.darker());
+            material->setDiffuse(atomColor);
+            material->setShininess(m_atomShininess);
+        }
     }
 }
 
@@ -532,7 +551,8 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
                         m_renderingMode == RenderingMode::SpaceFilling);
 
     if (renderAtoms) {
-        for (const Atom& atom : atoms) {
+        for (int atomIndex = 0; atomIndex < atoms.size(); ++atomIndex) {
+            const Atom& atom = atoms[atomIndex];
             Qt3DCore::QEntity *atomEntity = new Qt3DCore::QEntity(moleculeEntity);
 
             // Mesh
@@ -561,6 +581,17 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             atomEntity->addComponent(sphereMesh);
             atomEntity->addComponent(transform);
             atomEntity->addComponent(material);
+
+            // Claude Generated - Phase 2A: Add ObjectPicker for 3D atom selection
+            Qt3DRender::QObjectPicker *picker = new Qt3DRender::QObjectPicker(atomEntity);
+            picker->setHoverEnabled(true);
+            atomEntity->addComponent(picker);
+
+            // Store mapping for picking event handling
+            m_atomPickerToIndex[picker] = atomIndex;
+
+            // Connect picker signals
+            connect(picker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onAtomPicked);
 
             // Claude Generated - Fix 2: Store references for incremental updates
             m_atomEntities.append(atomEntity);
@@ -1322,6 +1353,12 @@ void MoleculeViewer::clearSelection()
 {
     m_selectedAtoms.clear();
     m_measurementMode = 0;
+
+    // Claude Generated - Phase 2A: Also clear SelectionManager and update visuals
+    if (m_selectionManager) {
+        m_selectionManager->clearSelection();
+    }
+    updateMaterials();
 }
 
 void MoleculeViewer::setMeasurementMode(int mode)
@@ -1505,4 +1542,47 @@ void MoleculeViewer::fitAllInView()
 
     m_camera->setPosition(center + direction * distance);
     m_camera->setViewCenter(center);
+}
+
+// Claude Generated - Phase 2A: Handle ObjectPicker click events
+void MoleculeViewer::onAtomPicked(Qt3DRender::QPickEvent *pickEvent)
+{
+    // Find which atom was picked
+    Qt3DRender::QObjectPicker *picker = qobject_cast<Qt3DRender::QObjectPicker*>(sender());
+    if (!picker || !m_atomPickerToIndex.contains(picker)) {
+        return;
+    }
+
+    int atomIndex = m_atomPickerToIndex[picker];
+
+    // Check modifier keys for selection mode
+    bool appendSelection = (pickEvent->modifiers() & Qt::ControlModifier) != 0;
+    bool toggleSelection = (pickEvent->modifiers() & Qt::ShiftModifier) != 0;
+
+    if (toggleSelection) {
+        m_selectionManager->toggleAtom(atomIndex);
+    } else {
+        m_selectionManager->selectAtom(atomIndex, appendSelection);
+    }
+
+    // Update materials to show selection highlighting
+    updateMaterials();
+
+    // Emit signal for downstream UI updates
+    emit selectionChanged(m_selectionManager->selectedAtoms());
+}
+
+// Claude Generated - Phase 2A: Direct selection from internal calls
+void MoleculeViewer::selectAtom(int index, bool append)
+{
+    if (!append && !m_selectedAtoms.isEmpty()) {
+        clearSelection();
+    }
+
+    if (!m_selectedAtoms.contains(index)) {
+        m_selectedAtoms.append(index);
+        m_selectionManager->selectAtom(index, append);
+        updateMaterials();
+        emit selectionChanged(m_selectedAtoms);
+    }
 }
