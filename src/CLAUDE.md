@@ -165,7 +165,7 @@ Run tests: `./release/test_vtf_bonds`, `./release/test_vtf_frames`, `./release/t
 - All compilation successful, no warnings/errors
 - 100% persistence layer functional
 
-### 3D Visualization - Phase 2A ✅ COMPLETE (Just finished!)
+### 3D Visualization - Phase 2A ✅ COMPLETE
 - ✅ **3D Atom Picking** - Qt3D ObjectPicker on each atom, click-based selection
   - Left Click: Single selection
   - Ctrl+Click: Multi-select (append to selection)
@@ -173,13 +173,20 @@ Run tests: `./release/test_vtf_bonds`, `./release/test_vtf_frames`, `./release/t
 - ✅ **Visual Selection Highlighting** - Bright orange-yellow colors + extra shininess
 - ✅ **SelectionManager Integration** - Full bidirectional state sync
 - ✅ **Keyboard Shortcuts** - Ctrl+A (select all), Escape (clear selection)
-- Implementation: 157 lines of new code, 1 new class (SelectionManager)
+- Implementation: 157 lines, 1 git commit
 
-**3D Visualization - Phase 2B/2C (Next)**:
-- Measurement overlay with Text2DEntity + line visualization (1-1.5h)
-  - Distance measurement (2 atoms)
-  - Angle measurement (3 atoms)
-  - Dihedral measurement (4 atoms)
+### 3D Visualization - Phase 2B ✅ COMPLETE
+- ✅ **MeasurementOverlay Class** - Geometry calculations + 3D visualization
+  - Distance measurement: 2-atom selection → line + Å value
+  - Angle measurement: 3-atom selection → 2 lines + degree value
+  - Dihedral measurement: 4-atom selection → 3 lines + degree value
+- ✅ **Cylinder-based Visualization** - Orange-yellow measurement lines
+- ✅ **Auto-calculation** - Distance (√((x2-x1)²+(y2-y1)²+(z2-z1)²)), Angle (arccos), Dihedral (plane normal angle)
+- ✅ **Dynamic Updates** - Measurements refresh on frame changes and animation
+- ✅ **UI Integration** - Combo-box with 4 modes (None/Distance/Angle/Dihedral)
+- Implementation: 416 lines, 2 new classes, 1 git commit
+
+**3D Visualization - Phase 2C (Next)**:
 - AtomListPanel with QTableView for structure browsing (2-2.5h)
   - Atom properties: Index, Element, X/Y/Z, Charge
   - Bidirectional selection sync with 3D viewer

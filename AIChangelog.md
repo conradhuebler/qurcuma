@@ -11,6 +11,17 @@
 - Direct integration: MoleculeViewer → SelectionManager bidirectional state sync
 - Fully tested: All selection modes working, colors visible, signals propagating
 
+### 3D Visualization Phase 2B - Measurement Overlay System (COMPLETE)
+- MeasurementOverlay class: Manages distance/angle/dihedral visualizations in 3D space
+- Distance measurement: 2-atom selection creates line with calculated Å distance
+- Angle measurement: 3-atom selection shows 2 lines with calculated angle in degrees
+- Dihedral measurement: 4-atom selection visualizes torsion angle between planes
+- Cylinder-based geometry: Orange-yellow measurement lines with proper rotation/scaling
+- Math implementation: Vector length (distance), dot product (angle), cross product (dihedral)
+- Dynamic updates: Measurements recalculate and re-render on frame changes during animation
+- UI integration: Combo-box modes (None/Distance/Angle/Dihedral) with auto-detection
+- Selection-driven: Measurements auto-trigger when correct number of atoms selected (2/3/4)
+
 ### Directory Navigation & Workspace System (COMPLETE - Iteration 2)
 
 **Phase 1-2: UI Navigation (Complete)**
