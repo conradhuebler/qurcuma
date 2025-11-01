@@ -66,6 +66,11 @@ public:
      */
     Settings::Workspace getWorkspace(const QString& id) const;
 
+    /**
+     * @brief Update workspace last used timestamp
+     */
+    void updateWorkspaceLastUsed(const QString& id);
+
 signals:
     /**
      * @brief Emitted when workspace list changes

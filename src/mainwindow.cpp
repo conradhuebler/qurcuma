@@ -46,6 +46,7 @@
 #include "visualizationsettingsdialog.h"
 
 #include "dialogs/nmrspectrumdialog.h"
+#include "workspacemanager.h"  // Claude Generated Phase 4
 #include "mainwindow.h"
 
 MainWindow::MainWindow(QWidget *parent)
@@ -172,10 +173,12 @@ void MainWindow::setupUI()
     bookmarksLabel->setStyleSheet("font-weight: bold;");
     leftLayout->addWidget(bookmarksLabel);
 
-    // Bookmark list with context menu support
-    m_bookmarkListView = new QListWidget;
-    m_bookmarkListView->setContextMenuPolicy(Qt::CustomContextMenu);
-    leftLayout->addWidget(m_bookmarkListView);
+    // Claude Generated Phase 3.2 - Bookmark tree with hierarchical folder support
+    m_bookmarkTreeView = new QTreeWidget;
+    m_bookmarkTreeView->setHeaderLabels(QStringList() << tr("Bookmarks"));
+    m_bookmarkTreeView->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_bookmarkTreeView->setDragDropMode(QAbstractItemView::InternalMove);
+    leftLayout->addWidget(m_bookmarkTreeView);
 
     // Add left widget to splitter
     m_splitter->addWidget(leftWidget);
@@ -429,7 +432,7 @@ void MainWindow::setupUI()
 
     // Initial updates
     updatePathLabel(m_workingDirectory);
-    updateBookmarkView();
+    updateBookmarkTree();
 
     // Window settings
     resize(1200, 800);
@@ -880,36 +883,17 @@ void MainWindow::setupConnections()
             }
         });
 
-    connect(m_bookmarkListView, &QListWidget::itemClicked,
-        [this](QListWidgetItem* item) {
-            if (item) {
-                switchWorkingDirectory(item->data(Qt::UserRole).toString());
-            }
-        });
+    // Claude Generated Phase 3.2 - Tree widget signals
+    connect(m_bookmarkTreeView, &QTreeWidget::itemClicked,
+        this, &MainWindow::onBookmarkItemClicked);
 
-    // Kontextmenü für Bookmarks
-    connect(m_bookmarkListView, &QListWidget::customContextMenuRequested,
-        [this](const QPoint& pos) {
-            QListWidgetItem* item = m_bookmarkListView->itemAt(pos);
-            if (!item)
-                return;
-
-            QMenu contextMenu(this);
-            QAction* removeAction = contextMenu.addAction(tr("Remove Bookmark"));
-
-            connect(removeAction, &QAction::triggered, [this, item]() {
-                QString path = item->data(Qt::UserRole).toString();
-                m_settings.removeWorkingDirectory(path);
-                updateBookmarkView();
-            });
-
-            contextMenu.exec(m_bookmarkListView->viewport()->mapToGlobal(pos));
-        });
+    connect(m_bookmarkTreeView, &QTreeWidget::customContextMenuRequested,
+        this, &MainWindow::onBookmarkContextMenu);
 
     connect(m_bookmarkButton, &QToolButton::clicked, [this]() {
         if (!m_workingDirectory.isEmpty()) {
             m_settings.addWorkingDirectory(m_workingDirectory);
-            updateBookmarkView();
+            updateBookmarkTree();
             statusBar()->showMessage(tr("Directory bookmarked: %1")
                                          .arg(QDir(m_workingDirectory).dirName()),
                 3000);
@@ -970,7 +954,7 @@ void MainWindow::setupProjectViewContextMenu()
             QAction* bookmarkAction = contextMenu.addAction(tr("Add to Bookmarks"));
             connect(bookmarkAction, &QAction::triggered, [this, path]() {
                 m_settings.addWorkingDirectory(path);
-                updateBookmarkView();
+                updateBookmarkTree();
                 statusBar()->showMessage(tr("Directory bookmarked: %1")
                                              .arg(QDir(path).dirName()),
                     3000);
@@ -980,7 +964,7 @@ void MainWindow::setupProjectViewContextMenu()
             connect(setWorkDirAction, &QAction::triggered, [this, path]() {
                 switchWorkingDirectory(path);
                 m_settings.addWorkingDirectory(path);
-                updateBookmarkView();
+                updateBookmarkTree();
             });
 
             contextMenu.exec(m_projectListView->viewport()->mapToGlobal(pos));
@@ -1927,17 +1911,189 @@ void MainWindow::loadCalculationInfo(const QString &path)
     }
 }
 
-void MainWindow::updateBookmarkView()
+// Claude Generated Phase 3.2 - Build tree from BookmarkItem hierarchy
+void MainWindow::updateBookmarkTree()
 {
-    m_bookmarkListView->clear();
-    QStringList dirs = m_settings.workingDirectories();
+    m_bookmarkTreeView->clear();
 
-    for (const QString& dir : dirs) {
-        QListWidgetItem* item = new QListWidgetItem(QDir(dir).dirName());
-        item->setData(Qt::UserRole, dir);
-        item->setToolTip(dir);
-        m_bookmarkListView->addItem(item);
+    // Load bookmarks from settings
+    QVector<Settings::BookmarkItem> allBookmarks = m_settings.bookmarks();
+
+    // Build a map for quick parent lookup
+    QMap<QString, QTreeWidgetItem*> itemsById;
+    itemsById[""] = m_bookmarkTreeView->invisibleRootItem();  // Root
+
+    // First pass: Create all items
+    for (const auto& bm : allBookmarks) {
+        QTreeWidgetItem* item = new QTreeWidgetItem();
+        item->setText(0, bm.name);
+        item->setData(0, Qt::UserRole, bm.id);  // Store ID
+        item->setData(0, Qt::UserRole + 1, bm.path);  // Store path
+
+        // Set icons
+        if (bm.isFolder) {
+            item->setIcon(0, QIcon::fromTheme("folder", QIcon(":/icons/folder.png")));
+        } else {
+            item->setIcon(0, QIcon::fromTheme("bookmark", QIcon(":/icons/bookmark.png")));
+            item->setToolTip(0, bm.path);
+        }
+
+        // Set color if defined
+        if (bm.color.isValid()) {
+            item->setBackground(0, bm.color);
+        }
+
+        itemsById[bm.id] = item;
     }
+
+    // Second pass: Add items to their parents
+    for (const auto& bm : allBookmarks) {
+        if (itemsById.contains(bm.id)) {
+            QTreeWidgetItem* parentItem = itemsById.value(bm.parentId, m_bookmarkTreeView->invisibleRootItem());
+            if (parentItem && parentItem != itemsById[bm.id]) {  // Avoid adding to self
+                parentItem->addChild(itemsById[bm.id]);
+            }
+        }
+    }
+
+    // Expand all folders by default
+    m_bookmarkTreeView->expandAll();
+}
+
+// Claude Generated Phase 3.2 - Handle bookmark tree item clicks
+void MainWindow::onBookmarkItemClicked(QTreeWidgetItem* item, int column)
+{
+    if (!item) return;
+
+    // Get path from item data
+    QString path = item->data(0, Qt::UserRole + 1).toString();
+
+    // Only navigate if it's a bookmark (has a path), not a folder
+    if (!path.isEmpty()) {
+        switchWorkingDirectory(path);
+    }
+}
+
+// Claude Generated Phase 3.2 - Handle bookmark context menu
+void MainWindow::onBookmarkContextMenu(const QPoint& pos)
+{
+    QTreeWidgetItem* item = m_bookmarkTreeView->itemAt(pos);
+
+    QMenu contextMenu(this);
+
+    if (!item) {
+        // Empty area context menu
+        QAction* addAction = contextMenu.addAction(tr("Add Current Directory as Bookmark"));
+        connect(addAction, &QAction::triggered, [this]() {
+            if (!m_workingDirectory.isEmpty()) {
+                Settings::BookmarkItem bm;
+                bm.id = QUuid::createUuid().toString();
+                bm.name = QDir(m_workingDirectory).dirName();
+                bm.path = m_workingDirectory;
+                bm.isFolder = false;
+                bm.parentId = "";
+                bm.created = QDateTime::currentDateTime();
+                m_settings.addBookmark(bm);
+                updateBookmarkTree();
+                statusBar()->showMessage(tr("Bookmark added"), 2000);
+            }
+        });
+
+        QAction* folderAction = contextMenu.addAction(tr("New Folder..."));
+        connect(folderAction, &QAction::triggered, [this]() {
+            QString name = QInputDialog::getText(this,
+                tr("New Bookmark Folder"),
+                tr("Folder name:"));
+            if (!name.isEmpty()) {
+                Settings::BookmarkItem folder;
+                folder.id = QUuid::createUuid().toString();
+                folder.name = name;
+                folder.path = "";
+                folder.isFolder = true;
+                folder.parentId = "";
+                folder.created = QDateTime::currentDateTime();
+                m_settings.addBookmark(folder);
+                updateBookmarkTree();
+            }
+        });
+    } else {
+        // Item-specific context menu
+        QString itemId = item->data(0, Qt::UserRole).toString();
+        Settings::BookmarkItem bm = [this, itemId]() {
+            for (const auto& b : m_settings.bookmarks()) {
+                if (b.id == itemId) return b;
+            }
+            return Settings::BookmarkItem();
+        }();
+
+        if (bm.isFolder) {
+            // Folder options
+            QAction* renameAction = contextMenu.addAction(tr("Rename..."));
+            connect(renameAction, &QAction::triggered, [this, itemId, item]() {
+                QString newName = QInputDialog::getText(this,
+                    tr("Rename Folder"),
+                    tr("New name:"),
+                    QLineEdit::Normal,
+                    item->text(0));
+                if (!newName.isEmpty()) {
+                    auto bookmarks = m_settings.bookmarks();
+                    for (auto& b : bookmarks) {
+                        if (b.id == itemId) {
+                            b.name = newName;
+                            m_settings.updateBookmark(itemId, b);
+                            break;
+                        }
+                    }
+                    updateBookmarkTree();
+                }
+            });
+
+            QAction* deleteAction = contextMenu.addAction(tr("Delete Folder"));
+            connect(deleteAction, &QAction::triggered, [this, itemId]() {
+                m_settings.removeBookmark(itemId);
+                updateBookmarkTree();
+            });
+        } else {
+            // Bookmark options
+            QAction* openAction = contextMenu.addAction(tr("Open"));
+            connect(openAction, &QAction::triggered, [this, bm]() {
+                if (!bm.path.isEmpty()) {
+                    switchWorkingDirectory(bm.path);
+                }
+            });
+
+            contextMenu.addSeparator();
+
+            QAction* renameAction = contextMenu.addAction(tr("Rename..."));
+            connect(renameAction, &QAction::triggered, [this, itemId, item]() {
+                QString newName = QInputDialog::getText(this,
+                    tr("Rename Bookmark"),
+                    tr("New name:"),
+                    QLineEdit::Normal,
+                    item->text(0));
+                if (!newName.isEmpty()) {
+                    auto bookmarks = m_settings.bookmarks();
+                    for (auto& b : bookmarks) {
+                        if (b.id == itemId) {
+                            b.name = newName;
+                            m_settings.updateBookmark(itemId, b);
+                            break;
+                        }
+                    }
+                    updateBookmarkTree();
+                }
+            });
+
+            QAction* removeAction = contextMenu.addAction(tr("Remove Bookmark"));
+            connect(removeAction, &QAction::triggered, [this, itemId]() {
+                m_settings.removeBookmark(itemId);
+                updateBookmarkTree();
+                statusBar()->showMessage(tr("Bookmark removed"), 2000);
+            });
+        }
+    }
+
+    contextMenu.exec(m_bookmarkTreeView->viewport()->mapToGlobal(pos));
 }
 
 void MainWindow::updatePathLabel(const QString& path)
@@ -2569,4 +2725,91 @@ void MainWindow::centerViewOnSelection()
     }
     // Claude Generated - Sync dialog if open
     syncVisualizationDialog();
+}
+
+// Claude Generated Phase 4.3-4.5 - Workspace management stubs (to be implemented)
+
+void MainWindow::updateWorkspaceList()
+{
+    // Populate workspace list from WorkspaceManager
+    if (!m_workspaceListView) return;
+    if (!m_workspaceManager) return;
+
+    m_workspaceListView->clear();
+    auto workspaces = m_workspaceManager->listWorkspaces();
+
+    for (const auto& ws : workspaces) {
+        QListWidgetItem* item = new QListWidgetItem(ws.name);
+        item->setData(Qt::UserRole, ws.id);
+        m_workspaceListView->addItem(item);
+    }
+}
+
+void MainWindow::onWorkspaceItemClicked(QListWidgetItem* item)
+{
+    if (!item || !m_workspaceManager) return;
+    QString id = item->data(Qt::UserRole).toString();
+    Settings::Workspace ws = m_workspaceManager->getWorkspace(id);
+    if (ws.isValid()) {
+        restoreWorkspaceState(ws);
+    }
+}
+
+void MainWindow::onWorkspaceContextMenu(const QPoint& pos)
+{
+    // TODO: Implement workspace context menu
+}
+
+void MainWindow::saveCurrentWorkspace()
+{
+    QString name = QInputDialog::getText(this, tr("Save Workspace"), tr("Workspace name:"));
+    if (name.isEmpty() || !m_workspaceManager) return;
+
+    QString desc = QInputDialog::getText(this, tr("Workspace Description"), tr("Description (optional):"));
+    Settings::Workspace ws = m_workspaceManager->captureCurrentState(this, name, desc);
+    m_workspaceManager->saveWorkspace(ws);
+    updateWorkspaceList();
+    statusBar()->showMessage(tr("Workspace '%1' saved").arg(name), 3000);
+}
+
+void MainWindow::restoreWorkspaceState(const Settings::Workspace& ws)
+{
+    if (!ws.isValid()) return;
+
+    if (!ws.workingDirectory.isEmpty()) {
+        switchWorkingDirectory(ws.workingDirectory);
+    }
+
+    if (!ws.windowGeometry.isEmpty()) {
+        restoreGeometry(ws.windowGeometry);
+    }
+
+    if (!ws.splitterStates.isEmpty() && m_splitter) {
+        m_splitter->restoreState(ws.splitterStates);
+    }
+
+    if (m_workspaceManager) {
+        m_workspaceManager->updateWorkspaceLastUsed(ws.id);
+    }
+
+    statusBar()->showMessage(tr("Workspace '%1' restored").arg(ws.name), 3000);
+}
+
+void MainWindow::updateWorkspaceMenu(QMenu* menu)
+{
+    if (!menu || !m_workspaceManager) return;
+
+    auto workspaces = m_workspaceManager->listWorkspaces();
+    if (workspaces.isEmpty()) {
+        menu->addAction(tr("(No saved workspaces)"))->setEnabled(false);
+        return;
+    }
+
+    for (int i = 0; i < std::min(5, static_cast<int>(workspaces.size())); ++i) {
+        Settings::Workspace ws = workspaces[i];  // Copy instead of reference
+        QAction* action = menu->addAction(ws.name);
+        connect(action, &QAction::triggered, [this, ws]() {
+            restoreWorkspaceState(ws);
+        });
+    }
 }

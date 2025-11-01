@@ -29,6 +29,7 @@
 #include <QStringList>
 #include <QTextEdit>
 #include <QToolButton>
+#include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <functional>
@@ -38,6 +39,7 @@
 #include "widgets/breadcrumbbar.h"
 class MoleculeViewer;
 class VisualizationSettingsDialog;  // Claude Generated - For shortcut synchronization
+class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 
 
 struct CalculationEntry {
@@ -167,7 +169,19 @@ private:
     void toggleLeftPanel();
     void updateWorkflowState(WorkflowState state);  // Claude Generated - Phase 2.2
 
-    QListWidget* m_bookmarkListView;
+    // Claude Generated Phase 3.2 - Bookmark and workspace slots
+    void updateBookmarkTree();
+    void onBookmarkItemClicked(QTreeWidgetItem* item, int column);
+    void onBookmarkContextMenu(const QPoint& pos);
+    void saveCurrentWorkspace();
+    void onWorkspaceItemClicked(QListWidgetItem* item);
+    void onWorkspaceContextMenu(const QPoint& pos);
+    void restoreWorkspaceState(const Settings::Workspace& ws);
+    void updateWorkspaceList();
+    void updateWorkspaceMenu(QMenu* menu);
+
+    QTreeWidget* m_bookmarkTreeView;  // Claude Generated Phase 3.2 - Replaced QListWidget
+    QListWidget* m_workspaceListView;  // Claude Generated Phase 4.3
     QListView* m_projectListView;
     QListView* m_directoryContentView;
     QLineEdit* m_commandInput;
@@ -224,6 +238,10 @@ private:
     // Claude Generated - Quick Win: Recent files
     QMenu* m_recentFilesMenu = nullptr;
     QVector<Settings::RecentFileEntry> m_recentFiles;  // Claude Generated Phase 2 - Now with timestamps
+
+    // Claude Generated Phase 4 - Workspace management
+    WorkspaceManager* m_workspaceManager = nullptr;
+    QMenu* m_workspaceMenu = nullptr;
 
     // Claude Generated - Quick Win: Auto-save drafts
     QTimer* m_autoSaveTimer = nullptr;

@@ -82,3 +82,8 @@ Settings::Workspace WorkspaceManager::getWorkspace(const QString& id) const
 {
     return m_settings.loadWorkspace(id);
 }
+
+void WorkspaceManager::updateWorkspaceLastUsed(const QString& id)
+{
+    m_settings.updateWorkspaceLastUsed(id);
+}
