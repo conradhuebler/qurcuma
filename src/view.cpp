@@ -1269,6 +1269,47 @@ void MoleculeViewer::setSSAOBias(float bias)
     }
 }
 
+// Claude Generated - Phase 5B: Bloom and HDR post-processing control
+void MoleculeViewer::setBloomEnabled(bool enabled)
+{
+    m_bloomEnabled = enabled;
+    if (m_frameGraph) {
+        m_frameGraph->setBloomEnabled(enabled);
+    }
+}
+
+void MoleculeViewer::setBloomThreshold(float threshold)
+{
+    m_bloomThreshold = qBound(0.5f, threshold, 1.5f);
+    if (m_frameGraph) {
+        m_frameGraph->setBloomThreshold(m_bloomThreshold);
+    }
+}
+
+void MoleculeViewer::setBloomIntensity(float intensity)
+{
+    m_bloomIntensity = qBound(0.0f, intensity, 2.0f);
+    if (m_frameGraph) {
+        m_frameGraph->setBloomIntensity(m_bloomIntensity);
+    }
+}
+
+void MoleculeViewer::setHDREnabled(bool enabled)
+{
+    m_hdrEnabled = enabled;
+    if (m_frameGraph) {
+        m_frameGraph->setHDREnabled(enabled);
+    }
+}
+
+void MoleculeViewer::setExposure(float exposure)
+{
+    m_exposure = qBound(0.5f, exposure, 3.0f);
+    if (m_frameGraph) {
+        m_frameGraph->setExposure(m_exposure);
+    }
+}
+
 // Claude Generated - Trajectory animation functions
 void MoleculeViewer::startAnimation()
 {

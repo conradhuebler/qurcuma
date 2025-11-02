@@ -174,6 +174,12 @@ Settings::VisualizationSettings Settings::getVisualizationSettings() const
     settings.ssaoIntensity = m_settings.value(VIZ_SETTINGS_PREFIX + "ssaoIntensity", 1.0f).toFloat();
     settings.ssaoRadius = m_settings.value(VIZ_SETTINGS_PREFIX + "ssaoRadius", 0.05f).toFloat();
     settings.ssaoBias = m_settings.value(VIZ_SETTINGS_PREFIX + "ssaoBias", 0.025f).toFloat();
+    // Claude Generated - Phase 5B: Bloom and HDR post-processing
+    settings.bloomEnabled = m_settings.value(VIZ_SETTINGS_PREFIX + "bloomEnabled", true).toBool();
+    settings.bloomThreshold = m_settings.value(VIZ_SETTINGS_PREFIX + "bloomThreshold", 0.8f).toFloat();
+    settings.bloomIntensity = m_settings.value(VIZ_SETTINGS_PREFIX + "bloomIntensity", 1.0f).toFloat();
+    settings.hdrEnabled = m_settings.value(VIZ_SETTINGS_PREFIX + "hdrEnabled", true).toBool();
+    settings.exposure = m_settings.value(VIZ_SETTINGS_PREFIX + "exposure", 1.0f).toFloat();
 
     return settings;
 }
@@ -193,6 +199,12 @@ void Settings::setVisualizationSettings(const VisualizationSettings& settings)
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "ssaoIntensity", settings.ssaoIntensity);
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "ssaoRadius", settings.ssaoRadius);
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "ssaoBias", settings.ssaoBias);
+    // Claude Generated - Phase 5B: Bloom and HDR post-processing
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "bloomEnabled", settings.bloomEnabled);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "bloomThreshold", settings.bloomThreshold);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "bloomIntensity", settings.bloomIntensity);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "hdrEnabled", settings.hdrEnabled);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "exposure", settings.exposure);
     m_settings.sync();
 }
 

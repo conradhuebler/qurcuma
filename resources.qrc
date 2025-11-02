@@ -16,5 +16,12 @@
         <!-- PBR Shaders (Phase 4A - Cook-Torrance BRDF) -->
         <file>src/shaders/pbr.vert</file>
         <file>src/shaders/pbr.frag</file>
+
+        <!-- Bloom & Post-Processing Shaders (Phase 5B - HDR & Effects) -->
+        <file>src/shaders/bloom_bright.frag</file>
+        <file>src/shaders/blur_horizontal.frag</file>
+        <file>src/shaders/blur_vertical.frag</file>
+        <file>src/shaders/bloom_composite.frag</file>
+        <file>src/shaders/tonemapping.frag</file>
     </qresource>
 </RCC>

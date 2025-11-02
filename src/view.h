@@ -110,6 +110,18 @@ public:
     void setSSAOBias(float bias);
     float getSSAOBias() const { return m_ssaoBias; }
 
+    // Claude Generated - Phase 5B: Bloom and HDR post-processing
+    void setBloomEnabled(bool enabled);
+    bool getBloomEnabled() const { return m_bloomEnabled; }
+    void setBloomThreshold(float threshold);
+    float getBloomThreshold() const { return m_bloomThreshold; }
+    void setBloomIntensity(float intensity);
+    float getBloomIntensity() const { return m_bloomIntensity; }
+    void setHDREnabled(bool enabled);
+    bool getHDREnabled() const { return m_hdrEnabled; }
+    void setExposure(float exposure);
+    float getExposure() const { return m_exposure; }
+
     // Frame navigation support for trajectories
     void setFrameCount(int frameCount) { m_frameCount = frameCount; }
     int getFrameCount() const { return m_frameCount; }
@@ -241,6 +253,12 @@ private:
     float m_ssaoIntensity = 1.0f;
     float m_ssaoRadius = 0.05f;
     float m_ssaoBias = 0.025f;
+    // Claude Generated - Phase 5B: Bloom and HDR post-processing
+    bool m_bloomEnabled = true;
+    float m_bloomThreshold = 0.8f;
+    float m_bloomIntensity = 1.0f;
+    bool m_hdrEnabled = true;
+    float m_exposure = 1.0f;
 
     // Claude Generated - Animation state
     QTimer *m_animationTimer = nullptr;

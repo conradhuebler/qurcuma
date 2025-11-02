@@ -53,6 +53,12 @@ private slots:
     void onSSAOIntensityChanged(int value);
     void onSSAORadiusChanged(double value);
     void onSSAOBiasChanged(double value);
+    // Claude Generated - Phase 5B: Bloom and HDR post-processing controls
+    void onBloomEnabledChanged(bool enabled);
+    void onBloomThresholdChanged(double value);
+    void onBloomIntensityChanged(int value);
+    void onHDREnabledChanged(bool enabled);
+    void onExposureChanged(double value);
     void onResetDefaults();
     void onApply();
 
@@ -96,6 +102,14 @@ private:
     QLabel* m_ssaoIntensityLabel;
     QDoubleSpinBox* m_ssaoRadiusSpinBox;
     QDoubleSpinBox* m_ssaoBiasSpinBox;
+
+    // Claude Generated - Phase 5B: Bloom and HDR post-processing controls
+    QCheckBox* m_bloomEnabledCheckBox;
+    QDoubleSpinBox* m_bloomThresholdSpinBox;
+    QSlider* m_bloomIntensitySlider;
+    QLabel* m_bloomIntensityLabel;
+    QCheckBox* m_hdrEnabledCheckBox;
+    QDoubleSpinBox* m_exposureSpinBox;
 
     // Claude Generated - Preset management widgets
     QTabWidget* m_tabWidget;

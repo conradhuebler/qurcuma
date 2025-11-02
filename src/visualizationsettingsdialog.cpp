@@ -204,6 +204,57 @@ void VisualizationSettingsDialog::createAppearanceGroup(QVBoxLayout* mainLayout)
             this, &VisualizationSettingsDialog::onSSAOBiasChanged);
     formLayout->addRow(tr("SSAO Bias:"), m_ssaoBiasSpinBox);
 
+    // Claude Generated - Phase 5B: Bloom and HDR post-processing effects
+    formLayout->addRow(new QLabel(""));  // Visual separator
+
+    m_bloomEnabledCheckBox = new QCheckBox(this);
+    m_bloomEnabledCheckBox->setChecked(true);
+    connect(m_bloomEnabledCheckBox, &QCheckBox::toggled,
+            this, &VisualizationSettingsDialog::onBloomEnabledChanged);
+    formLayout->addRow(tr("Enable Bloom:"), m_bloomEnabledCheckBox);
+
+    // Bloom Threshold spinbox (0.5-1.5)
+    m_bloomThresholdSpinBox = new QDoubleSpinBox(this);
+    m_bloomThresholdSpinBox->setRange(0.5, 1.5);
+    m_bloomThresholdSpinBox->setValue(0.8);
+    m_bloomThresholdSpinBox->setSingleStep(0.1);
+    m_bloomThresholdSpinBox->setDecimals(2);
+    connect(m_bloomThresholdSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &VisualizationSettingsDialog::onBloomThresholdChanged);
+    formLayout->addRow(tr("Bloom Threshold:"), m_bloomThresholdSpinBox);
+
+    // Bloom Intensity slider (0.0-2.0)
+    QHBoxLayout* bloomIntensityLayout = new QHBoxLayout();
+    m_bloomIntensitySlider = new QSlider(Qt::Horizontal, this);
+    m_bloomIntensitySlider->setRange(0, 200);  // 0.0-2.0 mapped to 0-200
+    m_bloomIntensitySlider->setValue(100);     // Default 1.0
+    m_bloomIntensityLabel = new QLabel("1.0", this);
+    m_bloomIntensityLabel->setMinimumWidth(50);
+    bloomIntensityLayout->addWidget(m_bloomIntensitySlider);
+    bloomIntensityLayout->addWidget(m_bloomIntensityLabel);
+    connect(m_bloomIntensitySlider, &QSlider::valueChanged,
+            this, &VisualizationSettingsDialog::onBloomIntensityChanged);
+    formLayout->addRow(tr("Bloom Intensity:"), bloomIntensityLayout);
+
+    // HDR and Exposure
+    formLayout->addRow(new QLabel(""));  // Visual separator
+
+    m_hdrEnabledCheckBox = new QCheckBox(this);
+    m_hdrEnabledCheckBox->setChecked(true);
+    connect(m_hdrEnabledCheckBox, &QCheckBox::toggled,
+            this, &VisualizationSettingsDialog::onHDREnabledChanged);
+    formLayout->addRow(tr("Enable HDR:"), m_hdrEnabledCheckBox);
+
+    // Exposure spinbox (0.5-3.0)
+    m_exposureSpinBox = new QDoubleSpinBox(this);
+    m_exposureSpinBox->setRange(0.5, 3.0);
+    m_exposureSpinBox->setValue(1.0);
+    m_exposureSpinBox->setSingleStep(0.1);
+    m_exposureSpinBox->setDecimals(2);
+    connect(m_exposureSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &VisualizationSettingsDialog::onExposureChanged);
+    formLayout->addRow(tr("Exposure:"), m_exposureSpinBox);
+
     mainLayout->addWidget(appearanceGroup);
 }
 
@@ -225,6 +276,12 @@ void VisualizationSettingsDialog::loadCurrentSettings()
     m_ssaoIntensitySlider->blockSignals(true);
     m_ssaoRadiusSpinBox->blockSignals(true);
     m_ssaoBiasSpinBox->blockSignals(true);
+    // Claude Generated - Phase 5B: Block Bloom and HDR signals
+    m_bloomEnabledCheckBox->blockSignals(true);
+    m_bloomThresholdSpinBox->blockSignals(true);
+    m_bloomIntensitySlider->blockSignals(true);
+    m_hdrEnabledCheckBox->blockSignals(true);
+    m_exposureSpinBox->blockSignals(true);
 
     // Claude Generated - Load from saved settings if available
     if (m_settings) {
@@ -264,6 +321,14 @@ void VisualizationSettingsDialog::loadCurrentSettings()
         m_ssaoIntensityLabel->setText(QString::number(saved.ssaoIntensity, 'f', 2));
         m_ssaoRadiusSpinBox->setValue(saved.ssaoRadius);
         m_ssaoBiasSpinBox->setValue(saved.ssaoBias);
+
+        // Claude Generated - Phase 5B: Load Bloom and HDR settings
+        m_bloomEnabledCheckBox->setChecked(saved.bloomEnabled);
+        m_bloomThresholdSpinBox->setValue(saved.bloomThreshold);
+        m_bloomIntensitySlider->setValue(static_cast<int>(saved.bloomIntensity * 100.0f));
+        m_bloomIntensityLabel->setText(QString::number(saved.bloomIntensity, 'f', 2));
+        m_hdrEnabledCheckBox->setChecked(saved.hdrEnabled);
+        m_exposureSpinBox->setValue(saved.exposure);
     } else {
         // Fallback: Load from viewer (when no Settings available)
         int modeIndex = m_renderingModeCombo->findData(static_cast<int>(m_viewer->getRenderingMode()));
@@ -305,6 +370,12 @@ void VisualizationSettingsDialog::loadCurrentSettings()
     m_ssaoIntensitySlider->blockSignals(false);
     m_ssaoRadiusSpinBox->blockSignals(false);
     m_ssaoBiasSpinBox->blockSignals(false);
+    // Claude Generated - Phase 5B: Unblock Bloom and HDR signals
+    m_bloomEnabledCheckBox->blockSignals(false);
+    m_bloomThresholdSpinBox->blockSignals(false);
+    m_bloomIntensitySlider->blockSignals(false);
+    m_hdrEnabledCheckBox->blockSignals(false);
+    m_exposureSpinBox->blockSignals(false);
 }
 
 void VisualizationSettingsDialog::onRenderingModeChanged(int index)
@@ -380,6 +451,12 @@ void VisualizationSettingsDialog::onApply()
         current.ssaoIntensity = m_viewer->getSSAOIntensity();
         current.ssaoRadius = m_viewer->getSSAORadius();
         current.ssaoBias = m_viewer->getSSAOBias();
+        // Claude Generated - Phase 5B: Save Bloom and HDR settings
+        current.bloomEnabled = m_viewer->getBloomEnabled();
+        current.bloomThreshold = m_viewer->getBloomThreshold();
+        current.bloomIntensity = m_viewer->getBloomIntensity();
+        current.hdrEnabled = m_viewer->getHDREnabled();
+        current.exposure = m_viewer->getExposure();
 
         m_settings->setVisualizationSettings(current);
     }
@@ -443,6 +520,47 @@ void VisualizationSettingsDialog::onSSAOBiasChanged(double value)
     if (!m_viewer) return;
 
     m_viewer->setSSAOBias(static_cast<float>(value));
+}
+
+// Claude Generated - Phase 5B: Bloom and HDR post-processing slot implementations
+void VisualizationSettingsDialog::onBloomEnabledChanged(bool enabled)
+{
+    if (!m_viewer) return;
+
+    m_viewer->setBloomEnabled(enabled);
+    m_bloomThresholdSpinBox->setEnabled(enabled);
+    m_bloomIntensitySlider->setEnabled(enabled);
+}
+
+void VisualizationSettingsDialog::onBloomThresholdChanged(double value)
+{
+    if (!m_viewer) return;
+
+    m_viewer->setBloomThreshold(static_cast<float>(value));
+}
+
+void VisualizationSettingsDialog::onBloomIntensityChanged(int value)
+{
+    if (!m_viewer) return;
+
+    float intensity = value / 100.0f;
+    m_bloomIntensityLabel->setText(QString::number(intensity, 'f', 2));
+    m_viewer->setBloomIntensity(intensity);
+}
+
+void VisualizationSettingsDialog::onHDREnabledChanged(bool enabled)
+{
+    if (!m_viewer) return;
+
+    m_viewer->setHDREnabled(enabled);
+    m_exposureSpinBox->setEnabled(enabled);
+}
+
+void VisualizationSettingsDialog::onExposureChanged(double value)
+{
+    if (!m_viewer) return;
+
+    m_viewer->setExposure(static_cast<float>(value));
 }
 
 // Claude Generated - Setup tabbed interface with all settings

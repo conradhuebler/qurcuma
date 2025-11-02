@@ -77,6 +77,12 @@ public:
         float ssaoIntensity = 1.0f;
         float ssaoRadius = 0.05f;
         float ssaoBias = 0.025f;
+        // Claude Generated - Phase 5B: Bloom and HDR post-processing
+        bool bloomEnabled = true;
+        float bloomThreshold = 0.8f;
+        float bloomIntensity = 1.0f;
+        bool hdrEnabled = true;
+        float exposure = 1.0f;
     };
 
     VisualizationSettings getVisualizationSettings() const;
