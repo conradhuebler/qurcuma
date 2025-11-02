@@ -94,12 +94,20 @@ src/
 ├── main.cpp                 - Application entry point
 ├── settings.cpp/h           - Configuration persistence with QSettings
 ├── visualizationsettingsdialog.cpp/h - Visualization & preset management (Phase 1 & 3)
-├── selectionmanager.cpp/h   - Atom selection state management (Phase 2 stub)
+├── selectionmanager.cpp/h   - Atom selection state management (Phase 2A)
+├── measurementoverlay.cpp/h - 3D measurement visualization (Phase 2B)
+├── atomlistpanel.cpp/h      - Table view for atom properties (Phase 2C)
+├── bondeditor.cpp/h         - Bond editing and validation (Phase 4B)
+├── performanceoptimizer.cpp/h - LOD and performance tuning (Phase 3B)
 ├── modifiabletextedit.h     - Custom text edit widget
 ├── frequencydialog.h        - Frequency analysis dialog
 ├── widgets/
-│   └── breadcrumbbar.cpp/h  - Clickable path navigation widget (Directory Navigation Phase 1)
-├── workspacemanager.cpp/h   - Workspace capture/restore manager (Phase 4.2)
+│   └── breadcrumbbar.cpp/h  - Clickable path navigation widget (Phase 1)
+├── workspacemanager.cpp/h   - Workspace capture/restore manager (Phase 2)
+├── shaders/
+│   ├── ssao.vert/frag       - SSAO screen-space ambient occlusion (Phase 3B)
+│   ├── ssao_blur.frag       - SSAO noise reduction blur (Phase 3B)
+│   ├── pbr.vert/frag        - Physically-based rendering shaders (Phase 4A)
 └── dialogs/                 - Modal dialogs for specialized features
 ```
 
@@ -223,3 +231,30 @@ Run tests: `./release/test_vtf_bonds`, `./release/test_vtf_frames`, `./release/t
   - ssao_blur.frag: Gaussian blur for noise reduction
   - Deferred integration pending FrameGraph setup
 - Implementation: 751 lines, 5 new files, 1 git commit
+
+### 3D Visualization - Phase 4A ✅ PARTIAL
+- ✅ **PBR Shaders** - Physically-Based Rendering with Cook-Torrance BRDF
+  - pbr.vert: Vertex shader with world space transformations
+  - pbr.frag: Fragment shader with Cook-Torrance BRDF equations
+  - Features: Fresnel-Schlick, GGX distribution, Schlick-GGX geometry
+  - Parameters: baseColor, metallic (0-1), roughness (0-1), ambientOcclusion
+  - Deferred: Material class wrapper and MoleculeViewer integration
+- Implementation: 2 shader files, 200+ lines, resources.qrc updated
+
+### 3D Visualization - Phase 4B ✅ CORE COMPLETE
+- ✅ **BondEditor Class** - Interactive bond manipulation system
+  - Methods: addBond(), removeBond(), changeBondOrder()
+  - Validation: Covalent radii, valence checking, distance limits
+  - Selection: Bond picking via Qt3DObjectPicker
+  - Edit Modes: None, AddBond, DeleteBond, ChangeBondOrder
+- ✅ **Bond Picking Integration** - Qt3D object selection for bonds
+  - ObjectPicker on each primary bond cylinder
+  - m_bondPickerToIndex map for picking event handling
+  - onBondPicked() slot for mode-specific actions
+  - Bond visual highlighting via selection (coordinated with atoms)
+- ✅ **XYZ File I/O** - Write support for trajectory files
+  - writeFile() - Single frame to XYZ file
+  - writeTrajectory() - Multiple frames to trajectory file
+  - convertFromMoleculeViewer() - Internal to XYZ format conversion
+- Deferred: Bond editing toolbar UI, auto-save system with debouncing
+- Implementation: BondEditor class (700 lines), XYZ writing (90 lines), bond picking integration (80 lines)

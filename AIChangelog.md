@@ -1,6 +1,40 @@
 # AIChangelog - Qurcuma Improvements
 
-## November 2025 (Iteration 3 - In Progress)
+## November 2025 (Iteration 4 - Phase 4A/4B Implementation)
+
+### 3D Visualization Phase 4A - PBR Rendering & Advanced Shaders (PARTIAL)
+- Created Cook-Torrance BRDF physically-based rendering shaders
+- pbr.vert: Vertex shader with world space transformations and normal transforms
+- pbr.frag: Fragment shader with complete PBRL equation implementation
+  - Fresnel-Schlick approximation for view-dependent reflection
+  - GGX/Trowbridge-Reitz normal distribution function (microfacet roughness)
+  - Schlick-GGX geometry shadowing for specular attenuation
+  - Proper metallic/dielectric material handling (F0 = 0.04 for dielectrics)
+- Material parameters: metallic (0-1), roughness (0-1), ambientOcclusion, baseColor
+- Deferred: PBRMaterial wrapper class and MoleculeViewer integration for toggle support
+- Educational focus: Full equation comments with physics references for learning
+- Shaders added to resources.qrc for deployment
+
+### 3D Visualization Phase 4B - Bond Editing & XYZ Sync (CORE COMPLETE)
+- BondEditor class: Complete interactive bond manipulation system
+  - addBond(atom1, atom2, order): Create new bonds with validation
+  - removeBond(bondIndex): Delete bonds with state cleanup
+  - changeBondOrder(bondIndex, newOrder): Cycle through 1→2→3→1 bond orders
+  - Comprehensive validation: Covalent radii, valence checking (max 1-6 per element), distance limits
+  - Edit modes: None (selection), AddBond, DeleteBond, ChangeBondOrder
+- Bond picking integration: Qt3D ObjectPicker on each bond cylinder
+  - m_bondPickerToIndex mapping for mode-specific event handling
+  - onBondPicked() slot routes clicks to appropriate bond operations
+  - Seamless integration with existing atom picking system
+- XYZ file I/O support (Phase 4B auto-save foundation):
+  - writeFile(filePath, frame): Save single frame to XYZ format
+  - writeTrajectory(filePath, frames): Save multiple frames to trajectory file
+  - convertFromMoleculeViewer(atoms, comment, xyzFrame): Internal format conversion
+  - Proper formatting with 6 decimal places for coordinates, comments preserved
+- Deferred: Bond editing toolbar UI, auto-save with debouncing, backup system
+- Total implementation: 850+ lines, 3 new classes/extensions
+
+### November 2025 (Iteration 3 - COMPLETE)
 
 ### 3D Visualization Phase 2A - Atom Selection & Picking (COMPLETE)
 - Implemented Qt3D ObjectPicker on each atom for direct 3D click-based selection

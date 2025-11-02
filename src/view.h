@@ -18,6 +18,7 @@
 
 class SelectionManager;  // Forward declaration
 class MeasurementOverlay;  // Claude Generated - Phase 2B - Forward declaration
+class BondEditor;  // Claude Generated - Phase 4B - Forward declaration
 
 class MoleculeViewer : public QWidget
 {
@@ -123,6 +124,10 @@ public slots:
     SelectionManager* getSelectionManager() const { return m_selectionManager; }  // Claude Generated - Phase 2A
     MeasurementOverlay* getMeasurementOverlay() const { return m_measurementOverlay; }  // Claude Generated - Phase 2B
 
+    // Claude Generated - Phase 4B: Bond editing
+    BondEditor* getBondEditor() const { return m_bondEditor; }
+    void setBondEditMode(int mode);  // 0=None, 1=AddBond, 2=DeleteBond, 3=ChangeBondOrder
+
     // Claude Generated - Phase 2C: Atom data accessors for AtomListPanel
     QVector<QVector3D> getAtomPositions() const;
     QVector<QString> getAtomElements() const;
@@ -144,6 +149,7 @@ public:
 
 private slots:
     void onAtomPicked(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated - Phase 2A - Handle ObjectPicker clicks
+    void onBondPicked(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated - Phase 4B - Handle bond picking
 
 private:
     Qt3DExtras::Qt3DWindow *m_view;
@@ -221,6 +227,12 @@ private:
 
     // Claude Generated - Phase 2B: Measurement overlay
     MeasurementOverlay *m_measurementOverlay = nullptr;
+
+    // Claude Generated - Phase 4B: Bond editing system
+    BondEditor *m_bondEditor = nullptr;
+    QMap<Qt3DRender::QObjectPicker*, int> m_bondPickerToIndex;  // Map ObjectPicker to bond index for picking
+    int m_bondEditMode = 0;  // 0=None, 1=AddBond (click 2 atoms), 2=DeleteBond, 3=ChangeBondOrder
+    int m_firstSelectedAtomForBond = -1;  // Track first atom when adding bond
 
     // Mouse interaction - Claude Generated
     bool m_leftMousePressed = false;

@@ -38,12 +38,23 @@ public:
     bool getFrame(int frameIndex, XYZFrame& frame) const;
 
     // Convert XYZ data to MoleculeViewer format
-    static void convertToMoleculeViewer(const XYZFrame& xyzFrame, 
+    static void convertToMoleculeViewer(const XYZFrame& xyzFrame,
                                       QVector<MoleculeViewer::Atom>& atoms,
                                       QVector<MoleculeViewer::Bond>& bonds);
 
+    // Write single frame to XYZ file (Phase 4B - Bond Editing)
+    static bool writeFile(const QString& filePath, const XYZFrame& frame);
+
+    // Write all frames to XYZ trajectory file (Phase 4B - Bond Editing)
+    static bool writeTrajectory(const QString& filePath, const QVector<XYZFrame>& frames);
+
+    // Convert MoleculeViewer data to XYZ format (Phase 4B - Auto-save)
+    static bool convertFromMoleculeViewer(const QVector<MoleculeViewer::Atom>& atoms,
+                                         const QString& comment,
+                                         XYZFrame& xyzFrame);
+
 private:
     bool parseAsciiFormat(const QString& filePath, QVector<XYZFrame>& frames);
-    
+
     QVector<XYZFrame> m_frames;  // Store all parsed frames
 };

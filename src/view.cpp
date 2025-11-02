@@ -2,6 +2,7 @@
 #include "view.h"
 #include "selectionmanager.h"  // Claude Generated - Phase 2A
 #include "measurementoverlay.h"  // Claude Generated - Phase 2B
+#include "bondeditor.h"  // Claude Generated - Phase 4B
 #include <Qt3DCore/QTransform>
 #include <Qt3DExtras/QSphereMesh>
 #include <Qt3DExtras/QCylinderMesh>
@@ -35,6 +36,9 @@ MoleculeViewer::MoleculeViewer(QWidget *parent)
 {
     // Claude Generated - Phase 2A: Initialize SelectionManager
     m_selectionManager = new SelectionManager(this);
+
+    // Claude Generated - Phase 4B: Initialize BondEditor
+    m_bondEditor = new BondEditor(this);
 
     setupViewer();
 
@@ -663,6 +667,18 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
         bondEntity->addComponent(transform);
         bondEntity->addComponent(material);
 
+        // Claude Generated - Phase 4B: Add ObjectPicker for bond selection
+        int bondIndex = m_bondEntities.size();  // Current bond index
+        Qt3DRender::QObjectPicker *bondPicker = new Qt3DRender::QObjectPicker(bondEntity);
+        bondPicker->setHoverEnabled(true);
+        bondEntity->addComponent(bondPicker);
+
+        // Store mapping for picking event handling
+        m_bondPickerToIndex[bondPicker] = bondIndex;
+
+        // Connect picker signals
+        connect(bondPicker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onBondPicked);
+
         // Claude Generated - Fix 2: Store bond reference for incremental updates
         m_bondEntities.append(bondEntity);
 
@@ -843,6 +859,13 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
     m_trajectoryBonds.append(actualBonds);
     m_frameCount = 1;
     m_currentFrame = 0;
+
+    // Claude Generated - Phase 4B: Initialize BondEditor with current molecule
+    if (m_bondEditor) {
+        m_bondEditor->setAtoms(atoms);
+        // Note: Bonds will be added via setBond methods during editing
+        // or populated from loaded trajectory data
+    }
 
     // Render the molecule using trajectory data
     Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
@@ -1404,6 +1427,29 @@ void MoleculeViewer::setMeasurementMode(int mode)
     }
 }
 
+// Claude Generated - Phase 4B: Bond edit mode management
+void MoleculeViewer::setBondEditMode(int mode)
+{
+    m_bondEditMode = qBound(0, mode, 3);  // Clamp 0-3 (None, AddBond, DeleteBond, ChangeBondOrder)
+
+    if (m_bondEditor) {
+        // Convert MoleculeViewer mode to BondEditor mode
+        BondEditor::EditMode editorMode;
+        switch (m_bondEditMode) {
+            case 0: editorMode = BondEditor::EditMode::None; break;
+            case 1: editorMode = BondEditor::EditMode::AddBondMode; break;
+            case 2: editorMode = BondEditor::EditMode::DeleteBondMode; break;
+            case 3: editorMode = BondEditor::EditMode::ChangeBondMode; break;
+            default: editorMode = BondEditor::EditMode::None;
+        }
+        m_bondEditor->setEditMode(editorMode);
+
+        // Log mode change for debugging
+        const char* modeNames[] = {"None", "AddBond", "DeleteBond", "ChangeBondOrder"};
+        qDebug() << "Bond edit mode:" << modeNames[m_bondEditMode];
+    }
+}
+
 void MoleculeViewer::updateMeasurementDisplay()
 {
     if (m_selectedAtoms.isEmpty() || m_trajectoryAtoms.isEmpty()) {
@@ -1638,6 +1684,72 @@ void MoleculeViewer::onAtomPicked(Qt3DRender::QPickEvent *pickEvent)
 
     // Emit signal for downstream UI updates
     emit selectionChanged(m_selectionManager->selectedAtoms());
+}
+
+// Claude Generated - Phase 4B: Bond picking and editing
+void MoleculeViewer::onBondPicked(Qt3DRender::QPickEvent *pickEvent)
+{
+    // Find which bond was picked
+    Qt3DRender::QObjectPicker *picker = qobject_cast<Qt3DRender::QObjectPicker*>(sender());
+    if (!picker || !m_bondPickerToIndex.contains(picker)) {
+        return;
+    }
+
+    int bondIndex = m_bondPickerToIndex[picker];
+    if (!m_bondEditor) {
+        return;
+    }
+
+    // Handle based on current edit mode
+    switch (m_bondEditMode) {
+        case 0:  // None - just select/deselect
+            m_bondEditor->selectBond(bondIndex);
+            break;
+
+        case 1: {  // AddBond mode - click 2 atoms
+            // Get bond atoms from pickEvent or selectionManager
+            const auto& selectedAtoms = m_selectionManager->selectedAtoms();
+            if (selectedAtoms.size() >= 2) {
+                int atom1 = selectedAtoms[selectedAtoms.size() - 2];
+                int atom2 = selectedAtoms[selectedAtoms.size() - 1];
+
+                if (m_bondEditor->addBond(atom1, atom2, 1)) {
+                    m_firstSelectedAtomForBond = -1;  // Reset
+                    refreshVisualization();  // Rebuild geometry with new bond
+                } else {
+                    qWarning() << "Failed to add bond";
+                }
+            }
+            break;
+        }
+
+        case 2:  // DeleteBond mode - click bond to delete
+            if (m_bondEditor->removeBond(bondIndex)) {
+                refreshVisualization();  // Rebuild geometry without bond
+            } else {
+                qWarning() << "Failed to delete bond";
+            }
+            break;
+
+        case 3:  // ChangeBondOrder mode - click to cycle 1->2->3->1
+            {
+                const auto& bonds = m_bondEditor->getAllBonds();
+                if (bondIndex < bonds.size()) {
+                    int currentOrder = bonds[bondIndex].bondOrder;
+                    int newOrder = (currentOrder % 3) + 1;  // Cycle: 1->2, 2->3, 3->1
+
+                    if (m_bondEditor->changeBondOrder(bondIndex, newOrder)) {
+                        refreshVisualization();  // Rebuild geometry with new bond order
+                    } else {
+                        qWarning() << "Failed to change bond order";
+                    }
+                }
+            }
+            break;
+
+        default:
+            break;
+    }
 }
 
 // Claude Generated - Phase 2A: Direct selection from internal calls

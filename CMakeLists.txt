@@ -39,6 +39,7 @@ set(SOURCES
     src/measurementoverlay.cpp  # Claude Generated Phase 2B
     src/atomlistpanel.cpp  # Claude Generated Phase 2C
     src/performanceoptimizer.cpp  # Claude Generated Phase 3B
+    src/bondeditor.cpp  # Claude Generated Phase 4B
 
     #src/dialogs/nmrstructuremodel.cpp
     #src/atominstancingsystem.cpp  # Claude Generated Phase 3B (foundation - deferred for full implementation)
@@ -60,6 +61,7 @@ set(HEADERS
     src/measurementoverlay.h  # Claude Generated Phase 2B
     src/atomlistpanel.h  # Claude Generated Phase 2C
     src/performanceoptimizer.h  # Claude Generated Phase 3B
+    src/bondeditor.h  # Claude Generated Phase 4B
     #src/atominstancingsystem.h  # Claude Generated Phase 3B (foundation - deferred for full implementation)
     #src/dialogs/nmrstructuremodel.h
 

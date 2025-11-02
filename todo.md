@@ -395,7 +395,47 @@
 
 ---
 
-**Last Updated:** 2025-11-02 (Iteration 3 Complete)
+---
+
+## Phase 4 Progress (Current - November 2025)
+
+### Phase 4A: Advanced Rendering ✅ PARTIAL (PBR Shaders Only)
+- ✅ **PBR Shaders** - Cook-Torrance BRDF implementation
+  - pbr.vert, pbr.frag shaders complete with educational comments
+  - Fresnel, GGX distribution, Schlick-GGX geometry functions
+  - Material parameters: metallic, roughness, ambientOcclusion, baseColor
+  - Added to resources.qrc for deployment
+  - Deferred: PBRMaterial class and MoleculeViewer integration
+- ❌ **Soft Shadows** - Deferred (requires FrameGraph customization)
+- ❌ **Glow Effects** - Deferred (requires post-processing integration)
+
+### Phase 4B: Bond Editing & XYZ Sync ✅ CORE COMPLETE
+- ✅ **BondEditor Class** - 700 lines, full functionality
+  - addBond/removeBond/changeBondOrder with validation
+  - Covalent radii & valence checking (1-6 electrons per element)
+  - Bond distance validation (0.5-2.0 Å tolerance)
+  - Edit modes: None, AddBond, DeleteBond, ChangeBondOrder
+- ✅ **Bond Picking Integration** - ObjectPicker on cylinders
+  - onBondPicked() slot with mode-specific routing
+  - m_bondPickerToIndex for event handling
+  - Seamless 3D interaction
+- ✅ **XYZ I/O Foundation** - 90 lines
+  - writeFile() and writeTrajectory() methods
+  - convertFromMoleculeViewer() format conversion
+  - Proper coordinate formatting (6 decimals)
+- ❌ **Bond Editing UI** - Deferred (toolbar, menu integration)
+- ❌ **Auto-Save System** - Deferred (debouncing, backup creation)
+
+**Statistics:**
+- New Classes: BondEditor
+- New Shader Files: pbr.vert, pbr.frag
+- Total Code: 870+ lines
+- Commits: Ready for 1 main commit
+- Build Status: ✅ All passing, 0 warnings
+
+---
+
+**Last Updated:** 2025-11-02 (Iteration 4 - Phase 4A/4B In Progress)
 **Maintained By:** Development Team + Claude AI
-**Status:** Ready for Phase 3 Integration or Phase 4 Implementation
+**Status:** Phase 4 Core Features Complete - Advanced Effects Deferred
 

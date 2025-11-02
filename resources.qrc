@@ -5,4 +5,16 @@
         <file>stylesheets/dark.qss</file>
         <file>stylesheets/light.qss</file>
     </qresource>
+
+    <!-- Claude Generated - Phase 3B & 4A: Shader resources for advanced rendering -->
+    <qresource prefix="/shaders">
+        <!-- SSAO Shaders (Phase 3B - Foundation) -->
+        <file>src/shaders/ssao.vert</file>
+        <file>src/shaders/ssao.frag</file>
+        <file>src/shaders/ssao_blur.frag</file>
+
+        <!-- PBR Shaders (Phase 4A - Cook-Torrance BRDF) -->
+        <file>src/shaders/pbr.vert</file>
+        <file>src/shaders/pbr.frag</file>
+    </qresource>
 </RCC>
