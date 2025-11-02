@@ -45,9 +45,11 @@ set(SOURCES
     src/fullscreenquad.cpp  # Claude Generated Phase 5A
     src/pdbparser.cpp  # Claude Generated Phase 5C
     src/mol2parser.cpp  # Claude Generated Phase 5C
+    src/frustumculler.cpp  # Claude Generated Phase 5D (frustum culling)
+    src/fileloadingworker.cpp  # Claude Generated Phase 5D (async file loading)
 
     #src/dialogs/nmrstructuremodel.cpp
-    #src/atominstancingsystem.cpp  # Claude Generated Phase 3B (foundation - deferred for full implementation)
+    src/atominstancingsystem.cpp  # Claude Generated Phase 5D (GPU instancing implementation)
 )
 
 # Header-Dateien
@@ -72,7 +74,9 @@ set(HEADERS
     src/fullscreenquad.h  # Claude Generated Phase 5A
     src/pdbparser.h  # Claude Generated Phase 5C
     src/mol2parser.h  # Claude Generated Phase 5C
-    #src/atominstancingsystem.h  # Claude Generated Phase 3B (foundation - deferred for full implementation)
+    src/frustumculler.h  # Claude Generated Phase 5D (frustum culling)
+    src/fileloadingworker.h  # Claude Generated Phase 5D (async file loading)
+    src/atominstancingsystem.h  # Claude Generated Phase 5D (GPU instancing implementation)
     #src/dialogs/nmrstructuremodel.h
 
 )
