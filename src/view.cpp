@@ -325,6 +325,21 @@ void MoleculeViewer::setMaterialMode(MaterialMode mode)
     }
 }
 
+// Claude Generated - Phase 4 Final: Glow intensity for selection highlighting
+void MoleculeViewer::setGlowIntensity(float intensity)
+{
+    float newIntensity = qBound(1.0f, intensity, 2.0f);  // Clamp to 1.0-2.0
+    if (!qFuzzyCompare(m_glowIntensity, newIntensity)) {
+        m_glowIntensity = newIntensity;
+        qDebug() << "Glow intensity set to:" << m_glowIntensity;
+
+        // Update materials to reflect new glow intensity
+        if (!m_trajectoryAtoms.isEmpty()) {
+            updateMaterials();
+        }
+    }
+}
+
 void MoleculeViewer::setColorScheme(ColorScheme scheme)
 {
     if (m_colorScheme != scheme) {
@@ -418,8 +433,11 @@ void MoleculeViewer::updateMaterials()
             if (pbrMat) {
                 pbrMat->setBaseColor(updateColor);
                 if (isSelected) {
-                    pbrMat->setMetallic(0.3f);    // Slightly more metallic for glow
-                    pbrMat->setRoughness(0.3f);    // Smoother for emphasis
+                    // Claude Generated - Phase 4 Final: Apply glow intensity to PBR material
+                    float metallic = 0.2f + (0.3f * (m_glowIntensity - 1.0f));  // 0.2-0.5 range
+                    float roughness = 0.3f / m_glowIntensity;  // Smoother with higher glow
+                    pbrMat->setMetallic(qBound(0.0f, metallic, 1.0f));
+                    pbrMat->setRoughness(qBound(0.0f, roughness, 1.0f));
                 }
             }
         } else {
@@ -429,7 +447,9 @@ void MoleculeViewer::updateMaterials()
                 phongMat->setAmbient(updateColor.darker());
                 phongMat->setDiffuse(updateColor);
                 if (isSelected) {
-                    phongMat->setShininess(m_atomShininess + 20);  // Extra shine for visual emphasis
+                    // Claude Generated - Phase 4 Final: Apply glow intensity to Phong material
+                    float shininess = m_atomShininess + (20.0f * m_glowIntensity);  // Base + glow
+                    phongMat->setShininess(qBound(0.0f, shininess, 128.0f));  // Clamp to valid range
                 } else {
                     phongMat->setShininess(m_atomShininess);
                 }
@@ -1441,6 +1461,18 @@ void MoleculeViewer::setupControlPanel()
         setMaterialMode(static_cast<MaterialMode>(materialCombo->itemData(index).toInt()));
     });
     panelLayout->addWidget(materialCombo);
+
+    // Claude Generated - Phase 4 Final: Glow intensity slider for selection highlighting
+    QSlider *glowSlider = new QSlider(Qt::Horizontal);
+    glowSlider->setMinimum(10);  // 1.0x
+    glowSlider->setMaximum(20);  // 2.0x
+    glowSlider->setValue(10);
+    glowSlider->setMaximumWidth(60);
+    glowSlider->setToolTip(tr("Selection glow intensity (1.0-2.0x)"));
+    connect(glowSlider, &QSlider::valueChanged, [this, glowSlider](int value) {
+        setGlowIntensity(value / 10.0f);  // Convert slider value to 1.0-2.0 range
+    });
+    panelLayout->addWidget(glowSlider);
 
     // Separator
     panelLayout->addWidget(createSeparator());

@@ -74,6 +74,10 @@ public:
     void setMaterialMode(MaterialMode mode);
     MaterialMode getMaterialMode() const { return m_materialMode; }
 
+    // Claude Generated - Phase 4 Final: Glow intensity for selection highlighting
+    void setGlowIntensity(float intensity);
+    float getGlowIntensity() const { return m_glowIntensity; }
+
     void setColorScheme(ColorScheme scheme);
     ColorScheme getColorScheme() const { return m_colorScheme; }
 
@@ -213,6 +217,7 @@ private:
     RenderingMode m_renderingMode = RenderingMode::BallAndStick;
     ColorScheme m_colorScheme = ColorScheme::CPK;
     MaterialMode m_materialMode = MaterialMode::Phong;  // Claude Generated - Phase 4A
+    float m_glowIntensity = 1.0f;         // Claude Generated - Phase 4 Final: Selection glow (1.0-2.0)
     float m_atomTransparency = 1.0f;      // Fully opaque by default
     float m_atomShininess = 80.0f;        // Default Phong shininess
     float m_atomScaleFactor = 1.0f;       // Default: no scaling
