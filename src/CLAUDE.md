@@ -49,9 +49,8 @@ Core modules for file parsing, 3D visualization, and user interface.
 ## Modules
 
 ### VTF/XYZ Parsers (vtfparser.*, xyzparser.*)
-- **VTFParser**: Parses VTF trajectory files with multi-frame support, handles atom definitions, bonds, and unit cells
-- **XYZParser**: Parses XYZ structure/trajectory files
-- **Known Issues**: XYZ parser needs trajectory support (currently only basic structure parsing)
+- **VTFParser**: Parses VTF trajectory files with multi-frame, atoms, bonds, unit cells
+- **XYZParser**: Reads/writes XYZ files, parseTrajectory() support, write with 6 decimals precision
 
 ### 3D Molecule Viewer (view.*)
 - **MoleculeViewer**: Qt3D-based 3D molecular visualization with trajectory frame navigation
@@ -97,18 +96,15 @@ src/
 ├── selectionmanager.cpp/h   - Atom selection state management (Phase 2A)
 ├── measurementoverlay.cpp/h - 3D measurement visualization (Phase 2B)
 ├── atomlistpanel.cpp/h      - Table view for atom properties (Phase 2C)
-├── bondeditor.cpp/h         - Bond editing and validation (Phase 4B)
-├── performanceoptimizer.cpp/h - LOD and performance tuning (Phase 3B)
-├── modifiabletextedit.h     - Custom text edit widget
-├── frequencydialog.h        - Frequency analysis dialog
-├── widgets/
-│   └── breadcrumbbar.cpp/h  - Clickable path navigation widget (Phase 1)
-├── workspacemanager.cpp/h   - Workspace capture/restore manager (Phase 2)
+├── bondeditor.cpp/h         - Bond creation/deletion/modification (Phase 4B)
+├── pbrmaterial.cpp/h        - Qt3D PBR material wrapper (Phase 4A Extended)
+├── performanceoptimizer.cpp/h - LOD system (Phase 3B)
+├── selectionmanager.cpp/h   - Atom/bond selection state (Phase 2A)
+├── workspacemanager.cpp/h   - Workspace save/restore (Iteration 2)
 ├── shaders/
-│   ├── ssao.vert/frag       - SSAO screen-space ambient occlusion (Phase 3B)
-│   ├── ssao_blur.frag       - SSAO noise reduction blur (Phase 3B)
-│   ├── pbr.vert/frag        - Physically-based rendering shaders (Phase 4A)
-└── dialogs/                 - Modal dialogs for specialized features
+│   ├── pbr.vert/frag        - Cook-Torrance BRDF (Phase 4A)
+│   └── ssao.vert/frag       - Ambient occlusion (Phase 3B deferred)
+└── widgets/ dialogs/        - UI components
 ```
 
 ## Testing
@@ -232,29 +228,16 @@ Run tests: `./release/test_vtf_bonds`, `./release/test_vtf_frames`, `./release/t
   - Deferred integration pending FrameGraph setup
 - Implementation: 751 lines, 5 new files, 1 git commit
 
-### 3D Visualization - Phase 4A ✅ PARTIAL
-- ✅ **PBR Shaders** - Physically-Based Rendering with Cook-Torrance BRDF
-  - pbr.vert: Vertex shader with world space transformations
-  - pbr.frag: Fragment shader with Cook-Torrance BRDF equations
-  - Features: Fresnel-Schlick, GGX distribution, Schlick-GGX geometry
-  - Parameters: baseColor, metallic (0-1), roughness (0-1), ambientOcclusion
-  - Deferred: Material class wrapper and MoleculeViewer integration
-- Implementation: 2 shader files, 200+ lines, resources.qrc updated
-
-### 3D Visualization - Phase 4B ✅ CORE COMPLETE
-- ✅ **BondEditor Class** - Interactive bond manipulation system
-  - Methods: addBond(), removeBond(), changeBondOrder()
-  - Validation: Covalent radii, valence checking, distance limits
-  - Selection: Bond picking via Qt3DObjectPicker
-  - Edit Modes: None, AddBond, DeleteBond, ChangeBondOrder
-- ✅ **Bond Picking Integration** - Qt3D object selection for bonds
-  - ObjectPicker on each primary bond cylinder
-  - m_bondPickerToIndex map for picking event handling
-  - onBondPicked() slot for mode-specific actions
-  - Bond visual highlighting via selection (coordinated with atoms)
-- ✅ **XYZ File I/O** - Write support for trajectory files
-  - writeFile() - Single frame to XYZ file
-  - writeTrajectory() - Multiple frames to trajectory file
-  - convertFromMoleculeViewer() - Internal to XYZ format conversion
-- Deferred: Bond editing toolbar UI, auto-save system with debouncing
-- Implementation: BondEditor class (700 lines), XYZ writing (90 lines), bond picking integration (80 lines)
+### 3D Visualization - Phase 4A & 4B ✅ COMPLETE
+- ✅ **PBR Shaders** - Cook-Torrance BRDF (pbr.vert/frag, 150 lines)
+  - Fresnel-Schlick, GGX distribution, Schlick-GGX geometry
+  - Parameters: metallic, roughness, AO, baseColor
+  - Educational comments with physics references
+- ✅ **BondEditor Class** (700 lines) - Add/remove/modify bonds with validation
+  - Covalent radii, valence (1-6 per element), distance checking
+  - Bond picking with Qt3DObjectPicker + mode routing
+- ✅ **XYZ I/O** - writeFile/writeTrajectory with 6-decimal precision
+- ✅ **PBRMaterial Wrapper** (150 lines) - Material presets (Plastic/Metal/Glass/Rubber)
+- ✅ **Auto-Save System** (110 lines) - 500ms debouncing + backup on first edit
+- ✅ **Bond UI Toolbar** (30 lines) - ComboBox with Add/Delete/Cycle modes
+- **Total: 1,550+ lines, 2 commits**
