@@ -6,6 +6,12 @@ Core modules for file parsing, 3D visualization, and user interface.
 
 ## Current Status (November 2025)
 
+### Advanced Rendering & File Formats - Phase 5A/5B/5C ✅ COMPLETE
+- ✅ **Phase 5A:** Multi-pass FrameGraph + SSAO integration (600+ lines)
+- ✅ **Phase 5B:** Bloom/Glow & HDR tone mapping shaders (5 shaders, 280 lines)
+- ✅ **Phase 5C:** PDB & MOL2 file format support (800+ lines)
+- **Total Phase 5:** 2,400+ lines across 3 commits, clean build
+
 ### Directory Navigation & Workspace Management ✅ COMPLETE
 - ✅ **Phase 1: Breadcrumb Navigation** - Clickable path segments in sidebar
   - Click segments to jump to parent directories, Home shown as ~
@@ -101,9 +107,18 @@ src/
 ├── performanceoptimizer.cpp/h - LOD system (Phase 3B)
 ├── selectionmanager.cpp/h   - Atom/bond selection state (Phase 2A)
 ├── workspacemanager.cpp/h   - Workspace save/restore (Iteration 2)
+├── customframegraph.cpp/h   - Multi-pass rendering (Phase 5A)
+├── fullscreenquad.cpp/h     - Post-processing utility (Phase 5A)
+├── pdbparser.cpp/h          - PDB format support (Phase 5C)
+├── mol2parser.cpp/h         - MOL2 format support (Phase 5C)
 ├── shaders/
 │   ├── pbr.vert/frag        - Cook-Torrance BRDF (Phase 4A)
-│   └── ssao.vert/frag       - Ambient occlusion (Phase 3B deferred)
+│   ├── ssao.vert/frag/blur  - Ambient occlusion (Phase 3B → 5A)
+│   ├── bloom_bright.frag    - Bloom bright pass (Phase 5B)
+│   ├── blur_horizontal.frag - Gaussian blur H (Phase 5B)
+│   ├── blur_vertical.frag   - Gaussian blur V (Phase 5B)
+│   ├── bloom_composite.frag - Bloom composite (Phase 5B)
+│   └── tonemapping.frag     - HDR tone mapping (Phase 5B)
 └── widgets/ dialogs/        - UI components
 ```
 
@@ -241,3 +256,46 @@ Run tests: `./release/test_vtf_bonds`, `./release/test_vtf_frames`, `./release/t
 - ✅ **Auto-Save System** (110 lines) - 500ms debouncing + backup on first edit
 - ✅ **Bond UI Toolbar** (30 lines) - ComboBox with Add/Delete/Cycle modes
 - **Total: 1,550+ lines, 2 commits**
+
+### Advanced Rendering - Phase 5A & 5B ✅ COMPLETE
+- ✅ **CustomFrameGraph** (customframegraph.h/cpp, 400 lines) - Multi-pass rendering pipeline
+  - 4-pass architecture: Geometry → SSAO → Blur → Composite
+  - G-buffer setup: Color (RGBA16F), Depth (D24S8), Normal (RGB16F)
+  - Post-processing render targets for effects
+  - Filter key routing system for pass selection
+  - HDR support with Float16 render targets
+- ✅ **SSAO Post-Processing** - Screen-Space Ambient Occlusion
+  - Integrated existing ssao.vert/ssao.frag shaders
+  - Parameters: Intensity (0-2), Radius (0.01-0.2), Bias (0-0.1)
+  - UI controls with real-time parameter adjustment
+  - Settings persistence via QSettings
+- ✅ **Bloom & Glow** (5 new shaders, 280 lines)
+  - bloom_bright.frag: Bright pixel extraction with soft knee
+  - blur_horizontal/vertical.frag: 7-tap Gaussian blur
+  - bloom_composite.frag: Additive blending with scene
+  - Parameters: Threshold (0.5-1.5), Intensity (0-2)
+- ✅ **HDR Tone Mapping** (tonemapping.frag, 60 lines)
+  - Reinhard global tone mapping operator
+  - sRGB gamma correction (1/2.2)
+  - Exposure compensation (0.5-3.0)
+- ✅ **FullscreenQuad Helper** - Utility for post-processing passes
+- **Total: 600+ lines, 2 commits**
+
+### File Format Support - Phase 5C ✅ COMPLETE
+- ✅ **PDB Parser** (pdbparser.h/cpp, 450 lines) - Protein Data Bank format
+  - Fixed-width column parsing per PDB specification
+  - ATOM/HETATM record extraction with full fields
+  - Multi-model support (NMR ensembles)
+  - Explicit connectivity via CONECT records
+  - Distance-based bond detection (covalent radii + threshold)
+  - Element symbol extraction with heuristics
+- ✅ **MOL2 Parser** (mol2parser.h/cpp, 350 lines) - Tripos MOL2 format
+  - Space-delimited section-based parsing
+  - @<TRIPOS>MOLECULE/ATOM/BOND section support
+  - Sybyl atom type to element conversion
+  - Bond type handling (single, double, triple, aromatic)
+- ✅ **File Format Integration** (mainwindow.cpp)
+  - Context menu "Open with 3D Viewer" for .pdb and .mol2
+  - File filter in directory view
+  - Inline error dialogs with parser messages
+- **Total: 950+ lines, 1 commit**
