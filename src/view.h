@@ -15,6 +15,7 @@
 #include <Qt3DCore/QTransform>
 #include <QVector3D>
 #include <Qt3DExtras/QOrbitCameraController>
+#include "customframegraph.h"  // Claude Generated - Phase 5A
 
 class SelectionManager;  // Forward declaration
 class MeasurementOverlay;  // Claude Generated - Phase 2B - Forward declaration
@@ -172,6 +173,7 @@ private:
     Qt3DExtras::Qt3DWindow *m_view;
     QWidget *m_container;
     QWidget *m_controlPanel;  // Claude Generated - Integrated control panel
+    CustomFrameGraph *m_frameGraph = nullptr;  // Claude Generated - Phase 5A: Multi-pass rendering
 
     // Claude Generated - Frame control widgets (shown/hidden based on frame count)
     QWidget *m_frameControlWidget = nullptr;

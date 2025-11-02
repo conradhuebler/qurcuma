@@ -41,6 +41,8 @@ set(SOURCES
     src/performanceoptimizer.cpp  # Claude Generated Phase 3B
     src/bondeditor.cpp  # Claude Generated Phase 4B
     src/pbrmaterial.cpp  # Claude Generated Phase 4A
+    src/customframegraph.cpp  # Claude Generated Phase 5A
+    src/fullscreenquad.cpp  # Claude Generated Phase 5A
 
     #src/dialogs/nmrstructuremodel.cpp
     #src/atominstancingsystem.cpp  # Claude Generated Phase 3B (foundation - deferred for full implementation)
@@ -64,6 +66,8 @@ set(HEADERS
     src/performanceoptimizer.h  # Claude Generated Phase 3B
     src/bondeditor.h  # Claude Generated Phase 4B
     src/pbrmaterial.h  # Claude Generated Phase 4A
+    src/customframegraph.h  # Claude Generated Phase 5A
+    src/fullscreenquad.h  # Claude Generated Phase 5A
     #src/atominstancingsystem.h  # Claude Generated Phase 3B (foundation - deferred for full implementation)
     #src/dialogs/nmrstructuremodel.h
 

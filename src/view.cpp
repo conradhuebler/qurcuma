@@ -96,6 +96,11 @@ void MoleculeViewer::setupViewer()
     m_cameraController = new Qt3DExtras::QOrbitCameraController(m_rootEntity);
     // NICHT aktivieren: m_cameraController->setCamera(m_camera);
 
+    // Claude Generated - Phase 5A: Initialize custom multi-pass frame graph
+    m_frameGraph = new CustomFrameGraph();
+    m_frameGraph->initialize(m_container->size(), m_camera, m_rootEntity);
+    m_view->setActiveFrameGraph(m_frameGraph);
+
     m_view->setRootEntity(m_rootEntity);
 
     // Install event filter für custom mouse interactions
