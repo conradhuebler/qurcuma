@@ -275,7 +275,7 @@ void MainWindow::setupUI()
     m_directoryContentModel->setFilter(QDir::NoDotAndDotDot | QDir::Files);
     // Set file filters for relevant chemistry files
     m_directoryContentModel->setNameFilters(QStringList()
-        << "*.xyz" << "*.vtf" << "*.inp" << "*.log" << "*.out"
+        << "*.xyz" << "*.vtf" << "*.pdb" << "*.mol2" << "*.inp" << "*.log" << "*.out"
         << "*.hess" << "*.gbw" << "*.txt" << "*.*" << "input");
     m_directoryContentModel->setNameFilterDisables(false);
     m_directoryContentView->setModel(m_directoryContentModel);
@@ -558,7 +558,57 @@ void MainWindow::setupContextMenu()
                     });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
-            }else if(filePath.endsWith(".gbw", Qt::CaseInsensitive) || filePath.endsWith(".loc", Qt::CaseInsensitive) || filePath.endsWith(".ges", Qt::CaseInsensitive)) 
+            } else if (filePath.endsWith(".pdb", Qt::CaseInsensitive))
+            {
+                // Claude Generated - Phase 5C: PDB file support
+                QMenu contextMenu(this);
+                QAction *fileNameAction = contextMenu.addAction(QFileInfo(filePath).fileName());
+                fileNameAction->setEnabled(false);
+                contextMenu.addSeparator();
+
+                QAction *visualizerAction = contextMenu.addAction(tr("Open with 3D Viewer"));
+
+                connect(visualizerAction, &QAction::triggered,
+                    [this, filePath]() {
+                        PDBParser pdbParser;
+                        PDBParser::PDBFrame frame;
+                        if (pdbParser.parseFile(filePath, frame)) {
+                            QVector<MoleculeViewer::Atom> atoms;
+                            QVector<MoleculeViewer::Bond> bonds;
+                            PDBParser::convertToMoleculeViewer(frame, atoms, bonds, pdbParser.getBonds());
+                            m_moleculeView->addMolecule(atoms, bonds);
+                        } else {
+                            QMessageBox::warning(this, tr("Error"), tr("Failed to parse PDB file: %1").arg(pdbParser.getLastError()));
+                        }
+                    });
+
+                contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
+            } else if (filePath.endsWith(".mol2", Qt::CaseInsensitive))
+            {
+                // Claude Generated - Phase 5C: MOL2 file support
+                QMenu contextMenu(this);
+                QAction *fileNameAction = contextMenu.addAction(QFileInfo(filePath).fileName());
+                fileNameAction->setEnabled(false);
+                contextMenu.addSeparator();
+
+                QAction *visualizerAction = contextMenu.addAction(tr("Open with 3D Viewer"));
+
+                connect(visualizerAction, &QAction::triggered,
+                    [this, filePath]() {
+                        MOL2Parser mol2Parser;
+                        MOL2Parser::MOL2Molecule molecule;
+                        if (mol2Parser.parseFile(filePath, molecule)) {
+                            QVector<MoleculeViewer::Atom> atoms;
+                            QVector<MoleculeViewer::Bond> bonds;
+                            MOL2Parser::convertToMoleculeViewer(molecule, atoms, bonds);
+                            m_moleculeView->addMolecule(atoms, bonds);
+                        } else {
+                            QMessageBox::warning(this, tr("Error"), tr("Failed to parse MOL2 file: %1").arg(mol2Parser.getLastError()));
+                        }
+                    });
+
+                contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
+            }else if(filePath.endsWith(".gbw", Qt::CaseInsensitive) || filePath.endsWith(".loc", Qt::CaseInsensitive) || filePath.endsWith(".ges", Qt::CaseInsensitive))
             {
                 QMenu contextMenu(this);
                 QAction *fileNameAction = contextMenu.addAction(tr("Open with IboView"));

@@ -3,6 +3,8 @@
 #include "settings.h"
 #include "vtfparser.h"
 #include "xyzparser.h"
+#include "pdbparser.h"  // Claude Generated - Phase 5C
+#include "mol2parser.h"  // Claude Generated - Phase 5C
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCompleter>
