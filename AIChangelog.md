@@ -1,5 +1,30 @@
 # AIChangelog - Qurcuma Improvements
 
+## November 2025 (Iteration 5 - Phase 5A/5B/5C Complete)
+
+### Phase 5A - Multi-Pass FrameGraph & SSAO Integration ✅
+- CustomFrameGraph (400 lines): 4-pass rendering (Geometry → SSAO → Blur → Composite)
+- G-buffer setup: Color (RGBA16F), Depth (D24S8), Normal (RGB16F) textures
+- SSAO integration: UI sliders for Intensity/Radius/Bias with real-time control
+- Settings persistence: All parameters saved to QSettings, restored on startup
+- Filter key routing system for render pass selection and fallback
+
+### Phase 5B - Bloom/Glow & HDR Tone Mapping ✅
+- Bloom shaders (5 files, 280 lines): bright pass, horizontal/vertical blur, composite
+- Bloom parameters: Threshold (0.5-1.5), Intensity (0.0-2.0) with slider controls
+- HDR tone mapping: Reinhard operator, sRGB gamma correction, exposure compensation
+- Post-processing UI: New "Post-Processing" section in VisualizationSettingsDialog
+- FullscreenQuad utility: Helper class for rendering fullscreen effects
+
+### Phase 5C - File Format Support (PDB & MOL2) ✅
+- PDBParser (450 lines): Fixed-width PDB parsing, CONECT records, multi-model NMR support
+- MOL2Parser (350 lines): Tripos MOL2 format, section-based parsing, Sybyl atom types
+- File integration: Context menu "Open with 3D Viewer" for .pdb/.mol2 files
+- Bond detection: Distance-based (covalent radii) + explicit connectivity
+- Error handling: Inline error dialogs with parser-specific messages
+
+**Total Phase 5: 2,400+ lines, 3 commits (fee39f8, 6467838, cfdad3b), clean build**
+
 ## November 2025 (Iteration 4 - Phase 4A/4B Complete)
 
 ### Phase 4A - PBR Rendering Shaders ✅
