@@ -232,7 +232,7 @@ private:
     // Claude Generated - Entity references for incremental updates (Fix 2)
     QVector<Qt3DCore::QEntity*> m_atomEntities;      // References to atom sphere entities
     QVector<Qt3DCore::QEntity*> m_bondEntities;      // References to bond cylinder entities
-    QVector<Qt3DExtras::QPhongMaterial*> m_atomMaterials;  // References to atom materials
+    QVector<Qt3DRender::QMaterial*> m_atomMaterials;  // Claude Generated - Phase 4 Final: Support both Phong and PBR materials
     int m_measurementMode = 0;  // 0=None, 1=Distance, 2=Angle
 
     // Claude Generated - Phase 2A: Selection management

@@ -384,14 +384,14 @@ void MoleculeViewer::setBondThickness(float thickness)
     }
 }
 
-// Claude Generated - Fix 2: Incremental update methods for smooth rendering
+// Claude Generated - Fix 2 & Phase 4 Final: Incremental update methods for smooth rendering
 void MoleculeViewer::updateMaterials()
 {
     // Update only the material properties of existing atoms (colors, transparency, shininess)
     // This is much faster than full scene rebuild
     for (int i = 0; i < m_atomMaterials.size(); ++i) {
-        Qt3DExtras::QPhongMaterial *material = m_atomMaterials[i];
-        if (!material) continue;
+        Qt3DRender::QMaterial *baseMaterial = m_atomMaterials[i];
+        if (!baseMaterial) continue;
 
         // Get atom for color calculation
         if (m_currentFrame >= m_trajectoryAtoms.size() || i >= m_trajectoryAtoms[m_currentFrame].size()) {
@@ -409,19 +409,33 @@ void MoleculeViewer::updateMaterials()
 
         // Claude Generated - Phase 2A: Apply selection highlighting with bright colors
         bool isSelected = m_selectionManager && m_selectionManager->isSelected(i);
+        QColor updateColor = isSelected ? QColor(255, 200, 50) : atomColor;  // Bright orange-yellow for selection
 
-        // Update material colors
-        if (isSelected) {
-            // Bright yellow/orange highlighting for selected atoms
-            QColor selectedColor(255, 200, 50);  // Bright orange-yellow
-            material->setAmbient(selectedColor.darker());
-            material->setDiffuse(selectedColor);
-            material->setShininess(m_atomShininess + 20);  // Extra shine for visual emphasis
+        // Update material based on type
+        if (m_materialMode == MaterialMode::PBR) {
+            // Update PBR Material
+            PBRMaterial *pbrMat = qobject_cast<PBRMaterial*>(baseMaterial);
+            if (pbrMat) {
+                pbrMat->setBaseColor(updateColor);
+                if (isSelected) {
+                    pbrMat->setMetallic(0.3f);    // Slightly more metallic for glow
+                    pbrMat->setRoughness(0.3f);    // Smoother for emphasis
+                }
+            }
         } else {
-            material->setAmbient(atomColor.darker());
-            material->setDiffuse(atomColor);
-            material->setShininess(m_atomShininess);
+            // Update Phong Material
+            Qt3DExtras::QPhongMaterial *phongMat = qobject_cast<Qt3DExtras::QPhongMaterial*>(baseMaterial);
+            if (phongMat) {
+                phongMat->setAmbient(updateColor.darker());
+                phongMat->setDiffuse(updateColor);
+                if (isSelected) {
+                    phongMat->setShininess(m_atomShininess + 20);  // Extra shine for visual emphasis
+                } else {
+                    phongMat->setShininess(m_atomShininess);
+                }
+            }
         }
+
     }
 }
 
@@ -596,8 +610,7 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             sphereMesh->setRings(32);    // High quality spheres
             sphereMesh->setSlices(32);
 
-            // Material with transparency support
-            Qt3DExtras::QPhongMaterial *material = new Qt3DExtras::QPhongMaterial();
+            // Claude Generated - Phase 4 Final: Conditional material (PBR vs Phong)
             QColor atomColor = getAtomColor(atom.element, atom.charge);
 
             // Apply transparency
@@ -605,9 +618,24 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
                 atomColor.setAlphaF(m_atomTransparency);
             }
 
-            material->setAmbient(atomColor.darker());
-            material->setDiffuse(atomColor);
-            material->setShininess(m_atomShininess);
+            Qt3DRender::QMaterial *material = nullptr;
+
+            if (m_materialMode == MaterialMode::PBR) {
+                // PBR Material (Cook-Torrance BRDF)
+                PBRMaterial *pbrMat = new PBRMaterial(atomEntity);
+                pbrMat->setBaseColor(atomColor);
+                pbrMat->setMetallic(0.1f);      // Non-metallic atoms
+                pbrMat->setRoughness(0.5f);     // Medium roughness
+                pbrMat->setAmbientOcclusion(1.0f);
+                material = pbrMat;
+            } else {
+                // Phong Material (traditional lighting)
+                Qt3DExtras::QPhongMaterial *phongMat = new Qt3DExtras::QPhongMaterial(atomEntity);
+                phongMat->setAmbient(atomColor.darker());
+                phongMat->setDiffuse(atomColor);
+                phongMat->setShininess(m_atomShininess);
+                material = phongMat;
+            }
 
             // Transform
             Qt3DCore::QTransform *transform = new Qt3DCore::QTransform();
@@ -1401,6 +1429,18 @@ void MoleculeViewer::setupControlPanel()
         setColorScheme(static_cast<ColorScheme>(colorCombo->itemData(index).toInt()));
     });
     panelLayout->addWidget(colorCombo);
+
+    // Claude Generated - Phase 4 Final: Material mode selector (Phong vs PBR)
+    QComboBox *materialCombo = new QComboBox;
+    materialCombo->addItem(tr("Phong"), static_cast<int>(MaterialMode::Phong));
+    materialCombo->addItem(tr("PBR"), static_cast<int>(MaterialMode::PBR));
+    materialCombo->setMaximumWidth(80);
+    materialCombo->setToolTip(tr("Phong: Traditional lighting\nPBR: Physically-based rendering"));
+    connect(materialCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [this, materialCombo](int index) {
+        setMaterialMode(static_cast<MaterialMode>(materialCombo->itemData(index).toInt()));
+    });
+    panelLayout->addWidget(materialCombo);
 
     // Separator
     panelLayout->addWidget(createSeparator());
