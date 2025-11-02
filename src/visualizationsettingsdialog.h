@@ -48,6 +48,11 @@ private slots:
     void onBondThicknessChanged(double value);
     void onFogEnabledChanged(bool enabled);  // Claude Generated
     void onFogIntensityChanged(int value);   // Claude Generated
+    // Claude Generated - Phase 5A: SSAO post-processing controls
+    void onSSAOEnabledChanged(bool enabled);
+    void onSSAOIntensityChanged(int value);
+    void onSSAORadiusChanged(double value);
+    void onSSAOBiasChanged(double value);
     void onResetDefaults();
     void onApply();
 
@@ -84,6 +89,13 @@ private:
     QCheckBox* m_fogEnabledCheckBox;
     QSlider* m_fogIntensitySlider;
     QLabel* m_fogIntensityLabel;
+
+    // Claude Generated - Phase 5A: SSAO post-processing controls
+    QCheckBox* m_ssaoEnabledCheckBox;
+    QSlider* m_ssaoIntensitySlider;
+    QLabel* m_ssaoIntensityLabel;
+    QDoubleSpinBox* m_ssaoRadiusSpinBox;
+    QDoubleSpinBox* m_ssaoBiasSpinBox;
 
     // Claude Generated - Preset management widgets
     QTabWidget* m_tabWidget;

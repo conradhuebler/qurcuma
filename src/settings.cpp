@@ -169,6 +169,11 @@ Settings::VisualizationSettings Settings::getVisualizationSettings() const
     settings.bondThickness = m_settings.value(VIZ_SETTINGS_PREFIX + "bondThickness", 0.15f).toFloat();
     settings.fogEnabled = m_settings.value(VIZ_SETTINGS_PREFIX + "fogEnabled", false).toBool();
     settings.fogIntensity = m_settings.value(VIZ_SETTINGS_PREFIX + "fogIntensity", 0.5f).toFloat();
+    // Claude Generated - Phase 5A: Post-processing effects
+    settings.ssaoEnabled = m_settings.value(VIZ_SETTINGS_PREFIX + "ssaoEnabled", true).toBool();
+    settings.ssaoIntensity = m_settings.value(VIZ_SETTINGS_PREFIX + "ssaoIntensity", 1.0f).toFloat();
+    settings.ssaoRadius = m_settings.value(VIZ_SETTINGS_PREFIX + "ssaoRadius", 0.05f).toFloat();
+    settings.ssaoBias = m_settings.value(VIZ_SETTINGS_PREFIX + "ssaoBias", 0.025f).toFloat();
 
     return settings;
 }
@@ -183,6 +188,11 @@ void Settings::setVisualizationSettings(const VisualizationSettings& settings)
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "bondThickness", settings.bondThickness);
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "fogEnabled", settings.fogEnabled);
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "fogIntensity", settings.fogIntensity);
+    // Claude Generated - Phase 5A: Post-processing effects
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "ssaoEnabled", settings.ssaoEnabled);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "ssaoIntensity", settings.ssaoIntensity);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "ssaoRadius", settings.ssaoRadius);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "ssaoBias", settings.ssaoBias);
     m_settings.sync();
 }
 

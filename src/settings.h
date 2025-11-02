@@ -72,6 +72,11 @@ public:
         float bondThickness = 0.15f;
         bool fogEnabled = false;
         float fogIntensity = 0.5f;
+        // Claude Generated - Phase 5A: Post-processing effects
+        bool ssaoEnabled = true;
+        float ssaoIntensity = 1.0f;
+        float ssaoRadius = 0.05f;
+        float ssaoBias = 0.025f;
     };
 
     VisualizationSettings getVisualizationSettings() const;

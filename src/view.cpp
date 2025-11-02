@@ -1236,6 +1236,39 @@ void MoleculeViewer::setFogIntensity(float intensity)
     m_fogIntensity = qBound(0.0f, intensity, 1.0f);
 }
 
+// Claude Generated - Phase 5A: SSAO post-processing control
+void MoleculeViewer::setSSAOEnabled(bool enabled)
+{
+    m_ssaoEnabled = enabled;
+    if (m_frameGraph) {
+        m_frameGraph->setSSAOEnabled(enabled);
+    }
+}
+
+void MoleculeViewer::setSSAOIntensity(float intensity)
+{
+    m_ssaoIntensity = qBound(0.0f, intensity, 2.0f);
+    if (m_frameGraph) {
+        m_frameGraph->setSSAOIntensity(m_ssaoIntensity);
+    }
+}
+
+void MoleculeViewer::setSSAORadius(float radius)
+{
+    m_ssaoRadius = qBound(0.01f, radius, 0.2f);
+    if (m_frameGraph) {
+        m_frameGraph->setSSAORadius(m_ssaoRadius);
+    }
+}
+
+void MoleculeViewer::setSSAOBias(float bias)
+{
+    m_ssaoBias = qBound(0.0f, bias, 0.1f);
+    if (m_frameGraph) {
+        m_frameGraph->setSSAOBias(m_ssaoBias);
+    }
+}
+
 // Claude Generated - Trajectory animation functions
 void MoleculeViewer::startAnimation()
 {

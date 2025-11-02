@@ -100,6 +100,16 @@ public:
     void setFogIntensity(float intensity);
     float getFogIntensity() const { return m_fogIntensity; }
 
+    // Claude Generated - Phase 5A: SSAO post-processing
+    void setSSAOEnabled(bool enabled);
+    bool getSSAOEnabled() const { return m_ssaoEnabled; }
+    void setSSAOIntensity(float intensity);
+    float getSSAOIntensity() const { return m_ssaoIntensity; }
+    void setSSAORadius(float radius);
+    float getSSAORadius() const { return m_ssaoRadius; }
+    void setSSAOBias(float bias);
+    float getSSAOBias() const { return m_ssaoBias; }
+
     // Frame navigation support for trajectories
     void setFrameCount(int frameCount) { m_frameCount = frameCount; }
     int getFrameCount() const { return m_frameCount; }
@@ -226,6 +236,11 @@ private:
     float m_bondThickness = 0.15f;        // Default bond radius
     bool m_fogEnabled = false;            // Fog effect off by default
     float m_fogIntensity = 0.5f;          // Fog intensity 0-1
+    // Claude Generated - Phase 5A: SSAO post-processing
+    bool m_ssaoEnabled = true;
+    float m_ssaoIntensity = 1.0f;
+    float m_ssaoRadius = 0.05f;
+    float m_ssaoBias = 0.025f;
 
     // Claude Generated - Animation state
     QTimer *m_animationTimer = nullptr;

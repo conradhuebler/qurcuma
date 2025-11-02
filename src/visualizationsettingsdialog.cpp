@@ -162,6 +162,48 @@ void VisualizationSettingsDialog::createAppearanceGroup(QVBoxLayout* mainLayout)
             this, &VisualizationSettingsDialog::onFogIntensityChanged);
     formLayout->addRow(tr("Fog Intensity:"), fogIntensityLayout);
 
+    // Claude Generated - Phase 5A: SSAO (Screen-Space Ambient Occlusion) post-processing
+    formLayout->addRow(new QLabel(""));  // Visual separator
+
+    m_ssaoEnabledCheckBox = new QCheckBox(this);
+    m_ssaoEnabledCheckBox->setChecked(true);
+    connect(m_ssaoEnabledCheckBox, &QCheckBox::toggled,
+            this, &VisualizationSettingsDialog::onSSAOEnabledChanged);
+    formLayout->addRow(tr("Enable SSAO:"), m_ssaoEnabledCheckBox);
+
+    // SSAO Intensity slider (0.0-2.0)
+    QHBoxLayout* ssaoIntensityLayout = new QHBoxLayout();
+    m_ssaoIntensitySlider = new QSlider(Qt::Horizontal, this);
+    m_ssaoIntensitySlider->setRange(0, 200);  // 0.0-2.0 mapped to 0-200
+    m_ssaoIntensitySlider->setValue(100);     // Default 1.0
+    m_ssaoIntensityLabel = new QLabel("1.0", this);
+    m_ssaoIntensityLabel->setMinimumWidth(50);
+    ssaoIntensityLayout->addWidget(m_ssaoIntensitySlider);
+    ssaoIntensityLayout->addWidget(m_ssaoIntensityLabel);
+    connect(m_ssaoIntensitySlider, &QSlider::valueChanged,
+            this, &VisualizationSettingsDialog::onSSAOIntensityChanged);
+    formLayout->addRow(tr("SSAO Intensity:"), ssaoIntensityLayout);
+
+    // SSAO Radius spinbox (0.01-0.2)
+    m_ssaoRadiusSpinBox = new QDoubleSpinBox(this);
+    m_ssaoRadiusSpinBox->setRange(0.01, 0.2);
+    m_ssaoRadiusSpinBox->setValue(0.05);
+    m_ssaoRadiusSpinBox->setSingleStep(0.01);
+    m_ssaoRadiusSpinBox->setDecimals(3);
+    connect(m_ssaoRadiusSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &VisualizationSettingsDialog::onSSAORadiusChanged);
+    formLayout->addRow(tr("SSAO Radius:"), m_ssaoRadiusSpinBox);
+
+    // SSAO Bias spinbox (0.0-0.1)
+    m_ssaoBiasSpinBox = new QDoubleSpinBox(this);
+    m_ssaoBiasSpinBox->setRange(0.0, 0.1);
+    m_ssaoBiasSpinBox->setValue(0.025);
+    m_ssaoBiasSpinBox->setSingleStep(0.005);
+    m_ssaoBiasSpinBox->setDecimals(4);
+    connect(m_ssaoBiasSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &VisualizationSettingsDialog::onSSAOBiasChanged);
+    formLayout->addRow(tr("SSAO Bias:"), m_ssaoBiasSpinBox);
+
     mainLayout->addWidget(appearanceGroup);
 }
 
@@ -178,6 +220,11 @@ void VisualizationSettingsDialog::loadCurrentSettings()
     m_bondThicknessSpinBox->blockSignals(true);
     m_fogEnabledCheckBox->blockSignals(true);
     m_fogIntensitySlider->blockSignals(true);
+    // Claude Generated - Phase 5A: Block SSAO signals
+    m_ssaoEnabledCheckBox->blockSignals(true);
+    m_ssaoIntensitySlider->blockSignals(true);
+    m_ssaoRadiusSpinBox->blockSignals(true);
+    m_ssaoBiasSpinBox->blockSignals(true);
 
     // Claude Generated - Load from saved settings if available
     if (m_settings) {
@@ -210,6 +257,13 @@ void VisualizationSettingsDialog::loadCurrentSettings()
         m_fogIntensitySlider->setValue(static_cast<int>(saved.fogIntensity * 100.0f));
         m_fogIntensityLabel->setText(QString("%1%").arg(static_cast<int>(saved.fogIntensity * 100.0f)));
         m_fogIntensitySlider->setEnabled(saved.fogEnabled);
+
+        // Claude Generated - Phase 5A: Load SSAO settings
+        m_ssaoEnabledCheckBox->setChecked(saved.ssaoEnabled);
+        m_ssaoIntensitySlider->setValue(static_cast<int>(saved.ssaoIntensity * 100.0f));
+        m_ssaoIntensityLabel->setText(QString::number(saved.ssaoIntensity, 'f', 2));
+        m_ssaoRadiusSpinBox->setValue(saved.ssaoRadius);
+        m_ssaoBiasSpinBox->setValue(saved.ssaoBias);
     } else {
         // Fallback: Load from viewer (when no Settings available)
         int modeIndex = m_renderingModeCombo->findData(static_cast<int>(m_viewer->getRenderingMode()));
@@ -246,6 +300,11 @@ void VisualizationSettingsDialog::loadCurrentSettings()
     m_bondThicknessSpinBox->blockSignals(false);
     m_fogEnabledCheckBox->blockSignals(false);
     m_fogIntensitySlider->blockSignals(false);
+    // Claude Generated - Phase 5A: Unblock SSAO signals
+    m_ssaoEnabledCheckBox->blockSignals(false);
+    m_ssaoIntensitySlider->blockSignals(false);
+    m_ssaoRadiusSpinBox->blockSignals(false);
+    m_ssaoBiasSpinBox->blockSignals(false);
 }
 
 void VisualizationSettingsDialog::onRenderingModeChanged(int index)
@@ -316,6 +375,11 @@ void VisualizationSettingsDialog::onApply()
         current.bondThickness = m_viewer->getBondThickness();
         current.fogEnabled = m_viewer->getFogEnabled();
         current.fogIntensity = m_viewer->getFogIntensity();
+        // Claude Generated - Phase 5A: Save SSAO settings
+        current.ssaoEnabled = m_viewer->getSSAOEnabled();
+        current.ssaoIntensity = m_viewer->getSSAOIntensity();
+        current.ssaoRadius = m_viewer->getSSAORadius();
+        current.ssaoBias = m_viewer->getSSAOBias();
 
         m_settings->setVisualizationSettings(current);
     }
@@ -345,6 +409,40 @@ void VisualizationSettingsDialog::onFogIntensityChanged(int value)
     float intensity = value / 100.0f;
     m_fogIntensityLabel->setText(QString("%1%").arg(value));
     m_viewer->setFogIntensity(intensity);
+}
+
+// Claude Generated - Phase 5A: SSAO post-processing slot implementations
+void VisualizationSettingsDialog::onSSAOEnabledChanged(bool enabled)
+{
+    if (!m_viewer) return;
+
+    m_viewer->setSSAOEnabled(enabled);
+    m_ssaoIntensitySlider->setEnabled(enabled);
+    m_ssaoRadiusSpinBox->setEnabled(enabled);
+    m_ssaoBiasSpinBox->setEnabled(enabled);
+}
+
+void VisualizationSettingsDialog::onSSAOIntensityChanged(int value)
+{
+    if (!m_viewer) return;
+
+    float intensity = value / 100.0f;
+    m_ssaoIntensityLabel->setText(QString::number(intensity, 'f', 2));
+    m_viewer->setSSAOIntensity(intensity);
+}
+
+void VisualizationSettingsDialog::onSSAORadiusChanged(double value)
+{
+    if (!m_viewer) return;
+
+    m_viewer->setSSAORadius(static_cast<float>(value));
+}
+
+void VisualizationSettingsDialog::onSSAOBiasChanged(double value)
+{
+    if (!m_viewer) return;
+
+    m_viewer->setSSAOBias(static_cast<float>(value));
 }
 
 // Claude Generated - Setup tabbed interface with all settings
