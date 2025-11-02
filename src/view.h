@@ -19,6 +19,7 @@
 class SelectionManager;  // Forward declaration
 class MeasurementOverlay;  // Claude Generated - Phase 2B - Forward declaration
 class BondEditor;  // Claude Generated - Phase 4B - Forward declaration
+class PBRMaterial;  // Claude Generated - Phase 4A - Forward declaration
 
 class MoleculeViewer : public QWidget
 {
@@ -31,6 +32,12 @@ public:
         Wireframe,       // Only bonds (thin cylinders)
         SpaceFilling,    // Van der Waals spheres only
         SticksOnly       // Thin cylinders for bonds, no atom spheres
+    };
+
+    // Claude Generated - Phase 4A: Material rendering modes
+    enum class MaterialMode {
+        Phong,           // Traditional Phong lighting (default)
+        PBR              // Physically-Based Rendering (Cook-Torrance)
     };
 
     // Claude Generated - Color schemes for atom coloring
@@ -62,6 +69,10 @@ public:
     // Claude Generated - Visual settings setters
     void setRenderingMode(RenderingMode mode);
     RenderingMode getRenderingMode() const { return m_renderingMode; }
+
+    // Claude Generated - Phase 4A: Material mode switching
+    void setMaterialMode(MaterialMode mode);
+    MaterialMode getMaterialMode() const { return m_materialMode; }
 
     void setColorScheme(ColorScheme scheme);
     ColorScheme getColorScheme() const { return m_colorScheme; }
@@ -150,6 +161,8 @@ public:
 private slots:
     void onAtomPicked(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated - Phase 2A - Handle ObjectPicker clicks
     void onBondPicked(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated - Phase 4B - Handle bond picking
+    void onAutoSaveTimer();  // Claude Generated - Phase 4B - Auto-save XYZ with debouncing
+    void onStructureChanged();  // Claude Generated - Phase 4B - Handle bond editor changes
 
 private:
     Qt3DExtras::Qt3DWindow *m_view;
@@ -199,6 +212,7 @@ private:
     // Claude Generated - Visual settings state
     RenderingMode m_renderingMode = RenderingMode::BallAndStick;
     ColorScheme m_colorScheme = ColorScheme::CPK;
+    MaterialMode m_materialMode = MaterialMode::Phong;  // Claude Generated - Phase 4A
     float m_atomTransparency = 1.0f;      // Fully opaque by default
     float m_atomShininess = 80.0f;        // Default Phong shininess
     float m_atomScaleFactor = 1.0f;       // Default: no scaling
@@ -233,6 +247,12 @@ private:
     QMap<Qt3DRender::QObjectPicker*, int> m_bondPickerToIndex;  // Map ObjectPicker to bond index for picking
     int m_bondEditMode = 0;  // 0=None, 1=AddBond (click 2 atoms), 2=DeleteBond, 3=ChangeBondOrder
     int m_firstSelectedAtomForBond = -1;  // Track first atom when adding bond
+
+    // Claude Generated - Phase 4B: Auto-save system
+    QString m_currentFilePath;  // Path to current XYZ file
+    QTimer *m_autoSaveTimer = nullptr;  // Debouncing timer (500ms)
+    bool m_autoSaveEnabled = true;  // Enable/disable auto-save
+    bool m_hasUnsavedChanges = false;  // Track unsaved state
 
     // Mouse interaction - Claude Generated
     bool m_leftMousePressed = false;

@@ -3,6 +3,8 @@
 #include "selectionmanager.h"  // Claude Generated - Phase 2A
 #include "measurementoverlay.h"  // Claude Generated - Phase 2B
 #include "bondeditor.h"  // Claude Generated - Phase 4B
+#include "pbrmaterial.h"  // Claude Generated - Phase 4A
+#include "xyzparser.h"  // Claude Generated - Phase 4B - For auto-save XYZ writing
 #include <Qt3DCore/QTransform>
 #include <Qt3DExtras/QSphereMesh>
 #include <Qt3DExtras/QCylinderMesh>
@@ -14,6 +16,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
+#include <QFile>  // Claude Generated - Phase 4B - For auto-save backup
 #include <QMessageBox>
 #include <QInputDialog>
 #include <QImage>
@@ -39,6 +42,15 @@ MoleculeViewer::MoleculeViewer(QWidget *parent)
 
     // Claude Generated - Phase 4B: Initialize BondEditor
     m_bondEditor = new BondEditor(this);
+
+    // Claude Generated - Phase 4B: Initialize auto-save system with 500ms debouncing
+    m_autoSaveTimer = new QTimer(this);
+    m_autoSaveTimer->setSingleShot(true);
+    m_autoSaveTimer->setInterval(500);  // 500ms debounce delay
+    connect(m_autoSaveTimer, &QTimer::timeout, this, &MoleculeViewer::onAutoSaveTimer);
+
+    // Connect BondEditor changes to auto-save trigger
+    connect(m_bondEditor, &BondEditor::structureChanged, this, &MoleculeViewer::onStructureChanged);
 
     setupViewer();
 
@@ -294,6 +306,21 @@ void MoleculeViewer::setRenderingMode(RenderingMode mode)
         // Refresh display if we have trajectory data (without camera reset)
         if (!m_trajectoryAtoms.isEmpty()) {
             refreshVisualization();  // Claude Generated - use refresh instead of showFrame
+        }
+    }
+}
+
+// Claude Generated - Phase 4A: Material mode switching (Phong vs PBR)
+void MoleculeViewer::setMaterialMode(MaterialMode mode)
+{
+    if (m_materialMode != mode) {
+        m_materialMode = mode;
+        const char* modeNames[] = {"Phong", "PBR (Cook-Torrance)"};
+        qDebug() << "Material mode changed to:" << modeNames[static_cast<int>(mode)];
+
+        // Rebuild entire scene with new material mode
+        if (!m_trajectoryAtoms.isEmpty()) {
+            refreshVisualization();
         }
     }
 }
@@ -1391,6 +1418,22 @@ void MoleculeViewer::setupControlPanel()
     });
     panelLayout->addWidget(measureCombo);
 
+    // Separator
+    panelLayout->addWidget(createSeparator());
+
+    // Claude Generated - Phase 4B: BOND EDITING SECTION
+    QComboBox *bondEditCombo = new QComboBox;
+    bondEditCombo->addItem(tr("No Bond Edit"), 0);
+    bondEditCombo->addItem(tr("Add Bond (B)"), 1);
+    bondEditCombo->addItem(tr("Delete Bond (D)"), 2);
+    bondEditCombo->addItem(tr("Cycle Order (O)"), 3);
+    bondEditCombo->setMaximumWidth(130);
+    connect(bondEditCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [this, bondEditCombo](int index) {
+        setBondEditMode(bondEditCombo->itemData(index).toInt());
+    });
+    panelLayout->addWidget(bondEditCombo);
+
     panelLayout->addStretch();
 }
 
@@ -1749,6 +1792,51 @@ void MoleculeViewer::onBondPicked(Qt3DRender::QPickEvent *pickEvent)
 
         default:
             break;
+    }
+}
+
+// Claude Generated - Phase 4B: Auto-save structure changes
+void MoleculeViewer::onStructureChanged()
+{
+    // Signal from BondEditor when structure changes
+    if (m_autoSaveEnabled && !m_currentFilePath.isEmpty()) {
+        m_hasUnsavedChanges = true;
+        qDebug() << "Structure changed - marking for auto-save";
+
+        // Restart debouncing timer
+        m_autoSaveTimer->stop();
+        m_autoSaveTimer->start();
+    }
+}
+
+// Claude Generated - Phase 4B: Auto-save timer trigger - write XYZ file
+void MoleculeViewer::onAutoSaveTimer()
+{
+    if (!m_autoSaveEnabled || m_currentFilePath.isEmpty() || m_trajectoryAtoms.isEmpty()) {
+        return;
+    }
+
+    if (!m_hasUnsavedChanges) {
+        return;  // Nothing to save
+    }
+
+    // Create backup on first edit
+    if (!QFile::exists(m_currentFilePath + ".backup")) {
+        QFile::copy(m_currentFilePath, m_currentFilePath + ".backup");
+        qDebug() << "Created backup:" << m_currentFilePath + ".backup";
+    }
+
+    // Convert current frame to XYZ and write
+    XYZParser::XYZFrame xyzFrame;
+    if (XYZParser::convertFromMoleculeViewer(m_trajectoryAtoms[m_currentFrame],
+                                             QString("Auto-saved frame %1").arg(m_currentFrame + 1),
+                                             xyzFrame)) {
+        if (XYZParser::writeFile(m_currentFilePath, xyzFrame)) {
+            m_hasUnsavedChanges = false;
+            qDebug() << "Auto-saved to:" << m_currentFilePath;
+        } else {
+            qWarning() << "Auto-save failed for:" << m_currentFilePath;
+        }
     }
 }
 
