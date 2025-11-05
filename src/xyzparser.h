@@ -55,6 +55,7 @@ public:
 
 private:
     bool parseAsciiFormat(const QString& filePath, QVector<XYZFrame>& frames);
+    void detectAndScaleUnits(QVector<XYZFrame>& frames);  // Claude Generated - Auto-detect Bohr vs Ångström
 
     QVector<XYZFrame> m_frames;  // Store all parsed frames
 };

@@ -32,6 +32,21 @@ See **[AIChangelog.md](AIChangelog.md)** for significant improvements by date.
 - **Keep entries concise and focused to save tokens**
 - **Keep git commits concise and focused**
 - **Rule of thumb**: If a CLAUDE.md section exceeds 20 lines, consider if it's better placed elsewhere
+## Workflow States
+- **ADD**: Features to be added
+- **WIP**: Currently being worked on
+- **ADDED**: Basically implemented
+- **TESTED**: Works (by operator feedback)
+- **APPROVED**: Move to changelog, remove from CLAUDE.md
+
+### Documentation Update Rules
+- **Replace debugging details with architecture decisions** when issues are resolved
+- **Remove unnecessary pointer addresses and crash investigation specifics**
+- **Focus on architectural clarity** rather than technical debugging information
+- **Document the "why" behind design decisions** for future reference
+- **Eliminate redundant information** that doesn't add architectural value
+- **Prioritize clean, maintainable documentation** over verbose troubleshooting history
+
 ## Development Guidelines
 
 ### Code Organization
@@ -62,14 +77,28 @@ See **[AIChangelog.md](AIChangelog.md)** for significant improvements by date.
 - Document new functions briefly (doxygen ready) with scientific context
 - Document existing undocumented functions if appearing regularly (briefly and doxygen ready)
 - Remove TODO Hashtags and text if done and approved
+- Use modern Qt6 patterns, avoid deprecated functions
 - Implement comprehensive error handling and logging
+- Debug output: `qDebug()` within `#ifdef DEBUG_ON #endif`
+- Console output: Use `fmt`, avoid `std::cout`
 - Maintain backward compatibility where possible
 - **Always check and consider instructions blocks** in relevant CLAUDE.md files before implementing
 - Reformulate and clarify task and vision entries if not already marked as CLAUDE formatted
 - In case of compiler warning for deprecated functions, replace the old function call with the new one
 - Implement timing analysis for complex functions
 - Keep track of significant improvements in AIChangelog.md, one line per fact
-- **Complex Architecture Documentation**: Factory patterns, dispatchers, and multi-step workflows require comprehensive inline documentation following ARCHITECTURE_DOCUMENTATION.md standards
+- **Complex Architecture Documentation**: Factory patterns, dispatchers, and multi-step workflows require comprehensive inline documentation
+- Maintain backward compatibility where possible
+
+### Copyright and File Headers
+- **Copyright ownership**: All copyright remains with Conrad Hübler as the project owner
+- **Year updates**: Always update copyright year to current year when modifying files
+- **Claude contributions**: Mark Claude-generated code sections but copyright stays with Conrad
+- **Format**: `Copyright (C) 2015 - 2025 Conrad Hübler <Conrad.Huebler@gmx.net>`
+- **AI acknowledgment**: Add Claude contribution notes in code comments, not copyright headers
+
+### Important Notes
+- nullptr-checks are good things, however if there is a crash, prevent the crash by checks doesn't solve the origin of the nullptr
 
 ### Build & Git Management
 
@@ -86,9 +115,10 @@ See **[AIChangelog.md](AIChangelog.md)** for significant improvements by date.
 
 #### Git Best Practices
 - **Only commit source files**: Use `git add <file>` for specific files, never `git add -A` without review
-- **Test executables stay local**: Build artifacts (test_vtf*, test_frame_detection, etc.) are ignored
 - **Review before committing**: Always check `git diff` and `git status` to avoid accidental commits
 - **Build before commit**: Ensure `cmake --build debug` succeeds and no compiler warnings/errors exist
 - **Commit message format**: Start with action verb (Fix, Add, Improve, Refactor), follow with brief description
+- **Include Co-Author info**: All commits include Claude contribution notes with proper attribution
+- **Test artifacts stay local**: Build artifacts (test_vtf*, test_frame_detection, etc.) are ignored
 - **.gitignore is comprehensive**: CMake files, build directories, test artifacts, OS files are all ignored
 

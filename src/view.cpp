@@ -97,9 +97,24 @@ void MoleculeViewer::setupViewer()
     // NICHT aktivieren: m_cameraController->setCamera(m_camera);
 
     // Claude Generated - Phase 5A: Initialize custom multi-pass frame graph
+    // TEMPORARILY DISABLED (Option A): CustomFrameGraph causes rendering failures on some GPUs
+    // Using standard Qt3D rendering instead. Will implement proper fallback in Option B.
+    // Reason: RGB8_UNorm format and render target creation failing with RHI backend
+    /*
     m_frameGraph = new CustomFrameGraph();
-    m_frameGraph->initialize(m_container->size(), m_camera, m_rootEntity);
-    m_view->setActiveFrameGraph(m_frameGraph);
+
+    // Use a QTimer to defer initialization until after layout and show() have completed
+    QTimer::singleShot(0, this, [this]() {
+        if (m_frameGraph && !m_frameGraph->isInitialized()) {
+            QSize frameGraphSize = m_container->size();
+            if (frameGraphSize.isEmpty()) {
+                frameGraphSize = QSize(800, 600);  // Fallback if still not sized
+            }
+            m_frameGraph->initialize(frameGraphSize, m_camera, m_rootEntity);
+            m_view->setActiveFrameGraph(m_frameGraph);
+        }
+    });
+    */
 
     m_view->setRootEntity(m_rootEntity);
 
@@ -164,6 +179,23 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
         }
     }
     return QWidget::eventFilter(watched, event);
+}
+
+void MoleculeViewer::resizeEvent(QResizeEvent *event)
+{
+    // Claude Generated - Handle widget resize and update frame graph viewport
+    QWidget::resizeEvent(event);
+
+    // Update frame graph viewport size when widget is resized
+    // DISABLED (Option A): CustomFrameGraph temporarily disabled
+    /*
+    if (m_frameGraph && m_container) {
+        QSize newSize = m_container->size();
+        if (!newSize.isEmpty()) {
+            m_frameGraph->updateViewportSize(newSize);
+        }
+    }
+    */
 }
 
 void MoleculeViewer::handleMouseRotation(const QPoint& currentPos)
@@ -611,6 +643,32 @@ float MoleculeViewer::getAtomRadius(const QString& element)
     }
 }
 
+float MoleculeViewer::getCovalentRadius(const QString& element)
+{
+    // Claude Generated - Covalent radii in Ångström for bond detection
+    // Source: CRC Handbook of Chemistry and Physics
+    static const QMap<QString, float> covalentRadii = {
+        {"H", 0.31f},
+        {"C", 0.76f},
+        {"N", 0.71f},
+        {"O", 0.66f},
+        {"F", 0.64f},
+        {"P", 1.07f},
+        {"S", 1.05f},
+        {"Cl", 1.02f},
+        {"Br", 1.20f},
+        {"I", 1.39f},
+        {"Na", 1.54f},
+        {"K", 1.96f},
+        {"Mg", 1.30f},
+        {"Ca", 1.76f},
+        {"Fe", 1.32f},
+        {"Zn", 1.22f}
+    };
+
+    return covalentRadii.value(element, 0.76f);  // Default to carbon if unknown
+}
+
 Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds)
 {
     Qt3DCore::QEntity *moleculeEntity = new Qt3DCore::QEntity();
@@ -872,16 +930,24 @@ void MoleculeViewer::resetViewToMolecule()
 QVector<MoleculeViewer::Bond> MoleculeViewer::detectBonds(const QVector<Atom>& atoms)
 {
     QVector<Bond> detectedBonds;
-    
+
+    // Claude Generated - Improved bond detection using covalent radii and tolerance
     // Berechne Bindungen basierend auf Atomabständen
+
+    // Bond detection tolerance - aim for max ~2.0-2.1Å for typical bonds
+    const float BOND_TOLERANCE = 1.25f;  // Allow 25% extra distance for bond detection
+
     for (int i = 0; i < atoms.size(); ++i) {
         for (int j = i + 1; j < atoms.size(); ++j) {
             QVector3D diff = atoms[i].position - atoms[j].position;
             float distance = diff.length();
-            float covalentRadiusSum = getAtomRadius(atoms[i].element) + getAtomRadius(atoms[j].element);
+
+            // Use covalent radii for bond detection
+            float covalentRadiusSum = getCovalentRadius(atoms[i].element) + getCovalentRadius(atoms[j].element);
+            float bondThreshold = covalentRadiusSum * BOND_TOLERANCE;
+
             // Prüfe ob Atome nah genug für eine Bindung sind
-            // Hier könnte man auch die Van-der-Waals-Radien der spezifischen Elemente berücksichtigen
-            if (distance <= covalentRadiusSum * DEFAULT_BOND_DISTANCE * 0.5) {
+            if (distance <= bondThreshold) {
                 Bond bond;
                 bond.atom1 = i;
                 bond.atom2 = j;
@@ -890,7 +956,7 @@ QVector<MoleculeViewer::Bond> MoleculeViewer::detectBonds(const QVector<Atom>& a
             }
         }
     }
-    
+
     return detectedBonds;
 }
 
@@ -1057,7 +1123,7 @@ void MoleculeViewer::updateFramePositions(int frameIndex)
             continue;
         }
 
-        // Update bond position and scale
+        // Update bond position, rotation and scale
         QVector3D start = atoms[bond.atom1].position;
         QVector3D end = atoms[bond.atom2].position;
         QVector3D direction = end - start;
@@ -1067,6 +1133,24 @@ void MoleculeViewer::updateFramePositions(int frameIndex)
         for (auto transform : transforms) {
             transform->setTranslation(start + direction * 0.5f);
             transform->setScale3D(QVector3D(1.0f, length, 1.0f));
+
+            // Claude Generated - Update bond rotation to match new direction
+            // This prevents stretching/distortion during trajectory animation
+            QVector3D localUp(0, 1, 0);
+            QVector3D normalizedDirection = direction.normalized();
+            QVector3D rotationAxis = QVector3D::crossProduct(localUp, normalizedDirection);
+
+            if (rotationAxis.length() < 0.001f) {
+                // Direction is parallel to Y-axis
+                if (normalizedDirection.y() > 0) {
+                    transform->setRotation(QQuaternion());  // No rotation needed
+                } else {
+                    transform->setRotation(QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f));
+                }
+            } else {
+                float rotationAngle = qAcos(QVector3D::dotProduct(localUp, normalizedDirection)) * 180.0f / M_PI;
+                transform->setRotation(QQuaternion::fromAxisAndAngle(rotationAxis.normalized(), rotationAngle));
+            }
         }
 
         bondIndex++;
@@ -1114,9 +1198,21 @@ void MoleculeViewer::previousFrame()
 void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, const QVector<QVector<Bond>>& bonds)
 {
     m_trajectoryAtoms = atoms;
-    m_trajectoryBonds = bonds;
     m_frameCount = atoms.size();
     m_currentFrame = 0;
+
+    // Claude Generated - Auto-detect bonds if empty (for XYZ files)
+    m_trajectoryBonds.clear();
+    if (bonds.isEmpty() || (bonds.size() == atoms.size() && bonds[0].isEmpty())) {
+        // Detect bonds for each frame
+        for (int i = 0; i < atoms.size(); ++i) {
+            QVector<Bond> detectedBonds = detectBonds(atoms[i]);
+            m_trajectoryBonds.append(detectedBonds);
+        }
+    } else {
+        // Use provided bonds
+        m_trajectoryBonds = bonds;
+    }
 
     // Claude Generated - Update frame controls based on frame count
     if (m_frameSlider && m_frameLabel && m_frameJumpBox && m_frameControlWidget) {

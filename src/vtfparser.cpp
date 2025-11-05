@@ -71,7 +71,6 @@ bool VTFParser::parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& fra
         if (line.startsWith("atom ")) {
             // Parse atom line: "atom     0 radius   0.20000E+01 type        ppo1 name 1"
             QStringList parts = line.split(QRegularExpression("\\s+"));
-            qDebug() << "Parsing atom line:" << line.left(60) << "Parts count:" << parts.size();
 
             // Corrected: the actual structure is: atom, index, radius, radiusValue, type, typeValue, name, nameValue
             // So we need at least 8 parts
@@ -84,7 +83,6 @@ bool VTFParser::parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& fra
                 atom.name = trimQuotes(parts[7]);   // parts[7] = name value
 
                 if (indexOk && radiusOk) {
-                    qDebug() << "Parsed atom:" << atom.index << "radius:" << atom.radius << "type:" << atom.type << "name:" << atom.name;
 
                     // Set element based on type for visualization
                     if (atom.type == "ppo1" || atom.type == "ppo2") {
@@ -96,7 +94,6 @@ bool VTFParser::parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& fra
                     }
 
                     atomDefinitions.append(atom);
-                    qDebug() << "Added atom" << atom.index << "to definitions, total:" << atomDefinitions.size();
                 } else {
                     qWarning() << "Failed to parse atom values - skipping line:" << line;
                 }
@@ -140,8 +137,6 @@ bool VTFParser::parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& fra
             }
         }
         else if (line.startsWith("# Start of image")) {
-            qDebug() << "Found image section:" << line;
-            qDebug() << "Found" << atomDefinitions.size() << "atom definitions";
             
             // Start of new timestep
             VTFFrame frame;
@@ -151,18 +146,15 @@ bool VTFParser::parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& fra
             frame.cellB = cellB;
             frame.cellC = cellC;
             
-            qDebug() << "Frame initialized with" << frame.atoms.size() << "atoms";
             
             // Skip "timestep ordered" line
             if (!stream.atEnd()) {
                 QString timestepLine = stream.readLine().trimmed();
-                qDebug() << "Skipping timestep line:" << timestepLine;
             }
             
             // Parse coordinates - one line per atom with bounds checking
             for (int i = 0; i < atomDefinitions.size() && !stream.atEnd(); ++i) {
                 line = stream.readLine().trimmed();
-                qDebug() << "Reading coordinate line" << i << ":" << line.left(50);
                 
                 if (!line.isEmpty() && i < frame.atoms.size()) {
                     QStringList coords = line.split(QRegularExpression("\\s+"));
@@ -175,12 +167,7 @@ bool VTFParser::parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& fra
                         frame.atoms[i].z = coords[2].toDouble(&zOk);
                         
                         // Debug output for first few atoms to check parsing
-                        if (i < 3) {
-                            qDebug() << "VTF Atom" << i << "coords:" << coords[0] << "->" << frame.atoms[i].x 
-                                     << coords[1] << "->" << frame.atoms[i].y 
-                                     << coords[2] << "->" << frame.atoms[i].z
-                                     << "ParseOK:" << xOk << yOk << zOk;
-                        }
+                        // REMOVED: Performance critical debug output in coordinate parsing loop
                         
                         // If parsing fails, set to reasonable default
                         if (!xOk) {
@@ -206,12 +193,10 @@ bool VTFParser::parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& fra
             // Add bonds (assuming they remain the same for all frames)
             frame.bonds = bonds;
             
-            qDebug() << "Frame parsing complete. Atoms:" << frame.atoms.size() << "Bonds:" << frame.bonds.size();
 
             // Only add frame if we have valid atom data
             if (!frame.atoms.isEmpty()) {
                 frames.append(frame);
-                qDebug() << "Successfully added frame" << (frames.size()-1) << "with" << frame.atoms.size() << "atoms";
             } else {
                 qWarning() << "Skipping frame - no atoms found";
             }
@@ -220,7 +205,6 @@ bool VTFParser::parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& fra
             if (!stream.atEnd()) {
                 line = stream.readLine().trimmed();
                 if (line == "# End Image") {
-                    qDebug() << "End of image section";
                     continue;
                 } else {
                     // If we didn't find "# End Image", put the line back by moving position back
@@ -260,7 +244,6 @@ bool VTFParser::parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& fra
                         atom.y /= scaleFactor;
                         atom.z /= scaleFactor;
                     }
-                    qDebug() << "First atom after scaling in frame 0:" << frame.atoms[0].x << frame.atoms[0].y << frame.atoms[0].z;
                 }
             } else {
                 qDebug() << "VTF coordinates are within normal range, no scaling applied";

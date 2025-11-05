@@ -116,6 +116,28 @@ private slots:
     // Claude Generated - Helper for shortcut synchronization with dialog
     void syncVisualizationDialog();
 
+    // Claude Generated - Quick Win: Copy/Paste structures (moved from private to slots)
+    void copyStructureToClipboard();
+    void pasteStructureFromClipboard();
+
+    // Claude Generated - Quick Win: Zoom to fit molecule (moved from private to slots)
+    void zoomToMolecule();
+
+    // Claude Generated - Quick Fix: Clear output view (moved from private to slots)
+    void clearOutputView();
+
+    // Claude Generated - Quick Fix: Copy current path to clipboard
+    void copyCurrentPath();
+
+    // Claude Generated - Quick Fix: Show about dialog
+    void showAboutDialog();
+
+    // Claude Generated - Visual Polish: Dark mode
+    void toggleDarkMode();
+
+    // Claude Generated - Create new directory (moved from private to slots)
+    void createNewDirectory();
+
 private:
     void setupUI();
     void createToolbars();
@@ -133,7 +155,6 @@ private:
     void showEnhancedError(const QString& title, const QString& problem, const QString& solution,
                           std::function<void()> actionCallback = nullptr);
 
-    void createNewDirectory();
     void setupProgramSpecificDirectory(const QString &dirPath, const QString &program);
     void updateDirectoryContent();  // Claude Generated - removed unused path parameter
 
@@ -256,27 +277,10 @@ private:
     void autoSaveDrafts();
     void loadDrafts();
 
-    // Claude Generated - Quick Win: Copy/Paste structures
-    void copyStructureToClipboard();
-    void pasteStructureFromClipboard();
-
-    // Claude Generated - Quick Win: Zoom to fit molecule
-    void zoomToMolecule();
-
-    // Claude Generated - Quick Fix: Clear output view
-    void clearOutputView();
-
-    // Claude Generated - Quick Fix: Copy current path to clipboard
-    void copyCurrentPath();
-
-    // Claude Generated - Quick Fix: Show about dialog
-    void showAboutDialog();
-
     // Claude Generated - Visual Polish: Dark mode
     bool m_darkModeEnabled = false;
     QAction* m_darkModeAction = nullptr;  // Store checkbox reference
     void applyStylesheet(bool darkMode);
-    void toggleDarkMode();
 
 protected:
     // Claude Generated - Quick Win: Drag & Drop support

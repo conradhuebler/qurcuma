@@ -57,6 +57,12 @@ public:
     void updateViewportSize(const QSize &newSize);
 
     /**
+     * Check if frame graph is initialized
+     * Claude Generated - For deferred initialization
+     */
+    bool isInitialized() const { return m_initialized; }
+
+    /**
      * Get render target textures for shader access
      */
     Qt3DRender::QAbstractTexture *getColorTexture() const { return m_colorTexture.data(); }

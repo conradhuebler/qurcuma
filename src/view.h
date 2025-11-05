@@ -224,6 +224,7 @@ private:
     Qt3DCore::QEntity* createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
     QColor getAtomColor(const QString& element, float charge = 0.0f);  // Claude Generated - changed to non-static for ColorScheme support
     float getAtomRadius(const QString& element);  // Claude Generated - changed to non-static for scaling support
+    float getCovalentRadius(const QString& element);  // Claude Generated - Covalent radii for bond detection
 
     static const float DEFAULT_BOND_DISTANCE; // Maximaler Abstand für automatische Bindungserkennung
     QVector<Bond> detectBonds(const QVector<Atom>& atoms);
@@ -305,6 +306,7 @@ private:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;  // Claude Generated - Handle viewport resize for frame graph
 };
 
 #endif // MOLECULEVIEWER_H
