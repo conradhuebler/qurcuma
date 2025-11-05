@@ -19,6 +19,18 @@ Specialized dialog windows and analysis tools for molecular visualization.
 - **Purpose**: Analyze vibrational frequencies from quantum chemistry calculations
 - **Status**: Integrated with main window for frequency selection and visualization
 
+### SFTP Remote File Dialog (sftpdialog.*)
+- **Purpose**: Connect to HPC clusters and open remote molecular structure files via SFTP
+- **Status**: Production-ready for VTF/XYZ files
+- **Features**:
+  - SSH/SFTP connection with password authentication (libssh 0.11.3)
+  - Remote directory browsing with tree view
+  - File download to local temp cache (`/tmp/qurcuma_sftp/`)
+  - Automatic parsing and visualization of downloaded files
+  - Keyboard shortcut: Ctrl+Shift+R
+- **Dependencies**: libssh (must be installed system-wide)
+- **Model**: Uses `sftpmodel.hpp` (QAbstractItemModel) for directory tree
+
 ## Architecture
 
 ```
@@ -27,6 +39,7 @@ dialogs/
 ├── nmrcontroller.cpp/h              - NMR data controller and logic
 ├── nmrdatastore.cpp/h               - Data storage and persistence (JSON-based)
 ├── nmrstructureproxymodel.cpp/h     - Qt proxy model for filtering/organization
+├── sftpdialog.cpp/h                 - SFTP remote file browser dialog
 └── frequencydialog.h                - Frequency analysis dialog (header-only)
 ```
 

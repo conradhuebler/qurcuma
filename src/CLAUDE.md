@@ -20,12 +20,13 @@
 |--------|------|---------|
 | **3D Viewer** | view.cpp/h | Qt3D molecular visualization + arcball rotation |
 | **File Parsers** | *parser.cpp/h | VTF, XYZ, PDB, MOL2 format support |
+| **SFTP Remote Access** | sftpdialog.cpp/h, sftpmodel.hpp | HPC cluster file access via SSH/SFTP (libssh) |
 | **GPU Instancing** | atominstancingsystem.cpp/h | Single draw call for >1000 atoms (Phase 5D) |
 | **Frustum Culling** | frustumculler.cpp/h | Off-screen atom culling, 30-50% draw reduction |
 | **Async Loading** | fileloadingworker.cpp/h | QThread background file parsing |
 | **Selection** | selectionmanager.cpp/h | Atom selection & state management |
 | **Measurements** | measurementoverlay.cpp/h | Distance/angle/dihedral calculations |
-| **Rendering** | customframegraph.cpp/h | 4-pass pipeline: Geometry→SSAO→Blur→Composite |
+| **Rendering** | customframegraph.cpp/h | 4-pass pipeline: Geometry→SSAO→Blur→Composite (disabled) |
 | **Performance** | performanceoptimizer.cpp/h | LOD system, quality auto-detection |
 | **Workspace** | workspacemanager.cpp/h | Save/restore full application state |
 | **Settings** | settings.cpp/h | QSettings persistence (visualization + performance) |

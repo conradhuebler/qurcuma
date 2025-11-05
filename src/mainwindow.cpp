@@ -49,6 +49,7 @@
 #include "visualizationsettingsdialog.h"
 
 #include "dialogs/nmrspectrumdialog.h"
+#include "dialogs/sftpdialog.h"  // Claude Generated - SFTP remote file access
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "mainwindow.h"
 
@@ -735,6 +736,23 @@ void MainWindow::createMenus()
 
     // File Menu
     QMenu *fileMenu = menuBar->addMenu(tr("&File"));
+
+    // Claude Generated - SFTP: Open Remote File
+    QAction *openRemoteAction = fileMenu->addAction(QIcon::fromTheme("folder-remote"), tr("Open &Remote File..."));
+    openRemoteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R));
+    connect(openRemoteAction, &QAction::triggered, this, [this]() {
+        SftpDialog dialog(this);
+        if (dialog.exec() == QDialog::Accepted) {
+            QString localPath = dialog.getLocalPath();
+            if (!localPath.isEmpty()) {
+                // Load the downloaded file using existing parsers
+                loadMoleculeFile(localPath);
+                statusBar()->showMessage(tr("Loaded remote file: %1").arg(QFileInfo(localPath).fileName()), 3000);
+            }
+        }
+    });
+
+    fileMenu->addSeparator();
 
     // Claude Generated - Quick Win: Recent files menu
     m_recentFilesMenu = fileMenu->addMenu(tr("&Recent Files"));
@@ -3157,5 +3175,113 @@ void MainWindow::updateWorkspaceMenu(QMenu* menu)
         connect(action, &QAction::triggered, [this, ws]() {
             restoreWorkspaceState(ws);
         });
+    }
+}
+// Claude Generated - SFTP: Load molecule file from local or remote path
+void MainWindow::loadMoleculeFile(const QString& filePath)
+{
+    if (filePath.isEmpty() || !QFile::exists(filePath)) {
+        qWarning() << "File does not exist:" << filePath;
+        return;
+    }
+
+    QString suffix = QFileInfo(filePath).suffix().toLower();
+    QString basename = QFileInfo(filePath).baseName();
+
+    if (suffix == "xyz") {
+        // XYZ file loading
+        if (m_xyzParser->parseTrajectory(filePath)) {
+            // Load XYZ data as text
+            QFile file(filePath);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
+                m_structureFileEdit->setText(QFileInfo(filePath).fileName());
+                file.close();
+            }
+
+            // Get frame count and setup trajectory data
+            int frameCount = m_xyzParser->getFrameCount();
+            DEBUG_LOG << "XYZ: frameCount =" << frameCount;
+            m_moleculeView->setFrameCount(frameCount);
+
+            // Reset molecule viewer for new file
+            m_moleculeView->clearScenePublic();
+
+            // Convert all frames to trajectory data
+            QVector<QVector<MoleculeViewer::Atom>> allAtoms;
+            QVector<QVector<MoleculeViewer::Bond>> allBonds;
+
+            for (int i = 0; i < frameCount; ++i) {
+                XYZParser::XYZFrame frame;
+                if (m_xyzParser->getFrame(i, frame)) {
+                    QVector<MoleculeViewer::Atom> atoms;
+                    QVector<MoleculeViewer::Bond> bonds;
+                    XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
+                    allAtoms.append(atoms);
+                    allBonds.append(bonds);
+                    DEBUG_LOG << "XYZ: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
+                } else {
+                    DEBUG_LOG << "XYZ: Failed to load frame" << i;
+                }
+            }
+
+            DEBUG_LOG << "XYZ: Total frames loaded:" << allAtoms.size();
+            m_moleculeView->setTrajectoryData(allAtoms, allBonds);
+        } else {
+            m_moleculeView->clearScenePublic();
+            qWarning() << "Failed to parse XYZ file:" << filePath;
+        }
+    }
+    else if (suffix == "vtf") {
+        // VTF file loading
+        m_vtfParser = new VTFParser();
+        if (m_vtfParser->parseTrajectory(filePath)) {
+            // Load VTF data as text
+            QFile file(filePath);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
+                m_structureFileEdit->setText(QFileInfo(filePath).fileName());
+                file.close();
+            }
+
+            // Get frame count and setup trajectory data
+            int frameCount = m_vtfParser->getFrameCount();
+            DEBUG_LOG << "VTF: frameCount =" << frameCount;
+            m_moleculeView->setFrameCount(frameCount);
+
+            // Reset molecule viewer for new file
+            m_moleculeView->clearScenePublic();
+
+            // Convert all frames to trajectory data
+            QVector<QVector<MoleculeViewer::Atom>> allAtoms;
+            QVector<QVector<MoleculeViewer::Bond>> allBonds;
+
+            for (int i = 0; i < frameCount; ++i) {
+                VTFParser::VTFFrame frame;
+                if (m_vtfParser->getFrame(i, frame)) {
+                    QVector<MoleculeViewer::Atom> atoms;
+                    QVector<MoleculeViewer::Bond> bonds;
+                    VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
+                    allAtoms.append(atoms);
+                    allBonds.append(bonds);
+                    DEBUG_LOG << "VTF: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
+                } else {
+                    DEBUG_LOG << "VTF: Failed to load frame" << i;
+                }
+            }
+
+            DEBUG_LOG << "VTF: Total frames loaded:" << allAtoms.size();
+            m_moleculeView->setTrajectoryData(allAtoms, allBonds);
+        } else {
+            m_moleculeView->clearScenePublic();
+            qWarning() << "Failed to parse VTF file:" << filePath;
+        }
+    }
+    else if (suffix == "pdb" || suffix == "mol2") {
+        // PDB/MOL2 support - placeholder for future implementation
+        statusBar()->showMessage(tr("PDB/MOL2 support coming soon"), 2000);
+    }
+    else {
+        statusBar()->showMessage(tr("Unsupported file format: %1").arg(suffix), 2000);
     }
 }

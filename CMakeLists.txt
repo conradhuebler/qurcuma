@@ -18,6 +18,19 @@ Charts
 REQUIRED
 )
 
+# Claude Generated - SFTP Support with libssh
+find_package(PkgConfig)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(LIBSSH REQUIRED libssh)
+else()
+    # Fallback: Try to find libssh manually
+    find_library(LIBSSH_LIBRARIES NAMES ssh)
+    find_path(LIBSSH_INCLUDE_DIRS libssh/libssh.h)
+    if(NOT LIBSSH_LIBRARIES OR NOT LIBSSH_INCLUDE_DIRS)
+        message(FATAL_ERROR "libssh not found. Install libssh-dev (Debian/Ubuntu) or libssh-devel (Fedora/RHEL)")
+    endif()
+endif()
+
 add_subdirectory(external/CuteChart)
 # Quelldateien
 set(SOURCES
@@ -33,6 +46,7 @@ set(SOURCES
     src/dialogs/nmrcontroller.cpp
     src/dialogs/nmrdatastore.cpp
     src/dialogs/nmrstructureproxymodel.cpp
+    src/dialogs/sftpdialog.cpp  # Claude Generated - SFTP remote file access
     src/widgets/breadcrumbbar.cpp  # Claude Generated Phase 1
     src/workspacemanager.cpp  # Claude Generated Phase 4.2
     src/selectionmanager.cpp  # Claude Generated Phase 2A
@@ -62,6 +76,8 @@ set(HEADERS
     src/modifiabletextedit.h
     src/visualizationsettingsdialog.h
     src/dialogs/nmrspectrumdialog.h
+    src/dialogs/sftpdialog.h  # Claude Generated - SFTP remote file access
+    src/sftpmodel.hpp  # Claude Generated - SFTP model (header-only with Q_OBJECT)
     src/widgets/breadcrumbbar.h  # Claude Generated Phase 1
     src/workspacemanager.h  # Claude Generated Phase 4.2
     src/selectionmanager.h  # Claude Generated Phase 2A
@@ -97,12 +113,14 @@ Qt6::3DInput
 Qt6::3DExtras
 Qt6::Charts
 cutechart
+${LIBSSH_LIBRARIES}  # Claude Generated - SFTP support
 )
 
 # Include-Verzeichnisse
 target_include_directories(qurcuma PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/external/
+    ${LIBSSH_INCLUDE_DIRS}  # Claude Generated - SFTP support
 )
 
 # VTF Parser Test

@@ -155,6 +155,9 @@ private:
     void showEnhancedError(const QString& title, const QString& problem, const QString& solution,
                           std::function<void()> actionCallback = nullptr);
 
+    // Claude Generated - SFTP: Load molecule file (local or remote)
+    void loadMoleculeFile(const QString& filePath);
+
     void setupProgramSpecificDirectory(const QString &dirPath, const QString &program);
     void updateDirectoryContent();  // Claude Generated - removed unused path parameter
 

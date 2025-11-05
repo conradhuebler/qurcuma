@@ -7,6 +7,8 @@
 #include <QFile>
 #include <libssh/libssh.h>
 #include <libssh/sftp.h>
+#include <fcntl.h>  // Claude Generated - For O_RDONLY, O_WRONLY, etc.
+#include <sys/stat.h>  // Claude Generated - For S_IRWXU
 
 class SftpItemModel : public QAbstractItemModel {
     Q_OBJECT

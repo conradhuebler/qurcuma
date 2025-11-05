@@ -1,5 +1,27 @@
 # AIChangelog - Qurcuma Improvements
 
+## January 2025 - SFTP Remote File Access & Bug Fixes ✅
+
+### SFTP Integration for HPC Clusters
+- **SftpDialog** (250 lines): Password authentication, remote directory browsing, file download
+- **SftpItemModel** (300 lines): QAbstractItemModel for SFTP directory tree (libssh 0.11.3)
+- **MainWindow integration**: "File → Open Remote File..." menu (Ctrl+Shift+R)
+- **loadMoleculeFile()**: Unified file loading for local/remote VTF/XYZ files
+- **Temp cache**: Downloads to `/tmp/qurcuma_sftp/` for transparent parsing
+- **Dependencies**: libssh via pkg-config (CMakeLists.txt auto-detection)
+
+### Rendering & Performance Fixes
+- **CustomFrameGraph disabled**: Fallback to standard Qt3D (Phase 5A incompatible with some RHI backends)
+- **Bond detection improvements**: getCovalentRadius() with accurate covalent radii (CRC Handbook)
+- **Bond tolerance optimized**: 1.25x multiplier (~2.0Å max) for cleaner detection
+- **VTF animation fix**: Bond rotation now updates correctly during trajectory playback
+- **XYZ unit handling**: Disabled auto Bohr conversion (assumes Ångström only)
+- **MainWindow slots fix**: Moved 8 methods to private slots section (Qt signal-slot errors)
+- **ChartView**: Added missing ResetFontConfig() slot
+- **Debug output cleanup**: Removed ~50 qDebug() statements from parsers (major performance boost)
+
+**Total: 550+ lines, 2 commits, libssh external dependency, production-ready SFTP**
+
 ## November 2025 (Iteration 5 - Phase 5A/5B/5C Complete)
 
 ### Phase 5A - Multi-Pass FrameGraph & SSAO Integration ✅
