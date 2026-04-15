@@ -1,14 +1,37 @@
 # AIChangelog - Qurcuma Improvements
 
-## January 2025 - SFTP Remote File Access & Bug Fixes ✅
+## January 2025 - Complete SFTP Integration & HPC Workflow ✅
 
-### SFTP Integration for HPC Clusters
-- **SftpDialog** (250 lines): Password authentication, remote directory browsing, file download
-- **SftpItemModel** (300 lines): QAbstractItemModel for SFTP directory tree (libssh 0.11.3)
-- **MainWindow integration**: "File → Open Remote File..." menu (Ctrl+Shift+R)
-- **loadMoleculeFile()**: Unified file loading for local/remote VTF/XYZ files
-- **Temp cache**: Downloads to `/tmp/qurcuma_sftp/` for transparent parsing
-- **Dependencies**: libssh via pkg-config (CMakeLists.txt auto-detection)
+### Phase SFTP Integration - Production-Ready Remote File Access (~1200 lines total)
+
+#### **Core Components**
+- **SftpDialog** (440 lines): Enhanced UI with profile management + SSH config dropdowns
+- **SftpItemModel** (445 lines): QAbstractItemModel with lazy loading (fetchMore/canFetchMore)
+- **SshConfigParser** (200 lines): ~/.ssh/config parser (Host, HostName, Port, User, IdentityFile)
+- **SftpCache** (240 lines): SHA-256 hash-based file cache with cleanup (size/age policies)
+- **Settings** (130 lines): SftpConnectionProfile persistence (save/load/recent connections)
+
+#### **Features Implemented**
+- ✅ **Dual Authentication**: Password + SSH key auto-detection (id_rsa, id_ed25519, etc.)
+- ✅ **SSH Config Integration**: Parses ~/.ssh/config for HPC cluster aliases
+- ✅ **Connection Profiles**: Save/load credentials like bookmarks (NO password storage)
+- ✅ **Recent Connections Menu**: Last 5 connections with timestamps ("X hours ago")
+- ✅ **Intelligent Caching**: Cache-hit detection, avoids re-downloading files
+- ✅ **Lazy Directory Loading**: Remote dirs load on-demand (QTreeView expansion)
+- ✅ **Progress Dialogs**: QProgressDialog for connect/auth/download stages
+- ✅ **Error Reporting**: Detailed SSH error messages via ssh_get_error()
+- ✅ **Port Support**: Custom SSH ports (not just 22)
+- ✅ **Path Bug Fix**: Subdirectory files now download correctly (was broken for non-root paths)
+
+#### **Architecture Integration**
+- **MainWindow**: Recent Remote Connections menu + updateRecentConnectionsMenu()
+- **Settings**: SftpConnectionProfile struct + getRecentSftpConnections(limit)
+- **Dialog**: Profile/SSH Config dropdowns auto-populate on open
+- **Cache**: /tmp/qurcuma_sftp/ with automatic cleanup policies
+
+#### **Dependencies**
+- libssh 0.11.3+ (pkg-config detection in CMakeLists.txt)
+- Qt6 Core/Widgets (QAbstractItemModel, QSettings)
 
 ### Rendering & Performance Fixes
 - **CustomFrameGraph disabled**: Fallback to standard Qt3D (Phase 5A incompatible with some RHI backends)

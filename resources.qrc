@@ -2,8 +2,8 @@
 <RCC>
     <!-- Claude Generated - Visual Polish: Dark mode stylesheet resources -->
     <qresource prefix="/">
-        <file>stylesheets/dark.qss</file>
-        <file>stylesheets/light.qss</file>
+    <!--    <file>stylesheets/dark.qss</file>-->
+    <!--    <file>stylesheets/light.qss</file>-->
     </qresource>
 
     <!-- Claude Generated - Phase 3B & 4A: Shader resources for advanced rendering -->

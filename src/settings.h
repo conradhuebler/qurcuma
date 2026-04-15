@@ -128,7 +128,7 @@ public:
         QString workingDirectory;        // Main working directory
         QStringList openCalculations;   // Selected calculation directories
         QByteArray windowGeometry;       // Window size/position
-        QByteArray splitterStates;       // Panel/splitter layout
+        QByteArray dockState;            // Claude Generated - UI Restructuring: Dock widget layout state
         QDateTime created;               // Creation timestamp
         QDateTime lastUsed;              // Last access time
 
@@ -148,6 +148,61 @@ public:
     void setAutoSaveWorkspace(bool enabled);
     bool restoreLastWorkspaceEnabled() const;
     void setRestoreLastWorkspace(bool enabled);
+
+    // Claude Generated - Phase SFTP Integration: Connection profile management
+    struct SftpConnectionProfile {
+        QString id;                  // Unique identifier (UUID)
+        QString name;                // User-friendly name "HPC Cluster 1"
+        QString host;                // Hostname or IP address
+        QString username;            // SSH username
+        int port;                    // SSH port (default 22)
+        bool useSSHConfig;           // If true, prefer settings from ~/.ssh/config
+        bool useKeyAuth;             // Use SSH key authentication instead of password
+        QString keyPath;             // Path to private key file (if useKeyAuth is true)
+        QDateTime created;           // Creation timestamp
+        QDateTime lastUsed;          // Last connection time
+
+        SftpConnectionProfile()
+            : port(22)
+            , useSSHConfig(false)
+            , useKeyAuth(false)
+        {
+        }
+
+        bool isValid() const { return !id.isEmpty() && !name.isEmpty() && !host.isEmpty(); }
+    };
+
+    QVector<SftpConnectionProfile> sftpProfiles() const;
+    void setSftpProfiles(const QVector<SftpConnectionProfile>& profiles);
+    void addSftpProfile(const SftpConnectionProfile& profile);
+    void removeSftpProfile(const QString& id);
+    void updateSftpProfile(const QString& id, const SftpConnectionProfile& profile);
+    void updateSftpProfileLastUsed(const QString& id);
+    QVector<SftpConnectionProfile> getRecentSftpConnections(int limit = 5) const;
+
+    // Claude Generated - Remote Directory Mounting
+    struct RemoteMountPoint {
+        QString id;                  // UUID
+        QString name;                // User-friendly name "HPC Cluster - MD Runs"
+        QString profileId;           // Reference to SftpConnectionProfile
+        QString remotePath;          // "/scratch/user/simulations"
+        QDateTime mounted;           // When added to workspace
+        QDateTime lastAccessed;      // Last browsed
+
+        RemoteMountPoint()
+        {
+        }
+
+        bool isValid() const {
+            return !id.isEmpty() && !profileId.isEmpty() && !remotePath.isEmpty();
+        }
+    };
+
+    QVector<RemoteMountPoint> remoteMounts() const;
+    void setRemoteMounts(const QVector<RemoteMountPoint>& mounts);
+    void addRemoteMount(const RemoteMountPoint& mount);
+    void removeRemoteMount(const QString& id);
+    void updateRemoteMountLastAccessed(const QString& id);
 
 private:
     QSettings m_settings;

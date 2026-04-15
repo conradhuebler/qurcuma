@@ -47,6 +47,8 @@ set(SOURCES
     src/dialogs/nmrdatastore.cpp
     src/dialogs/nmrstructureproxymodel.cpp
     src/dialogs/sftpdialog.cpp  # Claude Generated - SFTP remote file access
+    src/sshconfig.cpp  # Claude Generated - SSH config parser for SFTP integration
+    src/sftpcache.cpp  # Claude Generated - SFTP cache management for SFTP integration
     src/widgets/breadcrumbbar.cpp  # Claude Generated Phase 1
     src/workspacemanager.cpp  # Claude Generated Phase 4.2
     src/selectionmanager.cpp  # Claude Generated Phase 2A
@@ -78,6 +80,8 @@ set(HEADERS
     src/dialogs/nmrspectrumdialog.h
     src/dialogs/sftpdialog.h  # Claude Generated - SFTP remote file access
     src/sftpmodel.hpp  # Claude Generated - SFTP model (header-only with Q_OBJECT)
+    src/sshconfig.h  # Claude Generated - SSH config parser for SFTP integration
+    src/sftpcache.h  # Claude Generated - SFTP cache management for SFTP integration
     src/widgets/breadcrumbbar.h  # Claude Generated Phase 1
     src/workspacemanager.h  # Claude Generated Phase 4.2
     src/selectionmanager.h  # Claude Generated Phase 2A

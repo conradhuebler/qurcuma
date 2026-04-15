@@ -43,6 +43,7 @@ class MoleculeViewer;
 class VisualizationSettingsDialog;  // Claude Generated - For shortcut synchronization
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
+class SftpItemModel;  // Claude Generated - Remote Directory Mounting
 
 
 struct CalculationEntry {
@@ -69,6 +70,14 @@ public:
         CalculationRunning,   // Process executing
         CalculationComplete,  // Process finished successfully
         CalculationError      // Process failed
+    };
+
+    // Claude Generated - UI Restructuring: Layout presets for flexible dock arrangement
+    enum class LayoutPreset {
+        Visualization,  // 3D viewer focus with minimal UI
+        Editing,        // Editors and file browser focus
+        Calculation,    // Output view and calculation workflow
+        Analysis        // All panels visible, balanced layout
     };
 
     MainWindow(QWidget *parent = nullptr);
@@ -211,6 +220,14 @@ private:
     void updateWorkspaceList();
     void updateWorkspaceMenu(QMenu* menu);
 
+    // Claude Generated - UI Restructuring: Layout preset management
+    void applyLayoutPreset(LayoutPreset preset);
+    void applyVisualizationLayout();
+    void applyEditingLayout();
+    void applyCalculationLayout();
+    void applyAnalysisLayout();
+    void createDockWidgets();  // Helper to create all dock widgets
+
     QTreeWidget* m_bookmarkTreeView;  // Claude Generated Phase 3.2 - Replaced QListWidget
     QListWidget* m_workspaceListView;  // Claude Generated Phase 4.3
     QListView* m_projectListView;
@@ -235,7 +252,6 @@ private:
     QPointer<VisualizationSettingsDialog> m_visualizationDialog;
     QCompleter* m_commandCompleter;
     QToolButton* m_bookmarkButton;
-    QSplitter* m_splitter;
     BreadcrumbBar* m_breadcrumbBar;  // Claude Generated Phase 1 - Clickable path navigation
     QLabel *m_currentProjectLabel;
     // Claude Generated - Phase 3.3: Visual state indicators
@@ -253,7 +269,6 @@ private:
 
     QString m_workingDirectory;
     QString m_currentCalculationDir; // Aktuelles Berechnungsverzeichnis
-    int m_lastLeftPanelWidth = 0;
     QVector<QPair<int, double>> m_frequencies;
 
     // Claude Generated - Phase 2.2: Workflow state
@@ -271,6 +286,11 @@ private:
     QMenu* m_recentFilesMenu = nullptr;
     QVector<Settings::RecentFileEntry> m_recentFiles;  // Claude Generated Phase 2 - Now with timestamps
 
+    // Claude Generated - Phase SFTP Integration: Recent remote connections
+    QMenu* m_recentConnectionsMenu = nullptr;
+    void updateRecentConnectionsMenu();  // Populate recent connections menu
+    void openRecentConnection(const QString& profileId);  // Open SFTP dialog with profile pre-selected
+
     // Claude Generated Phase 4 - Workspace management
     WorkspaceManager* m_workspaceManager = nullptr;
     QMenu* m_workspaceMenu = nullptr;
@@ -284,6 +304,26 @@ private:
     bool m_darkModeEnabled = false;
     QAction* m_darkModeAction = nullptr;  // Store checkbox reference
     void applyStylesheet(bool darkMode);
+
+    // Claude Generated - Remote Directory Mounting
+    QTreeWidget* m_remoteDirectoriesView = nullptr;
+    QMap<QString, SftpItemModel*> m_remoteSftpModels;
+    QString m_currentRemoteMountId;
+
+    // Claude Generated - UI Restructuring: Dock widgets for flexible layout
+    QDockWidget* m_3dViewerDock = nullptr;          // 3D molecular viewer
+    QDockWidget* m_structureEditorDock = nullptr;   // Structure file editor
+    QDockWidget* m_inputEditorDock = nullptr;       // Input file editor
+    QDockWidget* m_fileBrowserDock = nullptr;       // Left panel (directory, bookmarks, workspaces)
+    QDockWidget* m_calculationFilesDock = nullptr;  // Middle panel (calculation file list)
+    QDockWidget* m_outputViewDock = nullptr;        // Output view with clear button
+    QDockWidget* m_programControlsDock = nullptr;   // Program controls (selector, command, start button)
+    // Note: m_atomListPanel is already a dock widget (AtomListPanel inherits QDockWidget)
+    void updateRemoteDirectoriesView();
+    void onRemoteDirectoryClicked(QTreeWidgetItem* item, int column);
+    void onAddRemoteDirectoryClicked();
+    void onRemoteFileDoubleClicked(const QModelIndex& index);
+    void downloadAndLoadRemoteFile(const QString& filePath);
 
 protected:
     // Claude Generated - Quick Win: Drag & Drop support

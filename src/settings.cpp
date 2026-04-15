@@ -530,7 +530,7 @@ QVector<Settings::Workspace> Settings::workspaces() const
                     ws.workingDirectory = parts[3];
                     ws.openCalculations = parts[4].split(",");
                     ws.windowGeometry = QByteArray::fromHex(parts[5].toLatin1());
-                    ws.splitterStates = QByteArray::fromHex(parts[6].toLatin1());
+                    ws.dockState = QByteArray::fromHex(parts[6].toLatin1());  // Claude Generated - UI Restructuring
                     ws.created = QDateTime::fromString(parts[7], Qt::ISODate);
                     ws.lastUsed = QDateTime::fromString(parts[8], Qt::ISODate);
                     if (ws.isValid()) {
@@ -569,7 +569,7 @@ void Settings::saveWorkspace(const Workspace& ws)
             parts.append(w.id + "|" + w.name + "|" + w.description + "|" +
                         w.workingDirectory + "|" + w.openCalculations.join(",") + "|" +
                         QString(w.windowGeometry.toHex()) + "|" +
-                        QString(w.splitterStates.toHex()) + "|" +
+                        QString(w.dockState.toHex()) + "|" +  // Claude Generated - UI Restructuring
                         w.created.toString(Qt::ISODate) + "|" +
                         w.lastUsed.toString(Qt::ISODate));
         }
@@ -592,7 +592,7 @@ void Settings::deleteWorkspace(const QString& id)
             parts.append(w.id + "|" + w.name + "|" + w.description + "|" +
                         w.workingDirectory + "|" + w.openCalculations.join(",") + "|" +
                         QString(w.windowGeometry.toHex()) + "|" +
-                        QString(w.splitterStates.toHex()) + "|" +
+                        QString(w.dockState.toHex()) + "|" +  // Claude Generated - UI Restructuring
                         w.created.toString(Qt::ISODate) + "|" +
                         w.lastUsed.toString(Qt::ISODate));
         }
@@ -657,4 +657,227 @@ void Settings::setRestoreLastWorkspace(bool enabled)
 {
     m_settings.setValue("restoreLastWorkspace", enabled);
     m_settings.sync();
+}
+
+// Claude Generated - Phase SFTP Integration: Connection profile management
+QVector<Settings::SftpConnectionProfile> Settings::sftpProfiles() const
+{
+    QVector<SftpConnectionProfile> profiles;
+
+    if (m_settings.contains("sftpProfilesV1")) {
+        QString data = m_settings.value("sftpProfilesV1", "").toString();
+        if (!data.isEmpty()) {
+            // Parse format: id|name|host|username|port|useSSHConfig|useKeyAuth|keyPath|created|lastUsed;...
+            QStringList profileStrings = data.split("\n");
+            for (const QString& profileStr : profileStrings) {
+                if (profileStr.isEmpty()) continue;
+                QStringList parts = profileStr.split("|");
+                if (parts.size() >= 10) {
+                    SftpConnectionProfile profile;
+                    profile.id = parts[0];
+                    profile.name = parts[1];
+                    profile.host = parts[2];
+                    profile.username = parts[3];
+                    profile.port = parts[4].toInt();
+                    profile.useSSHConfig = (parts[5] == "1");
+                    profile.useKeyAuth = (parts[6] == "1");
+                    profile.keyPath = parts[7];
+                    profile.created = QDateTime::fromString(parts[8], Qt::ISODate);
+                    profile.lastUsed = QDateTime::fromString(parts[9], Qt::ISODate);
+                    if (profile.isValid()) {
+                        profiles.append(profile);
+                    }
+                }
+            }
+        }
+    }
+
+    return profiles;
+}
+
+void Settings::setSftpProfiles(const QVector<SftpConnectionProfile>& profiles)
+{
+    QStringList parts;
+    for (const auto& profile : profiles) {
+        if (profile.isValid()) {
+            parts.append(profile.id + "|" + profile.name + "|" + profile.host + "|" +
+                        profile.username + "|" + QString::number(profile.port) + "|" +
+                        (profile.useSSHConfig ? "1" : "0") + "|" +
+                        (profile.useKeyAuth ? "1" : "0") + "|" +
+                        profile.keyPath + "|" +
+                        profile.created.toString(Qt::ISODate) + "|" +
+                        profile.lastUsed.toString(Qt::ISODate));
+        }
+    }
+
+    if (parts.isEmpty()) {
+        m_settings.remove("sftpProfilesV1");
+    } else {
+        m_settings.setValue("sftpProfilesV1", parts.join("\n"));
+    }
+    m_settings.sync();
+}
+
+void Settings::addSftpProfile(const SftpConnectionProfile& profile)
+{
+    QVector<SftpConnectionProfile> profiles = sftpProfiles();
+
+    // Check if profile with same ID already exists
+    bool found = false;
+    for (auto& existing : profiles) {
+        if (existing.id == profile.id) {
+            existing = profile;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        profiles.append(profile);
+    }
+
+    setSftpProfiles(profiles);
+}
+
+void Settings::removeSftpProfile(const QString& id)
+{
+    QVector<SftpConnectionProfile> profiles = sftpProfiles();
+    profiles.erase(std::remove_if(profiles.begin(), profiles.end(),
+        [&id](const SftpConnectionProfile& profile) { return profile.id == id; }), profiles.end());
+    setSftpProfiles(profiles);
+}
+
+void Settings::updateSftpProfile(const QString& id, const SftpConnectionProfile& newProfile)
+{
+    QVector<SftpConnectionProfile> profiles = sftpProfiles();
+    for (auto& profile : profiles) {
+        if (profile.id == id) {
+            profile = newProfile;
+            break;
+        }
+    }
+    setSftpProfiles(profiles);
+}
+
+void Settings::updateSftpProfileLastUsed(const QString& id)
+{
+    QVector<SftpConnectionProfile> profiles = sftpProfiles();
+    for (auto& profile : profiles) {
+        if (profile.id == id) {
+            profile.lastUsed = QDateTime::currentDateTime();
+            break;
+        }
+    }
+    setSftpProfiles(profiles);
+}
+
+QVector<Settings::SftpConnectionProfile> Settings::getRecentSftpConnections(int limit) const
+{
+    QVector<SftpConnectionProfile> profiles = sftpProfiles();
+
+    // Sort by lastUsed timestamp (most recent first)
+    std::sort(profiles.begin(), profiles.end(),
+        [](const SftpConnectionProfile& a, const SftpConnectionProfile& b) {
+            return a.lastUsed > b.lastUsed;
+        });
+
+    // Return only the most recent 'limit' profiles
+    if (profiles.size() > limit) {
+        profiles.resize(limit);
+    }
+
+    return profiles;
+}
+
+// Claude Generated - Remote Directory Mounting: Persistent remote mounts
+QVector<Settings::RemoteMountPoint> Settings::remoteMounts() const
+{
+    QVector<RemoteMountPoint> mounts;
+
+    if (m_settings.contains("remoteMountsV1")) {
+        QString data = m_settings.value("remoteMountsV1", "").toString();
+        if (!data.isEmpty()) {
+            // Parse format: id|name|profileId|remotePath|mounted|lastAccessed
+            QStringList mountStrings = data.split("\n");
+            for (const QString& mountStr : mountStrings) {
+                if (mountStr.isEmpty()) continue;
+                QStringList parts = mountStr.split("|");
+                if (parts.size() >= 6) {
+                    RemoteMountPoint mount;
+                    mount.id = parts[0];
+                    mount.name = parts[1];
+                    mount.profileId = parts[2];
+                    mount.remotePath = parts[3];
+                    mount.mounted = QDateTime::fromString(parts[4], Qt::ISODate);
+                    mount.lastAccessed = QDateTime::fromString(parts[5], Qt::ISODate);
+                    if (mount.isValid()) {
+                        mounts.append(mount);
+                    }
+                }
+            }
+        }
+    }
+
+    return mounts;
+}
+
+void Settings::setRemoteMounts(const QVector<RemoteMountPoint>& mounts)
+{
+    QStringList parts;
+    for (const auto& mount : mounts) {
+        if (mount.isValid()) {
+            parts.append(mount.id + "|" + mount.name + "|" + mount.profileId + "|" +
+                        mount.remotePath + "|" +
+                        mount.mounted.toString(Qt::ISODate) + "|" +
+                        mount.lastAccessed.toString(Qt::ISODate));
+        }
+    }
+
+    if (parts.isEmpty()) {
+        m_settings.remove("remoteMountsV1");
+    } else {
+        m_settings.setValue("remoteMountsV1", parts.join("\n"));
+    }
+    m_settings.sync();
+}
+
+void Settings::addRemoteMount(const RemoteMountPoint& mount)
+{
+    QVector<RemoteMountPoint> mounts = remoteMounts();
+
+    // Check if mount with same ID already exists
+    bool found = false;
+    for (auto& existing : mounts) {
+        if (existing.id == mount.id) {
+            existing = mount;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        mounts.append(mount);
+    }
+
+    setRemoteMounts(mounts);
+}
+
+void Settings::removeRemoteMount(const QString& id)
+{
+    QVector<RemoteMountPoint> mounts = remoteMounts();
+    mounts.erase(std::remove_if(mounts.begin(), mounts.end(),
+        [&id](const RemoteMountPoint& mount) { return mount.id == id; }), mounts.end());
+    setRemoteMounts(mounts);
+}
+
+void Settings::updateRemoteMountLastAccessed(const QString& id)
+{
+    QVector<RemoteMountPoint> mounts = remoteMounts();
+    for (auto& mount : mounts) {
+        if (mount.id == id) {
+            mount.lastAccessed = QDateTime::currentDateTime();
+            break;
+        }
+    }
+    setRemoteMounts(mounts);
 }

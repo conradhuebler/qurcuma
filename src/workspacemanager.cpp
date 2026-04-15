@@ -27,7 +27,7 @@ Settings::Workspace WorkspaceManager::captureCurrentState(MainWindow* window,
     ws.workingDirectory = "";
     ws.openCalculations = QStringList();
     ws.windowGeometry = QByteArray();
-    ws.splitterStates = QByteArray();
+    ws.dockState = QByteArray();  // Claude Generated - UI Restructuring
 
     return ws;
 }
