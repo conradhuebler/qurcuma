@@ -171,6 +171,13 @@ public slots:
     QVector<QString> getAtomElements() const;
     QVector<float> getAtomCharges() const;
 
+    /**
+     * @brief Get current frame atoms as complete Atom structs (position + element + charge).
+     * Claude Generated - Interactive Simulation Integration
+     * Used by simulation integration to pass the current molecule to the simulation engine.
+     */
+    QVector<Atom> getCurrentFrameAtoms() const;
+
     // Claude Generated - Focus & Zoom commands
     void centerOnAtom(int atomIndex);
     void zoomToSelection(const QVector<int>& atomIndices);

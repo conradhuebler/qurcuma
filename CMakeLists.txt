@@ -32,6 +32,20 @@ else()
 endif()
 
 add_subdirectory(external/CuteChart)
+
+# Claude Generated - Curcuma simulation backend (Interactive Simulation Integration)
+# Build curcuma_core and curcuma_cap as libraries, no standalone executable needed here
+set(USE_XTB OFF CACHE BOOL "" FORCE)
+set(USE_TBLITE OFF CACHE BOOL "" FORCE)
+set(USE_GFNFF OFF CACHE BOOL "" FORCE)
+set(USE_ULYSSES OFF CACHE BOOL "" FORCE)
+set(USE_D3 OFF CACHE BOOL "" FORCE)
+set(USE_D4 OFF CACHE BOOL "" FORCE)
+set(USE_CUDA OFF CACHE BOOL "" FORCE)
+set(USE_PCH OFF CACHE BOOL "" FORCE)
+set(Helper OFF CACHE BOOL "" FORCE)
+add_subdirectory(external/curcuma EXCLUDE_FROM_ALL)
+
 # Quelldateien
 set(SOURCES
     src/view.cpp
@@ -66,6 +80,9 @@ set(SOURCES
 
     #src/dialogs/nmrstructuremodel.cpp
     src/atominstancingsystem.cpp  # Claude Generated Phase 5D (GPU instancing implementation)
+    src/simulationworker.cpp  # Claude Generated - Interactive Simulation Integration
+    src/simulationcontrolwidget.cpp  # Claude Generated - Interactive Simulation Integration
+    src/dialogs/simulationdialog.cpp  # Claude Generated - Interactive Simulation Integration
 )
 
 # Header-Dateien
@@ -97,6 +114,9 @@ set(HEADERS
     src/frustumculler.h  # Claude Generated Phase 5D (frustum culling)
     src/fileloadingworker.h  # Claude Generated Phase 5D (async file loading)
     src/atominstancingsystem.h  # Claude Generated Phase 5D (GPU instancing implementation)
+    src/simulationworker.h  # Claude Generated - Interactive Simulation Integration
+    src/simulationcontrolwidget.h  # Claude Generated - Interactive Simulation Integration
+    src/dialogs/simulationdialog.h  # Claude Generated - Interactive Simulation Integration
     #src/dialogs/nmrstructuremodel.h
 
 )
@@ -107,6 +127,8 @@ add_executable(qurcuma
     resources.qrc
 )
 
+# Claude Generated - OpenMP needed by curcuma_core
+find_package(OpenMP)
 target_link_libraries(qurcuma PRIVATE
 Qt6::Core
 Qt6::Gui
@@ -118,12 +140,21 @@ Qt6::3DExtras
 Qt6::Charts
 cutechart
 ${LIBSSH_LIBRARIES}  # Claude Generated - SFTP support
+curcuma_core  # Claude Generated - Curcuma simulation backend
+curcuma_cap   # Claude Generated - Curcuma capabilities (MD, Opt)
+$<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>  # Claude Generated - OpenMP for curcuma
 )
 
 # Include-Verzeichnisse
 target_include_directories(qurcuma PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/external/
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma  # Claude Generated - Curcuma headers
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/src  # Claude Generated - Curcuma src headers
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/external/eigen-3.4.0  # Claude Generated - Eigen for curcuma types
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/external  # Claude Generated - json.hpp and other curcuma externals
+    ${CMAKE_CURRENT_BINARY_DIR}/external/curcuma  # Claude Generated - generated global_config.h at src/global_config.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/external/LBFGSpp/include  # Claude Generated - LBFGSpp for curcuma
     ${LIBSSH_INCLUDE_DIRS}  # Claude Generated - SFTP support
 )
 

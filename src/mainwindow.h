@@ -44,6 +44,9 @@ class VisualizationSettingsDialog;  // Claude Generated - For shortcut synchroni
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
+class SimulationControlWidget;  // Claude Generated - Interactive Simulation Integration
+class SimulationDialog;  // Claude Generated - Interactive Simulation Integration
+#include "simulationworker.h"  // Claude Generated - for SimulationConfig
 
 
 struct CalculationEntry {
@@ -318,6 +321,15 @@ private:
     QDockWidget* m_calculationFilesDock = nullptr;  // Middle panel (calculation file list)
     QDockWidget* m_outputViewDock = nullptr;        // Output view with clear button
     QDockWidget* m_programControlsDock = nullptr;   // Program controls (selector, command, start button)
+    QDockWidget* m_simulationControlDock = nullptr; // Claude Generated - Inline simulation controls
+    QDockWidget* m_atomListDock = nullptr;          // Claude Generated - Atom list dock (member for layout switches)
+    SimulationControlWidget* m_simulationControlWidget = nullptr;  // Claude Generated
+    SimulationDialog* m_simulationDialog = nullptr;  // Claude Generated
+
+    // Claude Generated - Interactive Simulation Integration
+    void openSimulationDialog(SimulationConfig::Mode mode);
+    void onSimulationFrame(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step);
+
     // Note: m_atomListPanel is already a dock widget (AtomListPanel inherits QDockWidget)
     void updateRemoteDirectoriesView();
     void onRemoteDirectoryClicked(QTreeWidgetItem* item, int column);

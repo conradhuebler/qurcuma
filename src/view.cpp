@@ -2135,3 +2135,12 @@ QVector<float> MoleculeViewer::getAtomCharges() const
     }
     return charges;
 }
+
+// Claude Generated - Interactive Simulation Integration
+QVector<MoleculeViewer::Atom> MoleculeViewer::getCurrentFrameAtoms() const
+{
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
+        return m_trajectoryAtoms[m_currentFrame];
+    }
+    return QVector<Atom>();
+}

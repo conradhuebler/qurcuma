@@ -3,6 +3,8 @@
 #include "atomlistpanel.h"  // Claude Generated - Phase 2C
 #include "sftpmodel.hpp"  // Claude Generated - Remote Directory Mounting
 #include "dialogs/sftpdialog.h"  // Claude Generated - Remote Directory Mounting
+#include "simulationcontrolwidget.h"  // Claude Generated - Interactive Simulation Integration
+#include "dialogs/simulationdialog.h"  // Claude Generated - Interactive Simulation Integration
 #include <algorithm>  // Claude Generated - for std::min/std::max
 #include <QApplication>
 #include <QClipboard>
@@ -79,11 +81,7 @@ MainWindow::MainWindow(QWidget *parent)
     setupShortcuts();  // Claude Generated - Phase 1.2
     loadDrafts();      // Claude Generated - Quick Win: Auto-save drafts
 
-    m_nmrDialog = new NMRSpectrumDialog(this);
-    m_vtfParser = new VTFParser();
-    m_xyzParser = new XYZParser();
-
-    // Arbeitsverzeichnis aus Settings laden
+    // Arbeitsverzeichnis aus Settings laden (must be AFTER createDockWidgets which creates m_projectListView)
     m_workingDirectory = m_settings.workingDirectory();
     if (!m_workingDirectory.isEmpty()) {
         m_projectModel->setRootPath(m_workingDirectory);
@@ -93,6 +91,10 @@ MainWindow::MainWindow(QWidget *parent)
     if (!lastDir.isEmpty() && QDir(lastDir).exists()) {
         switchWorkingDirectory(lastDir);
     }
+
+    m_nmrDialog = new NMRSpectrumDialog(this);
+    m_vtfParser = new VTFParser();
+    m_xyzParser = new XYZParser();
 
     // Claude Generated - Visual Polish: Load dark mode setting and update checkbox
     m_darkModeEnabled = m_settings.darkModeEnabled();
@@ -242,6 +244,9 @@ void MainWindow::setupContextMenu()
                                 QVector<MoleculeViewer::Bond> bonds;
                                 VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
                                 m_moleculeView->addMolecule(atoms, bonds);
+                                // Claude Generated - Pass to simulation widget for interactive simulation
+                                if (m_simulationControlWidget)
+                                    m_simulationControlWidget->setMolecule(atoms);
                                 
                                 // Frame controls are now managed by MoleculeViewer
                             }
@@ -268,6 +273,7 @@ void MainWindow::setupContextMenu()
                             QVector<MoleculeViewer::Bond> bonds;
                             PDBParser::convertToMoleculeViewer(frame, atoms, bonds, pdbParser.getBonds());
                             m_moleculeView->addMolecule(atoms, bonds);
+                            if (m_simulationControlWidget) m_simulationControlWidget->setMolecule(atoms);
                         } else {
                             QMessageBox::warning(this, tr("Error"), tr("Failed to parse PDB file: %1").arg(pdbParser.getLastError()));
                         }
@@ -293,6 +299,7 @@ void MainWindow::setupContextMenu()
                             QVector<MoleculeViewer::Bond> bonds;
                             MOL2Parser::convertToMoleculeViewer(molecule, atoms, bonds);
                             m_moleculeView->addMolecule(atoms, bonds);
+                            if (m_simulationControlWidget) m_simulationControlWidget->setMolecule(atoms);
                         } else {
                             QMessageBox::warning(this, tr("Error"), tr("Failed to parse MOL2 file: %1").arg(mol2Parser.getLastError()));
                         }
@@ -602,6 +609,38 @@ void MainWindow::createMenus()
     settingsMenu->addSeparator();
     QAction *configAction = settingsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure Programs..."));
     connect(configAction, &QAction::triggered, this, &MainWindow::configurePrograms);
+
+    // Simulation Menu - Claude Generated - Interactive Simulation Integration
+    QMenu *simulationMenu = menuBar->addMenu(tr("&Simulation"));
+
+    QAction *mdAction = simulationMenu->addAction(
+        QIcon::fromTheme("media-playback-start"), tr("Run &MD Simulation..."));
+    mdAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    mdAction->setToolTip(tr("Start an interactive molecular dynamics simulation"));
+    connect(mdAction, &QAction::triggered, this, [this]() {
+        openSimulationDialog(SimulationConfig::Mode::MolecularDynamics);
+    });
+
+    QAction *optAction = simulationMenu->addAction(
+        QIcon::fromTheme("system-run"), tr("&Geometry Optimization..."));
+    optAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
+    optAction->setToolTip(tr("Optimize the molecular geometry"));
+    connect(optAction, &QAction::triggered, this, [this]() {
+        openSimulationDialog(SimulationConfig::Mode::GeometryOptimization);
+    });
+
+    simulationMenu->addSeparator();
+
+    QAction *toggleSimPanelAction = simulationMenu->addAction(tr("Show Simulation &Panel"));
+    toggleSimPanelAction->setCheckable(true);
+    toggleSimPanelAction->setChecked(true);
+    if (m_simulationControlDock) {
+        toggleSimPanelAction->setChecked(m_simulationControlDock->isVisible());
+        connect(toggleSimPanelAction, &QAction::toggled,
+            m_simulationControlDock, &QDockWidget::setVisible);
+        connect(m_simulationControlDock, &QDockWidget::visibilityChanged,
+            toggleSimPanelAction, &QAction::setChecked);
+    }
 
     // Help Menu - Claude Generated - Quick Fix: About dialog
     QMenu *helpMenu = menuBar->addMenu(tr("&Help"));
@@ -3025,6 +3064,12 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
 
             DEBUG_LOG << "XYZ: Total frames loaded:" << allAtoms.size();
             m_moleculeView->setTrajectoryData(allAtoms, allBonds);
+
+            // Claude Generated - Feed the loaded molecule into the inline
+            // simulation widget so the user can start a run without manually
+            // re-selecting it. First frame is used as the simulation input.
+            if (m_simulationControlWidget && !allAtoms.isEmpty())
+                m_simulationControlWidget->setMolecule(allAtoms.first());
         } else {
             m_moleculeView->clearScenePublic();
             qWarning() << "Failed to parse XYZ file:" << filePath;
@@ -3070,6 +3115,10 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
 
             DEBUG_LOG << "VTF: Total frames loaded:" << allAtoms.size();
             m_moleculeView->setTrajectoryData(allAtoms, allBonds);
+
+            // Claude Generated - Feed first frame into the simulation widget.
+            if (m_simulationControlWidget && !allAtoms.isEmpty())
+                m_simulationControlWidget->setMolecule(allAtoms.first());
         } else {
             m_moleculeView->clearScenePublic();
             qWarning() << "Failed to parse VTF file:" << filePath;
@@ -3496,7 +3545,8 @@ void MainWindow::createDockWidgets()
     fileBrowserLayout->addWidget(m_remoteDirectoriesView);
 
     m_fileBrowserDock->setWidget(fileBrowserWidget);
-    addDockWidget(Qt::LeftDockWidgetArea, m_fileBrowserDock);
+    // Note: Dock is added to layout in applyAnalysisLayout(), not here
+    // to avoid double-addDockWidget issues (Claude Generated)
 
     // ==================== CALCULATION FILES DOCK ====================
     m_calculationFilesDock = new QDockWidget(tr("Calculation Files"), this);
@@ -3560,7 +3610,7 @@ void MainWindow::createDockWidgets()
     calcFilesLayout->addWidget(m_directoryContentView);
 
     m_calculationFilesDock->setWidget(calcFilesWidget);
-    addDockWidget(Qt::LeftDockWidgetArea, m_calculationFilesDock);
+    // Note: Dock placement is handled by applyAnalysisLayout()
 
     // ==================== PROGRAM CONTROLS DOCK ====================
     m_programControlsDock = new QDockWidget(tr("Program Controls"), this);
@@ -3617,7 +3667,7 @@ void MainWindow::createDockWidgets()
     controlsLayout->addLayout(commandLayout);
 
     m_programControlsDock->setWidget(controlsWidget);
-    addDockWidget(Qt::TopDockWidgetArea, m_programControlsDock);
+    // Note: Dock placement is handled by applyAnalysisLayout()
 
     // ==================== STRUCTURE EDITOR DOCK ====================
     m_structureEditorDock = new QDockWidget(tr("Structure Editor"), this);
@@ -3640,7 +3690,7 @@ void MainWindow::createDockWidgets()
     structureLayout->addWidget(m_structureView);
 
     m_structureEditorDock->setWidget(structureWidget);
-    addDockWidget(Qt::LeftDockWidgetArea, m_structureEditorDock);
+    // Note: Dock placement is handled by applyAnalysisLayout()
 
     // ==================== INPUT EDITOR DOCK ====================
     m_inputEditorDock = new QDockWidget(tr("Input Editor"), this);
@@ -3663,7 +3713,7 @@ void MainWindow::createDockWidgets()
     inputLayout->addWidget(m_inputView);
 
     m_inputEditorDock->setWidget(inputWidget);
-    addDockWidget(Qt::LeftDockWidgetArea, m_inputEditorDock);
+    // Note: Dock placement is handled by applyAnalysisLayout()
 
     // ==================== 3D VIEWER DOCK ====================
     m_3dViewerDock = new QDockWidget(tr("3D Viewer"), this);
@@ -3683,7 +3733,23 @@ void MainWindow::createDockWidgets()
     m_moleculeView->setFogIntensity(vizSettings.fogIntensity);
 
     m_3dViewerDock->setWidget(m_moleculeView);
-    addDockWidget(Qt::RightDockWidgetArea, m_3dViewerDock);
+    // Note: Dock placement is handled by applyAnalysisLayout()
+
+    // ==================== SIMULATION CONTROL DOCK ====================
+    // Claude Generated - Interactive Simulation Integration
+    m_simulationControlDock = new QDockWidget(tr("Simulation"), this);
+    m_simulationControlDock->setObjectName("SimulationControlDock");
+    m_simulationControlDock->setAllowedAreas(Qt::BottomDockWidgetArea | Qt::RightDockWidgetArea | Qt::TopDockWidgetArea);
+
+    m_simulationControlWidget = new SimulationControlWidget(this);
+    m_simulationControlDock->setWidget(m_simulationControlWidget);
+    // Note: Initial placement done in the unified block below
+
+    // Connect simulation frame updates to 3D viewer
+    connect(m_simulationControlWidget, &SimulationControlWidget::frameReady,
+        this, &MainWindow::onSimulationFrame);
+    connect(m_simulationControlWidget, &SimulationControlWidget::openFullDialog,
+        this, [this]() { openSimulationDialog(SimulationConfig::Mode::MolecularDynamics); });
 
     // ==================== OUTPUT VIEW DOCK ====================
     m_outputViewDock = new QDockWidget(tr("Output"), this);
@@ -3714,19 +3780,37 @@ void MainWindow::createDockWidgets()
     outputLayout->addWidget(m_outputView);
 
     m_outputViewDock->setWidget(outputWidget);
-    addDockWidget(Qt::BottomDockWidgetArea, m_outputViewDock);
 
-    // ==================== ATOM LIST DOCK (already created in old code) ====================
-    // Keep existing atom list panel creation
+    // ==================== ATOM LIST DOCK ====================
     m_atomListPanel = new AtomListPanel(this);
-    QDockWidget* atomListDock = new QDockWidget(tr("Atom List"), this);
-    atomListDock->setWidget(m_atomListPanel);
-    atomListDock->setObjectName("AtomListDock");
-    addDockWidget(Qt::RightDockWidgetArea, atomListDock);
+    m_atomListDock = new QDockWidget(tr("Atom List"), this);
+    m_atomListDock->setWidget(m_atomListPanel);
+    m_atomListDock->setObjectName("AtomListDock");
 
-    // Tab the atom list with the 3D viewer by default
-    tabifyDockWidget(m_3dViewerDock, atomListDock);
-    m_3dViewerDock->raise();  // Make 3D Viewer the active tab by default
+    // Claude Generated - Unified initial dock placement.
+    // Each dock is added to its area exactly once; tabify groups only AFTER the
+    // anchor has been placed. Re-calling addDockWidget() on a dock that is part
+    // of a tab group detaches it and destroys the tab bar, so we avoid that here
+    // and in every apply*Layout() function.
+    addDockWidget(Qt::LeftDockWidgetArea, m_fileBrowserDock);
+    addDockWidget(Qt::LeftDockWidgetArea, m_calculationFilesDock);
+    tabifyDockWidget(m_fileBrowserDock, m_calculationFilesDock);
+
+    addDockWidget(Qt::LeftDockWidgetArea, m_structureEditorDock);
+    addDockWidget(Qt::LeftDockWidgetArea, m_inputEditorDock);
+    tabifyDockWidget(m_structureEditorDock, m_inputEditorDock);
+
+    addDockWidget(Qt::TopDockWidgetArea, m_programControlsDock);
+
+    // Right area: 3D Viewer, Atom List, Simulation all stacked vertically via
+    // splitDockWidget — none are tabified, so clicking one never hides another.
+    addDockWidget(Qt::RightDockWidgetArea, m_3dViewerDock);
+    addDockWidget(Qt::RightDockWidgetArea, m_atomListDock);
+    addDockWidget(Qt::RightDockWidgetArea, m_simulationControlDock);
+    splitDockWidget(m_3dViewerDock, m_atomListDock, Qt::Vertical);
+    splitDockWidget(m_atomListDock, m_simulationControlDock, Qt::Vertical);
+
+    addDockWidget(Qt::BottomDockWidgetArea, m_outputViewDock);
 }
 
 // Claude Generated - UI Restructuring: Layout preset dispatcher
@@ -3752,23 +3836,26 @@ void MainWindow::applyLayoutPreset(LayoutPreset preset)
 // Focus on 3D viewer with minimal UI clutter
 void MainWindow::applyVisualizationLayout()
 {
-    // Hide most docks
+    // Show/hide every managed dock explicitly (no undefined state)
     m_fileBrowserDock->hide();
     m_structureEditorDock->hide();
     m_inputEditorDock->hide();
     m_programControlsDock->hide();
     m_outputViewDock->hide();
+    m_simulationControlDock->hide();
 
-    // Show only essential visualization docks
     m_3dViewerDock->show();
-    m_calculationFilesDock->show();  // Small file list for quick access
-    // m_atomListPanel is already tabified with 3D viewer
+    m_atomListDock->show();
+    m_calculationFilesDock->show();
 
-    // Resize docks for optimal visualization
+    // Right area: 3D Viewer on top (always visible), Atom List split below.
+    // Using splitDockWidget instead of tabify so the 3D view does not get
+    // hidden when the user clicks the Atom List.
+    splitDockWidget(m_3dViewerDock, m_atomListDock, Qt::Vertical);
+
     m_3dViewerDock->setFloating(false);
     resizeDocks({m_calculationFilesDock, m_3dViewerDock}, {200, 1200}, Qt::Horizontal);
 
-    // Ensure tab positions are set for this layout
     setTabPosition(Qt::LeftDockWidgetArea, QTabWidget::North);
     setTabPosition(Qt::RightDockWidgetArea, QTabWidget::North);
 
@@ -3779,30 +3866,27 @@ void MainWindow::applyVisualizationLayout()
 // Focus on structure/input editors with file browser
 void MainWindow::applyEditingLayout()
 {
-    // Show all relevant docks
+    // Explicit visibility for every dock
     m_fileBrowserDock->show();
     m_calculationFilesDock->show();
     m_structureEditorDock->show();
     m_inputEditorDock->show();
     m_3dViewerDock->show();
-    m_programControlsDock->hide();  // Not needed during editing
+    m_programControlsDock->hide();
     m_outputViewDock->hide();
+    m_atomListDock->hide();
+    m_simulationControlDock->hide();
 
-    // Arrange docks for editing workflow
-    // Left: File Browser + Calculation Files stacked
-    addDockWidget(Qt::LeftDockWidgetArea, m_fileBrowserDock);
-    addDockWidget(Qt::LeftDockWidgetArea, m_calculationFilesDock);
+    // Left outer: File Browser + Calc Files tabbed
+    // Docks already added in createDockWidgets() - only tabify here
     tabifyDockWidget(m_fileBrowserDock, m_calculationFilesDock);
-    m_fileBrowserDock->raise();  // Make File Browser the active tab
+    m_fileBrowserDock->raise();
 
-    // Left (inner): Editors stacked
-    addDockWidget(Qt::LeftDockWidgetArea, m_structureEditorDock);
-    addDockWidget(Qt::LeftDockWidgetArea, m_inputEditorDock);
+    // Left inner: Structure Editor + Input Editor tabbed
     tabifyDockWidget(m_structureEditorDock, m_inputEditorDock);
-    m_structureEditorDock->raise();  // Make Structure Editor the active tab
+    m_structureEditorDock->raise();
 
-    // Right: 3D Viewer (preview)
-    addDockWidget(Qt::RightDockWidgetArea, m_3dViewerDock);
+    // Right: 3D Viewer (preview) - already added
 
     // Split left area to give editors more space
     splitDockWidget(m_fileBrowserDock, m_structureEditorDock, Qt::Horizontal);
@@ -3818,32 +3902,27 @@ void MainWindow::applyEditingLayout()
 // Focus on calculation workflow with output monitoring
 void MainWindow::applyCalculationLayout()
 {
-    // Show calculation-relevant docks
+    // Explicit visibility for every dock
     m_programControlsDock->show();
     m_outputViewDock->show();
     m_3dViewerDock->show();
     m_structureEditorDock->show();
     m_inputEditorDock->show();
     m_calculationFilesDock->show();
-    m_fileBrowserDock->hide();  // Less important during calculation
+    m_fileBrowserDock->hide();
+    m_atomListDock->hide();
+    m_simulationControlDock->hide();
 
-    // Arrange docks for calculation workflow
-    // Top: Program Controls
-    addDockWidget(Qt::TopDockWidgetArea, m_programControlsDock);
+    // Top: Program Controls (already added in createDockWidgets)
 
-    // Left: Editors stacked
-    addDockWidget(Qt::LeftDockWidgetArea, m_structureEditorDock);
-    addDockWidget(Qt::LeftDockWidgetArea, m_inputEditorDock);
-    addDockWidget(Qt::LeftDockWidgetArea, m_calculationFilesDock);
+    // Left: Editor group — docks already added, just tabify
     tabifyDockWidget(m_structureEditorDock, m_inputEditorDock);
-    tabifyDockWidget(m_inputEditorDock, m_calculationFilesDock);
-    m_structureEditorDock->raise();  // Make Structure Editor the active tab
+    tabifyDockWidget(m_structureEditorDock, m_calculationFilesDock);
+    m_structureEditorDock->raise();
 
-    // Right: 3D Viewer
-    addDockWidget(Qt::RightDockWidgetArea, m_3dViewerDock);
+    // Right: 3D Viewer (already added in createDockWidgets)
 
-    // Bottom: Output View (large for monitoring)
-    addDockWidget(Qt::BottomDockWidgetArea, m_outputViewDock);
+    // Bottom: Output View (already added in createDockWidgets)
 
     // Resize: Give output view significant vertical space
     resizeDocks({m_outputViewDock}, {300}, Qt::Vertical);
@@ -3860,39 +3939,37 @@ void MainWindow::applyCalculationLayout()
 // All panels visible, balanced layout for comprehensive workflow
 void MainWindow::applyAnalysisLayout()
 {
-    // Show all docks
+    // Explicit visibility for every dock (all visible in this layout)
     m_fileBrowserDock->show();
     m_calculationFilesDock->show();
     m_structureEditorDock->show();
     m_inputEditorDock->show();
     m_3dViewerDock->show();
+    m_atomListDock->show();
+    m_simulationControlDock->show();
     m_outputViewDock->show();
     m_programControlsDock->show();
 
-    // Arrange in balanced layout
-    // Top: Program Controls
-    addDockWidget(Qt::TopDockWidgetArea, m_programControlsDock);
+    // Top: Program Controls (already added in createDockWidgets)
 
-    // Left area (outer): File Browser + Calc Files tabbed
-    addDockWidget(Qt::LeftDockWidgetArea, m_fileBrowserDock);
-    addDockWidget(Qt::LeftDockWidgetArea, m_calculationFilesDock);
+    // Left outer: File Browser + Calc Files tabbed
+    // Docks already added - just tabify
     tabifyDockWidget(m_fileBrowserDock, m_calculationFilesDock);
-    m_fileBrowserDock->raise();  // Make File Browser the active tab
+    m_fileBrowserDock->raise();
 
-    // Left area (inner): Editors tabbed
-    addDockWidget(Qt::LeftDockWidgetArea, m_structureEditorDock);
-    addDockWidget(Qt::LeftDockWidgetArea, m_inputEditorDock);
+    // Left inner: Structure Editor + Input Editor tabbed
     tabifyDockWidget(m_structureEditorDock, m_inputEditorDock);
-    m_structureEditorDock->raise();  // Make Structure Editor the active tab
+    m_structureEditorDock->raise();
 
     // Split left area
     splitDockWidget(m_fileBrowserDock, m_structureEditorDock, Qt::Horizontal);
 
-    // Right: 3D Viewer + Atom List (already tabified in createDockWidgets)
-    addDockWidget(Qt::RightDockWidgetArea, m_3dViewerDock);
+    // Right area: 3D Viewer, Atom List, Simulation stacked vertically — no
+    // tabs so clicking one panel never hides another.
+    splitDockWidget(m_3dViewerDock, m_atomListDock, Qt::Vertical);
+    splitDockWidget(m_atomListDock, m_simulationControlDock, Qt::Vertical);
 
-    // Bottom: Output View
-    addDockWidget(Qt::BottomDockWidgetArea, m_outputViewDock);
+    // Bottom: Output View (already added in createDockWidgets)
 
     // Balance dock sizes
     resizeDocks({m_fileBrowserDock, m_structureEditorDock, m_3dViewerDock},
@@ -3905,4 +3982,50 @@ void MainWindow::applyAnalysisLayout()
     setTabPosition(Qt::BottomDockWidgetArea, QTabWidget::South);
 
     statusBar()->showMessage(tr("Layout: Analysis Mode (All Panels)"), 2000);
+}
+
+// Claude Generated - Interactive Simulation Integration
+
+void MainWindow::openSimulationDialog(SimulationConfig::Mode mode)
+{
+    if (!m_simulationDialog) {
+        m_simulationDialog = new SimulationDialog(this);
+        connect(m_simulationDialog, &SimulationDialog::frameReady,
+            this, &MainWindow::onSimulationFrame);
+    }
+
+    // Feed current molecule from viewer (Claude Generated - uses getCurrentFrameAtoms())
+    if (m_moleculeView) {
+        QVector<MoleculeViewer::Atom> atoms = m_moleculeView->getCurrentFrameAtoms();
+        if (!atoms.isEmpty()) {
+            m_simulationDialog->setMolecule(atoms);
+        }
+    }
+
+    m_simulationDialog->setMode(mode);
+    m_simulationDialog->show();
+    m_simulationDialog->raise();
+}
+
+void MainWindow::onSimulationFrame(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step)
+{
+    if (!m_moleculeView || atoms.isEmpty())
+        return;
+
+    // Update viewer with new atom positions
+    // addMolecule replaces the current molecule display
+    QVector<MoleculeViewer::Bond> bonds; // bonds are preserved from initial load
+    m_moleculeView->addMolecule(atoms, bonds);
+
+    // Update simulation widget with new atom positions (Claude Generated)
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setMolecule(atoms);
+
+    // Update status bar
+    statusBar()->showMessage(
+        tr("Simulation step %1 | E = %2 Eh | Ekin = %3 Eh")
+            .arg(step)
+            .arg(energy, 0, 'f', 8)
+            .arg(ekin, 0, 'f', 6),
+        0); // 0 = don't auto-clear
 }
