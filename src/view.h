@@ -178,6 +178,13 @@ public slots:
      */
     QVector<Atom> getCurrentFrameAtoms() const;
 
+    /**
+     * @brief Update atom positions for live simulation without scene rebuild or bond detection.
+     * Claude Generated - Simulation position update: reuses existing bonds, avoids O(n²) detectBonds.
+     * Falls back to addMolecule if atom count changed (first frame or re-start).
+     */
+    void updateSimulationFrame(const QVector<Atom>& atoms);
+
     // Claude Generated - Focus & Zoom commands
     void centerOnAtom(int atomIndex);
     void zoomToSelection(const QVector<int>& atomIndices);
@@ -218,6 +225,9 @@ private:
     void setupControlPanel();  // Claude Generated - Setup integrated control panel
     QFrame* createSeparator();  // Claude Generated - Helper to create vertical separator in panel
     void updateFramePositions(int frameIndex);  // Claude Generated - Fast position-only update for animation
+    void updateAtomPositionsOnly(int frameIndex);  // Claude Generated - Simulation: atoms only, skip bonds
+    void updateBondsHybrid(int frameIndex);  // Claude Generated - Hybrid: cached rotation, update center+length
+    void prepareSimulationBonds(); // Claude Generated - Precompute bond rotations once before simulation
     void clearScene();  // Private implementation
     void onAnimationTick();  // Claude Generated - Timer callback for animation
     void updateMeasurementDisplay();  // Claude Generated - Update distance/angle display
@@ -280,6 +290,10 @@ private:
     // Claude Generated - Entity references for incremental updates (Fix 2)
     QVector<Qt3DCore::QEntity*> m_atomEntities;      // References to atom sphere entities
     QVector<Qt3DCore::QEntity*> m_bondEntities;      // References to bond cylinder entities
+    // Claude Generated - Cached transforms: avoids componentsOfType<QTransform>() scan per frame
+    QVector<Qt3DCore::QTransform*> m_atomTransforms; // Direct pointers; populated in createMoleculeEntity
+    QVector<Qt3DCore::QTransform*> m_bondTransforms; // Direct pointers; populated in createMoleculeEntity
+    QVector<QQuaternion> m_bondRotations; // Claude Generated - Hybrid update: cached rotations, update center+length only
     QVector<Qt3DRender::QMaterial*> m_atomMaterials;  // Claude Generated - Phase 4 Final: Support both Phong and PBR materials
     int m_measurementMode = 0;  // 0=None, 1=Distance, 2=Angle
 

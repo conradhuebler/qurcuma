@@ -322,6 +322,13 @@ void MoleculeViewer::clearScene()
     // Claude Generated - Phase 2A: Clear picker mappings
     m_atomPickerToIndex.clear();
 
+    // Claude Generated - Clear cached transform pointers before deleting entities.
+    // Qt3D deletes QTransform components when their parent entity is deleted.
+    // Keeping stale pointers in m_atomTransforms/m_bondTransforms causes dangling
+    // pointer crashes when updateFramePositions() is called after clearScene().
+    m_atomTransforms.clear();
+    m_bondTransforms.clear();
+
     // Alle Entities löschen
     for (Qt3DCore::QNode *node : m_rootEntity->childNodes()) {
         delete node;
@@ -677,6 +684,8 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
     m_atomEntities.clear();
     m_bondEntities.clear();
     m_atomMaterials.clear();
+    m_atomTransforms.clear();  // Claude Generated - cached transform pointers
+    m_bondTransforms.clear();
 
     // Claude Generated - Render atoms based on rendering mode
     bool renderAtoms = (m_renderingMode == RenderingMode::BallAndStick ||
@@ -742,6 +751,7 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             // Claude Generated - Fix 2: Store references for incremental updates
             m_atomEntities.append(atomEntity);
             m_atomMaterials.append(material);
+            m_atomTransforms.append(transform);  // cache for O(1) access in updateFramePositions
         }
     }
 
@@ -819,6 +829,7 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
 
         // Claude Generated - Fix 2: Store bond reference for incremental updates
         m_bondEntities.append(bondEntity);
+        m_bondTransforms.append(transform);  // cache for O(1) access in updateFramePositions
 
             // Für Mehrfachbindungen
             if (bond.bondOrder > 1) {
@@ -877,6 +888,7 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
 
                     // Claude Generated - Fix 2: Store additional bond reference
                     m_bondEntities.append(additionalBondEntity);
+                    m_bondTransforms.append(addTransform);  // cache for O(1) access
                 }
             }
         }
@@ -1101,59 +1113,54 @@ void MoleculeViewer::updateFramePositions(int frameIndex)
     m_currentFrame = frameIndex;
     const auto& atoms = m_trajectoryAtoms[frameIndex];
 
-    // Update atom positions only (no scene rebuild, no camera reset)
-    for (int i = 0; i < m_atomEntities.size() && i < atoms.size(); ++i) {
-        Qt3DCore::QEntity *atomEntity = m_atomEntities[i];
-        if (!atomEntity) continue;
-
-        // Find and update the transform component
-        auto transforms = atomEntity->componentsOfType<Qt3DCore::QTransform>();
-        for (auto transform : transforms) {
-            transform->setTranslation(atoms[i].position);
-        }
+    // Claude Generated - Use cached transform pointers: avoids componentsOfType<QTransform>() scan per atom/bond
+    for (int i = 0; i < m_atomTransforms.size() && i < atoms.size(); ++i) {
+        if (m_atomTransforms[i])
+            m_atomTransforms[i]->setTranslation(atoms[i].position);
     }
 
-    // Update bond positions too
+    // Update bond transforms using cached pointers
+    const QVector<Bond>& bonds = m_trajectoryBonds[frameIndex];
     int bondIndex = 0;
-    for (int i = 0; i < m_trajectoryBonds[frameIndex].size() && bondIndex < m_bondEntities.size(); ++i) {
-        const Bond& bond = m_trajectoryBonds[frameIndex][i];
-        Qt3DCore::QEntity *bondEntity = m_bondEntities[bondIndex];
-        if (!bondEntity) {
-            bondIndex++;
-            continue;
-        }
+    for (int i = 0; i < bonds.size(); ++i) {
+        if (bondIndex >= m_bondTransforms.size()) break;
+        const Bond& bond = bonds[i];
 
-        // Update bond position, rotation and scale
         QVector3D start = atoms[bond.atom1].position;
         QVector3D end = atoms[bond.atom2].position;
         QVector3D direction = end - start;
         float length = direction.length();
 
-        auto transforms = bondEntity->componentsOfType<Qt3DCore::QTransform>();
-        for (auto transform : transforms) {
-            transform->setTranslation(start + direction * 0.5f);
+        auto updateBondTransform = [&](Qt3DCore::QTransform* transform, QVector3D center) {
+            if (!transform) return;
+            transform->setTranslation(center);
             transform->setScale3D(QVector3D(1.0f, length, 1.0f));
-
-            // Claude Generated - Update bond rotation to match new direction
-            // This prevents stretching/distortion during trajectory animation
             QVector3D localUp(0, 1, 0);
-            QVector3D normalizedDirection = direction.normalized();
-            QVector3D rotationAxis = QVector3D::crossProduct(localUp, normalizedDirection);
-
-            if (rotationAxis.length() < 0.001f) {
-                // Direction is parallel to Y-axis
-                if (normalizedDirection.y() > 0) {
-                    transform->setRotation(QQuaternion());  // No rotation needed
-                } else {
-                    transform->setRotation(QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f));
-                }
+            QVector3D normDir = direction.normalized();
+            QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
+            if (rotAxis.length() < 0.001f) {
+                transform->setRotation(normDir.y() > 0 ? QQuaternion()
+                    : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f));
             } else {
-                float rotationAngle = qAcos(QVector3D::dotProduct(localUp, normalizedDirection)) * 180.0f / M_PI;
-                transform->setRotation(QQuaternion::fromAxisAndAngle(rotationAxis.normalized(), rotationAngle));
+                float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
+                transform->setRotation(QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle));
             }
-        }
+        };
 
+        updateBondTransform(m_bondTransforms[bondIndex], start + direction * 0.5f);
         bondIndex++;
+
+        // Additional bond entities for double/triple bonds
+        for (int j = 1; j < bond.bondOrder && bondIndex < m_bondTransforms.size(); ++j, ++bondIndex) {
+            // Offset direction perpendicular to bond
+            QVector3D offsetDir = QVector3D::crossProduct(direction.normalized(), QVector3D(0, 0, 1)).normalized();
+            if (offsetDir.length() < 0.001f)
+                offsetDir = QVector3D::crossProduct(direction.normalized(), QVector3D(0, 1, 0)).normalized();
+            float offset = 0.2f;
+            float currentOffset = (j % 2 == 0 ? 1 : -1) * offset * ((j + 1) / 2);
+            QVector3D offsetCenter = (start + end) * 0.5f + offsetDir * currentOffset;
+            updateBondTransform(m_bondTransforms[bondIndex], offsetCenter);
+        }
     }
 
     // Synchronize UI controls
@@ -1179,6 +1186,131 @@ void MoleculeViewer::updateFramePositions(int frameIndex)
     }
 
     emit frameChanged(m_currentFrame);
+}
+
+// Claude Generated - Fast atoms-only update for simulation: O(n) translate only, skip bond recalculation
+// Bond transforms stay constant during MD (topology doesn't change), so we skip rotation math
+void MoleculeViewer::updateAtomPositionsOnly(int frameIndex)
+{
+    if (frameIndex < 0 || frameIndex >= m_trajectoryAtoms.size()) {
+        return;
+    }
+
+    m_currentFrame = frameIndex;
+    const auto& atoms = m_trajectoryAtoms[frameIndex];
+
+    // Atoms only: simple translate. No bond rotation, no quaternion math.
+    for (int i = 0; i < m_atomTransforms.size() && i < atoms.size(); ++i) {
+        if (m_atomTransforms[i])
+            m_atomTransforms[i]->setTranslation(atoms[i].position);
+    }
+}
+
+// Claude Generated - Precompute bond rotations once before simulation
+// Call this once when simulation starts. Caches quaternion for each bond direction.
+void MoleculeViewer::prepareSimulationBonds()
+{
+    m_bondRotations.clear();
+    if (m_trajectoryAtoms.isEmpty() || m_trajectoryBonds.isEmpty())
+        return;
+
+    const auto& atoms = m_trajectoryAtoms[0];
+    const QVector<Bond>& bonds = m_trajectoryBonds[0];
+
+    for (const Bond& bond : bonds) {
+        if (bond.atom1 >= atoms.size() || bond.atom2 >= atoms.size())
+            continue;
+
+        QVector3D direction = atoms[bond.atom2].position - atoms[bond.atom1].position;
+        QVector3D normDir = direction.normalized();
+        QVector3D localUp(0, 1, 0);
+        QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
+
+        QQuaternion q;
+        if (rotAxis.length() < 0.001f) {
+            q = normDir.y() > 0 ? QQuaternion() : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f);
+        } else {
+            float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
+            q = QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle);
+        }
+        m_bondRotations.append(q);
+
+        // Double/triple bonds: same rotation for offset bonds
+        for (int j = 1; j < bond.bondOrder; ++j) {
+            m_bondRotations.append(q);
+        }
+    }
+    qDebug() << "Prepared" << m_bondRotations.size() << "bond rotations for simulation";
+}
+
+// Claude Generated - Hybrid bond update: rotation cached, update center+length only
+// Called every simulation frame. Rotation pre-computed once at simulation start.
+void MoleculeViewer::updateBondsHybrid(int frameIndex)
+{
+    if (frameIndex < 0 || frameIndex >= m_trajectoryAtoms.size())
+        return;
+
+    const auto& atoms = m_trajectoryAtoms[frameIndex];
+    const QVector<Bond>& bonds = m_trajectoryBonds[frameIndex];
+
+    int bondIndex = 0;
+    for (int i = 0; i < bonds.size() && bondIndex < m_bondTransforms.size(); ++i) {
+        const Bond& bond = bonds[i];
+
+        QVector3D start = atoms[bond.atom1].position;
+        QVector3D end = atoms[bond.atom2].position;
+        QVector3D direction = end - start;
+        float length = direction.length();
+
+        // Update center + length, apply cached rotation (no quaternion recalculation)
+        if (m_bondTransforms[bondIndex]) {
+            m_bondTransforms[bondIndex]->setTranslation(start + direction * 0.5f);
+            m_bondTransforms[bondIndex]->setScale3D(QVector3D(1.0f, length, 1.0f));
+            if (bondIndex < m_bondRotations.size())
+                m_bondTransforms[bondIndex]->setRotation(m_bondRotations[bondIndex]);
+        }
+        ++bondIndex;
+
+        // Additional bonds for double/triple bonds
+        for (int j = 1; j < bond.bondOrder && bondIndex < m_bondTransforms.size(); ++j, ++bondIndex) {
+            QVector3D offsetDir = QVector3D::crossProduct(direction.normalized(), QVector3D(0, 0, 1)).normalized();
+            if (offsetDir.length() < 0.001f)
+                offsetDir = QVector3D::crossProduct(direction.normalized(), QVector3D(0, 1, 0)).normalized();
+            float offset = 0.2f;
+            float currentOffset = (j % 2 == 0 ? 1 : -1) * offset * ((j + 1) / 2);
+            QVector3D offsetCenter = (start + end) * 0.5f + offsetDir * currentOffset;
+
+            if (m_bondTransforms[bondIndex]) {
+                m_bondTransforms[bondIndex]->setTranslation(offsetCenter);
+                m_bondTransforms[bondIndex]->setScale3D(QVector3D(1.0f, length, 1.0f));
+                if (bondIndex < m_bondRotations.size())
+                    m_bondTransforms[bondIndex]->setRotation(m_bondRotations[bondIndex]);
+            }
+        }
+    }
+}
+
+// Claude Generated - Fast simulation position update: reuses existing bonds, no clearScene, no detectBonds.
+// Skips O(n²) bond detection on every frame; critical for large molecule MD performance.
+void MoleculeViewer::updateSimulationFrame(const QVector<Atom>& atoms)
+{
+    // Fall back to full addMolecule if no existing scene or atom count changed
+    if (m_trajectoryAtoms.isEmpty() || m_trajectoryAtoms[0].size() != atoms.size()) {
+        addMolecule(atoms, {});
+        return;
+    }
+
+    // First frame: pre-compute bond rotations once (if not already done)
+    if (m_bondRotations.isEmpty())
+        prepareSimulationBonds();
+
+    // Update stored atom positions (keep existing bonds unchanged)
+    m_trajectoryAtoms[0] = atoms;
+
+    // Atoms: simple translate
+    updateAtomPositionsOnly(0);
+    // Bonds: center + length update, cached rotation (no quaternion recalc)
+    updateBondsHybrid(0);
 }
 
 void MoleculeViewer::nextFrame()

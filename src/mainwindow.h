@@ -9,8 +9,10 @@
 #include <QComboBox>
 #include <QCompleter>
 #include <QDateTime>
+#include <QDockWidget>
 #include <QFileDialog>
 #include <QFileSystemModel>
+#include <QHash>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -29,6 +31,7 @@
 #include <QStatusBar>
 #include <QString>
 #include <QStringList>
+#include <QTabWidget>
 #include <QTextEdit>
 #include <QToolButton>
 #include <QTreeWidget>
@@ -85,6 +88,17 @@ public:
 
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+
+    /**
+     * @brief Load a molecule file after the event loop has started.
+     *
+     * Claude Generated (Apr 2026): Called from main.cpp via QTimer::singleShot
+     * to handle command-line file arguments. Must be called after the event loop
+     * starts so Qt3D is fully initialized.
+     *
+     * @param path  Absolute or relative path to the molecule file (.xyz, .vtf, .pdb, .mol2)
+     */
+    void loadFileFromArg(const QString& path);
 
 private slots:
     void runCommand();
@@ -313,22 +327,25 @@ private:
     QMap<QString, SftpItemModel*> m_remoteSftpModels;
     QString m_currentRemoteMountId;
 
-    // Claude Generated - UI Restructuring: Dock widgets for flexible layout
-    QDockWidget* m_3dViewerDock = nullptr;          // 3D molecular viewer
-    QDockWidget* m_structureEditorDock = nullptr;   // Structure file editor
-    QDockWidget* m_inputEditorDock = nullptr;       // Input file editor
-    QDockWidget* m_fileBrowserDock = nullptr;       // Left panel (directory, bookmarks, workspaces)
-    QDockWidget* m_calculationFilesDock = nullptr;  // Middle panel (calculation file list)
-    QDockWidget* m_outputViewDock = nullptr;        // Output view with clear button
-    QDockWidget* m_programControlsDock = nullptr;   // Program controls (selector, command, start button)
-    QDockWidget* m_simulationControlDock = nullptr; // Claude Generated - Inline simulation controls
-    QDockWidget* m_atomListDock = nullptr;          // Claude Generated - Atom list dock (member for layout switches)
+    // Claude Generated - Dock architecture rewrite (2026-04): 5 docks rahmen MoleculeViewer (CentralWidget)
+    QDockWidget* m_projectDock = nullptr;           // Left: working dir + calculation files
+    QDockWidget* m_navigationDock = nullptr;        // Left (tabbed): bookmarks / workspaces / remote
+    QDockWidget* m_editorsDock = nullptr;           // Right: structure + input editors (internal QTabWidget)
+    QDockWidget* m_atomsSimulationDock = nullptr;   // Right: atom list + simulation (internal QTabWidget)
+    QDockWidget* m_outputViewDock = nullptr;        // Bottom: output log
+    QTabWidget* m_editorsTabs = nullptr;            // Internal tabs inside m_editorsDock
+    QTabWidget* m_atomsSimulationTabs = nullptr;    // Internal tabs inside m_atomsSimulationDock
+    QTabWidget* m_navigationTabs = nullptr;         // Internal tabs inside m_navigationDock
+    QByteArray m_defaultDockState;                  // Baseline after createDockWidgets
+    QHash<int, QByteArray> m_presetStates;          // keyed by LayoutPreset enum
     SimulationControlWidget* m_simulationControlWidget = nullptr;  // Claude Generated
     SimulationDialog* m_simulationDialog = nullptr;  // Claude Generated
+    SimulationConfig m_simulationConfig;             // Claude Generated - Shared config: dock widget and dialog stay synchronized
 
     // Claude Generated - Interactive Simulation Integration
     void openSimulationDialog(SimulationConfig::Mode mode);
     void onSimulationFrame(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step);
+    void onSimulationConfigChanged(SimulationConfig cfg);
 
     // Note: m_atomListPanel is already a dock widget (AtomListPanel inherits QDockWidget)
     void updateRemoteDirectoriesView();
@@ -341,4 +358,5 @@ protected:
     // Claude Generated - Quick Win: Drag & Drop support
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
 };

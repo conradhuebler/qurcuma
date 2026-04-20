@@ -1,5 +1,6 @@
 // main.cpp
 #include <QApplication>
+#include <QTimer>
 
 #include "mainwindow.h"
 
@@ -17,5 +18,18 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     MainWindow window;
     window.show();
+
+    // Claude Generated (Apr 2026): Load file from command-line argument.
+    // Delayed via QTimer::singleShot so Qt3D is fully initialized before
+    // the scene is populated.  200 ms is sufficient for all tested hardware.
+    // Usage: ./qurcuma molecule.xyz
+    QStringList args = QCoreApplication::arguments();
+    if (args.size() > 1) {
+        const QString filePath = args[1];
+        QTimer::singleShot(200, &window, [&window, filePath]() {
+            window.loadFileFromArg(filePath);
+        });
+    }
+
     return app.exec();
 }

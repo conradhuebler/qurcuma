@@ -40,6 +40,12 @@ public:
     /** @brief Pre-select simulation mode (MD or Optimization). */
     void setMode(SimulationConfig::Mode mode);
 
+    /** @brief Pre-populate all dialog controls from an existing config. */
+    void setConfig(const SimulationConfig& cfg);
+
+    /** @brief Return current dialog control state as SimulationConfig. */
+    SimulationConfig currentConfig() const { return buildConfig(); }
+
 signals:
     /**
      * @brief Forwarded from SimulationWorker::frameReady for live viewer updates.
@@ -74,7 +80,10 @@ private:
     QDoubleSpinBox* m_timestepSpin = nullptr;
     QSpinBox* m_stepsSpin = nullptr;
     QSpinBox* m_dumpFreqSpin = nullptr;
+    QSpinBox* m_fpsLimitSpin = nullptr;  // Claude Generated - FPS cap control
+    QComboBox* m_gpuCombo = nullptr;     // Claude Generated - GPU acceleration selector
     QCheckBox* m_writeTrjCheck = nullptr;
+    QCheckBox* m_perfCheck = nullptr;  // Claude Generated - Performance analysis toggle
 
     // --- Optimization group ---
     QGroupBox* m_optGroup = nullptr;

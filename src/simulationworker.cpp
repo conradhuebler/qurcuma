@@ -17,7 +17,9 @@ using json = nlohmann::json;
 #include <src/core/parameter_registry.h>  // Claude Generated - for getDefaultJson()
 
 #include <QThread>
+#include <QElapsedTimer>
 #include <QDebug>
+#include <limits>
 
 SimulationWorker::SimulationWorker(QObject* parent)
     : QObject(parent)
@@ -39,6 +41,7 @@ void SimulationWorker::run()
 
     m_stopRequested.storeRelaxed(0);
     m_pauseRequested.storeRelaxed(0);
+    m_lastEmitTimer.start();  // Claude Generated - FPS cap: start timer before any callback fires
 
     switch (m_config.mode) {
     case SimulationConfig::Mode::MolecularDynamics:
@@ -111,11 +114,16 @@ void SimulationWorker::runMD()
     else
         simplemd_params["max_time"] = 0.0;
     simplemd_params["dump_frequency"] = m_config.dumpFrequency;
+    if (m_config.performanceAnalysis)
+        simplemd_params["print_frequency"] = 1;  // Claude Generated - log every step for timing analysis
     simplemd_params["write_xyz"] = m_config.writeTrajectory;
+    simplemd_params["no_restart"] = true;  // Claude Generated - always start fresh; stale restart file causes crash
+    simplemd_params["no_center"] = true;   // Claude Generated - workaround: Center() triggers heap corruption in release (-O3/AVX); investigate with ASAN build
 
     json controller;
     controller["simplemd"] = simplemd_params;
     controller["global"]["method"] = m_config.method.toStdString();
+    controller["global"]["gpu"] = m_config.gpu.toStdString();  // Claude Generated - GPU acceleration
     controller["global"]["verbosity"] = 0;
     controller["verbosity"] = 0;
 
@@ -125,8 +133,15 @@ void SimulationWorker::runMD()
     // Pass our atomic stop flag so SimpleMD can check it in the loop (unlimited MD)
     md.setExternalStopFlag(&m_externalStop);
 
+    // Performance tracking: measure total per-step time (includes GFN-FF calc + callback)
+    QElapsedTimer stepTimer; // Claude Generated - Per-step performance tracking
+    stepTimer.start();
+
     // Register callback: runs on curcuma's thread, emit Qt signal to GUI thread
-    md.setStepCallback([this](const Molecule& mol, int step, double Epot, double Ekin) {
+    md.setStepCallback([this, &stepTimer](const Molecule& mol, int step, double Epot, double Ekin) {
+        qint64 stepTime = stepTimer.elapsed(); // Claude Generated - Time since last callback (≈ GFN-FF + overhead)
+        stepTimer.restart();
+
         // Handle stop: set the atomic flag so the MD loop exits naturally
         if (m_stopRequested.loadRelaxed()) {
             m_externalStop.store(true, std::memory_order_relaxed);
@@ -140,7 +155,54 @@ void SimulationWorker::runMD()
             }
             QThread::msleep(50);
         }
-        emit frameReady(moleculeToAtoms(mol, m_initialAtoms), Epot, Ekin, step);
+        // FPS throttle: wait until target interval elapsed, then emit.
+        if (m_config.fpsLimit > 0) {
+            qint64 target = 1000 / m_config.fpsLimit;
+            qint64 remaining = target - m_lastEmitTimer.elapsed();
+            if (remaining > 0)
+                QThread::msleep(static_cast<unsigned long>(remaining));
+        }
+        m_lastEmitTimer.restart();
+
+        // Performance analysis: rolling stats every N frames
+        static int frameCount = 0;
+        static qint64 totalStepTime = 0;
+        static qint64 totalConvertTime = 0;
+        static qint64 minStepTime = std::numeric_limits<qint64>::max();
+        static qint64 maxStepTime = 0;
+
+        QElapsedTimer convertTimer;
+        convertTimer.start();
+        QVector<MoleculeViewer::Atom> atoms = moleculeToAtoms(mol, m_initialAtoms);
+        qint64 convertTime = convertTimer.elapsed();
+
+        if (m_config.performanceAnalysis) {
+            totalStepTime += stepTime;
+            totalConvertTime += convertTime;
+            if (stepTime < minStepTime) minStepTime = stepTime;
+            if (stepTime > maxStepTime) maxStepTime = stepTime;
+            ++frameCount;
+
+            if (frameCount >= m_config.performanceInterval) {
+                qint64 avgStep = totalStepTime / frameCount;
+                qint64 avgConvert = totalConvertTime / frameCount;
+                qint64 avgOverhead = avgStep - avgConvert;
+                double fps = 1000.0 * frameCount / (totalStepTime + totalConvertTime);
+                qDebug() << "=== Performance [step" << step - frameCount + 1 << "-" << step << "] ==="
+                         << "atoms:" << atoms.size()
+                         << "avg_step:" << avgStep << "ms"
+                         << "(gfann+callback:" << avgOverhead << "ms, convert:" << avgConvert << "ms)"
+                         << "min:" << minStepTime << "max:" << maxStepTime
+                         << "fps:" << fps;
+                frameCount = 0;
+                totalStepTime = 0;
+                totalConvertTime = 0;
+                minStepTime = std::numeric_limits<qint64>::max();
+                maxStepTime = 0;
+            }
+        }
+
+        emit frameReady(atoms, Epot, Ekin, step);
     });
 
     if (!md.Initialise()) {
@@ -167,6 +229,7 @@ void SimulationWorker::runOptimization()
     controller["opt"]["writeXYZ"] = m_config.writeTrajectory ? 1 : 0;
     controller["opt"]["silent"] = 1;
     controller["verbosity"] = 0;
+    controller["gpu"] = m_config.gpu.toStdString();  // Claude Generated - GPU acceleration
 
     CurcumaOpt opt(controller, true);
 
@@ -182,6 +245,14 @@ void SimulationWorker::runOptimization()
                 break;
             QThread::msleep(50);
         }
+        // Claude Generated - FPS throttle: same wait logic as MD callback
+        if (m_config.fpsLimit > 0) {
+            qint64 target = 1000 / m_config.fpsLimit;
+            qint64 remaining = target - m_lastEmitTimer.elapsed();
+            if (remaining > 0)
+                QThread::msleep(static_cast<unsigned long>(remaining));
+        }
+        m_lastEmitTimer.restart();
         emit frameReady(moleculeToAtoms(mol, m_initialAtoms), energy, 0.0, iter);
     });
 

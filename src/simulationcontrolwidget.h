@@ -40,6 +40,12 @@ public:
     /** @brief Get the currently stored atoms (for passing to SimulationDialog). */
     const QVector<MoleculeViewer::Atom>& currentAtoms() const { return m_atoms; }
 
+    /** @brief Return current UI state as SimulationConfig without starting. */
+    SimulationConfig currentConfig() const { return buildConfig(); }
+
+    /** @brief Populate UI controls from an existing config. Uses QSignalBlocker to avoid feedback. */
+    void applyConfig(const SimulationConfig& cfg);
+
 signals:
     /**
      * @brief Forwarded from SimulationWorker::frameReady.
@@ -52,6 +58,9 @@ signals:
 
     /** @brief Simulation finished (for UI state reset). */
     void simulationFinished();
+
+    /** @brief Emitted when any control value changes so MainWindow can sync shared config. */
+    void configChanged(SimulationConfig);
 
 private slots:
     void onStartClicked();

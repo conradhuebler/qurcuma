@@ -42,6 +42,29 @@ void SimulationDialog::setMode(SimulationConfig::Mode mode)
     m_modeCombo->setCurrentIndex(idx);
 }
 
+// Claude Generated - Pre-populate all dialog controls from shared config for dock/dialog sync
+void SimulationDialog::setConfig(const SimulationConfig& cfg)
+{
+    int modeIdx = m_modeCombo->findData(static_cast<int>(cfg.mode));
+    if (modeIdx >= 0)
+        m_modeCombo->setCurrentIndex(modeIdx);
+    int methIdx = m_methodCombo->findData(cfg.method);
+    if (methIdx >= 0)
+        m_methodCombo->setCurrentIndex(methIdx);
+    m_tempSpin->setValue(cfg.temperature);
+    m_timestepSpin->setValue(cfg.timestep);
+    m_stepsSpin->setValue(cfg.steps);
+    m_dumpFreqSpin->setValue(cfg.dumpFrequency);
+    m_fpsLimitSpin->setValue(cfg.fpsLimit);
+    { int idx = m_gpuCombo->findData(cfg.gpu); if (idx >= 0) m_gpuCombo->setCurrentIndex(idx); }
+    m_writeTrjCheck->setChecked(cfg.writeTrajectory);
+    if (m_perfCheck)
+        m_perfCheck->setChecked(cfg.performanceAnalysis);
+    m_convergenceSpin->setValue(cfg.convergence);
+    if (cfg.mode == SimulationConfig::Mode::GeometryOptimization)
+        m_maxIterSpin->setValue(cfg.steps);
+}
+
 void SimulationDialog::setupUI()
 {
     auto* mainLayout = new QVBoxLayout(this);
@@ -90,12 +113,29 @@ void SimulationDialog::setupUI()
 
     m_dumpFreqSpin = new QSpinBox(this);
     m_dumpFreqSpin->setRange(1, 10000);
-    m_dumpFreqSpin->setValue(50);
-    m_dumpFreqSpin->setToolTip(tr("Update viewer every N steps"));
+    m_dumpFreqSpin->setValue(1);
+    m_dumpFreqSpin->setToolTip(tr("Invoke viewer callback every N steps (1 = every step; flood guard limits GUI rate)"));
     mdForm->addRow(tr("Dump frequency:"), m_dumpFreqSpin);
+
+    m_fpsLimitSpin = new QSpinBox(this);
+    m_fpsLimitSpin->setRange(1, 120);
+    m_fpsLimitSpin->setValue(30);
+    m_fpsLimitSpin->setSuffix(tr(" fps"));
+    m_fpsLimitSpin->setToolTip(tr("Target display rate: fast steps wait to reach this fps; slow steps show immediately (accepts lower fps)"));
+    mdForm->addRow(tr("Max display rate:"), m_fpsLimitSpin);
+
+    m_gpuCombo = new QComboBox(this);
+    m_gpuCombo->addItem(tr("CPU (none)"), "none");
+    m_gpuCombo->addItem(tr("CUDA"), "cuda");
+    m_gpuCombo->addItem(tr("Auto (GPU if available)"), "auto");
+    m_gpuCombo->setToolTip(tr("GPU acceleration for GFN-FF (requires CUDA build: cmake -DUSE_CUDA=ON)"));
+    mdForm->addRow(tr("GPU acceleration:"), m_gpuCombo);
 
     m_writeTrjCheck = new QCheckBox(tr("Write trajectory file (.trj.xyz)"), this);
     mdForm->addRow("", m_writeTrjCheck);
+
+    m_perfCheck = new QCheckBox(tr("Performance analysis (every 100 steps)"), this);
+    mdForm->addRow("", m_perfCheck);
 
     mainLayout->addWidget(m_mdGroup);
 
@@ -186,7 +226,10 @@ SimulationConfig SimulationDialog::buildConfig() const
     cfg.timestep = m_timestepSpin->value();
     cfg.steps = m_stepsSpin->value();
     cfg.dumpFrequency = m_dumpFreqSpin->value();
+    cfg.fpsLimit = m_fpsLimitSpin->value();
+    cfg.gpu = m_gpuCombo->currentData().toString();
     cfg.writeTrajectory = m_writeTrjCheck->isChecked();
+    cfg.performanceAnalysis = m_perfCheck ? m_perfCheck->isChecked() : false;
     cfg.convergence = m_convergenceSpin->value();
     return cfg;
 }
@@ -301,8 +344,10 @@ void SimulationDialog::onModeChanged(int /*index*/)
 
 void SimulationDialog::onFrameReady(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step)
 {
-    // Store frame for export
-    m_trajectory.append(atoms);
+    // Store frame for export only when explicitly requested — avoids O(N×steps) memory growth
+    if (m_activeConfig.writeTrajectory) {
+        m_trajectory.append(atoms);
+    }
     ++m_frameCount;
 
     // Update labels

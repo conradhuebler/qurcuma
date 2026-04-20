@@ -7,6 +7,7 @@
 #include "view.h"
 
 #include <QAtomicInt>
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QVector>
@@ -25,9 +26,13 @@ struct SimulationConfig {
     double temperature = 300.0;   // K (MD only)
     double timestep = 1.0;        // fs (MD only)
     int steps = 1000;             // Total MD steps or max opt iterations
-    int dumpFrequency = 10;       // Callback/save every N steps
+    int dumpFrequency = 10;       // Callback/save every N steps; set to steps/100 for ~100 visual updates
     double convergence = 1e-6;    // Gradient convergence threshold (opt only)
     bool writeTrajectory = false; // Also write .trj.xyz file to disk
+    int fpsLimit = 30;            // Max GUI updates/sec (0 = unlimited)
+    bool performanceAnalysis = false; // Claude Generated - Per-frame timing stats every N steps
+    int performanceInterval = 100;   // Output summary every N frames
+    QString gpu = "none";         // GPU acceleration: "none", "cuda", "auto"
 };
 
 /**
@@ -114,4 +119,5 @@ private:
     QAtomicInt m_stopRequested{ 0 };
     QAtomicInt m_pauseRequested{ 0 };
     std::atomic<bool> m_externalStop{ false };  // Claude Generated - Passed to SimpleMD for unlimited MD
+    QElapsedTimer m_lastEmitTimer;               // Claude Generated - FPS cap: tracks time since last frameReady emit
 };

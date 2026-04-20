@@ -6,6 +6,7 @@
 
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
 
 SimulationControlWidget::SimulationControlWidget(QWidget* parent)
@@ -101,6 +102,13 @@ void SimulationControlWidget::setupUI()
     connect(m_moreBtn, &QPushButton::clicked, this, &SimulationControlWidget::openFullDialog);
     connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
         this, &SimulationControlWidget::onModeChanged);
+
+    // Claude Generated - emit configChanged so MainWindow can keep shared config in sync
+    auto notifyConfig = [this]() { emit configChanged(buildConfig()); };
+    connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_tempSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_stepsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
 }
 
 SimulationConfig SimulationControlWidget::buildConfig() const
@@ -110,7 +118,9 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.method = m_methodCombo->currentData().toString();
     cfg.temperature = m_tempSpin->value();
     cfg.steps = m_stepsSpin->value();
-    cfg.dumpFrequency = std::max(1, m_stepsSpin->value() / 100); // ~100 visual updates
+    // dumpFrequency=1: pass every step to callback; flood guard (8ms) prevents sub-ms overload
+    cfg.dumpFrequency = 1;
+    cfg.fpsLimit = 30;  // Normal: cap GUI updates at 30 fps
     return cfg;
 }
 
@@ -211,6 +221,22 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
 {
     bool isMD = (m_modeCombo->currentData().toInt()
         == static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
+    m_tempSpin->setEnabled(isMD);
+}
+
+// Claude Generated - Sync UI controls from shared config; QSignalBlocker prevents configChanged loop
+void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
+{
+    QSignalBlocker b1(m_modeCombo), b2(m_methodCombo), b3(m_tempSpin), b4(m_stepsSpin);
+    int modeIdx = m_modeCombo->findData(static_cast<int>(cfg.mode));
+    if (modeIdx >= 0)
+        m_modeCombo->setCurrentIndex(modeIdx);
+    int methIdx = m_methodCombo->findData(cfg.method);
+    if (methIdx >= 0)
+        m_methodCombo->setCurrentIndex(methIdx);
+    m_tempSpin->setValue(cfg.temperature);
+    m_stepsSpin->setValue(cfg.steps);
+    bool isMD = (cfg.mode == SimulationConfig::Mode::MolecularDynamics);
     m_tempSpin->setEnabled(isMD);
 }
 
