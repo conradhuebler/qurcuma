@@ -151,25 +151,30 @@ $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>  # Claude Generated - OpenMP f
 # Include-Verzeichnisse
 target_include_directories(qurcuma PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/external/
     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma  # Claude Generated - Curcuma headers
     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/src  # Claude Generated - Curcuma src headers
     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/external/eigen-3.4.0  # Claude Generated - Eigen for curcuma types
     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/external  # Claude Generated - json.hpp and other curcuma externals
     ${CMAKE_CURRENT_BINARY_DIR}/external/curcuma  # Claude Generated - generated global_config.h at src/global_config.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/external/LBFGSpp/include  # Claude Generated - LBFGSpp for curcuma
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/LBFGSpp/include  # Claude Generated - LBFGSpp for curcuma
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/fmt/include  # Claude Generated - fmt for curcuma
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/ripser  # Claude Generated - ripser for curcuma
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/cpp-d4/include  # Claude Generated - cpp-d4 for curcuma
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/ulysses-main/src  # Claude Generated - ulysses for curcuma
     ${LIBSSH_INCLUDE_DIRS}  # Claude Generated - SFTP support
 )
 
 # VTF Parser Test
-add_executable(test_vtf_minimal test_vtf_minimal.cpp)
-target_link_libraries(test_vtf_minimal PRIVATE
-Qt6::Core
-)
-target_include_directories(test_vtf_minimal PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/
-)
+#add_executable(test_vtf_minimal test_vtf_minimal.cpp)
+#target_link_libraries(test_vtf_minimal PRIVATE
+#Qt6::Core
+#)
+#target_include_directories(test_vtf_minimal PRIVATE
+#    ${CMAKE_CURRENT_SOURCE_DIR}/src
+#    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+#)
 
 # VTF Bond Test - Claude Generated
 add_executable(test_vtf_bonds test_vtf_bonds.cpp)

@@ -93,3 +93,11 @@ scnp_cut.vtf
 settings.ini
 *.log
 
+# FetchContent downloads (curcuma dependencies)
+external/fmt/
+external/LBFGSpp/
+external/CxxThreadPool/
+external/ripser/
+external/cpp-d4/
+external/ulysses-main/
+
