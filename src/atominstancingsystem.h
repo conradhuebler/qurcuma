@@ -2,6 +2,7 @@
 #ifndef ATOMINSTANCINGSYSTEM_H
 #define ATOMINSTANCINGSYSTEM_H
 
+#include <Qt3DCore/QBuffer>
 #include <Qt3DCore/QEntity>
 #include <Qt3DCore/QGeometry>
 #include <Qt3DRender/QGeometryRenderer>
@@ -74,6 +75,8 @@ private:
     // Geometry components
     Qt3DCore::QGeometry *m_geometry = nullptr;
     Qt3DRender::QGeometryRenderer *m_geometryRenderer = nullptr;
+    // Claude Generated - Phase 3.1: cached instance buffer for zero-realloc updates.
+    Qt3DCore::QBuffer *m_instanceBuffer = nullptr;
 
     // Instance data
     QVector<AtomInstance> m_atomInstances;

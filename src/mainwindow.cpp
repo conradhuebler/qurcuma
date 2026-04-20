@@ -3701,12 +3701,19 @@ void MainWindow::createDockWidgets()
 
     m_atomsSimulationDock->setWidget(m_atomsSimulationTabs);
 
-    connect(m_simulationControlWidget, &SimulationControlWidget::frameReady,
-        this, &MainWindow::onSimulationFrame);
+    // Claude Generated - Worker is wired to view + status slot directly (skips widget mid-hop).
+    connect(m_simulationControlWidget, &SimulationControlWidget::workerStarted,
+        this, &MainWindow::wireSimulationWorker);
     connect(m_simulationControlWidget, &SimulationControlWidget::openFullDialog,
         this, [this]() { openSimulationDialog(SimulationConfig::Mode::MolecularDynamics); });
     connect(m_simulationControlWidget, &SimulationControlWidget::configChanged,
         this, &MainWindow::onSimulationConfigChanged);
+    // Claude Generated - Toggle per-atom pickers off during sim for CPU savings.
+    connect(m_simulationControlWidget, &SimulationControlWidget::simulationRunningChanged,
+        this, [this](bool running) {
+            if (m_moleculeView)
+                m_moleculeView->setPickingActive(!running);
+        });
 
     // ==================== OUTPUT DOCK (bottom) ====================
     m_outputViewDock = new QDockWidget(tr("Output"), this);
@@ -3874,8 +3881,8 @@ void MainWindow::openSimulationDialog(SimulationConfig::Mode mode)
 {
     if (!m_simulationDialog) {
         m_simulationDialog = new SimulationDialog(this);
-        connect(m_simulationDialog, &SimulationDialog::frameReady,
-            this, &MainWindow::onSimulationFrame);
+        connect(m_simulationDialog, &SimulationDialog::workerStarted,
+            this, &MainWindow::wireSimulationWorker);
         // Claude Generated - Write-back: persist advanced settings to shared config when dialog closes
         connect(m_simulationDialog, &QDialog::finished, this, [this](int) {
             if (m_simulationDialog) {
@@ -3909,31 +3916,32 @@ void MainWindow::onSimulationConfigChanged(SimulationConfig cfg)
     m_simulationConfig = cfg;
 }
 
-void MainWindow::onSimulationFrame(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step)
+// Claude Generated - Connect a freshly-created worker to the viewer + status bar directly.
+// Avoids widget/dialog acting as an atom-data forwarder; eliminates two queued signal hops
+// per frame. Connections auto-clean when the worker is deleteLater'd at simulation end.
+void MainWindow::wireSimulationWorker(SimulationWorker* worker)
 {
-    if (!m_moleculeView || atoms.isEmpty())
+    if (!worker)
         return;
 
-    // Claude Generated - Timing analysis: measure GUI update cost
-    QElapsedTimer guiTimer;
-    guiTimer.start();
+    if (m_moleculeView) {
+        connect(worker, &SimulationWorker::frameReady,
+            m_moleculeView, &MoleculeViewer::updateSimulationFrame,
+            Qt::QueuedConnection);
+    }
 
-    // Claude Generated - Fast position-only update: reuses existing bonds, avoids O(n²) detectBonds per frame
-    m_moleculeView->updateSimulationFrame(atoms);
-
-    // Update status bar
-    statusBar()->showMessage(
-        tr("Simulation step %1 | E = %2 Eh | Ekin = %3 Eh")
-            .arg(step)
-            .arg(energy, 0, 'f', 8)
-            .arg(ekin, 0, 'f', 6),
-        0); // 0 = don't auto-clear
-
-    // Claude Generated - Debug timing output
-    static qint64 lastGuiTime = 0;
-    qint64 guiTime = guiTimer.elapsed();
-    qDebug() << "GUI update:" << guiTime << "ms (dt:" << (lastGuiTime ? guiTime - lastGuiTime : 0) << "ms)";
-    lastGuiTime = guiTime;
+    // Status-bar slot is a lambda so we don't need a Qt slot declaration.
+    connect(worker, &SimulationWorker::frameReady,
+        this, [this](SimulationFramePtr frame) {
+            if (!frame) return;
+            statusBar()->showMessage(
+                tr("Simulation step %1 | E = %2 Eh | Ekin = %3 Eh")
+                    .arg(frame->step)
+                    .arg(frame->energy, 0, 'f', 8)
+                    .arg(frame->ekin, 0, 'f', 6),
+                0);
+        },
+        Qt::QueuedConnection);
 }
 
 // Claude Generated (Apr 2026): Entry point for command-line file argument loading.

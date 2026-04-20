@@ -268,6 +268,9 @@ void SimulationDialog::onStartClicked()
     connect(m_worker, &SimulationWorker::finished, m_worker, &QObject::deleteLater);
     connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
 
+    // Claude Generated - Expose worker so MainWindow can wire worker->view direct.
+    emit workerStarted(m_worker);
+
     setRunning(true);
     m_progressBar->setVisible(true);
     m_logView->append(tr("Starting %1 with %2...")
@@ -318,16 +321,19 @@ void SimulationDialog::onExportClicked()
         return;
     }
 
+    // Claude Generated - Frames carry only positions; element names come from the
+    // initial molecule (m_atoms). Topology-change during sim isn't supported here.
     QTextStream out(&file);
-    for (int frame = 0; frame < m_trajectory.size(); ++frame) {
-        const auto& atoms = m_trajectory[frame];
-        out << atoms.size() << "\n";
-        out << "Frame " << frame << "\n";
-        for (const auto& atom : atoms) {
-            out << atom.element << "  "
-                << atom.position.x() << "  "
-                << atom.position.y() << "  "
-                << atom.position.z() << "\n";
+    for (int f = 0; f < m_trajectory.size(); ++f) {
+        const SimulationFramePtr& frame = m_trajectory[f];
+        if (!frame) continue;
+        const int n = static_cast<int>(frame->positions.size());
+        out << n << "\n";
+        out << "Frame " << f << "\n";
+        for (int i = 0; i < n; ++i) {
+            const QString element = (i < m_atoms.size()) ? m_atoms[i].element : QStringLiteral("C");
+            const QVector3D& p = frame->positions[i];
+            out << element << "  " << p.x() << "  " << p.y() << "  " << p.z() << "\n";
         }
     }
     m_logView->append(tr("Exported %1 frames to %2.").arg(m_trajectory.size()).arg(path));
@@ -342,28 +348,28 @@ void SimulationDialog::onModeChanged(int /*index*/)
     adjustSize();
 }
 
-void SimulationDialog::onFrameReady(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step)
+void SimulationDialog::onFrameReady(SimulationFramePtr frame)
 {
+    if (!frame)
+        return;
+
     // Store frame for export only when explicitly requested — avoids O(N×steps) memory growth
     if (m_activeConfig.writeTrajectory) {
-        m_trajectory.append(atoms);
+        m_trajectory.append(frame);
     }
     ++m_frameCount;
 
-    // Update labels
-    m_stepLabel->setText(QString::number(step));
-    m_energyLabel->setText(QString::number(energy, 'f', 8));
+    m_stepLabel->setText(QString::number(frame->step));
+    m_energyLabel->setText(QString::number(frame->energy, 'f', 8));
 
-    if (m_activeConfig.mode == SimulationConfig::Mode::MolecularDynamics && ekin > 0) {
+    if (m_activeConfig.mode == SimulationConfig::Mode::MolecularDynamics && frame->ekin > 0) {
         // Rough temperature estimate: Ekin = 3/2 * N * kB * T  →  T = 2*Ekin/(3*N*kB)
-        // kB in Eh/K = 3.1668e-6
         const double kB_Eh = 3.1668114e-6;
-        double T = (2.0 * ekin) / (3.0 * m_atoms.size() * kB_Eh);
+        double T = (2.0 * frame->ekin) / (3.0 * m_atoms.size() * kB_Eh);
         m_tempLabel->setText(QString::number(T, 'f', 1) + " K");
     }
 
-    // Forward to viewer
-    emit frameReady(atoms, energy, ekin, step);
+    // Claude Generated - No forwarding: MainWindow wires worker directly to the viewer.
 }
 
 void SimulationDialog::onSimulationFinished()

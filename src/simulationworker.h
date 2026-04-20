@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "simulationframe.h"
 #include "view.h"
 
 #include <QAtomicInt>
@@ -90,12 +91,10 @@ public slots:
 signals:
     /**
      * @brief Emitted after each dump step with updated atom positions.
-     * @param atoms Updated positions (same count/order as initial molecule)
-     * @param energy Potential energy [Hartree]
-     * @param ekin   Kinetic energy [Hartree] (0.0 for geometry optimization)
-     * @param step   Current step / iteration number
+     * Claude Generated - Zero-copy signal: QSharedPointer marshals only the pointer across threads.
+     * Consumers read positions/energy/ekin/step from the shared frame without copying atom data.
      */
-    void frameReady(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step);
+    void frameReady(SimulationFramePtr frame);
 
     /** @brief Emitted when the simulation completes normally or is stopped. */
     void finished();

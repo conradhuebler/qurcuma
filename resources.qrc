@@ -23,5 +23,13 @@
         <file>src/shaders/blur_vertical.frag</file>
         <file>src/shaders/bloom_composite.frag</file>
         <file>src/shaders/tonemapping.frag</file>
+
+        <!-- Atom GPU Instancing Shader (Phase 3.1 - Interactive Sim Perf) -->
+        <file>src/shaders/atom_instanced.vert</file>
+        <file>src/shaders/atom_instanced.frag</file>
+
+        <!-- Bond GPU Instancing Shader (Phase 3.2 - Interactive Sim Perf) -->
+        <file>src/shaders/bond_instanced.vert</file>
+        <file>src/shaders/bond_instanced.frag</file>
     </qresource>
 </RCC>

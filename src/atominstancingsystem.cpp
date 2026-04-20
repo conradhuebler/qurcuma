@@ -5,8 +5,16 @@
 #include <Qt3DCore/QAttribute>
 #include <Qt3DCore/QBuffer>
 #include <Qt3DExtras/QPhongMaterial>
+#include <Qt3DRender/QEffect>
+#include <Qt3DRender/QFilterKey>
 #include <Qt3DRender/QGeometryRenderer>
+#include <Qt3DRender/QGraphicsApiFilter>
+#include <Qt3DRender/QMaterial>
+#include <Qt3DRender/QRenderPass>
+#include <Qt3DRender/QShaderProgram>
+#include <Qt3DRender/QTechnique>
 #include <QDebug>
+#include <QUrl>
 #include <cmath>
 #include <limits>
 
@@ -159,9 +167,9 @@ void AtomInstancingSystem::createGeometry()
     memcpy(indexData.data(), sphereIndices.data(), indexData.size());
     indexBuffer->setData(indexData);
 
-    // Index attribute
+    // Index attribute — do NOT reuse position-attribute name; Qt3D IndexAttribute
+    // is identified by attribute type, and a duplicate name confuses attribute lookup.
     Qt3DCore::QAttribute *indexAttribute = new Qt3DCore::QAttribute();
-    indexAttribute->setName(Qt3DCore::QAttribute::defaultPositionAttributeName());
     indexAttribute->setVertexBaseType(Qt3DCore::QAttribute::UnsignedInt);
     indexAttribute->setAttributeType(Qt3DCore::QAttribute::IndexAttribute);
     indexAttribute->setBuffer(indexBuffer);
@@ -171,119 +179,124 @@ void AtomInstancingSystem::createGeometry()
 
 void AtomInstancingSystem::createInstanceBuffer()
 {
-    // Instance data structure: position (vec3) + scale (float) + color (vec4)
-    // Total: 32 bytes per instance (3*4 + 4 + 4*4 = 32)
+    // Claude Generated - Phase 3.1: Build buffer + attributes ONCE; later updates
+    // just re-upload data via setData on the cached buffer (no attribute recreation).
+    // Layout per instance: position (vec3) + scale (float) + color (vec4) = 32 bytes.
 
     if (m_atomInstances.isEmpty()) {
         return;
     }
 
-    // Create instance data buffer
-    QByteArray instanceData;
-    instanceData.resize(m_atomInstances.size() * sizeof(float) * 8);  // 8 floats per instance
+    m_instanceBuffer = new Qt3DCore::QBuffer(m_geometry);
+    updateInstanceBuffer();  // Uploads data
 
+    auto *instancePositionAttribute = new Qt3DCore::QAttribute();
+    instancePositionAttribute->setName("instancePosition");
+    instancePositionAttribute->setVertexBaseType(Qt3DCore::QAttribute::Float);
+    instancePositionAttribute->setVertexSize(3);
+    instancePositionAttribute->setAttributeType(Qt3DCore::QAttribute::VertexAttribute);
+    instancePositionAttribute->setBuffer(m_instanceBuffer);
+    instancePositionAttribute->setByteStride(8 * sizeof(float));
+    instancePositionAttribute->setByteOffset(0);
+    instancePositionAttribute->setCount(m_atomInstances.size());
+    instancePositionAttribute->setDivisor(1);
+    m_geometry->addAttribute(instancePositionAttribute);
+
+    auto *instanceScaleAttribute = new Qt3DCore::QAttribute();
+    instanceScaleAttribute->setName("instanceScale");
+    instanceScaleAttribute->setVertexBaseType(Qt3DCore::QAttribute::Float);
+    instanceScaleAttribute->setVertexSize(1);
+    instanceScaleAttribute->setAttributeType(Qt3DCore::QAttribute::VertexAttribute);
+    instanceScaleAttribute->setBuffer(m_instanceBuffer);
+    instanceScaleAttribute->setByteStride(8 * sizeof(float));
+    instanceScaleAttribute->setByteOffset(3 * sizeof(float));
+    instanceScaleAttribute->setCount(m_atomInstances.size());
+    instanceScaleAttribute->setDivisor(1);
+    m_geometry->addAttribute(instanceScaleAttribute);
+
+    auto *instanceColorAttribute = new Qt3DCore::QAttribute();
+    instanceColorAttribute->setName("instanceColor");
+    instanceColorAttribute->setVertexBaseType(Qt3DCore::QAttribute::Float);
+    instanceColorAttribute->setVertexSize(4);
+    instanceColorAttribute->setAttributeType(Qt3DCore::QAttribute::VertexAttribute);
+    instanceColorAttribute->setBuffer(m_instanceBuffer);
+    instanceColorAttribute->setByteStride(8 * sizeof(float));
+    instanceColorAttribute->setByteOffset(4 * sizeof(float));
+    instanceColorAttribute->setCount(m_atomInstances.size());
+    instanceColorAttribute->setDivisor(1);
+    m_geometry->addAttribute(instanceColorAttribute);
+
+    if (!m_geometryRenderer) {
+        m_geometryRenderer = new Qt3DRender::QGeometryRenderer(m_instancedEntity);
+        m_instancedEntity->addComponent(m_geometryRenderer);
+    }
+    m_geometryRenderer->setGeometry(m_geometry);
+    m_geometryRenderer->setPrimitiveType(Qt3DRender::QGeometryRenderer::Triangles);
+    m_geometryRenderer->setInstanceCount(m_atomInstances.size());
+}
+
+void AtomInstancingSystem::updateInstanceBuffer()
+{
+    // Claude Generated - Phase 3.1: Hot path for per-frame updates.
+    // Re-serialize m_atomInstances to byte array, upload via QBuffer::setData.
+    // No attribute or renderer churn.
+
+    if (m_atomInstances.isEmpty() || !m_instanceBuffer) {
+        return;
+    }
+
+    QByteArray instanceData;
+    instanceData.resize(m_atomInstances.size() * sizeof(float) * 8);
     float *dataPtr = reinterpret_cast<float*>(instanceData.data());
     for (int i = 0; i < m_atomInstances.size(); ++i) {
         const AtomInstance& inst = m_atomInstances[i];
-
-        // Position (vec3)
         dataPtr[i * 8 + 0] = inst.position.x();
         dataPtr[i * 8 + 1] = inst.position.y();
         dataPtr[i * 8 + 2] = inst.position.z();
-
-        // Scale (float)
         dataPtr[i * 8 + 3] = inst.scale;
-
-        // Color (vec4) - convert QColor to normalized float [0,1]
         dataPtr[i * 8 + 4] = inst.color.redF();
         dataPtr[i * 8 + 5] = inst.color.greenF();
         dataPtr[i * 8 + 6] = inst.color.blueF();
         dataPtr[i * 8 + 7] = inst.color.alphaF();
     }
-
-    // Create buffer and attributes
-    Qt3DCore::QBuffer *instanceBuffer = new Qt3DCore::QBuffer(m_geometry);
-    instanceBuffer->setData(instanceData);
-
-    // Instance position attribute (divisor = 1)
-    Qt3DCore::QAttribute *instancePositionAttribute = new Qt3DCore::QAttribute();
-    instancePositionAttribute->setName("instancePosition");
-    instancePositionAttribute->setVertexBaseType(Qt3DCore::QAttribute::Float);
-    instancePositionAttribute->setVertexSize(3);
-    instancePositionAttribute->setAttributeType(Qt3DCore::QAttribute::VertexAttribute);
-    instancePositionAttribute->setBuffer(instanceBuffer);
-    instancePositionAttribute->setByteStride(8 * sizeof(float));
-    instancePositionAttribute->setByteOffset(0);
-    instancePositionAttribute->setCount(m_atomInstances.size());
-    instancePositionAttribute->setDivisor(1);  // Per-instance
-    m_geometry->addAttribute(instancePositionAttribute);
-
-    // Instance scale attribute (divisor = 1)
-    Qt3DCore::QAttribute *instanceScaleAttribute = new Qt3DCore::QAttribute();
-    instanceScaleAttribute->setName("instanceScale");
-    instanceScaleAttribute->setVertexBaseType(Qt3DCore::QAttribute::Float);
-    instanceScaleAttribute->setVertexSize(1);
-    instanceScaleAttribute->setAttributeType(Qt3DCore::QAttribute::VertexAttribute);
-    instanceScaleAttribute->setBuffer(instanceBuffer);
-    instanceScaleAttribute->setByteStride(8 * sizeof(float));
-    instanceScaleAttribute->setByteOffset(3 * sizeof(float));
-    instanceScaleAttribute->setCount(m_atomInstances.size());
-    instanceScaleAttribute->setDivisor(1);  // Per-instance
-    m_geometry->addAttribute(instanceScaleAttribute);
-
-    // Instance color attribute (divisor = 1)
-    Qt3DCore::QAttribute *instanceColorAttribute = new Qt3DCore::QAttribute();
-    instanceColorAttribute->setName("instanceColor");
-    instanceColorAttribute->setVertexBaseType(Qt3DCore::QAttribute::Float);
-    instanceColorAttribute->setVertexSize(4);
-    instanceColorAttribute->setAttributeType(Qt3DCore::QAttribute::VertexAttribute);
-    instanceColorAttribute->setBuffer(instanceBuffer);
-    instanceColorAttribute->setByteStride(8 * sizeof(float));
-    instanceColorAttribute->setByteOffset(4 * sizeof(float));
-    instanceColorAttribute->setCount(m_atomInstances.size());
-    instanceColorAttribute->setDivisor(1);  // Per-instance
-    m_geometry->addAttribute(instanceColorAttribute);
-
-    // Create geometry renderer with instance count
-    if (!m_geometryRenderer) {
-        m_geometryRenderer = new Qt3DRender::QGeometryRenderer(m_instancedEntity);
-    }
-    m_geometryRenderer->setGeometry(m_geometry);
-    m_geometryRenderer->setPrimitiveType(Qt3DRender::QGeometryRenderer::Triangles);
-    m_geometryRenderer->setInstanceCount(m_atomInstances.size());
-
-    m_instancedEntity->addComponent(m_geometryRenderer);
-}
-
-void AtomInstancingSystem::updateInstanceBuffer()
-{
-    // Recreate instance buffer with updated data
-    // This is called when atom positions, colors, or scales change
-
-    if (m_atomInstances.isEmpty()) {
-        return;
-    }
-
-    // Remove old geometry renderer
-    if (m_geometryRenderer) {
-        m_instancedEntity->removeComponent(m_geometryRenderer);
-        delete m_geometryRenderer;
-        m_geometryRenderer = nullptr;
-    }
-
-    // Recreate buffers
-    createInstanceBuffer();
+    m_instanceBuffer->setData(instanceData);
 }
 
 void AtomInstancingSystem::setupMaterial()
 {
-    // Claude Generated - Phase 5D: Create phong material for instanced rendering
-    // Material will use instancing attributes from shader
+    // Claude Generated - Phase 3.1: Custom QMaterial with instancing-aware shader.
+    // Default QPhongMaterial's shader ignores instance* attributes; must bind our own.
 
-    Qt3DExtras::QPhongMaterial *material = new Qt3DExtras::QPhongMaterial();
-    material->setAmbient(QColor(100, 100, 100));
-    material->setDiffuse(QColor(200, 200, 200));
-    material->setShininess(80);
+    auto *material = new Qt3DRender::QMaterial(m_instancedEntity);
+    auto *effect = new Qt3DRender::QEffect(material);
+    auto *technique = new Qt3DRender::QTechnique(effect);
+
+    technique->graphicsApiFilter()->setApi(Qt3DRender::QGraphicsApiFilter::OpenGL);
+    technique->graphicsApiFilter()->setMajorVersion(3);
+    technique->graphicsApiFilter()->setMinorVersion(3);
+    technique->graphicsApiFilter()->setProfile(Qt3DRender::QGraphicsApiFilter::CoreProfile);
+
+    auto *filterKey = new Qt3DRender::QFilterKey(technique);
+    filterKey->setName(QStringLiteral("renderingStyle"));
+    filterKey->setValue(QStringLiteral("forward"));
+    technique->addFilterKey(filterKey);
+
+    auto *renderPass = new Qt3DRender::QRenderPass(technique);
+    auto *program = new Qt3DRender::QShaderProgram(renderPass);
+    program->setVertexShaderCode(Qt3DRender::QShaderProgram::loadSource(
+        QUrl(QStringLiteral("qrc:/shaders/src/shaders/atom_instanced.vert"))));
+    program->setFragmentShaderCode(Qt3DRender::QShaderProgram::loadSource(
+        QUrl(QStringLiteral("qrc:/shaders/src/shaders/atom_instanced.frag"))));
+    connect(program, &Qt3DRender::QShaderProgram::logChanged, this, [program]() {
+        const QString log = program->log();
+        if (!log.isEmpty())
+            qWarning() << "[atom_instanced shader]" << program->status() << log;
+    });
+    renderPass->setShaderProgram(program);
+
+    technique->addRenderPass(renderPass);
+    effect->addTechnique(technique);
+    material->setEffect(effect);
 
     m_instancedEntity->addComponent(material);
 }

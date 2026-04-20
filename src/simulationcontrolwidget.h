@@ -47,12 +47,6 @@ public:
     void applyConfig(const SimulationConfig& cfg);
 
 signals:
-    /**
-     * @brief Forwarded from SimulationWorker::frameReady.
-     * Connected by MainWindow to MoleculeViewer for live position updates.
-     */
-    void frameReady(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step);
-
     /** @brief Opens the full SimulationDialog (handled by MainWindow). */
     void openFullDialog();
 
@@ -62,11 +56,21 @@ signals:
     /** @brief Emitted when any control value changes so MainWindow can sync shared config. */
     void configChanged(SimulationConfig);
 
+    /** @brief Emitted whenever setRunning() flips (true = worker active, false = idle/paused-end).
+     *  Used to toggle per-atom picking off during simulation for CPU savings. */
+    void simulationRunningChanged(bool running);
+
+    /** @brief Emitted right after a new SimulationWorker is created, before thread::start.
+     *  Claude Generated - Signal-path: MainWindow wires worker->view directly instead of
+     *  routing frames through the widget. Eliminates one queued hop + one atom-vector copy.
+     *  Connection type should be DirectConnection (we're on the GUI thread when emitting). */
+    void workerStarted(SimulationWorker* worker);
+
 private slots:
     void onStartClicked();
     void onPauseClicked();
     void onStopClicked();
-    void onFrameReady(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step);
+    void onFrameReady(SimulationFramePtr frame);  // Claude Generated - Zero-copy payload
     void onSimulationFinished();
     void onModeChanged(int index);
 

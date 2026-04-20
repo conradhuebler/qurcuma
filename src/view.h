@@ -16,11 +16,15 @@
 #include <QVector3D>
 #include <Qt3DExtras/QOrbitCameraController>
 #include "customframegraph.h"  // Claude Generated - Phase 5A
+#include "simulationframe.h"  // Claude Generated - Zero-copy simulation payload
 
 class SelectionManager;  // Forward declaration
 class MeasurementOverlay;  // Claude Generated - Phase 2B - Forward declaration
 class BondEditor;  // Claude Generated - Phase 4B - Forward declaration
 class PBRMaterial;  // Claude Generated - Phase 4A - Forward declaration
+class PerformanceOptimizer;  // Claude Generated - LOD wire-up
+class AtomInstancingSystem;  // Claude Generated - Phase 3.1 - GPU instancing
+class BondInstancingSystem;  // Claude Generated - Phase 3.2 - GPU instancing
 
 class MoleculeViewer : public QWidget
 {
@@ -180,10 +184,18 @@ public slots:
 
     /**
      * @brief Update atom positions for live simulation without scene rebuild or bond detection.
-     * Claude Generated - Simulation position update: reuses existing bonds, avoids O(n²) detectBonds.
-     * Falls back to addMolecule if atom count changed (first frame or re-start).
+     * Claude Generated - Zero-copy variant: positions come via QSharedPointer<SimulationFrame>.
+     * Reuses existing bonds; falls back to addMolecule if atom count changed.
      */
-    void updateSimulationFrame(const QVector<Atom>& atoms);
+    void updateSimulationFrame(SimulationFramePtr frame);
+
+    /**
+     * @brief Enable/disable per-atom and per-bond QObjectPickers in bulk.
+     * Claude Generated - Picker CPU-cost reduction: pickers traverse scene for each mouse event.
+     * During live simulation picking is rarely used; disabling saves ray-cast cost per frame.
+     * Wire to SimulationControlWidget::simulationRunningChanged so pickers auto-toggle.
+     */
+    void setPickingActive(bool active);
 
     // Claude Generated - Focus & Zoom commands
     void centerOnAtom(int atomIndex);
@@ -204,6 +216,7 @@ private slots:
     void onBondPicked(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated - Phase 4B - Handle bond picking
     void onAutoSaveTimer();  // Claude Generated - Phase 4B - Auto-save XYZ with debouncing
     void onStructureChanged();  // Claude Generated - Phase 4B - Handle bond editor changes
+    void flushSimFrame();  // Claude Generated - GUI-side frame coalescing: actual render, latest-pending only
 
 private:
     Qt3DExtras::Qt3DWindow *m_view;
@@ -315,6 +328,23 @@ private:
     QTimer *m_autoSaveTimer = nullptr;  // Debouncing timer (500ms)
     bool m_autoSaveEnabled = true;  // Enable/disable auto-save
     bool m_hasUnsavedChanges = false;  // Track unsaved state
+
+    // Claude Generated - LOD: adaptive sphere/cylinder tessellation per atom count
+    PerformanceOptimizer *m_perfOpt = nullptr;
+
+    // Claude Generated - Phase 3.1: GPU instanced atom renderer.
+    // Active when atoms.size() >= kAtomInstancingThreshold and atoms are drawn.
+    AtomInstancingSystem *m_atomInstancing = nullptr;
+    static constexpr int kAtomInstancingThreshold = 500;
+
+    // Claude Generated - Phase 3.2: GPU instanced bond renderer.
+    // Activated alongside atom instancing. Per-frame update just uploads centers + lengths.
+    BondInstancingSystem *m_bondInstancing = nullptr;
+
+    // Claude Generated - Frame coalescing: worker may emit frames faster than GUI can render.
+    // updateSimulationFrame stores latest, schedules a single flush; intermediates are dropped.
+    SimulationFramePtr m_pendingSimFrame;
+    bool m_simFlushScheduled = false;
 
     // Mouse interaction - Claude Generated
     bool m_leftMousePressed = false;

@@ -344,7 +344,7 @@ private:
 
     // Claude Generated - Interactive Simulation Integration
     void openSimulationDialog(SimulationConfig::Mode mode);
-    void onSimulationFrame(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step);
+    void wireSimulationWorker(SimulationWorker* worker);  // Claude Generated - Direct worker->view wiring
     void onSimulationConfigChanged(SimulationConfig cfg);
 
     // Note: m_atomListPanel is already a dock widget (AtomListPanel inherits QDockWidget)

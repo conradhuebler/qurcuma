@@ -48,9 +48,10 @@ public:
 
 signals:
     /**
-     * @brief Forwarded from SimulationWorker::frameReady for live viewer updates.
+     * @brief Emitted right after a new SimulationWorker is constructed.
+     * Claude Generated - MainWindow wires worker->view directly; dialog no longer forwards frames.
      */
-    void frameReady(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step);
+    void workerStarted(SimulationWorker* worker);
 
 private slots:
     void onStartClicked();
@@ -58,7 +59,7 @@ private slots:
     void onStopClicked();
     void onExportClicked();
     void onModeChanged(int index);
-    void onFrameReady(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step);
+    void onFrameReady(SimulationFramePtr frame);  // Claude Generated - Zero-copy payload
     void onSimulationFinished();
     void onError(const QString& message);
 
@@ -111,5 +112,6 @@ private:
     SimulationConfig m_activeConfig;
     bool m_paused = false;
     int m_frameCount = 0;
-    QVector<QVector<MoleculeViewer::Atom>> m_trajectory; // For export
+    // Claude Generated - Trajectory stores frame pointers; elements/charges come from m_atoms on export.
+    QVector<SimulationFramePtr> m_trajectory;
 };

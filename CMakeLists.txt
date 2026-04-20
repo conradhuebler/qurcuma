@@ -81,6 +81,7 @@ set(SOURCES
 
     #src/dialogs/nmrstructuremodel.cpp
     src/atominstancingsystem.cpp  # Claude Generated Phase 5D (GPU instancing implementation)
+    src/bondinstancingsystem.cpp  # Claude Generated Phase 3.2 - Interactive Sim: bond GPU instancing
     src/simulationworker.cpp  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.cpp  # Claude Generated - Interactive Simulation Integration
     src/dialogs/simulationdialog.cpp  # Claude Generated - Interactive Simulation Integration
@@ -115,6 +116,7 @@ set(HEADERS
     src/frustumculler.h  # Claude Generated Phase 5D (frustum culling)
     src/fileloadingworker.h  # Claude Generated Phase 5D (async file loading)
     src/atominstancingsystem.h  # Claude Generated Phase 5D (GPU instancing implementation)
+    src/bondinstancingsystem.h  # Claude Generated Phase 3.2 - Interactive Sim: bond GPU instancing
     src/simulationworker.h  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.h  # Claude Generated - Interactive Simulation Integration
     src/dialogs/simulationdialog.h  # Claude Generated - Interactive Simulation Integration

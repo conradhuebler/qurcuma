@@ -4,7 +4,11 @@
 #include "measurementoverlay.h"  // Claude Generated - Phase 2B
 #include "bondeditor.h"  // Claude Generated - Phase 4B
 #include "pbrmaterial.h"  // Claude Generated - Phase 4A
+#include "performanceoptimizer.h"  // Claude Generated - LOD wire-up
+#include "atominstancingsystem.h"  // Claude Generated - Phase 3.1 - GPU instancing
+#include "bondinstancingsystem.h"  // Claude Generated - Phase 3.2 - GPU instancing
 #include "xyzparser.h"  // Claude Generated - Phase 4B - For auto-save XYZ writing
+#include <QElapsedTimer>  // Claude Generated - Simulation frame timing
 #include <Qt3DCore/QTransform>
 #include <Qt3DExtras/QSphereMesh>
 #include <Qt3DExtras/QCylinderMesh>
@@ -42,6 +46,9 @@ MoleculeViewer::MoleculeViewer(QWidget *parent)
 
     // Claude Generated - Phase 4B: Initialize BondEditor
     m_bondEditor = new BondEditor(this);
+
+    // Claude Generated - LOD: PerformanceOptimizer drives sphere/cylinder tessellation
+    m_perfOpt = new PerformanceOptimizer(this);
 
     // Claude Generated - Phase 4B: Initialize auto-save system with 500ms debouncing
     m_autoSaveTimer = new QTimer(this);
@@ -317,10 +324,26 @@ void MoleculeViewer::handleMouseZoom(int delta)
     }
 }
 
+// Claude Generated - Bulk-toggle all per-atom/per-bond QObjectPickers.
+// Qt3D's object-picker service traverses the scene for each mouse event; at ~5000 atoms
+// this shows up in profiles. Simulation rarely needs picking, so disable while running.
+void MoleculeViewer::setPickingActive(bool active)
+{
+    for (auto it = m_atomPickerToIndex.constBegin(); it != m_atomPickerToIndex.constEnd(); ++it) {
+        if (it.key())
+            it.key()->setEnabled(active);
+    }
+    for (auto it = m_bondPickerToIndex.constBegin(); it != m_bondPickerToIndex.constEnd(); ++it) {
+        if (it.key())
+            it.key()->setEnabled(active);
+    }
+}
+
 void MoleculeViewer::clearScene()
 {
     // Claude Generated - Phase 2A: Clear picker mappings
     m_atomPickerToIndex.clear();
+    m_bondPickerToIndex.clear();
 
     // Claude Generated - Clear cached transform pointers before deleting entities.
     // Qt3D deletes QTransform components when their parent entity is deleted.
@@ -328,6 +351,17 @@ void MoleculeViewer::clearScene()
     // pointer crashes when updateFramePositions() is called after clearScene().
     m_atomTransforms.clear();
     m_bondTransforms.clear();
+
+    // Claude Generated - Phase 3.1/3.2: Drop instancing systems; their QEntities are
+    // parented to a molecule entity that is about to be deleted below.
+    if (m_atomInstancing) {
+        delete m_atomInstancing;
+        m_atomInstancing = nullptr;
+    }
+    if (m_bondInstancing) {
+        delete m_bondInstancing;
+        m_bondInstancing = nullptr;
+    }
 
     // Alle Entities löschen
     for (Qt3DCore::QNode *node : m_rootEntity->childNodes()) {
@@ -691,7 +725,50 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
     bool renderAtoms = (m_renderingMode == RenderingMode::BallAndStick ||
                         m_renderingMode == RenderingMode::SpaceFilling);
 
-    if (renderAtoms) {
+    // Claude Generated - LOD: pull tessellation from PerformanceOptimizer (Fast=8, Balanced=16, HighQuality=32)
+    const int sphereRings = m_perfOpt ? m_perfOpt->getSphereRings() : 16;
+    const int sphereSlices = m_perfOpt ? m_perfOpt->getSphereSlices() : 16;
+    const int cylinderSlices = m_perfOpt ? m_perfOpt->getBondSlices() : 16;
+
+    // Claude Generated - Phase 3.1: GPU instancing path for large atom counts.
+    // DISABLED by default: silent rendering failure (atoms invisible) pending shader diagnosis.
+    // Set env QURCUMA_ATOM_INSTANCING=1 to enable for debugging.
+    const bool useInstancing = renderAtoms && atoms.size() >= kAtomInstancingThreshold
+        && qEnvironmentVariableIsSet("QURCUMA_ATOM_INSTANCING");
+
+    if (useInstancing) {
+        if (m_atomInstancing) {
+            delete m_atomInstancing;
+            m_atomInstancing = nullptr;
+        }
+        m_atomInstancing = new AtomInstancingSystem(moleculeEntity, this);
+
+        QVector<QVector3D> positions;
+        QVector<QString> elements;
+        QVector<QColor> colors;
+        QVector<float> scales;
+        positions.reserve(atoms.size());
+        elements.reserve(atoms.size());
+        colors.reserve(atoms.size());
+        scales.reserve(atoms.size());
+        for (const Atom& atom : atoms) {
+            positions.append(atom.position);
+            elements.append(atom.element);
+            QColor c = getAtomColor(atom.element, atom.charge);
+            if (m_atomTransparency < 1.0f)
+                c.setAlphaF(m_atomTransparency);
+            colors.append(c);
+            scales.append(getAtomRadius(atom.element));
+        }
+        m_atomInstancing->setAtoms(positions, elements, colors, scales);
+    }
+
+    // Claude Generated - Perf: skip per-atom/per-bond QObjectPicker for large scenes.
+    // Even disabled pickers add scene-graph traversal cost per mouse event. Picking for
+    // large molecules should be handled by a single ray-cast, not N pickers.
+    const bool usePickers = atoms.size() < kAtomInstancingThreshold;
+
+    if (renderAtoms && !useInstancing) {
         for (int atomIndex = 0; atomIndex < atoms.size(); ++atomIndex) {
             const Atom& atom = atoms[atomIndex];
             Qt3DCore::QEntity *atomEntity = new Qt3DCore::QEntity(moleculeEntity);
@@ -699,8 +776,8 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             // Mesh
             Qt3DExtras::QSphereMesh *sphereMesh = new Qt3DExtras::QSphereMesh();
             sphereMesh->setRadius(getAtomRadius(atom.element));
-            sphereMesh->setRings(32);    // High quality spheres
-            sphereMesh->setSlices(32);
+            sphereMesh->setRings(sphereRings);
+            sphereMesh->setSlices(sphereSlices);
 
             // Claude Generated - Phase 4 Final: Conditional material (PBR vs Phong)
             QColor atomColor = getAtomColor(atom.element, atom.charge);
@@ -737,16 +814,15 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             atomEntity->addComponent(transform);
             atomEntity->addComponent(material);
 
-            // Claude Generated - Phase 2A: Add ObjectPicker for 3D atom selection
-            Qt3DRender::QObjectPicker *picker = new Qt3DRender::QObjectPicker(atomEntity);
-            picker->setHoverEnabled(true);
-            atomEntity->addComponent(picker);
-
-            // Store mapping for picking event handling
-            m_atomPickerToIndex[picker] = atomIndex;
-
-            // Connect picker signals
-            connect(picker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onAtomPicked);
+            // Claude Generated - Phase 2A: Add ObjectPicker for 3D atom selection.
+            // Skipped for large scenes (>= kAtomInstancingThreshold) to keep scene graph lean.
+            if (usePickers) {
+                Qt3DRender::QObjectPicker *picker = new Qt3DRender::QObjectPicker(atomEntity);
+                picker->setHoverEnabled(true);
+                atomEntity->addComponent(picker);
+                m_atomPickerToIndex[picker] = atomIndex;
+                connect(picker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onAtomPicked);
+            }
 
             // Claude Generated - Fix 2: Store references for incremental updates
             m_atomEntities.append(atomEntity);
@@ -758,7 +834,80 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
     // Claude Generated - Render bonds based on rendering mode
     bool renderBonds = (m_renderingMode != RenderingMode::SpaceFilling);
 
-    if (renderBonds) {
+    // Claude Generated - Phase 3.2: Bond instancing disabled by default pending diagnosis
+    // of rendering failure when combined with atom instancing. Set env var
+    // QURCUMA_BOND_INSTANCING=1 to enable. Atom instancing (Phase 3.1) remains active.
+    const bool useBondInstancing = useInstancing && renderBonds
+        && qEnvironmentVariableIsSet("QURCUMA_BOND_INSTANCING");
+
+    if (useBondInstancing) {
+        float bondRadius = m_bondThickness;
+        if (m_renderingMode == RenderingMode::Wireframe)
+            bondRadius *= 0.5f;
+        else if (m_renderingMode == RenderingMode::SticksOnly)
+            bondRadius *= 1.5f;
+
+        if (m_bondInstancing) {
+            delete m_bondInstancing;
+            m_bondInstancing = nullptr;
+        }
+        m_bondInstancing = new BondInstancingSystem(moleculeEntity, this);
+
+        const QColor baseColor(200, 200, 200);
+        QVector<BondInstancingSystem::BondInstance> instances;
+        instances.reserve(bonds.size());
+
+        const QVector3D localUp(0, 1, 0);
+        for (const Bond& bond : bonds) {
+            if (bond.atom1 < 0 || bond.atom1 >= atoms.size()
+                || bond.atom2 < 0 || bond.atom2 >= atoms.size())
+                continue;
+
+            const QVector3D start = atoms[bond.atom1].position;
+            const QVector3D end = atoms[bond.atom2].position;
+            const QVector3D direction = end - start;
+            const float length = direction.length();
+            if (length < 1e-4f)
+                continue;
+            const QVector3D normDir = direction / length;
+            const QVector3D center = start + direction * 0.5f;
+
+            QQuaternion rotation;
+            const QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
+            if (rotAxis.length() < 0.001f) {
+                rotation = normDir.y() > 0 ? QQuaternion()
+                                           : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f);
+            } else {
+                const float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
+                rotation = QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle);
+            }
+
+            BondInstancingSystem::BondInstance inst;
+            inst.center = center;
+            inst.halfLength = length * 0.5f;
+            inst.rotation = rotation;
+            inst.color = baseColor;
+            inst.radius = bondRadius;
+            instances.append(inst);
+
+            // Multi-bonds: offset replicas on orthogonal axis.
+            if (bond.bondOrder > 1) {
+                QVector3D offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
+                if (offsetDir.length() < 0.001f)
+                    offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
+                const float offset = 0.2f;
+                for (int i = 1; i < bond.bondOrder; ++i) {
+                    const float currentOffset = (i % 2 == 0 ? 1 : -1) * offset * ((i + 1) / 2);
+                    BondInstancingSystem::BondInstance extra = inst;
+                    extra.center = center + offsetDir * currentOffset;
+                    instances.append(extra);
+                }
+            }
+        }
+        m_bondInstancing->setBonds(instances);
+    }
+
+    if (renderBonds && !useBondInstancing) {
         // Determine bond thickness based on mode
         float bondRadius = m_bondThickness;
         if (m_renderingMode == RenderingMode::Wireframe) {
@@ -773,8 +922,8 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             // Mesh
             Qt3DExtras::QCylinderMesh *cylinderMesh = new Qt3DExtras::QCylinderMesh();
             cylinderMesh->setRadius(bondRadius);
-            cylinderMesh->setRings(16);      // Good quality
-            cylinderMesh->setSlices(16);
+            cylinderMesh->setRings(cylinderSlices);      // Claude Generated - LOD
+            cylinderMesh->setSlices(cylinderSlices);
 
             // Material
             Qt3DExtras::QPhongMaterial *material = new Qt3DExtras::QPhongMaterial();
@@ -815,17 +964,16 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
         bondEntity->addComponent(transform);
         bondEntity->addComponent(material);
 
-        // Claude Generated - Phase 4B: Add ObjectPicker for bond selection
-        int bondIndex = m_bondEntities.size();  // Current bond index
-        Qt3DRender::QObjectPicker *bondPicker = new Qt3DRender::QObjectPicker(bondEntity);
-        bondPicker->setHoverEnabled(true);
-        bondEntity->addComponent(bondPicker);
-
-        // Store mapping for picking event handling
-        m_bondPickerToIndex[bondPicker] = bondIndex;
-
-        // Connect picker signals
-        connect(bondPicker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onBondPicked);
+        // Claude Generated - Phase 4B: Add ObjectPicker for bond selection.
+        // Skipped for large scenes (see comment on atom picker above).
+        if (usePickers) {
+            int bondIndex = m_bondEntities.size();
+            Qt3DRender::QObjectPicker *bondPicker = new Qt3DRender::QObjectPicker(bondEntity);
+            bondPicker->setHoverEnabled(true);
+            bondEntity->addComponent(bondPicker);
+            m_bondPickerToIndex[bondPicker] = bondIndex;
+            connect(bondPicker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onBondPicked);
+        }
 
         // Claude Generated - Fix 2: Store bond reference for incremental updates
         m_bondEntities.append(bondEntity);
@@ -840,8 +988,8 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
 
                     Qt3DExtras::QCylinderMesh *addCylinderMesh = new Qt3DExtras::QCylinderMesh();
                     addCylinderMesh->setRadius(bondRadius);  // Claude Generated - use variable bond radius
-                    addCylinderMesh->setRings(16);
-                    addCylinderMesh->setSlices(16);
+                    addCylinderMesh->setRings(cylinderSlices);
+                    addCylinderMesh->setSlices(cylinderSlices);
             
             Qt3DCore::QTransform *addTransform = new Qt3DCore::QTransform();
             
@@ -1025,6 +1173,12 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
         // or populated from loaded trajectory data
     }
 
+    // Claude Generated - LOD: adapt tessellation BEFORE entity creation.
+    // setAtomCount triggers updateAdaptiveQuality which picks Fast/Balanced/HighQuality
+    // from recommendQualityMode thresholds (>5000 Fast, >1000 Balanced, else HighQuality).
+    if (m_perfOpt)
+        m_perfOpt->setAtomCount(atoms.size());
+
     // Render the molecule using trajectory data
     Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
     moleculeEntity->setParent(m_rootEntity);
@@ -1199,6 +1353,16 @@ void MoleculeViewer::updateAtomPositionsOnly(int frameIndex)
     m_currentFrame = frameIndex;
     const auto& atoms = m_trajectoryAtoms[frameIndex];
 
+    // Claude Generated - Phase 3.1: Instancing path — upload position buffer in one call.
+    if (m_atomInstancing && m_atomInstancing->getAtomCount() == atoms.size()) {
+        QVector<QVector3D> positions;
+        positions.reserve(atoms.size());
+        for (const Atom& a : atoms)
+            positions.append(a.position);
+        m_atomInstancing->updateAtomPositions(positions);
+        return;
+    }
+
     // Atoms only: simple translate. No bond rotation, no quaternion math.
     for (int i = 0; i < m_atomTransforms.size() && i < atoms.size(); ++i) {
         if (m_atomTransforms[i])
@@ -1253,6 +1417,55 @@ void MoleculeViewer::updateBondsHybrid(int frameIndex)
     const auto& atoms = m_trajectoryAtoms[frameIndex];
     const QVector<Bond>& bonds = m_trajectoryBonds[frameIndex];
 
+    // Claude Generated - Phase 3.2: Instanced bond path.
+    // Recompute centers + halfLengths (rotations stay cached from scene build).
+    // Multi-bond offsets approximated using cached rotations — visual parity with hybrid path.
+    if (m_bondInstancing && m_bondInstancing->bondCount() > 0) {
+        QVector<QVector3D> centers;
+        QVector<float> halfLengths;
+        const int expected = m_bondInstancing->bondCount();
+        centers.reserve(expected);
+        halfLengths.reserve(expected);
+
+        for (const Bond& bond : bonds) {
+            if (bond.atom1 < 0 || bond.atom1 >= atoms.size()
+                || bond.atom2 < 0 || bond.atom2 >= atoms.size())
+                continue;
+            const QVector3D start = atoms[bond.atom1].position;
+            const QVector3D end = atoms[bond.atom2].position;
+            const QVector3D direction = end - start;
+            const float length = direction.length();
+            if (length < 1e-4f)
+                continue;
+            const QVector3D normDir = direction / length;
+            const QVector3D center = start + direction * 0.5f;
+            centers.append(center);
+            halfLengths.append(length * 0.5f);
+
+            if (bond.bondOrder > 1) {
+                QVector3D offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
+                if (offsetDir.length() < 0.001f)
+                    offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
+                const float offset = 0.2f;
+                for (int i = 1; i < bond.bondOrder; ++i) {
+                    const float currentOffset = (i % 2 == 0 ? 1 : -1) * offset * ((i + 1) / 2);
+                    centers.append(center + offsetDir * currentOffset);
+                    halfLengths.append(length * 0.5f);
+                }
+            }
+            if (centers.size() >= expected)
+                break;
+        }
+        // Truncate in case of mismatch (shouldn't happen but guards buffer upload).
+        if (centers.size() > expected) {
+            centers.resize(expected);
+            halfLengths.resize(expected);
+        }
+        if (centers.size() == expected)
+            m_bondInstancing->updateTransforms(centers, halfLengths);
+        return;
+    }
+
     int bondIndex = 0;
     for (int i = 0; i < bonds.size() && bondIndex < m_bondTransforms.size(); ++i) {
         const Bond& bond = bonds[i];
@@ -1290,12 +1503,53 @@ void MoleculeViewer::updateBondsHybrid(int frameIndex)
     }
 }
 
-// Claude Generated - Fast simulation position update: reuses existing bonds, no clearScene, no detectBonds.
-// Skips O(n²) bond detection on every frame; critical for large molecule MD performance.
-void MoleculeViewer::updateSimulationFrame(const QVector<Atom>& atoms)
+// Claude Generated - Frame coalescing entry: store latest frame ptr, schedule single flush.
+// Worker can emit frameReady faster than GUI renders; intermediate frames get dropped
+// so backlog stays bounded and latency stays low. The actual render happens in flushSimFrame.
+// Zero-copy: frame is a QSharedPointer<const SimulationFrame> — pointer copy only.
+void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
 {
-    // Fall back to full addMolecule if no existing scene or atom count changed
-    if (m_trajectoryAtoms.isEmpty() || m_trajectoryAtoms[0].size() != atoms.size()) {
+    if (!frame)
+        return;
+    m_pendingSimFrame = frame;
+    if (!m_simFlushScheduled) {
+        m_simFlushScheduled = true;
+        QMetaObject::invokeMethod(this, "flushSimFrame", Qt::QueuedConnection);
+    }
+}
+
+// Claude Generated - Actual render of most recent simulation frame.
+// Reuses existing bonds, no clearScene/detectBonds unless topology changed.
+// Skips O(n²) bond detection on every frame; critical for large molecule MD performance.
+void MoleculeViewer::flushSimFrame()
+{
+    m_simFlushScheduled = false;
+    if (!m_pendingSimFrame)
+        return;
+
+    SimulationFramePtr frame = m_pendingSimFrame;
+    m_pendingSimFrame.reset();
+
+    const auto& positions = frame->positions;
+    const int n = static_cast<int>(positions.size());
+
+    // Topology-change fallback: rebuild the scene with cached element/charge where possible,
+    // else synthesize placeholder atoms (carbon) so at least count matches.
+    if (m_trajectoryAtoms.isEmpty() || m_trajectoryAtoms[0].size() != n) {
+        QVector<Atom> atoms;
+        atoms.reserve(n);
+        const bool haveCache = !m_trajectoryAtoms.isEmpty();
+        for (int i = 0; i < n; ++i) {
+            Atom a;
+            a.position = positions[i];
+            if (haveCache && i < m_trajectoryAtoms[0].size()) {
+                a.element = m_trajectoryAtoms[0][i].element;
+                a.charge = m_trajectoryAtoms[0][i].charge;
+            } else {
+                a.element = QStringLiteral("C");
+            }
+            atoms.append(a);
+        }
         addMolecule(atoms, {});
         return;
     }
@@ -1304,13 +1558,46 @@ void MoleculeViewer::updateSimulationFrame(const QVector<Atom>& atoms)
     if (m_bondRotations.isEmpty())
         prepareSimulationBonds();
 
-    // Update stored atom positions (keep existing bonds unchanged)
-    m_trajectoryAtoms[0] = atoms;
+    // In-place position update: keep element/charge untouched (no per-frame copy of those).
+    auto& refAtoms = m_trajectoryAtoms[0];
+    for (int i = 0; i < n; ++i)
+        refAtoms[i].position = positions[i];
 
-    // Atoms: simple translate
+#ifdef DEBUG_ON
+    // Claude Generated - Per-frame timing: rolling avg every 60 frames to quantify render cost.
+    QElapsedTimer frameTimer;
+    frameTimer.start();
+
+    QElapsedTimer sub;
+    sub.start();
     updateAtomPositionsOnly(0);
-    // Bonds: center + length update, cached rotation (no quaternion recalc)
+    const qint64 atomNs = sub.nsecsElapsed();
+
+    sub.restart();
     updateBondsHybrid(0);
+    const qint64 bondNs = sub.nsecsElapsed();
+
+    const qint64 totalNs = frameTimer.nsecsElapsed();
+
+    static qint64 s_accAtom = 0, s_accBond = 0, s_accTotal = 0;
+    static int s_samples = 0;
+    s_accAtom += atomNs;
+    s_accBond += bondNs;
+    s_accTotal += totalNs;
+    if (++s_samples >= 60) {
+        qDebug().nospace()
+            << "[sim-render] N=" << n
+            << " instancing=" << (m_atomInstancing ? "on" : "off")
+            << " avg total=" << (s_accTotal / s_samples / 1000) << "us"
+            << " atoms=" << (s_accAtom / s_samples / 1000) << "us"
+            << " bonds=" << (s_accBond / s_samples / 1000) << "us";
+        s_accAtom = s_accBond = s_accTotal = 0;
+        s_samples = 0;
+    }
+#else
+    updateAtomPositionsOnly(0);
+    updateBondsHybrid(0);
+#endif
 }
 
 void MoleculeViewer::nextFrame()

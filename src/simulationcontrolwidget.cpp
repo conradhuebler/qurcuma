@@ -158,6 +158,11 @@ void SimulationControlWidget::onStartClicked()
     connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
 
     m_config = buildConfig(); // Cache for status display
+
+    // Claude Generated - Expose worker to MainWindow so it can wire worker->view directly.
+    // Must happen BEFORE setRunning emits running=true (so listeners can connect in response).
+    emit workerStarted(m_worker);
+
     setRunning(true);
     m_statusLabel->setText(tr("Starting..."));
     m_thread->start();
@@ -186,24 +191,27 @@ void SimulationControlWidget::onStopClicked()
         m_worker->requestStop();
 }
 
-void SimulationControlWidget::onFrameReady(QVector<MoleculeViewer::Atom> atoms, double energy, double ekin, int step)
+void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
 {
-    // Forward to MainWindow → MoleculeViewer
-    emit frameReady(atoms, energy, ekin, step);
+    if (!frame)
+        return;
 
-    // Update status label
+    // Claude Generated - No forwarding: widget only updates its own status label.
+    // View + MainWindow receive the frame directly from the worker via MainWindow's wiring.
     if (m_config.mode == SimulationConfig::Mode::MolecularDynamics) {
-        double tempK = ekin > 0 ? ekin * 315775.0 / m_atoms.size() : 0.0; // rough T estimate
+        double tempK = frame->ekin > 0 && !m_atoms.isEmpty()
+            ? frame->ekin * 315775.0 / m_atoms.size()
+            : 0.0;
         m_statusLabel->setText(
             tr("Step %1 | E= %2 Eh | T≈ %3 K")
-                .arg(step)
-                .arg(energy, 0, 'f', 6)
+                .arg(frame->step)
+                .arg(frame->energy, 0, 'f', 6)
                 .arg(tempK, 0, 'f', 0));
     } else {
         m_statusLabel->setText(
             tr("Iter %1 | E= %2 Eh")
-                .arg(step)
-                .arg(energy, 0, 'f', 8));
+                .arg(frame->step)
+                .arg(frame->energy, 0, 'f', 8));
     }
 }
 
@@ -249,5 +257,8 @@ void SimulationControlWidget::setRunning(bool running)
     m_methodCombo->setEnabled(!running);
     m_tempSpin->setEnabled(!running);
     m_stepsSpin->setEnabled(!running);
+
+    // Claude Generated - Notify view so per-atom pickers can be disabled during sim.
+    emit simulationRunningChanged(running);
 }
 

@@ -24,6 +24,10 @@ using json = nlohmann::json;
 SimulationWorker::SimulationWorker(QObject* parent)
     : QObject(parent)
 {
+    // Claude Generated - Register shared-pointer payload so QueuedConnection can marshal it.
+    // Idempotent, safe to call multiple times.
+    static const int kPtrTypeId = qRegisterMetaType<SimulationFramePtr>("SimulationFramePtr");
+    Q_UNUSED(kPtrTypeId);
 }
 
 void SimulationWorker::setMolecule(const QVector<MoleculeViewer::Atom>& atoms)
@@ -69,25 +73,28 @@ static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms)
     return mol;
 }
 
-// Claude Generated - File-local helper; curcuma Molecule type stays in this .cpp only
-// Takes reference atoms for element names (positions are replaced from curcuma geometry)
-static QVector<MoleculeViewer::Atom> moleculeToAtoms(
-    const Molecule& mol, const QVector<MoleculeViewer::Atom>& reference)
+// Claude Generated - Build a SimulationFrame from curcuma Molecule geometry.
+// Only positions are shipped; the viewer caches element/charge from the initial load.
+// Returned as QSharedPointer<const SimulationFrame> so queued-connection signals copy a
+// pointer, not the position array.
+static SimulationFramePtr moleculeToFrame(
+    const Molecule& mol, int referenceSize, double energy, double ekin, int step)
 {
-    QVector<MoleculeViewer::Atom> result;
-    result.reserve(reference.size());
+    auto frame = QSharedPointer<SimulationFrame>::create();
+    frame->energy = energy;
+    frame->ekin = ekin;
+    frame->step = step;
 
     Geometry geo = mol.getGeometry();
-    int n = std::min(static_cast<int>(geo.rows()), static_cast<int>(reference.size()));
+    const int n = std::min(static_cast<int>(geo.rows()), referenceSize);
+    frame->positions.reserve(n);
     for (int i = 0; i < n; ++i) {
-        MoleculeViewer::Atom a = reference[i]; // copy element, charge
-        a.position = QVector3D(
+        frame->positions.emplace_back(
             static_cast<float>(geo(i, 0)),
             static_cast<float>(geo(i, 1)),
             static_cast<float>(geo(i, 2)));
-        result.append(a);
     }
-    return result;
+    return frame;
 }
 
 void SimulationWorker::runMD()
@@ -173,7 +180,7 @@ void SimulationWorker::runMD()
 
         QElapsedTimer convertTimer;
         convertTimer.start();
-        QVector<MoleculeViewer::Atom> atoms = moleculeToAtoms(mol, m_initialAtoms);
+        SimulationFramePtr frame = moleculeToFrame(mol, m_initialAtoms.size(), Epot, Ekin, step);
         qint64 convertTime = convertTimer.elapsed();
 
         if (m_config.performanceAnalysis) {
@@ -189,7 +196,7 @@ void SimulationWorker::runMD()
                 qint64 avgOverhead = avgStep - avgConvert;
                 double fps = 1000.0 * frameCount / (totalStepTime + totalConvertTime);
                 qDebug() << "=== Performance [step" << step - frameCount + 1 << "-" << step << "] ==="
-                         << "atoms:" << atoms.size()
+                         << "atoms:" << static_cast<int>(frame->positions.size())
                          << "avg_step:" << avgStep << "ms"
                          << "(gfann+callback:" << avgOverhead << "ms, convert:" << avgConvert << "ms)"
                          << "min:" << minStepTime << "max:" << maxStepTime
@@ -202,7 +209,7 @@ void SimulationWorker::runMD()
             }
         }
 
-        emit frameReady(atoms, Epot, Ekin, step);
+        emit frameReady(frame);
     });
 
     if (!md.Initialise()) {
@@ -253,7 +260,7 @@ void SimulationWorker::runOptimization()
                 QThread::msleep(static_cast<unsigned long>(remaining));
         }
         m_lastEmitTimer.restart();
-        emit frameReady(moleculeToAtoms(mol, m_initialAtoms), energy, 0.0, iter);
+        emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), energy, 0.0, iter));
     });
 
     opt.start();
