@@ -208,11 +208,33 @@ signals:
     void trajectoryLoaded(int frameCount);
     void selectionChanged(const QVector<int>& selectedAtoms);  // Claude Generated - Phase 2A
 
+    /** Claude Generated 2026 - Phase 6: fired whenever the viewer swaps its
+     *  molecule (addMolecule / setTrajectoryData / setVTFTrajectoryData).
+     *  Consumers like the simulation dock can re-sync their state. */
+    void moleculeUpdated(const QVector<MoleculeViewer::Atom>& atoms,
+        const QVector<MoleculeViewer::Bond>& bonds);
+
+    /** Claude Generated 2026 - Interactive Sim Phase 5
+     *  Emitted while the user drags a grabbed atom.
+     *  @p force is a screen-space→world delta in Eh/Bohr. */
+    void atomForceRequested(int atomIndex, QVector3D force, double alpha, int maxShells);
+    /** Emitted on mouse release — consumer should clear any pending force. */
+    void atomGrabReleased();
+
+public slots:
+    /** Enable/disable sim-mode grabbing. In sim mode an atom click+drag
+     *  produces atomForceRequested() instead of a selection change. */
+    void setSimulationActive(bool on) { m_simulationActive = on; if (!on) m_grabbedAtom = -1; }
+    void setGrabStrength(double s) { m_grabStrength = s; }
+    void setGrabAlpha(double a) { m_grabAlpha = a; }
+    void setGrabMaxShells(int n) { m_grabMaxShells = n; }
+
 public:
     void clearScenePublic();  // Public wrapper for file loading
 
 private slots:
     void onAtomPicked(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated - Phase 2A - Handle ObjectPicker clicks
+    void onAtomPressedForGrab(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated 2026 - Phase 5 - Sim grab init
     void onBondPicked(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated - Phase 4B - Handle bond picking
     void onAutoSaveTimer();  // Claude Generated - Phase 4B - Auto-save XYZ with debouncing
     void onStructureChanged();  // Claude Generated - Phase 4B - Handle bond editor changes
@@ -348,6 +370,13 @@ private:
 
     // Mouse interaction - Claude Generated
     bool m_leftMousePressed = false;
+
+    // Claude Generated 2026 - Phase 5: Interactive-sim grab state
+    bool m_simulationActive = false;
+    int m_grabbedAtom = -1;
+    double m_grabStrength = 0.01;  // Eh/Bohr per screen pixel
+    double m_grabAlpha = 0.4;
+    int m_grabMaxShells = 3;
     bool m_rightMousePressed = false;
     QPoint m_lastMousePos;
 

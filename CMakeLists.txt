@@ -84,7 +84,7 @@ set(SOURCES
     src/bondinstancingsystem.cpp  # Claude Generated Phase 3.2 - Interactive Sim: bond GPU instancing
     src/simulationworker.cpp  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.cpp  # Claude Generated - Interactive Simulation Integration
-    src/dialogs/simulationdialog.cpp  # Claude Generated - Interactive Simulation Integration
+    src/forceinjector.cpp  # Claude Generated 2026 - Topological force distribution (Phase 4)
 )
 
 # Header-Dateien
@@ -119,7 +119,7 @@ set(HEADERS
     src/bondinstancingsystem.h  # Claude Generated Phase 3.2 - Interactive Sim: bond GPU instancing
     src/simulationworker.h  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.h  # Claude Generated - Interactive Simulation Integration
-    src/dialogs/simulationdialog.h  # Claude Generated - Interactive Simulation Integration
+    src/forceinjector.h  # Claude Generated 2026 - Topological force distribution (Phase 4)
     #src/dialogs/nmrstructuremodel.h
 
 )

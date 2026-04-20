@@ -4,16 +4,18 @@
 
 #pragma once
 
+#include "forceinjector.h"
 #include "simulationframe.h"
 #include "view.h"
 
+#include <Eigen/Dense>
 #include <QAtomicInt>
 #include <QElapsedTimer>
+#include <QMutex>
 #include <QObject>
 #include <QString>
 #include <QVector>
 #include <QVector3D>
-#include <atomic>
 
 /**
  * @brief Configuration struct for a simulation run.
@@ -23,15 +25,15 @@ struct SimulationConfig {
     enum class Mode { MolecularDynamics, GeometryOptimization };
 
     Mode mode = Mode::MolecularDynamics;
-    QString method = "gfnff";     // Default: GFN-FF (always available, no external deps)
+    QString method = "gfnff";     // Energy method: gfnff / uff / gfn2 / gfn1
+    QString optimizer = "auto";   // Opt algorithm: auto / lbfgspp / native_lbfgs / diis / rfo / ancopt
     double temperature = 300.0;   // K (MD only)
     double timestep = 1.0;        // fs (MD only)
     int steps = 1000;             // Total MD steps or max opt iterations
-    int dumpFrequency = 10;       // Callback/save every N steps; set to steps/100 for ~100 visual updates
     double convergence = 1e-6;    // Gradient convergence threshold (opt only)
     bool writeTrajectory = false; // Also write .trj.xyz file to disk
     int fpsLimit = 30;            // Max GUI updates/sec (0 = unlimited)
-    bool performanceAnalysis = false; // Claude Generated - Per-frame timing stats every N steps
+    bool performanceAnalysis = false; // Per-frame timing stats every N steps
     int performanceInterval = 100;   // Output summary every N frames
     QString gpu = "none";         // GPU acceleration: "none", "cuda", "auto"
 };
@@ -72,6 +74,10 @@ public:
     /** @brief Set the initial molecular geometry from viewer atoms. */
     void setMolecule(const QVector<MoleculeViewer::Atom>& atoms);
 
+    /** @brief Set the bond topology used for shell-based force distribution.
+     *  Must be called on the GUI thread before the worker is started. */
+    void setBonds(const QVector<MoleculeViewer::Bond>& bonds);
+
     /** @brief Set simulation parameters before calling run(). */
     void setConfig(const SimulationConfig& config) { m_config = config; }
 
@@ -87,6 +93,16 @@ public:
 public slots:
     /** @brief Start the simulation. Connect to QThread::started. */
     void run();
+
+    /** @brief Inject an external force on @p atomIndex, spread through the
+     *  bond graph with exponential decay (@p alpha per shell, cut at
+     *  @p maxShells). The force is in Eh/Bohr and is applied additively to the
+     *  gradient of the next MD step. Thread-safe; may be called from the GUI
+     *  thread via QueuedConnection. */
+    void injectForce(int atomIndex, QVector3D force, double alpha, int maxShells);
+
+    /** @brief Clear any pending injected force (mouse release / stop grab). */
+    void clearInjectedForce();
 
 signals:
     /**
@@ -113,10 +129,18 @@ private:
     // which must not be exposed in this header to avoid include pollution).
     // Claude Generated - curcuma types are encapsulated in the .cpp translation unit.
 
+    Eigen::MatrixXd drainPendingForces(int atomCount);
+
     QVector<MoleculeViewer::Atom> m_initialAtoms;
+    QVector<MoleculeViewer::Bond> m_bonds;
+    forceinjector::Adjacency m_adjacency;
     SimulationConfig m_config;
     QAtomicInt m_stopRequested{ 0 };
     QAtomicInt m_pauseRequested{ 0 };
-    std::atomic<bool> m_externalStop{ false };  // Claude Generated - Passed to SimpleMD for unlimited MD
-    QElapsedTimer m_lastEmitTimer;               // Claude Generated - FPS cap: tracks time since last frameReady emit
+    QElapsedTimer m_lastEmitTimer;  // Claude Generated - FPS cap: tracks time since last frameReady emit
+
+    // Injected force queue (produced by GUI thread, drained by worker thread)
+    QMutex m_forceMutex;
+    Eigen::MatrixXd m_pendingForces;
+    bool m_pendingForcesValid = false;
 };

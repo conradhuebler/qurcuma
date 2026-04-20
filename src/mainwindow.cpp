@@ -4,7 +4,7 @@
 #include "sftpmodel.hpp"  // Claude Generated - Remote Directory Mounting
 #include "dialogs/sftpdialog.h"  // Claude Generated - Remote Directory Mounting
 #include "simulationcontrolwidget.h"  // Claude Generated - Interactive Simulation Integration
-#include "dialogs/simulationdialog.h"  // Claude Generated - Interactive Simulation Integration
+// Claude Generated 2026 - Phase 6: SimulationDialog removed; the dock widget is the sole sim UI.
 #include <algorithm>  // Claude Generated - for std::min/std::max
 #include <QApplication>
 #include <QClipboard>
@@ -323,7 +323,7 @@ void MainWindow::setupContextMenu()
                                 m_moleculeView->addMolecule(atoms, bonds);
                                 // Claude Generated - Pass to simulation widget for interactive simulation
                                 if (m_simulationControlWidget)
-                                    m_simulationControlWidget->setMolecule(atoms);
+                                    m_simulationControlWidget->setMolecule(atoms, bonds);
                                 
                                 // Frame controls are now managed by MoleculeViewer
                             }
@@ -350,7 +350,7 @@ void MainWindow::setupContextMenu()
                             QVector<MoleculeViewer::Bond> bonds;
                             PDBParser::convertToMoleculeViewer(frame, atoms, bonds, pdbParser.getBonds());
                             m_moleculeView->addMolecule(atoms, bonds);
-                            if (m_simulationControlWidget) m_simulationControlWidget->setMolecule(atoms);
+                            if (m_simulationControlWidget) m_simulationControlWidget->setMolecule(atoms, bonds);
                         } else {
                             QMessageBox::warning(this, tr("Error"), tr("Failed to parse PDB file: %1").arg(pdbParser.getLastError()));
                         }
@@ -376,7 +376,7 @@ void MainWindow::setupContextMenu()
                             QVector<MoleculeViewer::Bond> bonds;
                             MOL2Parser::convertToMoleculeViewer(molecule, atoms, bonds);
                             m_moleculeView->addMolecule(atoms, bonds);
-                            if (m_simulationControlWidget) m_simulationControlWidget->setMolecule(atoms);
+                            if (m_simulationControlWidget) m_simulationControlWidget->setMolecule(atoms, bonds);
                         } else {
                             QMessageBox::warning(this, tr("Error"), tr("Failed to parse MOL2 file: %1").arg(mol2Parser.getLastError()));
                         }
@@ -654,21 +654,31 @@ void MainWindow::createMenus()
     // Simulation Menu - Claude Generated - Interactive Simulation Integration
     QMenu *simulationMenu = menuBar->addMenu(tr("&Simulation"));
 
+    // Claude Generated 2026 - Phase 6: menu entries focus the dock instead of opening a dialog.
+    auto showSimDock = [this](SimulationConfig::Mode mode) {
+        if (!m_atomsSimulationDock) return;
+        m_atomsSimulationDock->show();
+        m_atomsSimulationDock->raise();
+        if (m_atomsSimulationTabs) m_atomsSimulationTabs->setCurrentIndex(1);
+        if (m_simulationControlWidget) {
+            SimulationConfig cfg = m_simulationControlWidget->currentConfig();
+            cfg.mode = mode;
+            m_simulationConfig = cfg;
+        }
+    };
     QAction *mdAction = simulationMenu->addAction(
-        QIcon::fromTheme("media-playback-start"), tr("Run &MD Simulation..."));
+        QIcon::fromTheme("media-playback-start"), tr("Run &MD Simulation"));
     mdAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
-    mdAction->setToolTip(tr("Start an interactive molecular dynamics simulation"));
-    connect(mdAction, &QAction::triggered, this, [this]() {
-        openSimulationDialog(SimulationConfig::Mode::MolecularDynamics);
-    });
+    mdAction->setToolTip(tr("Focus the simulation dock in MD mode"));
+    connect(mdAction, &QAction::triggered, this,
+        [showSimDock]() { showSimDock(SimulationConfig::Mode::MolecularDynamics); });
 
     QAction *optAction = simulationMenu->addAction(
-        QIcon::fromTheme("system-run"), tr("&Geometry Optimization..."));
+        QIcon::fromTheme("system-run"), tr("&Geometry Optimization"));
     optAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
-    optAction->setToolTip(tr("Optimize the molecular geometry"));
-    connect(optAction, &QAction::triggered, this, [this]() {
-        openSimulationDialog(SimulationConfig::Mode::GeometryOptimization);
-    });
+    optAction->setToolTip(tr("Focus the simulation dock in optimization mode"));
+    connect(optAction, &QAction::triggered, this,
+        [showSimDock]() { showSimDock(SimulationConfig::Mode::GeometryOptimization); });
 
     simulationMenu->addSeparator();
 
@@ -3117,7 +3127,8 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
             // simulation widget so the user can start a run without manually
             // re-selecting it. First frame is used as the simulation input.
             if (m_simulationControlWidget && !allAtoms.isEmpty())
-                m_simulationControlWidget->setMolecule(allAtoms.first());
+                m_simulationControlWidget->setMolecule(allAtoms.first(),
+                    !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
         } else {
             m_moleculeView->clearScenePublic();
             qWarning() << "Failed to parse XYZ file:" << filePath;
@@ -3166,7 +3177,8 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
 
             // Claude Generated - Feed first frame into the simulation widget.
             if (m_simulationControlWidget && !allAtoms.isEmpty())
-                m_simulationControlWidget->setMolecule(allAtoms.first());
+                m_simulationControlWidget->setMolecule(allAtoms.first(),
+                    !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
         } else {
             m_moleculeView->clearScenePublic();
             qWarning() << "Failed to parse VTF file:" << filePath;
@@ -3702,17 +3714,42 @@ void MainWindow::createDockWidgets()
     m_atomsSimulationDock->setWidget(m_atomsSimulationTabs);
 
     // Claude Generated - Worker is wired to view + status slot directly (skips widget mid-hop).
+    // Claude Generated 2026 - Phase 6: every molecule load path emits MoleculeViewer::moleculeUpdated;
+    // centralising the sim-dock sync here replaces a dozen ad-hoc setMolecule callsites.
+    if (m_moleculeView) {
+        connect(m_moleculeView, &MoleculeViewer::moleculeUpdated,
+            m_simulationControlWidget,
+            [this](const QVector<MoleculeViewer::Atom>& atoms,
+                const QVector<MoleculeViewer::Bond>& bonds) {
+                if (m_simulationControlWidget)
+                    m_simulationControlWidget->setMolecule(atoms, bonds);
+            });
+    }
     connect(m_simulationControlWidget, &SimulationControlWidget::workerStarted,
         this, &MainWindow::wireSimulationWorker);
-    connect(m_simulationControlWidget, &SimulationControlWidget::openFullDialog,
-        this, [this]() { openSimulationDialog(SimulationConfig::Mode::MolecularDynamics); });
     connect(m_simulationControlWidget, &SimulationControlWidget::configChanged,
         this, &MainWindow::onSimulationConfigChanged);
-    // Claude Generated - Toggle per-atom pickers off during sim for CPU savings.
+    // Claude Generated 2026 - Phase 6: keep pickers ON during sim so click+drag
+    // on an atom triggers the grab path (QObjectPicker::pressed). Without this
+    // the camera controller would eat the press and rotate instead.
     connect(m_simulationControlWidget, &SimulationControlWidget::simulationRunningChanged,
         this, [this](bool running) {
-            if (m_moleculeView)
-                m_moleculeView->setPickingActive(!running);
+            if (!m_moleculeView) return;
+            m_moleculeView->setPickingActive(true);
+            m_moleculeView->setSimulationActive(running);
+            if (running && m_simulationControlWidget) {
+                m_moleculeView->setGrabStrength(m_simulationControlWidget->grabStrength());
+                m_moleculeView->setGrabAlpha(m_simulationControlWidget->grabAlpha());
+                m_moleculeView->setGrabMaxShells(m_simulationControlWidget->grabMaxShells());
+            }
+        });
+    // Claude Generated 2026 - Phase 6: push live grab-slider changes into the viewer.
+    connect(m_simulationControlWidget, &SimulationControlWidget::grabSettingsChanged,
+        this, [this](double strength, double alpha, int maxShells) {
+            if (!m_moleculeView) return;
+            m_moleculeView->setGrabStrength(strength);
+            m_moleculeView->setGrabAlpha(alpha);
+            m_moleculeView->setGrabMaxShells(maxShells);
         });
 
     // ==================== OUTPUT DOCK (bottom) ====================
@@ -3877,39 +3914,6 @@ void MainWindow::closeEvent(QCloseEvent* event)
 
 // Claude Generated - Interactive Simulation Integration
 
-void MainWindow::openSimulationDialog(SimulationConfig::Mode mode)
-{
-    if (!m_simulationDialog) {
-        m_simulationDialog = new SimulationDialog(this);
-        connect(m_simulationDialog, &SimulationDialog::workerStarted,
-            this, &MainWindow::wireSimulationWorker);
-        // Claude Generated - Write-back: persist advanced settings to shared config when dialog closes
-        connect(m_simulationDialog, &QDialog::finished, this, [this](int) {
-            if (m_simulationDialog) {
-                m_simulationConfig = m_simulationDialog->currentConfig();
-                if (m_simulationControlWidget)
-                    m_simulationControlWidget->applyConfig(m_simulationConfig);
-            }
-        });
-    }
-
-    // Feed current molecule from viewer (Claude Generated - uses getCurrentFrameAtoms())
-    if (m_moleculeView) {
-        QVector<MoleculeViewer::Atom> atoms = m_moleculeView->getCurrentFrameAtoms();
-        if (!atoms.isEmpty()) {
-            m_simulationDialog->setMolecule(atoms);
-        }
-    }
-
-    // Claude Generated - Sync shared config into dialog before showing; honour explicit mode arg
-    SimulationConfig cfgForDialog = m_simulationConfig;
-    cfgForDialog.mode = mode;
-    m_simulationDialog->setConfig(cfgForDialog);
-
-    m_simulationDialog->show();
-    m_simulationDialog->raise();
-}
-
 // Claude Generated - Keep shared config in sync when dock widget controls change
 void MainWindow::onSimulationConfigChanged(SimulationConfig cfg)
 {
@@ -3927,6 +3931,14 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
     if (m_moleculeView) {
         connect(worker, &SimulationWorker::frameReady,
             m_moleculeView, &MoleculeViewer::updateSimulationFrame,
+            Qt::QueuedConnection);
+        // Claude Generated 2026 - Phase 6: viewer drag → worker force injection.
+        // QueuedConnection marshals the force matrix to the worker thread safely.
+        connect(m_moleculeView, &MoleculeViewer::atomForceRequested,
+            worker, &SimulationWorker::injectForce,
+            Qt::QueuedConnection);
+        connect(m_moleculeView, &MoleculeViewer::atomGrabReleased,
+            worker, &SimulationWorker::clearInjectedForce,
             Qt::QueuedConnection);
     }
 

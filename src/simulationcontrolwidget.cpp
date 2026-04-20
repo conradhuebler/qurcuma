@@ -1,12 +1,13 @@
-// simulationcontrolwidget.cpp - Compact inline simulation controls
+// simulationcontrolwidget.cpp - Full inline simulation controls
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
-// Claude Generated - Interactive Simulation Integration
+// Claude Generated - Interactive Simulation Integration (Phase 6)
 
 #include "simulationcontrolwidget.h"
 
+#include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
-#include <QLabel>
-#include <QSignalBlocker>
+#include <QScrollArea>
 #include <QVBoxLayout>
 
 SimulationControlWidget::SimulationControlWidget(QWidget* parent)
@@ -17,7 +18,6 @@ SimulationControlWidget::SimulationControlWidget(QWidget* parent)
 
 SimulationControlWidget::~SimulationControlWidget()
 {
-    // Stop any running simulation cleanly
     if (m_worker)
         m_worker->requestStop();
     if (m_thread && m_thread->isRunning()) {
@@ -26,89 +26,195 @@ SimulationControlWidget::~SimulationControlWidget()
     }
 }
 
+void SimulationControlWidget::setMolecule(
+    const QVector<MoleculeViewer::Atom>& atoms,
+    const QVector<MoleculeViewer::Bond>& bonds)
+{
+    m_atoms = atoms;
+    m_bonds = bonds;
+}
+
 void SimulationControlWidget::setupUI()
 {
-    auto* mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(4, 4, 4, 4);
-    mainLayout->setSpacing(3);
+    auto* outer = new QVBoxLayout(this);
+    outer->setContentsMargins(4, 4, 4, 4);
+    outer->setSpacing(4);
 
-    // --- Top row: controls ---
-    auto* topRow = new QHBoxLayout;
+    // Scroll container so the dock stays usable at small heights.
+    auto* scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    auto* inner = new QWidget(scroll);
+    auto* innerLayout = new QVBoxLayout(inner);
+    innerLayout->setContentsMargins(0, 0, 0, 0);
+    innerLayout->setSpacing(6);
 
+    // ---- Mode + method row ----
+    auto* typeForm = new QFormLayout;
     m_modeCombo = new QComboBox(this);
-    m_modeCombo->addItem(tr("MD"), static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
-    m_modeCombo->addItem(tr("Optimization"), static_cast<int>(SimulationConfig::Mode::GeometryOptimization));
-    m_modeCombo->setToolTip(tr("Simulation type"));
-    topRow->addWidget(m_modeCombo);
+    m_modeCombo->addItem(tr("Molecular Dynamics"),
+        static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
+    m_modeCombo->addItem(tr("Geometry Optimization"),
+        static_cast<int>(SimulationConfig::Mode::GeometryOptimization));
+    typeForm->addRow(tr("Mode:"), m_modeCombo);
 
     m_methodCombo = new QComboBox(this);
-    m_methodCombo->addItem("GFN-FF", "gfnff");   // Default - always available
+    m_methodCombo->addItem("GFN-FF", "gfnff");
     m_methodCombo->addItem("UFF", "uff");
     m_methodCombo->addItem("GFN2", "gfn2");
     m_methodCombo->addItem("GFN1", "gfn1");
-    m_methodCombo->setToolTip(tr("Force field / method"));
-    topRow->addWidget(m_methodCombo);
+    typeForm->addRow(tr("Method:"), m_methodCombo);
+
+    // Claude Generated 2026 - optimizer-algorithm picker (opt mode only)
+    m_optimizerCombo = new QComboBox(this);
+    m_optimizerCombo->addItem(tr("Auto"), "auto");
+    m_optimizerCombo->addItem(tr("LBFGS++"), "lbfgspp");
+    m_optimizerCombo->addItem(tr("Native L-BFGS"), "native_lbfgs");
+    m_optimizerCombo->addItem(tr("DIIS"), "native_diis");
+    m_optimizerCombo->addItem(tr("RFO"), "native_rfo");
+    m_optimizerCombo->addItem(tr("ANCOpt"), "ancopt");
+    m_optimizerCombo->setToolTip(tr("Optimization algorithm (geometry optimization only)"));
+    typeForm->addRow(tr("Optimizer:"), m_optimizerCombo);
+
+    innerLayout->addLayout(typeForm);
+
+    // ---- Run buttons (moved to top) ----
+    auto* btnRow = new QHBoxLayout;
+    m_startBtn = new QPushButton(tr("▶ Start"), this);
+    m_pauseBtn = new QPushButton(tr("⏸"), this);
+    m_stopBtn = new QPushButton(tr("■"), this);
+    m_pauseBtn->setEnabled(false);
+    m_stopBtn->setEnabled(false);
+    btnRow->addWidget(m_startBtn);
+    btnRow->addWidget(m_pauseBtn);
+    btnRow->addWidget(m_stopBtn);
+    innerLayout->addLayout(btnRow);
+
+    // ---- Status (directly under buttons) ----
+    m_statusLabel = new QLabel(tr("Ready"), this);
+    m_statusLabel->setStyleSheet("color: gray; font-size: 11px;");
+    m_statusLabel->setWordWrap(true);
+    innerLayout->addWidget(m_statusLabel);
+
+    // ---- MD parameters ----
+    auto* mdGroup = new QGroupBox(tr("MD Parameters"), this);
+    auto* mdForm = new QFormLayout(mdGroup);
 
     m_tempSpin = new QDoubleSpinBox(this);
     m_tempSpin->setRange(1.0, 5000.0);
     m_tempSpin->setValue(300.0);
     m_tempSpin->setSuffix(" K");
     m_tempSpin->setDecimals(0);
-    m_tempSpin->setToolTip(tr("Temperature (MD only)"));
-    m_tempSpin->setMaximumWidth(80);
-    topRow->addWidget(m_tempSpin);
+    mdForm->addRow(tr("Temperature:"), m_tempSpin);
+
+    m_timestepSpin = new QDoubleSpinBox(this);
+    m_timestepSpin->setRange(0.1, 10.0);
+    m_timestepSpin->setValue(1.0);
+    m_timestepSpin->setSuffix(" fs");
+    m_timestepSpin->setDecimals(1);
+    mdForm->addRow(tr("Time step:"), m_timestepSpin);
 
     m_stepsSpin = new QSpinBox(this);
-    m_stepsSpin->setRange(10, 1000000);
-    m_stepsSpin->setValue(1000);
+    m_stepsSpin->setRange(10, 10000000);
+    m_stepsSpin->setValue(10000);
     m_stepsSpin->setSuffix(tr(" steps"));
-    m_stepsSpin->setToolTip(tr("Total steps (MD) or max iterations (optimization)"));
-    m_stepsSpin->setMaximumWidth(100);
-    topRow->addWidget(m_stepsSpin);
+    mdForm->addRow(tr("Total steps:"), m_stepsSpin);
 
-    m_startBtn = new QPushButton(tr("▶"), this);
-    m_startBtn->setToolTip(tr("Start simulation"));
-    m_startBtn->setMaximumWidth(32);
-    topRow->addWidget(m_startBtn);
+    m_fpsLimitSpin = new QSpinBox(this);
+    m_fpsLimitSpin->setRange(1, 240);
+    m_fpsLimitSpin->setValue(30);
+    m_fpsLimitSpin->setSuffix(tr(" fps"));
+    m_fpsLimitSpin->setToolTip(tr("Max GUI update rate"));
+    mdForm->addRow(tr("Display rate:"), m_fpsLimitSpin);
 
-    m_pauseBtn = new QPushButton(tr("⏸"), this);
-    m_pauseBtn->setToolTip(tr("Pause / Resume"));
-    m_pauseBtn->setMaximumWidth(32);
-    m_pauseBtn->setEnabled(false);
-    topRow->addWidget(m_pauseBtn);
+    m_gpuCombo = new QComboBox(this);
+    m_gpuCombo->addItem(tr("CPU (none)"), "none");
+    m_gpuCombo->addItem(tr("CUDA"), "cuda");
+    m_gpuCombo->addItem(tr("Auto"), "auto");
+    mdForm->addRow(tr("GPU:"), m_gpuCombo);
 
-    m_stopBtn = new QPushButton(tr("■"), this);
-    m_stopBtn->setToolTip(tr("Stop simulation"));
-    m_stopBtn->setMaximumWidth(32);
-    m_stopBtn->setEnabled(false);
-    topRow->addWidget(m_stopBtn);
+    m_writeTrjCheck = new QCheckBox(tr("Write .trj.xyz"), this);
+    mdForm->addRow("", m_writeTrjCheck);
 
-    m_moreBtn = new QPushButton(tr("⚙"), this);
-    m_moreBtn->setToolTip(tr("Open full simulation dialog"));
-    m_moreBtn->setMaximumWidth(32);
-    topRow->addWidget(m_moreBtn);
+    m_perfCheck = new QCheckBox(tr("Performance analysis"), this);
+    mdForm->addRow("", m_perfCheck);
 
-    mainLayout->addLayout(topRow);
+    innerLayout->addWidget(mdGroup);
 
-    // --- Status row ---
-    m_statusLabel = new QLabel(tr("Ready"), this);
-    m_statusLabel->setStyleSheet("color: gray; font-size: 11px;");
-    mainLayout->addWidget(m_statusLabel);
+    // ---- Opt parameters ----
+    auto* optGroup = new QGroupBox(tr("Optimization"), this);
+    auto* optForm = new QFormLayout(optGroup);
+    m_convergenceSpin = new QDoubleSpinBox(this);
+    m_convergenceSpin->setRange(1e-10, 1e-2);
+    m_convergenceSpin->setDecimals(10);
+    m_convergenceSpin->setSingleStep(1e-7);
+    m_convergenceSpin->setValue(1e-6);
+    optForm->addRow(tr("Gradient tol:"), m_convergenceSpin);
+    innerLayout->addWidget(optGroup);
 
-    // --- Connections ---
+    // ---- Interactive grab ----
+    auto* grabGroup = new QGroupBox(tr("Interactive Grab"), this);
+    auto* grabForm = new QFormLayout(grabGroup);
+
+    m_grabStrengthSpin = new QDoubleSpinBox(this);
+    m_grabStrengthSpin->setRange(1e-4, 1.0);
+    m_grabStrengthSpin->setDecimals(4);
+    m_grabStrengthSpin->setSingleStep(1e-3);
+    m_grabStrengthSpin->setValue(0.01);
+    m_grabStrengthSpin->setToolTip(tr("World-space force per screen pixel (Eh/Bohr)"));
+    grabForm->addRow(tr("Strength:"), m_grabStrengthSpin);
+
+    m_grabAlphaSpin = new QDoubleSpinBox(this);
+    m_grabAlphaSpin->setRange(0.0, 1.0);
+    m_grabAlphaSpin->setDecimals(2);
+    m_grabAlphaSpin->setSingleStep(0.05);
+    m_grabAlphaSpin->setValue(0.4);
+    m_grabAlphaSpin->setToolTip(tr("Shell decay α^depth"));
+    grabForm->addRow(tr("α decay:"), m_grabAlphaSpin);
+
+    m_grabMaxShellsSpin = new QSpinBox(this);
+    m_grabMaxShellsSpin->setRange(0, 10);
+    m_grabMaxShellsSpin->setValue(3);
+    m_grabMaxShellsSpin->setToolTip(tr("Max BFS depth for force propagation"));
+    grabForm->addRow(tr("Max shells:"), m_grabMaxShellsSpin);
+
+    innerLayout->addWidget(grabGroup);
+
+    innerLayout->addStretch();
+
+    inner->setLayout(innerLayout);
+    scroll->setWidget(inner);
+    outer->addWidget(scroll);
+
+    // ---- Connections ----
     connect(m_startBtn, &QPushButton::clicked, this, &SimulationControlWidget::onStartClicked);
     connect(m_pauseBtn, &QPushButton::clicked, this, &SimulationControlWidget::onPauseClicked);
     connect(m_stopBtn, &QPushButton::clicked, this, &SimulationControlWidget::onStopClicked);
-    connect(m_moreBtn, &QPushButton::clicked, this, &SimulationControlWidget::openFullDialog);
     connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
         this, &SimulationControlWidget::onModeChanged);
 
-    // Claude Generated - emit configChanged so MainWindow can keep shared config in sync
     auto notifyConfig = [this]() { emit configChanged(buildConfig()); };
     connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_optimizerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_tempSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_timestepSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_stepsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_fpsLimitSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_gpuCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_writeTrjCheck, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_perfCheck, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_convergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+
+    auto notifyGrab = [this]() {
+        emit grabSettingsChanged(m_grabStrengthSpin->value(),
+            m_grabAlphaSpin->value(), m_grabMaxShellsSpin->value());
+    };
+    connect(m_grabStrengthSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyGrab);
+    connect(m_grabAlphaSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyGrab);
+    connect(m_grabMaxShellsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyGrab);
+
+    onModeChanged(0);
 }
 
 SimulationConfig SimulationControlWidget::buildConfig() const
@@ -116,11 +222,15 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     SimulationConfig cfg;
     cfg.mode = static_cast<SimulationConfig::Mode>(m_modeCombo->currentData().toInt());
     cfg.method = m_methodCombo->currentData().toString();
+    cfg.optimizer = m_optimizerCombo->currentData().toString();
     cfg.temperature = m_tempSpin->value();
+    cfg.timestep = m_timestepSpin->value();
     cfg.steps = m_stepsSpin->value();
-    // dumpFrequency=1: pass every step to callback; flood guard (8ms) prevents sub-ms overload
-    cfg.dumpFrequency = 1;
-    cfg.fpsLimit = 30;  // Normal: cap GUI updates at 30 fps
+    cfg.fpsLimit = m_fpsLimitSpin->value();
+    cfg.gpu = m_gpuCombo->currentData().toString();
+    cfg.writeTrajectory = m_writeTrjCheck->isChecked();
+    cfg.performanceAnalysis = m_perfCheck->isChecked();
+    cfg.convergence = m_convergenceSpin->value();
     return cfg;
 }
 
@@ -131,7 +241,6 @@ void SimulationControlWidget::onStartClicked()
         return;
     }
 
-    // Clean up previous worker/thread if any
     if (m_thread && m_thread->isRunning()) {
         if (m_worker)
             m_worker->requestStop();
@@ -141,6 +250,7 @@ void SimulationControlWidget::onStartClicked()
 
     m_worker = new SimulationWorker;
     m_worker->setMolecule(m_atoms);
+    m_worker->setBonds(m_bonds);
     m_worker->setConfig(buildConfig());
 
     m_thread = new QThread(this);
@@ -157,12 +267,9 @@ void SimulationControlWidget::onStartClicked()
     connect(m_worker, &SimulationWorker::finished, m_worker, &QObject::deleteLater);
     connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
 
-    m_config = buildConfig(); // Cache for status display
+    m_config = buildConfig();
 
-    // Claude Generated - Expose worker to MainWindow so it can wire worker->view directly.
-    // Must happen BEFORE setRunning emits running=true (so listeners can connect in response).
     emit workerStarted(m_worker);
-
     setRunning(true);
     m_statusLabel->setText(tr("Starting..."));
     m_thread->start();
@@ -196,11 +303,10 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
     if (!frame)
         return;
 
-    // Claude Generated - No forwarding: widget only updates its own status label.
-    // View + MainWindow receive the frame directly from the worker via MainWindow's wiring.
     if (m_config.mode == SimulationConfig::Mode::MolecularDynamics) {
-        double tempK = frame->ekin > 0 && !m_atoms.isEmpty()
-            ? frame->ekin * 315775.0 / m_atoms.size()
+        const double kB_Eh = 3.1668114e-6;
+        double tempK = (frame->ekin > 0 && !m_atoms.isEmpty())
+            ? (2.0 * frame->ekin) / (3.0 * m_atoms.size() * kB_Eh)
             : 0.0;
         m_statusLabel->setText(
             tr("Step %1 | E= %2 Eh | T≈ %3 K")
@@ -230,22 +336,12 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
     bool isMD = (m_modeCombo->currentData().toInt()
         == static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
     m_tempSpin->setEnabled(isMD);
-}
-
-// Claude Generated - Sync UI controls from shared config; QSignalBlocker prevents configChanged loop
-void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
-{
-    QSignalBlocker b1(m_modeCombo), b2(m_methodCombo), b3(m_tempSpin), b4(m_stepsSpin);
-    int modeIdx = m_modeCombo->findData(static_cast<int>(cfg.mode));
-    if (modeIdx >= 0)
-        m_modeCombo->setCurrentIndex(modeIdx);
-    int methIdx = m_methodCombo->findData(cfg.method);
-    if (methIdx >= 0)
-        m_methodCombo->setCurrentIndex(methIdx);
-    m_tempSpin->setValue(cfg.temperature);
-    m_stepsSpin->setValue(cfg.steps);
-    bool isMD = (cfg.mode == SimulationConfig::Mode::MolecularDynamics);
-    m_tempSpin->setEnabled(isMD);
+    m_timestepSpin->setEnabled(isMD);
+    m_fpsLimitSpin->setEnabled(isMD);
+    m_gpuCombo->setEnabled(isMD);
+    m_perfCheck->setEnabled(isMD);
+    m_convergenceSpin->setEnabled(!isMD);
+    m_optimizerCombo->setEnabled(!isMD);
 }
 
 void SimulationControlWidget::setRunning(bool running)
@@ -255,10 +351,15 @@ void SimulationControlWidget::setRunning(bool running)
     m_stopBtn->setEnabled(running);
     m_modeCombo->setEnabled(!running);
     m_methodCombo->setEnabled(!running);
+    m_optimizerCombo->setEnabled(!running);
     m_tempSpin->setEnabled(!running);
+    m_timestepSpin->setEnabled(!running);
     m_stepsSpin->setEnabled(!running);
+    m_fpsLimitSpin->setEnabled(!running);
+    m_gpuCombo->setEnabled(!running);
+    m_writeTrjCheck->setEnabled(!running);
+    m_perfCheck->setEnabled(!running);
+    m_convergenceSpin->setEnabled(!running);
 
-    // Claude Generated - Notify view so per-atom pickers can be disabled during sim.
     emit simulationRunningChanged(running);
 }
-

@@ -48,7 +48,7 @@ class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
 class SimulationControlWidget;  // Claude Generated - Interactive Simulation Integration
-class SimulationDialog;  // Claude Generated - Interactive Simulation Integration
+// Claude Generated 2026 - Phase 6: SimulationDialog removed
 #include "simulationworker.h"  // Claude Generated - for SimulationConfig
 
 
@@ -339,11 +339,9 @@ private:
     QByteArray m_defaultDockState;                  // Baseline after createDockWidgets
     QHash<int, QByteArray> m_presetStates;          // keyed by LayoutPreset enum
     SimulationControlWidget* m_simulationControlWidget = nullptr;  // Claude Generated
-    SimulationDialog* m_simulationDialog = nullptr;  // Claude Generated
-    SimulationConfig m_simulationConfig;             // Claude Generated - Shared config: dock widget and dialog stay synchronized
+    SimulationConfig m_simulationConfig;             // Claude Generated - Shared config, edited from dock
 
     // Claude Generated - Interactive Simulation Integration
-    void openSimulationDialog(SimulationConfig::Mode mode);
     void wireSimulationWorker(SimulationWorker* worker);  // Claude Generated - Direct worker->view wiring
     void onSimulationConfigChanged(SimulationConfig cfg);
 

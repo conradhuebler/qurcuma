@@ -154,6 +154,11 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
                 QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
                 if (mouseEvent->button() == Qt::LeftButton) {
                     m_leftMousePressed = false;
+                    // Claude Generated 2026 - Phase 5: end grab; tell worker to drop pending force.
+                    if (m_grabbedAtom >= 0) {
+                        m_grabbedAtom = -1;
+                        emit atomGrabReleased();
+                    }
                     return true;
                 } else if (mouseEvent->button() == Qt::RightButton) {
                     m_rightMousePressed = false;
@@ -164,6 +169,24 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
             case QEvent::MouseMove: {
                 QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
                 QPoint currentPos = mouseEvent->position().toPoint();
+
+                // Claude Generated 2026 - Phase 5: active grab overrides camera
+                // rotation. Convert the per-frame pixel delta into a world-space
+                // force along the current screen axes and ship it to the worker.
+                if (m_grabbedAtom >= 0 && m_leftMousePressed && m_camera) {
+                    QPoint delta = currentPos - m_lastMousePos;
+                    QVector3D view = m_camera->viewVector().normalized();
+                    QVector3D up = m_camera->upVector().normalized();
+                    QVector3D right = QVector3D::crossProduct(view, up).normalized();
+                    QVector3D worldForce =
+                        (static_cast<float>(delta.x()) * right
+                         - static_cast<float>(delta.y()) * up)
+                        * static_cast<float>(m_grabStrength);
+                    emit atomForceRequested(m_grabbedAtom, worldForce,
+                        m_grabAlpha, m_grabMaxShells);
+                    m_lastMousePos = currentPos;
+                    return true;
+                }
 
                 if (m_leftMousePressed) {
                     handleMouseRotation(currentPos);
@@ -822,6 +845,8 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
                 atomEntity->addComponent(picker);
                 m_atomPickerToIndex[picker] = atomIndex;
                 connect(picker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onAtomPicked);
+                // Claude Generated 2026 - Phase 5: press initiates sim-mode grab (no-op otherwise)
+                connect(picker, &Qt3DRender::QObjectPicker::pressed, this, &MoleculeViewer::onAtomPressedForGrab);
             }
 
             // Claude Generated - Fix 2: Store references for incremental updates
@@ -1182,6 +1207,9 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
     // Render the molecule using trajectory data
     Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
     moleculeEntity->setParent(m_rootEntity);
+
+    // Claude Generated 2026 - Phase 6: notify listeners (sim dock) of the new molecule.
+    emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
 
     // Kamera-Controller aktivieren (falls noch nicht aktiv)
     if (!m_cameraController) {
@@ -1651,6 +1679,10 @@ void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, cons
 
     // Emit signals for UI updates
     emit trajectoryLoaded(m_frameCount);
+
+    // Claude Generated 2026 - Phase 6: advertise first frame to the sim dock.
+    if (m_frameCount > 0)
+        emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
 }
 
 void MoleculeViewer::showTrajectoryFrame(int frameIndex)
@@ -2393,6 +2425,21 @@ void MoleculeViewer::onAtomPicked(Qt3DRender::QPickEvent *pickEvent)
 
     // Emit signal for downstream UI updates
     emit selectionChanged(m_selectionManager->selectedAtoms());
+}
+
+// Claude Generated 2026 - Phase 5: In sim-mode, a press on an atom enters
+// grab mode — subsequent mouse-move deltas generate atomForceRequested() until
+// release. Outside sim-mode we ignore the press entirely so the existing
+// clicked→onAtomPicked selection path is unaffected.
+void MoleculeViewer::onAtomPressedForGrab(Qt3DRender::QPickEvent *pickEvent)
+{
+    Q_UNUSED(pickEvent);
+    if (!m_simulationActive)
+        return;
+    Qt3DRender::QObjectPicker *picker = qobject_cast<Qt3DRender::QObjectPicker*>(sender());
+    if (!picker || !m_atomPickerToIndex.contains(picker))
+        return;
+    m_grabbedAtom = m_atomPickerToIndex[picker];
 }
 
 // Claude Generated - Phase 4B: Bond picking and editing

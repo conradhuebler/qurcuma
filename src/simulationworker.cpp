@@ -1,21 +1,20 @@
 // simulationworker.cpp - QThread wrapper for curcuma MD and geometry optimization
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
-// Claude Generated - Interactive Simulation Integration
+// Claude Generated - Interactive Simulation Integration (stepwise API)
 
 #include "simulationworker.h"
 
-// Claude Generated - json must be included before curcuma headers (they use nlohmann types)
-// HACK: curcuma uses external/json.hpp (not nlohmann/ subdir). This is a known limitation
-//        of building curcuma as a submodule without its precompiled header.
 #include "external/json.hpp"
 using json = nlohmann::json;
 
 #include <src/capabilities/simplemd.h>
-#include <src/capabilities/curcumaopt.h>
+#include <src/capabilities/optimizer_factory.h>
+#include <src/capabilities/optimizer_interface.h>
+#include <src/core/energycalculator.h>
 #include <src/core/molecule.h>
 #include <src/core/elements.h>
-#include <src/core/parameter_registry.h>  // Claude Generated - for getDefaultJson()
 
+#include <QMutexLocker>
 #include <QThread>
 #include <QElapsedTimer>
 #include <QDebug>
@@ -24,8 +23,6 @@ using json = nlohmann::json;
 SimulationWorker::SimulationWorker(QObject* parent)
     : QObject(parent)
 {
-    // Claude Generated - Register shared-pointer payload so QueuedConnection can marshal it.
-    // Idempotent, safe to call multiple times.
     static const int kPtrTypeId = qRegisterMetaType<SimulationFramePtr>("SimulationFramePtr");
     Q_UNUSED(kPtrTypeId);
 }
@@ -33,6 +30,46 @@ SimulationWorker::SimulationWorker(QObject* parent)
 void SimulationWorker::setMolecule(const QVector<MoleculeViewer::Atom>& atoms)
 {
     m_initialAtoms = atoms;
+    m_adjacency = forceinjector::buildAdjacency(atoms.size(), m_bonds);
+}
+
+void SimulationWorker::setBonds(const QVector<MoleculeViewer::Bond>& bonds)
+{
+    m_bonds = bonds;
+    m_adjacency = forceinjector::buildAdjacency(m_initialAtoms.size(), m_bonds);
+}
+
+void SimulationWorker::injectForce(int atomIndex, QVector3D force, double alpha, int maxShells)
+{
+    if (m_initialAtoms.isEmpty())
+        return;
+    Eigen::Vector3d f(force.x(), force.y(), force.z());
+    Eigen::MatrixXd distributed = forceinjector::distributeForce(
+        atomIndex, f, m_adjacency, alpha, maxShells, m_initialAtoms.size());
+
+    QMutexLocker lock(&m_forceMutex);
+    m_pendingForces = distributed;
+    m_pendingForcesValid = true;
+}
+
+void SimulationWorker::clearInjectedForce()
+{
+    QMutexLocker lock(&m_forceMutex);
+    m_pendingForcesValid = false;
+    m_pendingForces.resize(0, 0);
+}
+
+// Move the pending force matrix out from under the mutex so the worker can
+// hand it to SimpleMD without holding the lock across curcuma calls.
+Eigen::MatrixXd SimulationWorker::drainPendingForces(int atomCount)
+{
+    QMutexLocker lock(&m_forceMutex);
+    if (!m_pendingForcesValid || m_pendingForces.rows() != atomCount)
+        return Eigen::MatrixXd();
+    Eigen::MatrixXd out = std::move(m_pendingForces);
+    m_pendingForces.resize(0, 0);
+    m_pendingForcesValid = false;
+    return out;
 }
 
 void SimulationWorker::run()
@@ -45,7 +82,7 @@ void SimulationWorker::run()
 
     m_stopRequested.storeRelaxed(0);
     m_pauseRequested.storeRelaxed(0);
-    m_lastEmitTimer.start();  // Claude Generated - FPS cap: start timer before any callback fires
+    m_lastEmitTimer.start();
 
     switch (m_config.mode) {
     case SimulationConfig::Mode::MolecularDynamics:
@@ -59,9 +96,6 @@ void SimulationWorker::run()
     emit finished();
 }
 
-// Claude Generated - Convert qurcuma Atom vector → curcuma Molecule
-// HACK: curcuma addPair() takes {atomic_number, Position}, not {symbol, pos}
-//       We use String2Element() from elements.h to convert symbol → Z
 static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms)
 {
     Molecule mol;
@@ -73,10 +107,6 @@ static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms)
     return mol;
 }
 
-// Claude Generated - Build a SimulationFrame from curcuma Molecule geometry.
-// Only positions are shipped; the viewer caches element/charge from the initial load.
-// Returned as QSharedPointer<const SimulationFrame> so queued-connection signals copy a
-// pointer, not the position array.
 static SimulationFramePtr moleculeToFrame(
     const Molecule& mol, int referenceSize, double energy, double ekin, int step)
 {
@@ -99,19 +129,9 @@ static SimulationFramePtr moleculeToFrame(
 
 void SimulationWorker::runMD()
 {
-    m_externalStop.store(false);
-
-    // Build curcuma JSON controller for SimpleMD.
-    // Claude Generated - The layout must match what curcuma's CLI2Json produces:
-    //   controller["simplemd"] = { ...module parameters... }
-    //   controller["global"]   = { method, threads, verbosity, ... }
-    // SimpleMD's ConfigManager looks for user_input["simplemd"] and falls back
-    // to user_input["global"]; passing a flat json leaves both branches empty
-    // and causes nlohmann::json::value() to be called on null members downstream.
-    // Canonical snake_case names + correct JSON types. SimpleMD uses
-    // m_config.get<bool>("write_xyz") etc.; passing 0/1 for a bool or using
-    // an alias that the registry can't resolve triggers a nlohmann type_error
-    // that ConfigManager reports as "Parameter not found".
+    // Build controller JSON. dump_frequency is intentionally omitted: the
+    // worker drives the loop step-by-step, so curcuma's internal dump cadence
+    // only affects its XYZ trajectory output (gated by write_xyz).
     json simplemd_params;
     simplemd_params["method"] = m_config.method.toStdString();
     simplemd_params["temperature"] = m_config.temperature;
@@ -120,67 +140,69 @@ void SimulationWorker::runMD()
         simplemd_params["max_time"] = static_cast<double>(m_config.steps) * m_config.timestep;
     else
         simplemd_params["max_time"] = 0.0;
-    simplemd_params["dump_frequency"] = m_config.dumpFrequency;
     if (m_config.performanceAnalysis)
-        simplemd_params["print_frequency"] = 1;  // Claude Generated - log every step for timing analysis
+        simplemd_params["print_frequency"] = 1;
     simplemd_params["write_xyz"] = m_config.writeTrajectory;
-    simplemd_params["no_restart"] = true;  // Claude Generated - always start fresh; stale restart file causes crash
-    simplemd_params["no_center"] = true;   // Claude Generated - workaround: Center() triggers heap corruption in release (-O3/AVX); investigate with ASAN build
+    simplemd_params["no_restart"] = true;
+    simplemd_params["no_center"] = true;
 
     json controller;
     controller["simplemd"] = simplemd_params;
     controller["global"]["method"] = m_config.method.toStdString();
-    controller["global"]["gpu"] = m_config.gpu.toStdString();  // Claude Generated - GPU acceleration
+    controller["global"]["gpu"] = m_config.gpu.toStdString();
     controller["global"]["verbosity"] = 0;
     controller["verbosity"] = 0;
 
     SimpleMD md(controller, true);
     md.setMolecule(atomsToMolecule(m_initialAtoms));
 
-    // Pass our atomic stop flag so SimpleMD can check it in the loop (unlimited MD)
-    md.setExternalStopFlag(&m_externalStop);
+    if (!md.Initialise()) {
+        emit errorOccurred(tr("MD initialization failed. Method '%1' may not be available.")
+                               .arg(m_config.method));
+        return;
+    }
+    md.prepareRun();
 
-    // Performance tracking: measure total per-step time (includes GFN-FF calc + callback)
-    QElapsedTimer stepTimer; // Claude Generated - Per-step performance tracking
+    QElapsedTimer stepTimer;
     stepTimer.start();
+    int frameCount = 0;
+    qint64 totalStepTime = 0;
+    qint64 totalConvertTime = 0;
+    qint64 minStepTime = std::numeric_limits<qint64>::max();
+    qint64 maxStepTime = 0;
 
-    // Register callback: runs on curcuma's thread, emit Qt signal to GUI thread
-    md.setStepCallback([this, &stepTimer](const Molecule& mol, int step, double Epot, double Ekin) {
-        qint64 stepTime = stepTimer.elapsed(); // Claude Generated - Time since last callback (≈ GFN-FF + overhead)
-        stepTimer.restart();
-
-        // Handle stop: set the atomic flag so the MD loop exits naturally
-        if (m_stopRequested.loadRelaxed()) {
-            m_externalStop.store(true, std::memory_order_relaxed);
-            return;
-        }
-        // Handle pause: busy-wait on worker thread (non-blocking to GUI)
+    while (!m_stopRequested.loadRelaxed()) {
         while (m_pauseRequested.loadRelaxed()) {
-            if (m_stopRequested.loadRelaxed()) {
-                m_externalStop.store(true, std::memory_order_relaxed);
+            if (m_stopRequested.loadRelaxed())
                 break;
-            }
             QThread::msleep(50);
         }
-        // FPS throttle: wait until target interval elapsed, then emit.
-        if (m_config.fpsLimit > 0) {
-            qint64 target = 1000 / m_config.fpsLimit;
-            qint64 remaining = target - m_lastEmitTimer.elapsed();
-            if (remaining > 0)
-                QThread::msleep(static_cast<unsigned long>(remaining));
-        }
-        m_lastEmitTimer.restart();
+        if (m_stopRequested.loadRelaxed())
+            break;
 
-        // Performance analysis: rolling stats every N frames
-        static int frameCount = 0;
-        static qint64 totalStepTime = 0;
-        static qint64 totalConvertTime = 0;
-        static qint64 minStepTime = std::numeric_limits<qint64>::max();
-        static qint64 maxStepTime = 0;
+        // Apply any force the GUI queued since the previous step (mouse grab).
+        // Converted from MatrixXd (col-major) to Geometry (row-major) on assign.
+        Eigen::MatrixXd pending = drainPendingForces(m_initialAtoms.size());
+        if (pending.rows() > 0) {
+            Geometry ext = pending;
+            md.applyExternalForces(ext);
+        }
+
+        if (!md.step())
+            break;
+
+        qint64 stepTime = stepTimer.restart();
+
+        const bool fpsOk = (m_config.fpsLimit <= 0)
+            || (m_lastEmitTimer.elapsed() >= 1000 / m_config.fpsLimit);
+        if (!fpsOk)
+            continue;
 
         QElapsedTimer convertTimer;
         convertTimer.start();
-        SimulationFramePtr frame = moleculeToFrame(mol, m_initialAtoms.size(), Epot, Ekin, step);
+        SimulationFramePtr frame = moleculeToFrame(
+            md.currentMolecule(), m_initialAtoms.size(),
+            md.potentialEnergy(), md.kineticEnergy(), md.stepCount());
         qint64 convertTime = convertTimer.elapsed();
 
         if (m_config.performanceAnalysis) {
@@ -195,10 +217,10 @@ void SimulationWorker::runMD()
                 qint64 avgConvert = totalConvertTime / frameCount;
                 qint64 avgOverhead = avgStep - avgConvert;
                 double fps = 1000.0 * frameCount / (totalStepTime + totalConvertTime);
-                qDebug() << "=== Performance [step" << step - frameCount + 1 << "-" << step << "] ==="
+                qDebug() << "=== Performance [last" << frameCount << "frames @ step" << md.stepCount() << "] ==="
                          << "atoms:" << static_cast<int>(frame->positions.size())
                          << "avg_step:" << avgStep << "ms"
-                         << "(gfann+callback:" << avgOverhead << "ms, convert:" << avgConvert << "ms)"
+                         << "(compute:" << avgOverhead << "ms, convert:" << avgConvert << "ms)"
                          << "min:" << minStepTime << "max:" << maxStepTime
                          << "fps:" << fps;
                 frameCount = 0;
@@ -210,58 +232,56 @@ void SimulationWorker::runMD()
         }
 
         emit frameReady(frame);
-    });
-
-    if (!md.Initialise()) {
-        emit errorOccurred(tr("MD initialization failed. Method '%1' may not be available.")
-                               .arg(m_config.method));
-        return;
+        m_lastEmitTimer.restart();
     }
 
-    md.start();
+    md.finalizeRun();
 }
 
 void SimulationWorker::runOptimization()
 {
-    // Build curcuma JSON controller for CurcumaOpt
-    // HACK: Use ParameterRegistry defaults as base (same pattern as runMD)
-    json optDefaults = ParameterRegistry::getInstance().getDefaultJson("opt");
-    json controller;
-    controller["method"] = m_config.method.toStdString();
-    controller["opt"] = optDefaults;
+    // Migrated from the removed CurcumaOpt class to the unified
+    // OptimizerFactory / OptimizationDispatcher API.
+    // TODO: this path is still synchronous — interactive step-by-step opt
+    // with mouse-injected forces requires exposing a step() API on
+    // OptimizerDriver (analogous to SimpleMD::step()). Until then, only
+    // the pre-opt and post-opt frames are emitted.
+    json opt_config;
+    opt_config["max_iterations"] = m_config.steps;
+    opt_config["gradient_threshold"] = m_config.convergence;
+    opt_config["write_trajectory"] = m_config.writeTrajectory;
+    opt_config["verbosity"] = 0;
 
-    // Override with user-selected parameters
-    controller["opt"]["MaxIter"] = m_config.steps;
-    controller["opt"]["GradNorm"] = m_config.convergence;
-    controller["opt"]["writeXYZ"] = m_config.writeTrajectory ? 1 : 0;
-    controller["opt"]["silent"] = 1;
-    controller["verbosity"] = 0;
-    controller["gpu"] = m_config.gpu.toStdString();  // Claude Generated - GPU acceleration
-
-    CurcumaOpt opt(controller, true);
+    json energy_controller;
+    energy_controller["method"] = m_config.method.toStdString();
+    energy_controller["gpu"] = m_config.gpu.toStdString();
+    energy_controller["verbosity"] = 0;
 
     Molecule mol = atomsToMolecule(m_initialAtoms);
-    opt.addMolecule(mol);
 
-    // Register callback: fires after each accepted optimization step
-    opt.setStepCallback([this](const Molecule& mol, int iter, double energy) {
-        if (m_stopRequested.loadRelaxed())
+    // Emit the starting geometry so the viewer reflects the pre-opt state.
+    emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), 0.0, 0.0, 0));
+
+    try {
+        EnergyCalculator calc(m_config.method.toStdString(), energy_controller);
+        // Note: do NOT call calc.setMolecule() here — OptimizerDriver::InitializeOptimization
+        // performs the initialization and a double-init crashes GFN-FF.
+
+        Optimization::OptimizerType opt_type =
+            Optimization::parseOptimizerType(m_config.optimizer.toStdString());
+        Optimization::OptimizationResult result =
+            Optimization::OptimizationDispatcher::optimizeStructure(
+                &mol, opt_type, &calc, opt_config);
+
+        if (!result.success) {
+            emit errorOccurred(tr("Optimization failed: %1")
+                                   .arg(QString::fromStdString(result.error_message)));
             return;
-        while (m_pauseRequested.loadRelaxed()) {
-            if (m_stopRequested.loadRelaxed())
-                break;
-            QThread::msleep(50);
         }
-        // Claude Generated - FPS throttle: same wait logic as MD callback
-        if (m_config.fpsLimit > 0) {
-            qint64 target = 1000 / m_config.fpsLimit;
-            qint64 remaining = target - m_lastEmitTimer.elapsed();
-            if (remaining > 0)
-                QThread::msleep(static_cast<unsigned long>(remaining));
-        }
-        m_lastEmitTimer.restart();
-        emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), energy, 0.0, iter));
-    });
 
-    opt.start();
+        emit frameReady(moleculeToFrame(result.final_molecule, m_initialAtoms.size(),
+            result.final_energy, 0.0, result.iterations_performed));
+    } catch (const std::exception& e) {
+        emit errorOccurred(tr("Optimization threw: %1").arg(QString::fromUtf8(e.what())));
+    }
 }

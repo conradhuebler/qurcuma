@@ -1,11 +1,12 @@
-// simulationcontrolwidget.h - Compact inline simulation controls for the viewer dock
+// simulationcontrolwidget.h - Full inline simulation controls for the viewer dock
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
-// Claude Generated - Interactive Simulation Integration
+// Claude Generated - Interactive Simulation Integration (Phase 6: single source of truth)
 
 #pragma once
 
 #include "simulationworker.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QLabel>
@@ -16,16 +17,13 @@
 #include <QWidget>
 
 /**
- * @brief Compact widget for inline simulation control in the viewer dock.
+ * @brief Dock widget holding every MD/Opt parameter + interactive-grab controls.
  *
- * Claude Generated - Interactive Simulation Integration
- *
- * Provides quick-access controls for MD and geometry optimization directly
- * in the viewer panel. A "More..." button opens the full SimulationDialog.
- *
- * Layout:
- *   [Mode ▼] [Method ▼] [Temp] K  [Steps]  ▶ Start  ⏸  ■   ⚙ More...
- *   Step 0 | E= --- Eh | T= --- K
+ * Claude Generated - Phase 6 replaces the old SimulationDialog; all knobs (mode,
+ * method, temperature, timestep, steps, FPS, GPU, trajectory output,
+ * optimization tolerances, and the grab-force α/max-shells/strength triple)
+ * live here. MainWindow feeds it atoms+bonds on every molecule change and
+ * wires the freshly-spawned worker to the viewer on start.
  */
 class SimulationControlWidget : public QWidget {
     Q_OBJECT
@@ -34,43 +32,34 @@ public:
     explicit SimulationControlWidget(QWidget* parent = nullptr);
     ~SimulationControlWidget() override;
 
-    /** @brief Feed a new molecule to the worker before the next run. */
-    void setMolecule(const QVector<MoleculeViewer::Atom>& atoms) { m_atoms = atoms; }
+    /** @brief Feed the current molecule + bond graph to the worker before start. */
+    void setMolecule(const QVector<MoleculeViewer::Atom>& atoms,
+        const QVector<MoleculeViewer::Bond>& bonds = {});
 
-    /** @brief Get the currently stored atoms (for passing to SimulationDialog). */
     const QVector<MoleculeViewer::Atom>& currentAtoms() const { return m_atoms; }
 
-    /** @brief Return current UI state as SimulationConfig without starting. */
     SimulationConfig currentConfig() const { return buildConfig(); }
 
-    /** @brief Populate UI controls from an existing config. Uses QSignalBlocker to avoid feedback. */
-    void applyConfig(const SimulationConfig& cfg);
+    /** @brief Grab strength (world Å/Bohr per screen pixel) for the viewer. */
+    double grabStrength() const { return m_grabStrengthSpin ? m_grabStrengthSpin->value() : 0.01; }
+    double grabAlpha() const { return m_grabAlphaSpin ? m_grabAlphaSpin->value() : 0.4; }
+    int grabMaxShells() const { return m_grabMaxShellsSpin ? m_grabMaxShellsSpin->value() : 3; }
 
 signals:
-    /** @brief Opens the full SimulationDialog (handled by MainWindow). */
-    void openFullDialog();
-
-    /** @brief Simulation finished (for UI state reset). */
     void simulationFinished();
-
-    /** @brief Emitted when any control value changes so MainWindow can sync shared config. */
     void configChanged(SimulationConfig);
-
-    /** @brief Emitted whenever setRunning() flips (true = worker active, false = idle/paused-end).
-     *  Used to toggle per-atom picking off during simulation for CPU savings. */
     void simulationRunningChanged(bool running);
-
-    /** @brief Emitted right after a new SimulationWorker is created, before thread::start.
-     *  Claude Generated - Signal-path: MainWindow wires worker->view directly instead of
-     *  routing frames through the widget. Eliminates one queued hop + one atom-vector copy.
-     *  Connection type should be DirectConnection (we're on the GUI thread when emitting). */
     void workerStarted(SimulationWorker* worker);
+
+    /** @brief Emitted whenever grab sliders change, so the viewer can update
+     *  its live scaling. */
+    void grabSettingsChanged(double strength, double alpha, int maxShells);
 
 private slots:
     void onStartClicked();
     void onPauseClicked();
     void onStopClicked();
-    void onFrameReady(SimulationFramePtr frame);  // Claude Generated - Zero-copy payload
+    void onFrameReady(SimulationFramePtr frame);
     void onSimulationFinished();
     void onModeChanged(int index);
 
@@ -79,20 +68,38 @@ private:
     void setRunning(bool running);
     SimulationConfig buildConfig() const;
 
-    // Controls
+    // --- Mode / method ---
     QComboBox* m_modeCombo = nullptr;
     QComboBox* m_methodCombo = nullptr;
+    QComboBox* m_optimizerCombo = nullptr;  // Claude Generated 2026 - opt algorithm picker
+
+    // --- MD parameters ---
     QDoubleSpinBox* m_tempSpin = nullptr;
+    QDoubleSpinBox* m_timestepSpin = nullptr;
     QSpinBox* m_stepsSpin = nullptr;
+    QSpinBox* m_fpsLimitSpin = nullptr;
+    QComboBox* m_gpuCombo = nullptr;
+    QCheckBox* m_writeTrjCheck = nullptr;
+    QCheckBox* m_perfCheck = nullptr;
+
+    // --- Optimization parameters ---
+    QDoubleSpinBox* m_convergenceSpin = nullptr;
+
+    // --- Interactive grab ---
+    QDoubleSpinBox* m_grabStrengthSpin = nullptr;
+    QDoubleSpinBox* m_grabAlphaSpin = nullptr;
+    QSpinBox* m_grabMaxShellsSpin = nullptr;
+
+    // --- Buttons / status ---
     QPushButton* m_startBtn = nullptr;
     QPushButton* m_pauseBtn = nullptr;
     QPushButton* m_stopBtn = nullptr;
-    QPushButton* m_moreBtn = nullptr;
     QLabel* m_statusLabel = nullptr;
 
-    // Simulation state
+    // --- State ---
     QVector<MoleculeViewer::Atom> m_atoms;
-    SimulationConfig m_config;        // Cached at start for display purposes
+    QVector<MoleculeViewer::Bond> m_bonds;
+    SimulationConfig m_config;
     SimulationWorker* m_worker = nullptr;
     QThread* m_thread = nullptr;
     bool m_paused = false;
