@@ -57,5 +57,14 @@ make
     JSON-based calculation history tracking (optional)
     Organized directory structure for multiple calculations
 
+    
+# Funding
+The development of qurcuma is funded by:
+
+- 2026 Stiftung Innovation in der Hochschullehre
+
+![STIL Logo](STIL_Funding.jpg)
+
+
 ## Contributing
  Contributions are welcome! Please feel free to submit a Pull Request.
