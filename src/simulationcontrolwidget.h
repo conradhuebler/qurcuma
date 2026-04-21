@@ -80,15 +80,21 @@ private:
     QDoubleSpinBox* m_timestepSpin = nullptr;
     QSpinBox* m_stepsSpin = nullptr;
     QSpinBox* m_fpsLimitSpin = nullptr;
+    QDoubleSpinBox* m_hmassSpin = nullptr;  // Hydrogen mass scaling
     QComboBox* m_gpuCombo = nullptr;
     QCheckBox* m_writeTrjCheck = nullptr;
     QCheckBox* m_perfCheck = nullptr;
 
+    // --- GFN-FF topology mode ---
+    QComboBox* m_topologyModeCombo = nullptr;  // "auto" or "constant"
+
     // --- Optimization parameters ---
     QDoubleSpinBox* m_convergenceSpin = nullptr;
 
-    // --- RATTLE constraints (MD only) ---
-    QGroupBox*      m_rattleGroup = nullptr;
+    // --- MD/Opt specific groups (shown/hidden based on mode) ---
+    QGroupBox*      m_mdGroup = nullptr;       // MD parameters
+    QGroupBox*      m_rattleGroup = nullptr;   // RATTLE constraints
+    QGroupBox*      m_optGroup = nullptr;      // Optimization parameters
     QWidget*        m_rattleDetails = nullptr;  // hidden when mode=off
     QComboBox*      m_rattleCombo = nullptr;
     QCheckBox*      m_rattle12Check = nullptr;

@@ -161,6 +161,7 @@ void SimulationWorker::startMD()
     simplemd_params["rattle_tol_12"] = m_config.rattleTol12;
     simplemd_params["rattle_tol_13"] = m_config.rattleTol13;
     simplemd_params["rattle_max_iterations"] = m_config.rattleMaxIter;
+    simplemd_params["hmass"] = m_config.hmass;
 
     json controller;
     controller["simplemd"] = simplemd_params;
@@ -168,6 +169,12 @@ void SimulationWorker::startMD()
     controller["global"]["gpu"] = m_config.gpu.toStdString();
     controller["global"]["verbosity"] = 0;
     controller["verbosity"] = 0;
+
+    // GFN-FF topology mode: "auto" (two-tier caching) or "constant" (never recalculate)
+    // Only applies when method is gfnff, ignored otherwise
+    if (m_config.method == "gfnff") {
+        controller["global"]["topology_mode"] = m_config.topologyMode.toStdString();
+    }
 
     m_md = std::make_unique<SimpleMD>(controller, true);
     m_md->setMolecule(atomsToMolecule(m_initialAtoms));

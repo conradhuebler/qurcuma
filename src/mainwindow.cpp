@@ -3735,6 +3735,9 @@ void MainWindow::createDockWidgets()
     connect(m_simulationControlWidget, &SimulationControlWidget::simulationRunningChanged,
         this, [this](bool running) {
             if (!m_moleculeView) return;
+            // Ensure pickers exist for grab (creates them if instancing skipped them)
+            if (running)
+                m_moleculeView->ensurePickersForGrab();
             m_moleculeView->setPickingActive(true);
             m_moleculeView->setSimulationActive(running);
             if (running && m_simulationControlWidget) {

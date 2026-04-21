@@ -78,6 +78,9 @@ scnp_cut.vtf
 *.sublime-workspace
 *.sublime-project
 
+# Clangd cache
+.cache/
+
 # OS specific files
 .DS_Store
 .directory

@@ -220,14 +220,21 @@ signals:
     void atomForceRequested(int atomIndex, QVector3D force, double alpha, int maxShells);
     /** Emitted on mouse release — consumer should clear any pending force. */
     void atomGrabReleased();
+    /** Emitted when hovering over grab-capable atoms — status message for UI. */
+    void grabStatusChanged(QString message);
 
 public slots:
     /** Enable/disable sim-mode grabbing. In sim mode an atom click+drag
      *  produces atomForceRequested() instead of a selection change. */
-    void setSimulationActive(bool on) { m_simulationActive = on; if (!on) m_grabbedAtom = -1; }
+    void setSimulationActive(bool on);  // Implemented in .cpp - handles camera controller re-enable
     void setGrabStrength(double s) { m_grabStrength = s; }
     void setGrabAlpha(double a) { m_grabAlpha = a; }
     void setGrabMaxShells(int n) { m_grabMaxShells = n; }
+
+    /** Ensure pickers exist for interactive grab.
+     *  Called when simulation starts - creates pickers if they don't exist (e.g., for large molecules).
+     *  Claude Generated - Fix for grab feedback on instanced molecules. */
+    void ensurePickersForGrab();
 
 public:
     void clearScenePublic();  // Public wrapper for file loading
@@ -235,6 +242,8 @@ public:
 private slots:
     void onAtomPicked(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated - Phase 2A - Handle ObjectPicker clicks
     void onAtomPressedForGrab(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated 2026 - Phase 5 - Sim grab init
+    void onAtomHoverEntered();  // Claude Generated - Visual feedback for grab (signal has no args)
+    void onAtomHoverExited();   // Claude Generated - Clear grab feedback (signal has no args)
     void onBondPicked(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated - Phase 4B - Handle bond picking
     void onAutoSaveTimer();  // Claude Generated - Phase 4B - Auto-save XYZ with debouncing
     void onStructureChanged();  // Claude Generated - Phase 4B - Handle bond editor changes

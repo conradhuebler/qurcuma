@@ -158,6 +158,9 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
                     if (m_grabbedAtom >= 0) {
                         m_grabbedAtom = -1;
                         emit atomGrabReleased();
+                        // Reset cursor after grab release
+                        if (m_container)
+                            m_container->setCursor(Qt::ArrowCursor);
                     }
                     return true;
                 } else if (mouseEvent->button() == Qt::RightButton) {
@@ -173,14 +176,26 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
                 // Claude Generated 2026 - Phase 5: active grab overrides camera
                 // rotation. Convert the per-frame pixel delta into a world-space
                 // force along the current screen axes and ship it to the worker.
+                // Note: Camera controller is disabled during grab to prevent conflicts.
                 if (m_grabbedAtom >= 0 && m_leftMousePressed && m_camera) {
                     QPoint delta = currentPos - m_lastMousePos;
+                    // Get camera basis vectors for screen-to-world mapping
                     QVector3D view = m_camera->viewVector().normalized();
                     QVector3D up = m_camera->upVector().normalized();
-                    QVector3D right = QVector3D::crossProduct(view, up).normalized();
+                    // right = up × view (not view × up) - follows right-hand rule
+                    QVector3D right = QVector3D::crossProduct(up, view);
+                    // Safety: if up and view are parallel, cross product is zero
+                    if (right.lengthSquared() < 1e-6f) {
+                        // Use a default right vector (X axis) when camera is top-down
+                        right = QVector3D(1, 0, 0);
+                    } else {
+                        right.normalize();
+                    }
+                    // Screen coords: +X right, +Y down
+                    // World coords: need to map screen movement to world movement
                     QVector3D worldForce =
                         (static_cast<float>(delta.x()) * right
-                         - static_cast<float>(delta.y()) * up)
+                         + static_cast<float>(delta.y()) * up)
                         * static_cast<float>(m_grabStrength);
                     emit atomForceRequested(m_grabbedAtom, worldForce,
                         m_grabAlpha, m_grabMaxShells);
@@ -350,6 +365,18 @@ void MoleculeViewer::handleMouseZoom(int delta)
 // Claude Generated - Bulk-toggle all per-atom/per-bond QObjectPickers.
 // Qt3D's object-picker service traverses the scene for each mouse event; at ~5000 atoms
 // this shows up in profiles. Simulation rarely needs picking, so disable while running.
+// Claude Generated - Enable/disable simulation mode and cleanup grab state
+void MoleculeViewer::setSimulationActive(bool on)
+{
+    m_simulationActive = on;
+    if (!on) {
+        m_grabbedAtom = -1;
+        // Reset cursor when sim stops
+        if (m_container)
+            m_container->setCursor(Qt::ArrowCursor);
+    }
+}
+
 void MoleculeViewer::setPickingActive(bool active)
 {
     for (auto it = m_atomPickerToIndex.constBegin(); it != m_atomPickerToIndex.constEnd(); ++it) {
@@ -360,6 +387,65 @@ void MoleculeViewer::setPickingActive(bool active)
         if (it.key())
             it.key()->setEnabled(active);
     }
+}
+
+// Claude Generated - Fix: Create pickers for grab if they don't exist (e.g., large molecules with instancing)
+// NOTE: This only works for non-instanced molecules. For instanced molecules (>= 500 atoms),
+// grab is not available because individual pickers cannot be created efficiently.
+void MoleculeViewer::ensurePickersForGrab()
+{
+    // If we already have pickers, nothing to do
+    if (!m_atomPickerToIndex.isEmpty())
+        return;
+
+    // Cannot create pickers for instanced molecules - they use GPU instancing without individual entities
+    if (m_atomEntities.isEmpty() || m_atomInstancing) {
+        qDebug() << "ensurePickersForGrab: Cannot create pickers for instanced molecule or no entities";
+        return;
+    }
+
+    // Create pickers for all atom entities
+    for (int i = 0; i < m_atomEntities.size(); ++i) {
+        Qt3DCore::QEntity *atomEntity = m_atomEntities[i];
+        if (!atomEntity)
+            continue;
+
+        // Skip if entity has no mesh (can't be picked without geometry)
+        bool hasMesh = false;
+        auto comps = atomEntity->components();
+        for (auto *comp : comps) {
+            if (qobject_cast<Qt3DRender::QGeometryRenderer*>(comp) ||
+                qobject_cast<Qt3DExtras::QSphereMesh*>(comp)) {
+                hasMesh = true;
+                break;
+            }
+        }
+        if (!hasMesh)
+            continue;
+
+        // Check if entity already has a picker
+        bool hasPicker = false;
+        auto components = atomEntity->components();
+        for (auto *comp : components) {
+            if (qobject_cast<Qt3DRender::QObjectPicker*>(comp)) {
+                hasPicker = true;
+                break;
+            }
+        }
+
+        if (!hasPicker) {
+            Qt3DRender::QObjectPicker *picker = new Qt3DRender::QObjectPicker(atomEntity);
+            picker->setHoverEnabled(true);
+            atomEntity->addComponent(picker);
+            m_atomPickerToIndex[picker] = i;
+            connect(picker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onAtomPicked);
+            connect(picker, &Qt3DRender::QObjectPicker::pressed, this, &MoleculeViewer::onAtomPressedForGrab);
+            connect(picker, &Qt3DRender::QObjectPicker::entered, this, &MoleculeViewer::onAtomHoverEntered);
+            connect(picker, &Qt3DRender::QObjectPicker::exited, this, &MoleculeViewer::onAtomHoverExited);
+        }
+    }
+
+    qDebug() << "ensurePickersForGrab: Created" << m_atomPickerToIndex.size() << "pickers";
 }
 
 void MoleculeViewer::clearScene()
@@ -847,6 +933,9 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
                 connect(picker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onAtomPicked);
                 // Claude Generated 2026 - Phase 5: press initiates sim-mode grab (no-op otherwise)
                 connect(picker, &Qt3DRender::QObjectPicker::pressed, this, &MoleculeViewer::onAtomPressedForGrab);
+                // Claude Generated - Visual feedback for interactive grab
+                connect(picker, &Qt3DRender::QObjectPicker::entered, this, &MoleculeViewer::onAtomHoverEntered);
+                connect(picker, &Qt3DRender::QObjectPicker::exited, this, &MoleculeViewer::onAtomHoverExited);
             }
 
             // Claude Generated - Fix 2: Store references for incremental updates
@@ -1503,12 +1592,23 @@ void MoleculeViewer::updateBondsHybrid(int frameIndex)
         QVector3D direction = end - start;
         float length = direction.length();
 
-        // Update center + length, apply cached rotation (no quaternion recalculation)
+        // Update center + length + rotation (rotation must be recalculated each frame
+        // because bond direction changes as atoms move during simulation)
         if (m_bondTransforms[bondIndex]) {
             m_bondTransforms[bondIndex]->setTranslation(start + direction * 0.5f);
             m_bondTransforms[bondIndex]->setScale3D(QVector3D(1.0f, length, 1.0f));
-            if (bondIndex < m_bondRotations.size())
-                m_bondTransforms[bondIndex]->setRotation(m_bondRotations[bondIndex]);
+
+            // Calculate rotation to align cylinder Y-axis with bond direction
+            QVector3D localUp(0, 1, 0);
+            QVector3D normDir = direction.normalized();
+            QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
+            if (rotAxis.length() < 0.001f) {
+                m_bondTransforms[bondIndex]->setRotation(normDir.y() > 0 ? QQuaternion()
+                    : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f));
+            } else {
+                float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
+                m_bondTransforms[bondIndex]->setRotation(QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle));
+            }
         }
         ++bondIndex;
 
@@ -1524,8 +1624,18 @@ void MoleculeViewer::updateBondsHybrid(int frameIndex)
             if (m_bondTransforms[bondIndex]) {
                 m_bondTransforms[bondIndex]->setTranslation(offsetCenter);
                 m_bondTransforms[bondIndex]->setScale3D(QVector3D(1.0f, length, 1.0f));
-                if (bondIndex < m_bondRotations.size())
-                    m_bondTransforms[bondIndex]->setRotation(m_bondRotations[bondIndex]);
+
+                // Calculate rotation to align cylinder Y-axis with bond direction
+                QVector3D localUp(0, 1, 0);
+                QVector3D normDir = direction.normalized();
+                QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
+                if (rotAxis.length() < 0.001f) {
+                    m_bondTransforms[bondIndex]->setRotation(normDir.y() > 0 ? QQuaternion()
+                        : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f));
+                } else {
+                    float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
+                    m_bondTransforms[bondIndex]->setRotation(QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle));
+                }
             }
         }
     }
@@ -2421,6 +2531,49 @@ void MoleculeViewer::onAtomPressedForGrab(Qt3DRender::QPickEvent *pickEvent)
     if (!picker || !m_atomPickerToIndex.contains(picker))
         return;
     m_grabbedAtom = m_atomPickerToIndex[picker];
+    // Change cursor to indicate active grabbing
+    if (m_container)
+        m_container->setCursor(Qt::ClosedHandCursor);
+}
+
+// Claude Generated - Visual feedback when hovering over grab-capable atoms
+// Changes cursor to indicate that the atom can be grabbed during simulation
+void MoleculeViewer::onAtomHoverEntered()
+{
+    if (!m_simulationActive)
+        return;
+
+    Qt3DRender::QObjectPicker *picker = qobject_cast<Qt3DRender::QObjectPicker*>(sender());
+    if (!picker || !m_atomPickerToIndex.contains(picker))
+        return;
+
+    int atomIndex = m_atomPickerToIndex[picker];
+
+    // Safety check: ensure trajectory data is valid
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()
+        && atomIndex >= 0 && atomIndex < m_trajectoryAtoms[m_currentFrame].size()) {
+        const Atom& atom = m_trajectoryAtoms[m_currentFrame][atomIndex];
+        // Emit status message with element and index for potential display
+        emit grabStatusChanged(tr("Grab atom %1 (%2) - click and drag to apply force")
+            .arg(atomIndex + 1).arg(atom.element));
+    }
+
+    // Change cursor to "Open Hand" to indicate grab-ability
+    if (m_container) {
+        m_container->setCursor(Qt::OpenHandCursor);
+    }
+}
+
+// Claude Generated - Clear visual feedback when leaving atom
+void MoleculeViewer::onAtomHoverExited()
+{
+    if (!m_simulationActive)
+        return;
+
+    // Only reset cursor if we're not currently grabbing
+    if (m_grabbedAtom < 0 && m_container) {
+        m_container->setCursor(Qt::ArrowCursor);
+    }
 }
 
 // Claude Generated - Phase 4B: Bond picking and editing

@@ -50,6 +50,12 @@ struct SimulationConfig {
     double rattleTol12 = 1e-4;    // Tolerance for 1-2 constraints (Bohr²)
     double rattleTol13 = 1e-3;    // Tolerance for 1-3 constraints (Bohr²)
     int rattleMaxIter = 100;      // Max RATTLE iterations per step
+
+    // GFN-FF topology mode (MD only)
+    QString topologyMode = "auto"; // "auto" (two-tier caching) or "constant" (never recalculate)
+
+    // Hydrogen mass scaling (MD only) - increases H mass to allow larger time steps
+    double hmass = 1.0; // 1.0 = normal mass, 2.0 or 3.0 = scaled (common values)
 };
 
 /**

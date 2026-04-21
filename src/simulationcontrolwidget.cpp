@@ -49,36 +49,17 @@ void SimulationControlWidget::setupUI()
     innerLayout->setContentsMargins(0, 0, 0, 0);
     innerLayout->setSpacing(6);
 
-    // ---- Mode + method row ----
-    auto* typeForm = new QFormLayout;
+    // ---- Simulationssteuerung ----
+    auto* simForm = new QFormLayout;
     m_modeCombo = new QComboBox(this);
     m_modeCombo->addItem(tr("Molecular Dynamics"),
         static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
     m_modeCombo->addItem(tr("Geometry Optimization"),
         static_cast<int>(SimulationConfig::Mode::GeometryOptimization));
-    typeForm->addRow(tr("Mode:"), m_modeCombo);
+    simForm->addRow(tr("Mode:"), m_modeCombo);
+    innerLayout->addLayout(simForm);
 
-    m_methodCombo = new QComboBox(this);
-    m_methodCombo->addItem("GFN-FF", "gfnff");
-    m_methodCombo->addItem("UFF", "uff");
-    m_methodCombo->addItem("GFN2", "gfn2");
-    m_methodCombo->addItem("GFN1", "gfn1");
-    typeForm->addRow(tr("Method:"), m_methodCombo);
-
-    // Claude Generated 2026 - optimizer-algorithm picker (opt mode only)
-    m_optimizerCombo = new QComboBox(this);
-    m_optimizerCombo->addItem(tr("Auto"), "auto");
-    m_optimizerCombo->addItem(tr("LBFGS++"), "lbfgspp");
-    m_optimizerCombo->addItem(tr("Native L-BFGS"), "native_lbfgs");
-    m_optimizerCombo->addItem(tr("DIIS"), "native_diis");
-    m_optimizerCombo->addItem(tr("RFO"), "native_rfo");
-    m_optimizerCombo->addItem(tr("ANCOpt"), "ancopt");
-    m_optimizerCombo->setToolTip(tr("Optimization algorithm (geometry optimization only)"));
-    typeForm->addRow(tr("Optimizer:"), m_optimizerCombo);
-
-    innerLayout->addLayout(typeForm);
-
-    // ---- Run buttons (moved to top) ----
+    // ---- Run buttons ----
     auto* btnRow = new QHBoxLayout;
     m_startBtn = new QPushButton(tr("▶ Start"), this);
     m_pauseBtn = new QPushButton(tr("⏸"), this);
@@ -90,16 +71,44 @@ void SimulationControlWidget::setupUI()
     btnRow->addWidget(m_stopBtn);
     innerLayout->addLayout(btnRow);
 
-    // ---- Status (directly under buttons) ----
+    // ---- Status ----
     m_statusLabel = new QLabel(tr("Ready"), this);
     m_statusLabel->setTextFormat(Qt::RichText);
     m_statusLabel->setStyleSheet("color: gray; font-size: 11px;");
     m_statusLabel->setWordWrap(true);
     innerLayout->addWidget(m_statusLabel);
 
-    // ---- MD parameters ----
-    auto* mdGroup = new QGroupBox(tr("MD Parameters"), this);
-    auto* mdForm = new QFormLayout(mdGroup);
+    // ---- Potential / Methode ----
+    auto* potentialGroup = new QGroupBox(tr("Potential / Method"), this);
+    auto* potentialForm = new QFormLayout(potentialGroup);
+
+    m_methodCombo = new QComboBox(this);
+    m_methodCombo->addItem("GFN-FF", "gfnff");
+    m_methodCombo->addItem("UFF", "uff");
+    m_methodCombo->addItem("GFN2", "gfn2");
+    m_methodCombo->addItem("GFN1", "gfn1");
+    potentialForm->addRow(tr("Method:"), m_methodCombo);
+
+    m_gpuCombo = new QComboBox(this);
+    m_gpuCombo->addItem(tr("CPU (none)"), "none");
+    m_gpuCombo->addItem(tr("CUDA"), "cuda");
+    m_gpuCombo->addItem(tr("Auto"), "auto");
+    m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
+    potentialForm->addRow(tr("GPU:"), m_gpuCombo);
+
+    // GFN-FF topology mode selector
+    m_topologyModeCombo = new QComboBox(this);
+    m_topologyModeCombo->addItem(tr("Auto (adaptive)"), "auto");
+    m_topologyModeCombo->addItem(tr("Constant (fixed)"), "constant");
+    m_topologyModeCombo->setToolTip(tr("GFN-FF topology mode: Auto recalculates topology when needed, "
+                                       "Constant keeps initial topology fixed (faster for MD)"));
+    potentialForm->addRow(tr("Topology:"), m_topologyModeCombo);
+
+    innerLayout->addWidget(potentialGroup);
+
+    // ---- MD Parameters ----
+    m_mdGroup = new QGroupBox(tr("MD Parameters"), this);
+    auto* mdForm = new QFormLayout(m_mdGroup);
 
     m_tempSpin = new QDoubleSpinBox(this);
     m_tempSpin->setRange(1.0, 5000.0);
@@ -128,19 +137,17 @@ void SimulationControlWidget::setupUI()
     m_fpsLimitSpin->setToolTip(tr("Steps displayed per second — controls simulation speed"));
     mdForm->addRow(tr("Speed:"), m_fpsLimitSpin);
 
-    m_gpuCombo = new QComboBox(this);
-    m_gpuCombo->addItem(tr("CPU (none)"), "none");
-    m_gpuCombo->addItem(tr("CUDA"), "cuda");
-    m_gpuCombo->addItem(tr("Auto"), "auto");
-    mdForm->addRow(tr("GPU:"), m_gpuCombo);
+    m_hmassSpin = new QDoubleSpinBox(this);
+    m_hmassSpin->setRange(1.0, 5.0);
+    m_hmassSpin->setValue(1.0);
+    m_hmassSpin->setDecimals(1);
+    m_hmassSpin->setSingleStep(0.5);
+    m_hmassSpin->setSuffix(" amu");
+    m_hmassSpin->setToolTip(tr("Hydrogen mass scaling: increases H mass to allow larger time steps\n"
+                               "1.0 = normal mass, 2.0-3.0 = common values for faster MD"));
+    mdForm->addRow(tr("H mass:"), m_hmassSpin);
 
-    m_writeTrjCheck = new QCheckBox(tr("Write .trj.xyz"), this);
-    mdForm->addRow("", m_writeTrjCheck);
-
-    m_perfCheck = new QCheckBox(tr("Performance analysis"), this);
-    mdForm->addRow("", m_perfCheck);
-
-    innerLayout->addWidget(mdGroup);
+    innerLayout->addWidget(m_mdGroup);
 
     // ---- RATTLE constraints (MD only) ----
     m_rattleGroup = new QGroupBox(tr("RATTLE Constraints"), this);
@@ -196,16 +203,42 @@ void SimulationControlWidget::setupUI()
     m_rattleDetails->setVisible(false);  // hidden until mode != off
     innerLayout->addWidget(m_rattleGroup);
 
-    // ---- Opt parameters ----
-    auto* optGroup = new QGroupBox(tr("Optimization"), this);
-    auto* optForm = new QFormLayout(optGroup);
+    // ---- Optimization Parameters ----
+    m_optGroup = new QGroupBox(tr("Optimization"), this);
+    auto* optForm = new QFormLayout(m_optGroup);
+
+    m_optimizerCombo = new QComboBox(this);
+    m_optimizerCombo->addItem(tr("Auto"), "auto");
+    m_optimizerCombo->addItem(tr("LBFGS++"), "lbfgspp");
+    m_optimizerCombo->addItem(tr("Native L-BFGS"), "native_lbfgs");
+    m_optimizerCombo->addItem(tr("DIIS"), "native_diis");
+    m_optimizerCombo->addItem(tr("RFO"), "native_rfo");
+    m_optimizerCombo->addItem(tr("ANCOpt"), "ancopt");
+    m_optimizerCombo->setToolTip(tr("Optimization algorithm (geometry optimization only)"));
+    optForm->addRow(tr("Algorithm:"), m_optimizerCombo);
+
     m_convergenceSpin = new QDoubleSpinBox(this);
     m_convergenceSpin->setRange(1e-10, 1e-2);
     m_convergenceSpin->setDecimals(10);
     m_convergenceSpin->setSingleStep(1e-7);
     m_convergenceSpin->setValue(1e-6);
     optForm->addRow(tr("Gradient tol:"), m_convergenceSpin);
-    innerLayout->addWidget(optGroup);
+
+    innerLayout->addWidget(m_optGroup);
+
+    // ---- Output Options ----
+    auto* outputGroup = new QGroupBox(tr("Output"), this);
+    auto* outputLayout = new QVBoxLayout(outputGroup);
+    outputLayout->setSpacing(4);
+    outputLayout->setContentsMargins(4, 4, 4, 4);
+
+    m_writeTrjCheck = new QCheckBox(tr("Write .trj.xyz"), this);
+    outputLayout->addWidget(m_writeTrjCheck);
+
+    m_perfCheck = new QCheckBox(tr("Performance analysis"), this);
+    outputLayout->addWidget(m_perfCheck);
+
+    innerLayout->addWidget(outputGroup);
 
     // ---- Interactive grab ----
     auto* grabGroup = new QGroupBox(tr("Interactive Grab"), this);
@@ -251,11 +284,13 @@ void SimulationControlWidget::setupUI()
     auto notifyConfig = [this]() { emit configChanged(buildConfig()); };
     connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_topologyModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_optimizerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_tempSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_timestepSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_stepsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_fpsLimitSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_hmassSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_gpuCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_writeTrjCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_perfCheck, &QCheckBox::toggled, this, notifyConfig);
@@ -267,7 +302,7 @@ void SimulationControlWidget::setupUI()
     connect(m_rattleTol13Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_rattleMaxIterSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
 
-    // Show/hide RATTLE detail controls based on mode selection
+    // Show/hide groups based on mode and RATTLE selection
     connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
         [this](int index) { m_rattleDetails->setVisible(index > 0); });
 
@@ -278,6 +313,26 @@ void SimulationControlWidget::setupUI()
     connect(m_grabStrengthSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyGrab);
     connect(m_grabAlphaSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyGrab);
     connect(m_grabMaxShellsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyGrab);
+
+    // Show/hide topology mode only for GFN-FF
+    connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int /*index*/) {
+            bool isGFNFF = (m_methodCombo->currentData().toString() == "gfnff");
+            // Find the topology row and hide/show it
+            // The topology combo is the 3rd row in the potential group
+            if (m_topologyModeCombo && m_topologyModeCombo->parentWidget()) {
+                QWidget* label = nullptr;
+                // Find the label associated with topology combo
+                auto* form = qobject_cast<QFormLayout*>(m_topologyModeCombo->parentWidget()->layout());
+                if (form) {
+                    int row = 2; // 3rd row (0-indexed)
+                    QLayoutItem* labelItem = form->itemAt(row, QFormLayout::LabelRole);
+                    if (labelItem) label = labelItem->widget();
+                }
+                m_topologyModeCombo->setVisible(isGFNFF);
+                if (label) label->setVisible(isGFNFF);
+            }
+        });
 
     onModeChanged(0);
 }
@@ -292,6 +347,7 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.timestep = m_timestepSpin->value();
     cfg.steps = m_stepsSpin->value();
     cfg.fpsLimit = m_fpsLimitSpin->value();
+    cfg.hmass = m_hmassSpin->value();
     cfg.gpu = m_gpuCombo->currentData().toString();
     cfg.writeTrajectory = m_writeTrjCheck->isChecked();
     cfg.performanceAnalysis = m_perfCheck->isChecked();
@@ -302,6 +358,10 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.rattleTol12   = m_rattleTol12Spin->value();
     cfg.rattleTol13   = m_rattleTol13Spin->value();
     cfg.rattleMaxIter = m_rattleMaxIterSpin->value();
+
+    // GFN-FF topology mode
+    cfg.topologyMode = m_topologyModeCombo->currentData().toString();
+
     return cfg;
 }
 
@@ -430,14 +490,11 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
 {
     bool isMD = (m_modeCombo->currentData().toInt()
         == static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
-    m_tempSpin->setEnabled(isMD);
-    m_timestepSpin->setEnabled(isMD);
-    // FPS controls simulation speed for both MD and OPT — always enabled
-    m_gpuCombo->setEnabled(isMD);
-    m_perfCheck->setEnabled(isMD);
-    m_convergenceSpin->setEnabled(!isMD);
-    m_optimizerCombo->setEnabled(!isMD);
+
+    // Show/hide mode-specific groups
+    m_mdGroup->setVisible(isMD);
     m_rattleGroup->setVisible(isMD);
+    m_optGroup->setVisible(!isMD);
 }
 
 void SimulationControlWidget::setRunning(bool running)
@@ -452,6 +509,7 @@ void SimulationControlWidget::setRunning(bool running)
     m_timestepSpin->setEnabled(!running);
     m_stepsSpin->setEnabled(!running);
     m_fpsLimitSpin->setEnabled(!running);
+    m_hmassSpin->setEnabled(!running);
     m_gpuCombo->setEnabled(!running);
     m_writeTrjCheck->setEnabled(!running);
     m_perfCheck->setEnabled(!running);
