@@ -3943,9 +3943,13 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
     }
 
     // Status-bar slot is a lambda so we don't need a Qt slot declaration.
+    // Throttled to ~5 Hz to reduce per-frame GUI overhead.
     connect(worker, &SimulationWorker::frameReady,
         this, [this](SimulationFramePtr frame) {
             if (!frame) return;
+            if (m_simStatusBarTimer.isValid() && m_simStatusBarTimer.elapsed() < 200)
+                return;
+            m_simStatusBarTimer.restart();
             statusBar()->showMessage(
                 tr("Simulation step %1 | E = %2 Eh | Ekin = %3 Eh")
                     .arg(frame->step)

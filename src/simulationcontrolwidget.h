@@ -9,6 +9,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QElapsedTimer>
+#include <QGroupBox>
 #include <QLabel>
 #include <QObject>
 #include <QPushButton>
@@ -85,6 +87,16 @@ private:
     // --- Optimization parameters ---
     QDoubleSpinBox* m_convergenceSpin = nullptr;
 
+    // --- RATTLE constraints (MD only) ---
+    QGroupBox*      m_rattleGroup = nullptr;
+    QWidget*        m_rattleDetails = nullptr;  // hidden when mode=off
+    QComboBox*      m_rattleCombo = nullptr;
+    QCheckBox*      m_rattle12Check = nullptr;
+    QCheckBox*      m_rattle13Check = nullptr;
+    QDoubleSpinBox* m_rattleTol12Spin = nullptr;
+    QDoubleSpinBox* m_rattleTol13Spin = nullptr;
+    QSpinBox*       m_rattleMaxIterSpin = nullptr;
+
     // --- Interactive grab ---
     QDoubleSpinBox* m_grabStrengthSpin = nullptr;
     QDoubleSpinBox* m_grabAlphaSpin = nullptr;
@@ -97,6 +109,9 @@ private:
     QLabel* m_statusLabel = nullptr;
 
     // --- State ---
+    QElapsedTimer m_fpsTimer;
+    int m_frameCount = 0;
+    double m_actualFps = 0.0;
     QVector<MoleculeViewer::Atom> m_atoms;
     QVector<MoleculeViewer::Bond> m_bonds;
     SimulationConfig m_config;

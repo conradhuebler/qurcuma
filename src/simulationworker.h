@@ -17,6 +17,12 @@
 #include <QVector>
 #include <QVector3D>
 
+#include <limits>
+#include <memory>
+
+class QTimer;
+class SimpleMD;  // Full type only in simulationworker.cpp — curcuma headers stay out of this TU.
+
 /**
  * @brief Configuration struct for a simulation run.
  * Claude Generated - Interactive Simulation Integration
@@ -32,10 +38,18 @@ struct SimulationConfig {
     int steps = 1000;             // Total MD steps or max opt iterations
     double convergence = 1e-6;    // Gradient convergence threshold (opt only)
     bool writeTrajectory = false; // Also write .trj.xyz file to disk
-    int fpsLimit = 30;            // Max GUI updates/sec (0 = unlimited)
+    int fpsLimit = 30;            // Simulation speed in steps/sec (0 = unlimited)
     bool performanceAnalysis = false; // Per-frame timing stats every N steps
     int performanceInterval = 100;   // Output summary every N frames
     QString gpu = "none";         // GPU acceleration: "none", "cuda", "auto"
+
+    // RATTLE constraints (MD only)
+    int rattleMode = 0;           // 0=off, 1=RATTLE, 2=RATTLE H-only
+    bool rattle12 = true;         // Constrain 1-2 bond distances
+    bool rattle13 = false;        // Constrain 1-3 angle distances
+    double rattleTol12 = 1e-4;    // Tolerance for 1-2 constraints (Bohr²)
+    double rattleTol13 = 1e-3;    // Tolerance for 1-3 constraints (Bohr²)
+    int rattleMaxIter = 100;      // Max RATTLE iterations per step
 };
 
 /**
@@ -69,7 +83,7 @@ class SimulationWorker : public QObject {
 
 public:
     explicit SimulationWorker(QObject* parent = nullptr);
-    ~SimulationWorker() override = default;
+    ~SimulationWorker() override;  // non-default: unique_ptr<SimpleMD> needs full type in .cpp
 
     /** @brief Set the initial molecular geometry from viewer atoms. */
     void setMolecule(const QVector<MoleculeViewer::Atom>& atoms);
@@ -121,9 +135,16 @@ signals:
     /** @brief Emitted when simulation enters paused state. */
     void paused();
 
+private slots:
+    // Timer-driven MD: fires every 1000/fpsLimit ms. One fire = one md.step() + one emit.
+    // If md.step() runs longer than the interval, Qt fires the timer again immediately and
+    // the visible rate drops to the actual compute rate — no frames skipped, no accumulation.
+    void performMDStep();
+
 private:
-    void runMD();
-    void runOptimization();
+    void startMD();             // build SimpleMD, start m_mdTimer; returns so the thread's event loop can drive it
+    void finalizeMDRun();       // stop timer, finalizeRun, emit finished
+    void runOptimization();     // synchronous — drives its own step callback inside Optimizer::Optimize()
 
     // moleculeToAtoms() is defined in simulationworker.cpp only (uses curcuma Molecule type,
     // which must not be exposed in this header to avoid include pollution).
@@ -137,7 +158,18 @@ private:
     SimulationConfig m_config;
     QAtomicInt m_stopRequested{ 0 };
     QAtomicInt m_pauseRequested{ 0 };
-    QElapsedTimer m_lastEmitTimer;  // Claude Generated - FPS cap: tracks time since last frameReady emit
+    QElapsedTimer m_lastEmitTimer;  // FPS throttle for OPT step callback
+
+    // MD state persisted across QTimer fires (lives in the worker thread)
+    std::unique_ptr<SimpleMD> m_md;
+    QTimer* m_mdTimer = nullptr;    // parent = this, auto-cleaned
+
+    // Performance-analysis accumulators for MD (timer-driven, so counters must persist)
+    QElapsedTimer m_mdPerfTimer;
+    int m_mdFrameCount = 0;
+    qint64 m_mdTotalStepTime = 0;
+    qint64 m_mdMinStepTime = std::numeric_limits<qint64>::max();
+    qint64 m_mdMaxStepTime = 0;
 
     // Injected force queue (produced by GUI thread, drained by worker thread)
     QMutex m_forceMutex;

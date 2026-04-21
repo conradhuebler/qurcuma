@@ -16,6 +16,7 @@ using json = nlohmann::json;
 
 #include <QMutexLocker>
 #include <QThread>
+#include <QTimer>
 #include <QElapsedTimer>
 #include <QDebug>
 #include <limits>
@@ -26,6 +27,9 @@ SimulationWorker::SimulationWorker(QObject* parent)
     static const int kPtrTypeId = qRegisterMetaType<SimulationFramePtr>("SimulationFramePtr");
     Q_UNUSED(kPtrTypeId);
 }
+
+// Defined here (not =default in header) so unique_ptr<SimpleMD>'s deleter sees the complete type.
+SimulationWorker::~SimulationWorker() = default;
 
 void SimulationWorker::setMolecule(const QVector<MoleculeViewer::Atom>& atoms)
 {
@@ -86,14 +90,17 @@ void SimulationWorker::run()
 
     switch (m_config.mode) {
     case SimulationConfig::Mode::MolecularDynamics:
-        runMD();
+        // Async: startMD() creates the QTimer and returns. The worker thread's event loop
+        // then drives performMDStep() at the target cadence; finished() is emitted later
+        // from finalizeMDRun() when the user stops or md.step() signals end-of-run.
+        startMD();
         break;
     case SimulationConfig::Mode::GeometryOptimization:
+        // Synchronous: Optimizer::Optimize() runs its own step loop via the callback.
         runOptimization();
+        emit finished();
         break;
     }
-
-    emit finished();
 }
 
 static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms)
@@ -127,15 +134,18 @@ static SimulationFramePtr moleculeToFrame(
     return frame;
 }
 
-void SimulationWorker::runMD()
+void SimulationWorker::startMD()
 {
-    // Build controller JSON. dump_frequency is intentionally omitted: the
-    // worker drives the loop step-by-step, so curcuma's internal dump cadence
-    // only affects its XYZ trajectory output (gated by write_xyz).
+    // dump_frequency=1 is required: SimpleMD::step() only refreshes m_molecule's
+    // geometry inside `if (m_step % m_dump == 0)` blocks. With the default (50)
+    // currentMolecule() returns stale positions 49 out of 50 steps, producing
+    // the "99% frames dropped" appearance. The interactive viewer needs every
+    // step's geometry; the per-step overhead is negligible vs. the MD step itself.
     json simplemd_params;
     simplemd_params["method"] = m_config.method.toStdString();
     simplemd_params["temperature"] = m_config.temperature;
     simplemd_params["time_step"] = m_config.timestep;
+    simplemd_params["dump_frequency"] = 1;
     if (m_config.steps > 0)
         simplemd_params["max_time"] = static_cast<double>(m_config.steps) * m_config.timestep;
     else
@@ -145,6 +155,12 @@ void SimulationWorker::runMD()
     simplemd_params["write_xyz"] = m_config.writeTrajectory;
     simplemd_params["no_restart"] = true;
     simplemd_params["no_center"] = true;
+    simplemd_params["rattle"] = m_config.rattleMode;
+    simplemd_params["rattle_12"] = m_config.rattle12;
+    simplemd_params["rattle_13"] = m_config.rattle13;
+    simplemd_params["rattle_tol_12"] = m_config.rattleTol12;
+    simplemd_params["rattle_tol_13"] = m_config.rattleTol13;
+    simplemd_params["rattle_max_iterations"] = m_config.rattleMaxIter;
 
     json controller;
     controller["simplemd"] = simplemd_params;
@@ -153,99 +169,109 @@ void SimulationWorker::runMD()
     controller["global"]["verbosity"] = 0;
     controller["verbosity"] = 0;
 
-    SimpleMD md(controller, true);
-    md.setMolecule(atomsToMolecule(m_initialAtoms));
+    m_md = std::make_unique<SimpleMD>(controller, true);
+    m_md->setMolecule(atomsToMolecule(m_initialAtoms));
 
-    if (!md.Initialise()) {
+    if (!m_md->Initialise()) {
         emit errorOccurred(tr("MD initialization failed. Method '%1' may not be available.")
                                .arg(m_config.method));
+        m_md.reset();
+        emit finished();
         return;
     }
-    md.prepareRun();
+    m_md->prepareRun();
 
-    QElapsedTimer stepTimer;
-    stepTimer.start();
-    int frameCount = 0;
-    qint64 totalStepTime = 0;
-    qint64 totalConvertTime = 0;
-    qint64 minStepTime = std::numeric_limits<qint64>::max();
-    qint64 maxStepTime = 0;
+    // Reset perf-stat accumulators for this run
+    m_mdFrameCount = 0;
+    m_mdTotalStepTime = 0;
+    m_mdMinStepTime = std::numeric_limits<qint64>::max();
+    m_mdMaxStepTime = 0;
+    m_mdPerfTimer.start();
 
-    while (!m_stopRequested.loadRelaxed()) {
-        while (m_pauseRequested.loadRelaxed()) {
-            if (m_stopRequested.loadRelaxed())
-                break;
-            QThread::msleep(50);
-        }
-        if (m_stopRequested.loadRelaxed())
-            break;
+    // QTimer lives in this (worker) thread because 'this' is moveToThread'd before run().
+    // PreciseTimer gives ms-level accuracy on Linux (default is 1 ms coarse).
+    int effectiveFps = m_config.fpsLimit > 0 ? m_config.fpsLimit : 60;
+    m_mdTimer = new QTimer(this);
+    m_mdTimer->setTimerType(Qt::PreciseTimer);
+    m_mdTimer->setInterval(1000 / effectiveFps);
+    connect(m_mdTimer, &QTimer::timeout, this, &SimulationWorker::performMDStep);
+    m_mdTimer->start();
+}
 
-        // Apply any force the GUI queued since the previous step (mouse grab).
-        // Converted from MatrixXd (col-major) to Geometry (row-major) on assign.
-        Eigen::MatrixXd pending = drainPendingForces(m_initialAtoms.size());
-        if (pending.rows() > 0) {
-            Geometry ext = pending;
-            md.applyExternalForces(ext);
-        }
+void SimulationWorker::performMDStep()
+{
+    if (!m_md) return;
 
-        if (!md.step())
-            break;
-
-        qint64 stepTime = stepTimer.restart();
-
-        const bool fpsOk = (m_config.fpsLimit <= 0)
-            || (m_lastEmitTimer.elapsed() >= 1000 / m_config.fpsLimit);
-        if (!fpsOk)
-            continue;
-
-        QElapsedTimer convertTimer;
-        convertTimer.start();
-        SimulationFramePtr frame = moleculeToFrame(
-            md.currentMolecule(), m_initialAtoms.size(),
-            md.potentialEnergy(), md.kineticEnergy(), md.stepCount());
-        qint64 convertTime = convertTimer.elapsed();
-
-        if (m_config.performanceAnalysis) {
-            totalStepTime += stepTime;
-            totalConvertTime += convertTime;
-            if (stepTime < minStepTime) minStepTime = stepTime;
-            if (stepTime > maxStepTime) maxStepTime = stepTime;
-            ++frameCount;
-
-            if (frameCount >= m_config.performanceInterval) {
-                qint64 avgStep = totalStepTime / frameCount;
-                qint64 avgConvert = totalConvertTime / frameCount;
-                qint64 avgOverhead = avgStep - avgConvert;
-                double fps = 1000.0 * frameCount / (totalStepTime + totalConvertTime);
-                qDebug() << "=== Performance [last" << frameCount << "frames @ step" << md.stepCount() << "] ==="
-                         << "atoms:" << static_cast<int>(frame->positions.size())
-                         << "avg_step:" << avgStep << "ms"
-                         << "(compute:" << avgOverhead << "ms, convert:" << avgConvert << "ms)"
-                         << "min:" << minStepTime << "max:" << maxStepTime
-                         << "fps:" << fps;
-                frameCount = 0;
-                totalStepTime = 0;
-                totalConvertTime = 0;
-                minStepTime = std::numeric_limits<qint64>::max();
-                maxStepTime = 0;
-            }
-        }
-
-        emit frameReady(frame);
-        m_lastEmitTimer.restart();
+    if (m_stopRequested.loadRelaxed()) {
+        finalizeMDRun();
+        return;
+    }
+    if (m_pauseRequested.loadRelaxed()) {
+        return;  // skip this tick; timer keeps firing, observes resume automatically
     }
 
-    md.finalizeRun();
+    QElapsedTimer stepClock;
+    stepClock.start();
+
+    // Apply any force the GUI queued since the previous step (mouse grab).
+    // Converted from MatrixXd (col-major) to Geometry (row-major) on assign.
+    Eigen::MatrixXd pending = drainPendingForces(m_initialAtoms.size());
+    if (pending.rows() > 0) {
+        Geometry ext = pending;
+        m_md->applyExternalForces(ext);
+    }
+
+    if (!m_md->step()) {
+        finalizeMDRun();
+        return;
+    }
+
+    SimulationFramePtr frame = moleculeToFrame(
+        m_md->currentMolecule(), m_initialAtoms.size(),
+        m_md->potentialEnergy(), m_md->kineticEnergy(), m_md->stepCount());
+
+    emit frameReady(frame);
+
+    if (m_config.performanceAnalysis) {
+        qint64 stepTime = stepClock.elapsed();
+        m_mdTotalStepTime += stepTime;
+        if (stepTime < m_mdMinStepTime) m_mdMinStepTime = stepTime;
+        if (stepTime > m_mdMaxStepTime) m_mdMaxStepTime = stepTime;
+        ++m_mdFrameCount;
+
+        if (m_mdFrameCount >= m_config.performanceInterval) {
+            qint64 avgStep = m_mdTotalStepTime / m_mdFrameCount;
+            double fps = 1000.0 * m_mdFrameCount / std::max<qint64>(1, m_mdPerfTimer.elapsed());
+            qDebug() << "=== Performance [last" << m_mdFrameCount << "frames @ step" << m_md->stepCount() << "] ==="
+                     << "atoms:" << static_cast<int>(frame->positions.size())
+                     << "avg_step:" << avgStep << "ms"
+                     << "min:" << m_mdMinStepTime << "max:" << m_mdMaxStepTime
+                     << "fps:" << fps;
+            m_mdFrameCount = 0;
+            m_mdTotalStepTime = 0;
+            m_mdMinStepTime = std::numeric_limits<qint64>::max();
+            m_mdMaxStepTime = 0;
+            m_mdPerfTimer.restart();
+        }
+    }
+}
+
+void SimulationWorker::finalizeMDRun()
+{
+    if (m_mdTimer) {
+        m_mdTimer->stop();
+        m_mdTimer->deleteLater();
+        m_mdTimer = nullptr;
+    }
+    if (m_md) {
+        m_md->finalizeRun();
+        m_md.reset();
+    }
+    emit finished();
 }
 
 void SimulationWorker::runOptimization()
 {
-    // Migrated from the removed CurcumaOpt class to the unified
-    // OptimizerFactory / OptimizationDispatcher API.
-    // TODO: this path is still synchronous — interactive step-by-step opt
-    // with mouse-injected forces requires exposing a step() API on
-    // OptimizerDriver (analogous to SimpleMD::step()). Until then, only
-    // the pre-opt and post-opt frames are emitted.
     json opt_config;
     opt_config["max_iterations"] = m_config.steps;
     opt_config["gradient_threshold"] = m_config.convergence;
@@ -259,7 +285,7 @@ void SimulationWorker::runOptimization()
 
     Molecule mol = atomsToMolecule(m_initialAtoms);
 
-    // Emit the starting geometry so the viewer reflects the pre-opt state.
+    // Emit starting geometry so the viewer reflects the pre-opt state.
     emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), 0.0, 0.0, 0));
 
     try {
@@ -269,18 +295,59 @@ void SimulationWorker::runOptimization()
 
         Optimization::OptimizerType opt_type =
             Optimization::parseOptimizerType(m_config.optimizer.toStdString());
-        Optimization::OptimizationResult result =
-            Optimization::OptimizationDispatcher::optimizeStructure(
-                &mol, opt_type, &calc, opt_config);
 
-        if (!result.success) {
+        auto optimizer = Optimization::OptimizerFactory::createOptimizer(opt_type, &calc);
+        if (!optimizer) {
+            emit errorOccurred(tr("Failed to create optimizer '%1'").arg(m_config.optimizer));
+            return;
+        }
+
+        // Merge user config on top of driver defaults so subclass settings are preserved.
+        json merged = optimizer->GetDefaultConfiguration();
+        for (auto it = opt_config.begin(); it != opt_config.end(); ++it)
+            merged[it.key()] = it.value();
+        optimizer->LoadConfiguration(merged);
+
+        // Per-step callback: throttle-then-emit, same cadence model as runMD().
+        // If the optimizer step itself exceeds the fps budget, every iteration emits
+        // immediately (throttle is a no-op when remaining ≤ 0).
+        m_lastEmitTimer.restart();
+        optimizer->setStepCallback([this](int iter, const Molecule& mol, double energy) -> bool {
+            if (m_stopRequested.loadRelaxed())
+                return false;
+            while (m_pauseRequested.loadRelaxed()) {
+                if (m_stopRequested.loadRelaxed())
+                    return false;
+                QThread::msleep(50);
+            }
+            int effectiveFps = m_config.fpsLimit > 0 ? m_config.fpsLimit : 60;
+            qint64 targetMs = 1000 / effectiveFps;
+            qint64 remaining = targetMs - m_lastEmitTimer.elapsed();
+            while (remaining > 10 && !m_stopRequested.loadRelaxed()) {
+                QThread::msleep(static_cast<unsigned long>(std::min(remaining, qint64(50))));
+                remaining = targetMs - m_lastEmitTimer.elapsed();
+            }
+            emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), energy, 0.0, iter));
+            m_lastEmitTimer.restart();
+            return true;
+        });
+
+        if (!optimizer->InitializeOptimization(mol)) {
+            emit errorOccurred(tr("Optimizer initialization failed."));
+            return;
+        }
+
+        Optimization::OptimizationResult result = optimizer->Optimize(m_config.writeTrajectory, 0);
+
+        if (!result.success && !m_stopRequested.loadRelaxed()) {
             emit errorOccurred(tr("Optimization failed: %1")
                                    .arg(QString::fromStdString(result.error_message)));
             return;
         }
 
-        emit frameReady(moleculeToFrame(result.final_molecule, m_initialAtoms.size(),
-            result.final_energy, 0.0, result.iterations_performed));
+        if (result.success)
+            emit frameReady(moleculeToFrame(result.final_molecule, m_initialAtoms.size(),
+                result.final_energy, 0.0, result.iterations_performed));
     } catch (const std::exception& e) {
         emit errorOccurred(tr("Optimization threw: %1").arg(QString::fromUtf8(e.what())));
     }

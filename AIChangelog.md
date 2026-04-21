@@ -1,5 +1,13 @@
 # AIChangelog - Qurcuma Improvements
 
+## April 2026 - Simulation: Echtzeit-Schrittanzeige & RATTLE-UI
+
+- MD: Jeder berechnete Schritt wird angezeigt; `fpsLimit` koppelt Step-Rate an Anzeige-Rate 1:1, throttelt nur wenn CPU schneller als Ziel (bei langsamer Rechnung läuft jede Step voll durch)
+- MD-Render-Fix: Backpressure entfernt, throttle-then-emit statt emit-then-ack — deterministische Cadence, keine Jitter-induzierten Frame-Drops durch Qt3D-Coalescing mehr
+- OPT: Per-Schritt-Callback via `OptimizerDriver::setStepCallback()` — jede Iterationsgeometrie wird live dargestellt, gleicher throttle-then-emit-Pfad
+- RATTLE: Vollständige UI im SimulationDock (Mode off/RATTLE/H-only, 1-2/1-3 Constraints, Toleranzen, Max-Iter); wird an SimpleMD-JSON weitergereicht
+- curcuma: `StepCallback`-API in `optimizer_driver.h/.cpp` ergänzt (std::function-basiert, kein API-Break)
+
 ## January 2025 - Complete SFTP Integration & HPC Workflow ✅
 
 ### Phase SFTP Integration - Production-Ready Remote File Access (~1200 lines total)

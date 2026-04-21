@@ -238,7 +238,6 @@ private slots:
     void onBondPicked(Qt3DRender::QPickEvent *pickEvent);  // Claude Generated - Phase 4B - Handle bond picking
     void onAutoSaveTimer();  // Claude Generated - Phase 4B - Auto-save XYZ with debouncing
     void onStructureChanged();  // Claude Generated - Phase 4B - Handle bond editor changes
-    void flushSimFrame();  // Claude Generated - GUI-side frame coalescing: actual render, latest-pending only
 
 private:
     Qt3DExtras::Qt3DWindow *m_view;
@@ -362,11 +361,6 @@ private:
     // Claude Generated - Phase 3.2: GPU instanced bond renderer.
     // Activated alongside atom instancing. Per-frame update just uploads centers + lengths.
     BondInstancingSystem *m_bondInstancing = nullptr;
-
-    // Claude Generated - Frame coalescing: worker may emit frames faster than GUI can render.
-    // updateSimulationFrame stores latest, schedules a single flush; intermediates are dropped.
-    SimulationFramePtr m_pendingSimFrame;
-    bool m_simFlushScheduled = false;
 
     // Mouse interaction - Claude Generated
     bool m_leftMousePressed = false;

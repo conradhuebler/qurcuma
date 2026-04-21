@@ -92,6 +92,7 @@ void SimulationControlWidget::setupUI()
 
     // ---- Status (directly under buttons) ----
     m_statusLabel = new QLabel(tr("Ready"), this);
+    m_statusLabel->setTextFormat(Qt::RichText);
     m_statusLabel->setStyleSheet("color: gray; font-size: 11px;");
     m_statusLabel->setWordWrap(true);
     innerLayout->addWidget(m_statusLabel);
@@ -124,8 +125,8 @@ void SimulationControlWidget::setupUI()
     m_fpsLimitSpin->setRange(1, 240);
     m_fpsLimitSpin->setValue(30);
     m_fpsLimitSpin->setSuffix(tr(" fps"));
-    m_fpsLimitSpin->setToolTip(tr("Max GUI update rate"));
-    mdForm->addRow(tr("Display rate:"), m_fpsLimitSpin);
+    m_fpsLimitSpin->setToolTip(tr("Steps displayed per second — controls simulation speed"));
+    mdForm->addRow(tr("Speed:"), m_fpsLimitSpin);
 
     m_gpuCombo = new QComboBox(this);
     m_gpuCombo->addItem(tr("CPU (none)"), "none");
@@ -140,6 +141,60 @@ void SimulationControlWidget::setupUI()
     mdForm->addRow("", m_perfCheck);
 
     innerLayout->addWidget(mdGroup);
+
+    // ---- RATTLE constraints (MD only) ----
+    m_rattleGroup = new QGroupBox(tr("RATTLE Constraints"), this);
+    auto* rattleOuterLayout = new QVBoxLayout(m_rattleGroup);
+    rattleOuterLayout->setSpacing(4);
+    rattleOuterLayout->setContentsMargins(4, 4, 4, 4);
+
+    auto* rattleModeForm = new QFormLayout;
+    m_rattleCombo = new QComboBox(this);
+    m_rattleCombo->addItem(tr("Off"), 0);
+    m_rattleCombo->addItem(tr("RATTLE"), 1);
+    m_rattleCombo->addItem(tr("RATTLE (H-only)"), 2);
+    m_rattleCombo->setToolTip(tr("Bond-length constraint algorithm (RATTLE)"));
+    rattleModeForm->addRow(tr("Mode:"), m_rattleCombo);
+    rattleOuterLayout->addLayout(rattleModeForm);
+
+    // Detail controls — shown only when RATTLE is active
+    m_rattleDetails = new QWidget(m_rattleGroup);
+    auto* rattleForm = new QFormLayout(m_rattleDetails);
+    rattleForm->setContentsMargins(0, 0, 0, 0);
+
+    m_rattle12Check = new QCheckBox(tr("Constrain 1-2 bonds"), this);
+    m_rattle12Check->setChecked(true);
+    rattleForm->addRow("", m_rattle12Check);
+
+    m_rattle13Check = new QCheckBox(tr("Constrain 1-3 angles"), this);
+    m_rattle13Check->setChecked(false);
+    rattleForm->addRow("", m_rattle13Check);
+
+    m_rattleTol12Spin = new QDoubleSpinBox(this);
+    m_rattleTol12Spin->setRange(1e-10, 1e-1);
+    m_rattleTol12Spin->setDecimals(8);
+    m_rattleTol12Spin->setSingleStep(1e-5);
+    m_rattleTol12Spin->setValue(1e-4);
+    m_rattleTol12Spin->setToolTip(tr("Tolerance for 1-2 bond constraints (Bohr²)"));
+    rattleForm->addRow(tr("Tol 1-2:"), m_rattleTol12Spin);
+
+    m_rattleTol13Spin = new QDoubleSpinBox(this);
+    m_rattleTol13Spin->setRange(1e-10, 1e-1);
+    m_rattleTol13Spin->setDecimals(8);
+    m_rattleTol13Spin->setSingleStep(1e-4);
+    m_rattleTol13Spin->setValue(1e-3);
+    m_rattleTol13Spin->setToolTip(tr("Tolerance for 1-3 angle constraints (Bohr²)"));
+    rattleForm->addRow(tr("Tol 1-3:"), m_rattleTol13Spin);
+
+    m_rattleMaxIterSpin = new QSpinBox(this);
+    m_rattleMaxIterSpin->setRange(1, 1000);
+    m_rattleMaxIterSpin->setValue(100);
+    m_rattleMaxIterSpin->setToolTip(tr("Maximum RATTLE iterations per MD step"));
+    rattleForm->addRow(tr("Max iter:"), m_rattleMaxIterSpin);
+
+    rattleOuterLayout->addWidget(m_rattleDetails);
+    m_rattleDetails->setVisible(false);  // hidden until mode != off
+    innerLayout->addWidget(m_rattleGroup);
 
     // ---- Opt parameters ----
     auto* optGroup = new QGroupBox(tr("Optimization"), this);
@@ -205,6 +260,16 @@ void SimulationControlWidget::setupUI()
     connect(m_writeTrjCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_perfCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_convergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_rattle12Check, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_rattle13Check, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_rattleTol12Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rattleTol13Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rattleMaxIterSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+
+    // Show/hide RATTLE detail controls based on mode selection
+    connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int index) { m_rattleDetails->setVisible(index > 0); });
 
     auto notifyGrab = [this]() {
         emit grabSettingsChanged(m_grabStrengthSpin->value(),
@@ -231,6 +296,12 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.writeTrajectory = m_writeTrjCheck->isChecked();
     cfg.performanceAnalysis = m_perfCheck->isChecked();
     cfg.convergence = m_convergenceSpin->value();
+    cfg.rattleMode    = m_rattleCombo->currentData().toInt();
+    cfg.rattle12      = m_rattle12Check->isChecked();
+    cfg.rattle13      = m_rattle13Check->isChecked();
+    cfg.rattleTol12   = m_rattleTol12Spin->value();
+    cfg.rattleTol13   = m_rattleTol13Spin->value();
+    cfg.rattleMaxIter = m_rattleMaxIterSpin->value();
     return cfg;
 }
 
@@ -269,6 +340,11 @@ void SimulationControlWidget::onStartClicked()
 
     m_config = buildConfig();
 
+    // Reset FPS measurement for the new simulation run
+    m_frameCount = 0;
+    m_actualFps = 0.0;
+    m_fpsTimer.invalidate();
+
     emit workerStarted(m_worker);
     setRunning(true);
     m_statusLabel->setText(tr("Starting..."));
@@ -303,21 +379,40 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
     if (!frame)
         return;
 
+    // Measure actual FPS (update every second)
+    m_frameCount++;
+    if (!m_fpsTimer.isValid() || m_fpsTimer.elapsed() >= 1000) {
+        qint64 elapsed = m_fpsTimer.isValid() ? m_fpsTimer.elapsed() : 1000;
+        m_actualFps = 1000.0 * m_frameCount / elapsed;
+        m_frameCount = 0;
+        m_fpsTimer.restart();
+    }
+
+    // Format FPS string: red when actual < configured limit
+    QString fpsText;
+    if (m_actualFps < m_config.fpsLimit) {
+        fpsText = tr("<span style='color:red'>%1 fps</span>").arg(m_actualFps, 0, 'f', 1);
+    } else {
+        fpsText = tr("%1 fps").arg(m_actualFps, 0, 'f', 1);
+    }
+
     if (m_config.mode == SimulationConfig::Mode::MolecularDynamics) {
         const double kB_Eh = 3.1668114e-6;
         double tempK = (frame->ekin > 0 && !m_atoms.isEmpty())
             ? (2.0 * frame->ekin) / (3.0 * m_atoms.size() * kB_Eh)
             : 0.0;
         m_statusLabel->setText(
-            tr("Step %1 | E= %2 Eh | T≈ %3 K")
+            tr("Step %1 | E= %2 Eh | T≈ %3 K | %4")
                 .arg(frame->step)
                 .arg(frame->energy, 0, 'f', 6)
-                .arg(tempK, 0, 'f', 0));
+                .arg(tempK, 0, 'f', 0)
+                .arg(fpsText));
     } else {
         m_statusLabel->setText(
-            tr("Iter %1 | E= %2 Eh")
+            tr("Iter %1 | E= %2 Eh | %3")
                 .arg(frame->step)
-                .arg(frame->energy, 0, 'f', 8));
+                .arg(frame->energy, 0, 'f', 8)
+                .arg(fpsText));
     }
 }
 
@@ -337,11 +432,12 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
         == static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
     m_tempSpin->setEnabled(isMD);
     m_timestepSpin->setEnabled(isMD);
-    m_fpsLimitSpin->setEnabled(isMD);
+    // FPS controls simulation speed for both MD and OPT — always enabled
     m_gpuCombo->setEnabled(isMD);
     m_perfCheck->setEnabled(isMD);
     m_convergenceSpin->setEnabled(!isMD);
     m_optimizerCombo->setEnabled(!isMD);
+    m_rattleGroup->setVisible(isMD);
 }
 
 void SimulationControlWidget::setRunning(bool running)
@@ -360,6 +456,12 @@ void SimulationControlWidget::setRunning(bool running)
     m_writeTrjCheck->setEnabled(!running);
     m_perfCheck->setEnabled(!running);
     m_convergenceSpin->setEnabled(!running);
+    m_rattleCombo->setEnabled(!running);
+    m_rattle12Check->setEnabled(!running);
+    m_rattle13Check->setEnabled(!running);
+    m_rattleTol12Spin->setEnabled(!running);
+    m_rattleTol13Spin->setEnabled(!running);
+    m_rattleMaxIterSpin->setEnabled(!running);
 
     emit simulationRunningChanged(running);
 }

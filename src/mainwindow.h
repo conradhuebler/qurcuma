@@ -10,6 +10,7 @@
 #include <QCompleter>
 #include <QDateTime>
 #include <QDockWidget>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QFileSystemModel>
 #include <QHash>
@@ -342,6 +343,7 @@ private:
     SimulationConfig m_simulationConfig;             // Claude Generated - Shared config, edited from dock
 
     // Claude Generated - Interactive Simulation Integration
+    QElapsedTimer m_simStatusBarTimer;  // Throttle status bar updates to ~5 Hz
     void wireSimulationWorker(SimulationWorker* worker);  // Claude Generated - Direct worker->view wiring
     void onSimulationConfigChanged(SimulationConfig cfg);
 

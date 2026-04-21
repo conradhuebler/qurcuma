@@ -1531,32 +1531,13 @@ void MoleculeViewer::updateBondsHybrid(int frameIndex)
     }
 }
 
-// Claude Generated - Frame coalescing entry: store latest frame ptr, schedule single flush.
-// Worker can emit frameReady faster than GUI renders; intermediate frames get dropped
-// so backlog stays bounded and latency stays low. The actual render happens in flushSimFrame.
-// Zero-copy: frame is a QSharedPointer<const SimulationFrame> — pointer copy only.
+// Apply a simulation frame to the scene. Worker emits are already throttled to the
+// target fps in SimulationWorker::runMD/runOptimization, so Qt3D receives events in a
+// deterministic cadence — no backpressure or ack needed.
 void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
 {
     if (!frame)
         return;
-    m_pendingSimFrame = frame;
-    if (!m_simFlushScheduled) {
-        m_simFlushScheduled = true;
-        QMetaObject::invokeMethod(this, "flushSimFrame", Qt::QueuedConnection);
-    }
-}
-
-// Claude Generated - Actual render of most recent simulation frame.
-// Reuses existing bonds, no clearScene/detectBonds unless topology changed.
-// Skips O(n²) bond detection on every frame; critical for large molecule MD performance.
-void MoleculeViewer::flushSimFrame()
-{
-    m_simFlushScheduled = false;
-    if (!m_pendingSimFrame)
-        return;
-
-    SimulationFramePtr frame = m_pendingSimFrame;
-    m_pendingSimFrame.reset();
 
     const auto& positions = frame->positions;
     const int n = static_cast<int>(positions.size());
