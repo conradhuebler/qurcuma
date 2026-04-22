@@ -6,6 +6,7 @@
 #include <Qt3DCore/QEntity>
 #include <Qt3DCore/QGeometry>
 #include <Qt3DRender/QGeometryRenderer>
+#include <Qt3DRender/QParameter>
 #include <QVector3D>
 #include <QColor>
 #include <QVector>
@@ -45,6 +46,9 @@ public:
     void updateAtomColors(const QVector<QColor>& colors);
     void updateAtomScales(const QVector<float>& scales);
 
+    // Update world-space camera position for correct specular lighting
+    void setCameraPosition(const QVector3D &pos);
+
     // Picking support
     int raycastAtom(const QVector3D& rayOrigin, const QVector3D& rayDirection,
                    const QVector<QVector3D>& atomPositions,
@@ -80,6 +84,9 @@ private:
 
     // Instance data
     QVector<AtomInstance> m_atomInstances;
+
+    // Lighting parameter - updated each frame with camera world position
+    Qt3DRender::QParameter* m_cameraPosParam = nullptr;
 
     // Status
     bool m_isSupported = true;

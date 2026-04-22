@@ -9,6 +9,7 @@
 #include <Qt3DCore/QEntity>
 #include <Qt3DCore/QGeometry>
 #include <Qt3DRender/QGeometryRenderer>
+#include <Qt3DRender/QParameter>
 #include <QColor>
 #include <QObject>
 #include <QQuaternion>
@@ -40,6 +41,9 @@ public:
     int bondCount() const { return m_instances.size(); }
     void setVisible(bool visible);
 
+    // Update world-space camera position for correct specular lighting
+    void setCameraPosition(const QVector3D &pos);
+
 private:
     void createGeometry();
     void createInstanceBuffer();
@@ -50,6 +54,9 @@ private:
     Qt3DCore::QGeometry* m_geometry = nullptr;
     Qt3DRender::QGeometryRenderer* m_geometryRenderer = nullptr;
     Qt3DCore::QBuffer* m_instanceBuffer = nullptr;
+
+    // Lighting parameter - updated each frame with camera world position
+    Qt3DRender::QParameter* m_cameraPosParam = nullptr;
 
     QVector<BondInstance> m_instances;
 };

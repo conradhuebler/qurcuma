@@ -13,7 +13,9 @@
 #include <Qt3DExtras/QSphereMesh>
 #include <Qt3DExtras/QCylinderMesh>
 #include <Qt3DExtras/QPhongMaterial>
+#include <Qt3DExtras/QForwardRenderer>  // Claude Generated - dark clear color
 #include <Qt3DRender/QCamera>
+#include <Qt3DRender/QPointLight>        // Claude Generated - world-fixed lights
 #include <Qt3DRender/QPickEvent>      // Claude Generated - Phase 2A
 #include <Qt3DExtras/QOrbitCameraController>
 #include <QMouseEvent>
@@ -25,13 +27,16 @@
 #include <QInputDialog>
 #include <QImage>
 #include <QPixmap>
+#include <QColorDialog>
 #include <QComboBox>
+#include <QGridLayout>
 #include <QSlider>
 #include <QCheckBox>
 #include <QLabel>
 #include <QSpinBox>
 #include <QPushButton>
 #include <QTimer>
+#include <QToolButton>
 #include <cmath>
 
 const float MoleculeViewer::DEFAULT_BOND_DISTANCE = 3.0f; // Å
@@ -75,6 +80,13 @@ void MoleculeViewer::setupViewer()
     m_view = new Qt3DExtras::Qt3DWindow();
     m_container = QWidget::createWindowContainer(m_view, this);
 
+    // Claude Generated - User-configurable clear color. Default is a lifted
+    // dark slate, not pitch black, so atom silhouettes have contrast without
+    // the scene feeling like a black void. Changed via setBackgroundColor().
+    if (auto* fg = qobject_cast<Qt3DExtras::QForwardRenderer*>(m_view->defaultFrameGraph())) {
+        fg->setClearColor(m_backgroundColor);
+    }
+
     // Layout erstellen
     QVBoxLayout *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -89,6 +101,56 @@ void MoleculeViewer::setupViewer()
 
     // Root Entity erstellen
     m_rootEntity = new Qt3DCore::QEntity();
+
+    // Model entity: rotation pivot between root and molecule.
+    // Mouse drag rotates m_modelTransform instead of orbiting the camera.
+    m_modelEntity = new Qt3DCore::QEntity(m_rootEntity);
+    m_modelEntity->setObjectName(QStringLiteral("__qurcuma_model_root__"));
+    m_modelTransform = new Qt3DCore::QTransform(m_modelEntity);
+    m_modelEntity->addComponent(m_modelTransform);
+    m_modelRotation = QQuaternion();
+
+    // Claude Generated - 4 world-fixed corner lights positioned at the 4
+    // corners of the FRONT face of the scene bounding cube (+Z, ±X, ±Y),
+    // not the 4 upper cube corners. Earlier +Y-only positions produced a
+    // symmetric "always-top-lit" pattern that looked camera-attached under
+    // horizontal orbit. Spreading corners across ±X AND ±Y breaks that
+    // symmetry, so camera rotation visibly shifts the lit zone.
+    //
+    // Uses QPointLight at far distance (≈directional) with a QTransform —
+    // Qt3D's default Phong shader reads QPointLight position from the
+    // entity's world transform. Parented to m_modelEntity so lights rotate
+    // with the model — lighting stays fixed relative to the molecule surface.
+    m_lightRoot = new Qt3DCore::QEntity(m_modelEntity);
+    m_lightRoot->setObjectName(QStringLiteral("__qurcuma_light_root__"));
+
+    static constexpr float kLightDistance = 1000.0f; // far → behaves directional
+    static constexpr float kKeyIntensity  = 1.0f;
+    const QColor kLightColor(255, 250, 240);
+    // Index mapping matches control-panel 2×2 grid (screen corners):
+    //   0 ◤ top-left, 1 ◥ top-right, 2 ◣ bottom-left, 3 ◢ bottom-right
+    const QVector3D cornerPos[4] = {
+        QVector3D(-1.0f,  1.0f, 1.0f), // ◤ TL
+        QVector3D( 1.0f,  1.0f, 1.0f), // ◥ TR
+        QVector3D(-1.0f, -1.0f, 1.0f), // ◣ BL
+        QVector3D( 1.0f, -1.0f, 1.0f), // ◢ BR
+    };
+    for (int i = 0; i < 4; ++i) {
+        auto* lightEntity = new Qt3DCore::QEntity(m_lightRoot);
+        m_cornerLights[i] = new Qt3DRender::QPointLight(lightEntity);
+        m_cornerLights[i]->setColor(kLightColor);
+        m_cornerLights[i]->setIntensity(m_cornerLightEnabled[i] ? kKeyIntensity : 0.0f);
+        // Zero distance attenuation — uniform intensity regardless of distance.
+        m_cornerLights[i]->setConstantAttenuation(1.0f);
+        m_cornerLights[i]->setLinearAttenuation(0.0f);
+        m_cornerLights[i]->setQuadraticAttenuation(0.0f);
+
+        auto* lightTransform = new Qt3DCore::QTransform(lightEntity);
+        lightTransform->setTranslation(cornerPos[i].normalized() * kLightDistance);
+
+        lightEntity->addComponent(m_cornerLights[i]);
+        lightEntity->addComponent(lightTransform);
+    }
 
     // Kamera einrichten
     m_camera = m_view->camera();
@@ -197,7 +259,9 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
                         (static_cast<float>(delta.x()) * right
                          + static_cast<float>(delta.y()) * up)
                         * static_cast<float>(m_grabStrength);
-                    emit atomForceRequested(m_grabbedAtom, worldForce,
+                    // Transform world-space force to model-local space (atom positions are model-local)
+                    QVector3D modelLocalForce = m_modelRotation.inverted().rotatedVector(worldForce);
+                    emit atomForceRequested(m_grabbedAtom, modelLocalForce,
                         m_grabAlpha, m_grabMaxShells);
                     m_lastMousePos = currentPos;
                     return true;
@@ -245,54 +309,38 @@ void MoleculeViewer::resizeEvent(QResizeEvent *event)
 
 void MoleculeViewer::handleMouseRotation(const QPoint& currentPos)
 {
-    // Claude Generated - Arcball rotation around view center
+    // Model-based rotation: rotate the molecule, not the camera.
     if (!m_camera) return;
 
     QPoint delta = currentPos - m_lastMousePos;
+    const float rotationSensitivity = 0.5f;
 
-    // Sensitivity parameters
-    const float rotationSensitivity = 0.5f; // degrees per pixel
+    // Use camera basis vectors as rotation reference (screen-space intuition)
+    QVector3D viewDir = m_camera->viewVector().normalized();
+    QVector3D rightVector = QVector3D::crossProduct(viewDir, m_camera->upVector()).normalized();
+    QVector3D upVector = QVector3D::crossProduct(rightVector, viewDir).normalized();
 
-    // Get current camera state
-    QVector3D viewCenter = m_camera->viewCenter();
-    QVector3D camPos = m_camera->position();
-    QVector3D upVector = m_camera->upVector();
-
-    // Calculate vector from view center to camera
-    QVector3D radiusVector = camPos - viewCenter;
-    float distance = radiusVector.length();
-
-    if (distance < 0.01f) return; // Prevent division by zero
-
-    // Normalize radius vector
-    QVector3D radialDir = radiusVector.normalized();
-
-    // Calculate rotation axes
-    // Vertical rotation: around the "right" vector (perpendicular to view direction and up vector)
-    QVector3D rightVector = QVector3D::crossProduct(radialDir, upVector).normalized();
-
-    // Horizontal rotation: around the up vector
-    QVector3D actualUpVector = QVector3D::crossProduct(rightVector, radialDir).normalized();
-
-    // Apply rotations using quaternions
+    // Incremental rotation from screen-space deltas
+    QQuaternion horizontalRotation = QQuaternion::fromAxisAndAngle(upVector, delta.x() * rotationSensitivity);
     QQuaternion verticalRotation = QQuaternion::fromAxisAndAngle(rightVector, -delta.y() * rotationSensitivity);
-    QQuaternion horizontalRotation = QQuaternion::fromAxisAndAngle(actualUpVector, delta.x() * rotationSensitivity);
 
-    // Combined rotation
-    QQuaternion totalRotation = horizontalRotation * verticalRotation;
+    // Pre-multiply: apply incremental in world space
+    QQuaternion deltaRotation = horizontalRotation * verticalRotation;
+    m_modelRotation = deltaRotation * m_modelRotation;
+    m_modelRotation.normalize();
 
-    // Rotate the radius vector
-    QVector3D newRadiusVector = totalRotation.rotatedVector(radiusVector);
+    updateModelTransformFromRotation();
+}
 
-    // Calculate new camera position
-    QVector3D newCamPos = viewCenter + newRadiusVector;
-
-    // Update camera position and up vector
-    m_camera->setPosition(newCamPos);
-
-    // Rotate up vector
-    QVector3D newUpVector = totalRotation.rotatedVector(upVector);
-    m_camera->setUpVector(newUpVector.normalized());
+void MoleculeViewer::updateModelTransformFromRotation()
+{
+    // Rotate around molecule center (pivot), not the origin:
+    // translate(center) * rotate(quat) * translate(-center)
+    QMatrix4x4 mat;
+    mat.translate(m_moleculeCenter);
+    mat.rotate(m_modelRotation);
+    mat.translate(-m_moleculeCenter);
+    m_modelTransform->setMatrix(mat);
 }
 
 void MoleculeViewer::handleMousePan(const QPoint& currentPos)
@@ -323,6 +371,8 @@ void MoleculeViewer::handleMousePan(const QPoint& currentPos)
     // Move both view center and camera position
     m_camera->setViewCenter(viewCenter + panOffset);
     m_camera->setPosition(camPos + panOffset);
+
+    updateInstancingCameraPosition();
 }
 
 void MoleculeViewer::handleMouseZoom(int delta)
@@ -360,6 +410,28 @@ void MoleculeViewer::handleMouseZoom(int delta)
         QVector3D newCamPos = viewCenter + direction * newDistance;
         m_camera->setPosition(newCamPos);
     }
+
+    updateInstancingCameraPosition();
+}
+
+// Claude Generated - Push current camera world position into instancing shaders.
+// Qt3D automatic uniform injection for custom materials is unreliable; explicit
+// QParameter update ensures specular highlight follows camera orbit.
+void MoleculeViewer::updateInstancingCameraPosition()
+{
+    if (!m_camera)
+        return;
+    const QVector3D camPos = m_camera->position();
+    if (m_atomInstancing)
+        m_atomInstancing->setCameraPosition(camPos);
+    if (m_bondInstancing)
+        m_bondInstancing->setCameraPosition(camPos);
+}
+
+// Transform model-local position to world space (applies model rotation around pivot).
+QVector3D MoleculeViewer::modelToWorld(const QVector3D& localPos) const
+{
+    return m_modelRotation.rotatedVector(localPos - m_moleculeCenter) + m_moleculeCenter;
 }
 
 // Claude Generated - Bulk-toggle all per-atom/per-bond QObjectPickers.
@@ -473,9 +545,19 @@ void MoleculeViewer::clearScene()
     }
 
     // Alle Entities löschen
-    for (Qt3DCore::QNode *node : m_rootEntity->childNodes()) {
+    // Delete children of m_modelEntity (molecule geometry),
+    // but skip m_modelTransform (component) and m_lightRoot (persistent lights).
+    for (Qt3DCore::QNode *node : m_modelEntity->childNodes()) {
+        if (node == m_modelTransform) continue;
+        if (node == m_lightRoot) continue;
         delete node;
     }
+
+    // Reset model rotation
+    m_modelRotation = QQuaternion();
+    m_modelTransform->setRotation(QQuaternion());
+    m_modelTransform->setTranslation(QVector3D(0, 0, 0));
+    m_modelTransform->setScale(1.0f);
 }
 
 
@@ -536,6 +618,36 @@ void MoleculeViewer::setColorScheme(ColorScheme scheme)
             updateMaterials();
         }
     }
+}
+
+// Claude Generated - Background color applied directly to the default
+// forward renderer clear color. Safe to call before or after the scene is built.
+void MoleculeViewer::setBackgroundColor(const QColor& color)
+{
+    if (!color.isValid() || m_backgroundColor == color) return;
+    m_backgroundColor = color;
+    if (m_view) {
+        if (auto* fg = qobject_cast<Qt3DExtras::QForwardRenderer*>(m_view->defaultFrameGraph())) {
+            fg->setClearColor(m_backgroundColor);
+        }
+    }
+}
+
+// Claude Generated - Toggle one of the 4 corner lights by setting intensity.
+// Index 0..3 maps to top-front-left / top-front-right / top-back-left / top-back-right.
+void MoleculeViewer::setCornerLightEnabled(int index, bool on)
+{
+    if (index < 0 || index > 3) return;
+    m_cornerLightEnabled[index] = on;
+    if (m_cornerLights[index]) {
+        m_cornerLights[index]->setIntensity(on ? 0.9f : 0.0f);
+    }
+}
+
+bool MoleculeViewer::isCornerLightEnabled(int index) const
+{
+    if (index < 0 || index > 3) return false;
+    return m_cornerLightEnabled[index];
 }
 
 void MoleculeViewer::setAtomTransparency(float alpha)
@@ -840,10 +952,8 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
     const int cylinderSlices = m_perfOpt ? m_perfOpt->getBondSlices() : 16;
 
     // Claude Generated - Phase 3.1: GPU instancing path for large atom counts.
-    // DISABLED by default: silent rendering failure (atoms invisible) pending shader diagnosis.
-    // Set env QURCUMA_ATOM_INSTANCING=1 to enable for debugging.
-    const bool useInstancing = renderAtoms && atoms.size() >= kAtomInstancingThreshold
-        && qEnvironmentVariableIsSet("QURCUMA_ATOM_INSTANCING");
+    // Auto-enabled when atom count exceeds threshold for performance.
+    const bool useInstancing = renderAtoms && atoms.size() >= kAtomInstancingThreshold;
 
     if (useInstancing) {
         if (m_atomInstancing) {
@@ -967,9 +1077,11 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
         }
         m_bondInstancing = new BondInstancingSystem(moleculeEntity, this);
 
-        const QColor baseColor(200, 200, 200);
+        // Claude Generated - Per-half bond coloring in instanced path.
+        // Each bond emits 2 instances (halves colored by adjacent atoms); multi
+        // bonds emit 2 halves per replica. Instance stride per bond = bondOrder * 2.
         QVector<BondInstancingSystem::BondInstance> instances;
-        instances.reserve(bonds.size());
+        instances.reserve(bonds.size() * 2);
 
         const QVector3D localUp(0, 1, 0);
         for (const Bond& bond : bonds) {
@@ -977,14 +1089,13 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
                 || bond.atom2 < 0 || bond.atom2 >= atoms.size())
                 continue;
 
-            const QVector3D start = atoms[bond.atom1].position;
-            const QVector3D end = atoms[bond.atom2].position;
-            const QVector3D direction = end - start;
+            const QVector3D posA = atoms[bond.atom1].position;
+            const QVector3D posB = atoms[bond.atom2].position;
+            const QVector3D direction = posB - posA;
             const float length = direction.length();
             if (length < 1e-4f)
                 continue;
             const QVector3D normDir = direction / length;
-            const QVector3D center = start + direction * 0.5f;
 
             QQuaternion rotation;
             const QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
@@ -996,26 +1107,39 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
                 rotation = QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle);
             }
 
-            BondInstancingSystem::BondInstance inst;
-            inst.center = center;
-            inst.halfLength = length * 0.5f;
-            inst.rotation = rotation;
-            inst.color = baseColor;
-            inst.radius = bondRadius;
-            instances.append(inst);
-
-            // Multi-bonds: offset replicas on orthogonal axis.
+            QVector3D offsetDir(0, 0, 0);
             if (bond.bondOrder > 1) {
-                QVector3D offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
+                offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
                 if (offsetDir.length() < 0.001f)
                     offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
-                const float offset = 0.2f;
-                for (int i = 1; i < bond.bondOrder; ++i) {
-                    const float currentOffset = (i % 2 == 0 ? 1 : -1) * offset * ((i + 1) / 2);
-                    BondInstancingSystem::BondInstance extra = inst;
-                    extra.center = center + offsetDir * currentOffset;
-                    instances.append(extra);
+            }
+            const float multiBondOffset = 0.2f;
+
+            const QColor colorA = getAtomColor(atoms[bond.atom1].element, atoms[bond.atom1].charge);
+            const QColor colorB = getAtomColor(atoms[bond.atom2].element, atoms[bond.atom2].charge);
+
+            for (int r = 0; r < bond.bondOrder; ++r) {
+                QVector3D repOffset(0, 0, 0);
+                if (r > 0) {
+                    const float currentOffset = (r % 2 == 0 ? 1 : -1) * multiBondOffset * ((r + 1) / 2);
+                    repOffset = offsetDir * currentOffset;
                 }
+                const QVector3D a = posA + repOffset;
+                const QVector3D b = posB + repOffset;
+                const QVector3D mid = 0.5f * (a + b);
+
+                BondInstancingSystem::BondInstance halfA;
+                halfA.center = 0.5f * (a + mid);
+                halfA.halfLength = length * 0.25f;
+                halfA.rotation = rotation;
+                halfA.color = colorA;
+                halfA.radius = bondRadius;
+                instances.append(halfA);
+
+                BondInstancingSystem::BondInstance halfB = halfA;
+                halfB.center = 0.5f * (mid + b);
+                halfB.color = colorB;
+                instances.append(halfB);
             }
         }
         m_bondInstancing->setBonds(instances);
@@ -1030,128 +1154,95 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             bondRadius *= 1.5f;  // Thicker for sticks-only
         }
 
+        // Claude Generated - Per-half bond coloring.
+        // Each bond becomes two half-cylinders, each colored from its adjacent
+        // atom's CPK color. Multi-bond replicas (double/triple) still offset
+        // perpendicular to the bond; each replica produces its own pair of
+        // halves. Per-bond stride in m_bondTransforms is (bondOrder * 2).
+        const float multiBondOffset = 0.2f;
+
         for (const Bond& bond : bonds) {
-            Qt3DCore::QEntity *bondEntity = new Qt3DCore::QEntity(moleculeEntity);
+            if (bond.atom1 < 0 || bond.atom1 >= atoms.size() ||
+                bond.atom2 < 0 || bond.atom2 >= atoms.size())
+                continue;
 
-            // Mesh
-            Qt3DExtras::QCylinderMesh *cylinderMesh = new Qt3DExtras::QCylinderMesh();
-            cylinderMesh->setRadius(bondRadius);
-            cylinderMesh->setRings(cylinderSlices);      // Claude Generated - LOD
-            cylinderMesh->setSlices(cylinderSlices);
+            const QVector3D posA = atoms[bond.atom1].position;
+            const QVector3D posB = atoms[bond.atom2].position;
+            const QVector3D direction = posB - posA;
+            const float length = direction.length();
+            if (length < 1e-4f) continue;
+            const QVector3D normDir = direction / length;
 
-            // Material
-            Qt3DExtras::QPhongMaterial *material = new Qt3DExtras::QPhongMaterial();
-            material->setAmbient(QColor(180, 180, 180));
-            material->setDiffuse(QColor(200, 200, 200));
-            material->setShininess(m_atomShininess);
-        
-        // Transform
-        Qt3DCore::QTransform *transform = new Qt3DCore::QTransform();
-        
-        // Position und Rotation berechnen
-        QVector3D start = atoms[bond.atom1].position;
-        QVector3D end = atoms[bond.atom2].position;
-        QVector3D direction = end - start;
-        float length = direction.length();
-        
-        transform->setTranslation(start + direction * 0.5f);
-        transform->setScale3D(QVector3D(1.0f, length, 1.0f));
-        
-        // Rotation zur Bindungsachse
-        QVector3D localUp(0, 1, 0);
-        QVector3D normalizedDirection = direction.normalized();
-        QVector3D rotationAxis = QVector3D::crossProduct(localUp, normalizedDirection);
-        
-        if (rotationAxis.length() < 0.001f) {
-            // Wenn die Richtung parallel zur Y-Achse ist
-            if (normalizedDirection.y() > 0) {
-                transform->setRotation(QQuaternion());  // Keine Rotation nötig
-            } else {
-                transform->setRotation(QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f));
-            }
-        } else {
-            float rotationAngle = qAcos(QVector3D::dotProduct(localUp, normalizedDirection)) * 180.0f / M_PI;
-            transform->setRotation(QQuaternion::fromAxisAndAngle(rotationAxis.normalized(), rotationAngle));
-        }
-        
-        bondEntity->addComponent(cylinderMesh);
-        bondEntity->addComponent(transform);
-        bondEntity->addComponent(material);
-
-        // Claude Generated - Phase 4B: Add ObjectPicker for bond selection.
-        // Skipped for large scenes (see comment on atom picker above).
-        if (usePickers) {
-            int bondIndex = m_bondEntities.size();
-            Qt3DRender::QObjectPicker *bondPicker = new Qt3DRender::QObjectPicker(bondEntity);
-            bondPicker->setHoverEnabled(true);
-            bondEntity->addComponent(bondPicker);
-            m_bondPickerToIndex[bondPicker] = bondIndex;
-            connect(bondPicker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onBondPicked);
-        }
-
-        // Claude Generated - Fix 2: Store bond reference for incremental updates
-        m_bondEntities.append(bondEntity);
-        m_bondTransforms.append(transform);  // cache for O(1) access in updateFramePositions
-
-            // Für Mehrfachbindungen
-            if (bond.bondOrder > 1) {
-                // Offset für zusätzliche Bindungen
-                float offset = 0.2f;
-                for (int i = 1; i < bond.bondOrder; ++i) {
-                    Qt3DCore::QEntity *additionalBondEntity = new Qt3DCore::QEntity(moleculeEntity);
-
-                    Qt3DExtras::QCylinderMesh *addCylinderMesh = new Qt3DExtras::QCylinderMesh();
-                    addCylinderMesh->setRadius(bondRadius);  // Claude Generated - use variable bond radius
-                    addCylinderMesh->setRings(cylinderSlices);
-                    addCylinderMesh->setSlices(cylinderSlices);
-            
-            Qt3DCore::QTransform *addTransform = new Qt3DCore::QTransform();
-            
-            // Position und Rotation neu berechnen
-            QVector3D start = atoms[bond.atom1].position;
-            QVector3D end = atoms[bond.atom2].position;
-            QVector3D direction = end - start;
-            float length = direction.length();
-            
-            // Berechne Offset-Richtung senkrecht zur Bindung
-            QVector3D offsetDir = QVector3D::crossProduct(direction.normalized(), QVector3D(0, 0, 1)).normalized();
-            if (offsetDir.length() < 0.001f) {
-                offsetDir = QVector3D::crossProduct(direction.normalized(), QVector3D(0, 1, 0)).normalized();
-            }
-            
-            // Alterniere die Seite für gerade/ungerade Bindungen
-            float currentOffset = (i % 2 == 0 ? 1 : -1) * offset * ((i + 1) / 2);
-            QVector3D offsetStart = start + offsetDir * currentOffset;
-            QVector3D offsetEnd = end + offsetDir * currentOffset;
-            QVector3D offsetCenter = (offsetStart + offsetEnd) * 0.5f;
-            
-            addTransform->setTranslation(offsetCenter);
-            addTransform->setScale3D(QVector3D(1.0f, length, 1.0f));
-            
-            // Rotation zur Bindungsachse
-            QVector3D localUp(0, 1, 0);
-            QVector3D normalizedDirection = direction.normalized();
-            QVector3D rotationAxis = QVector3D::crossProduct(localUp, normalizedDirection);
-            
-            if (rotationAxis.length() < 0.001f) {
-                if (normalizedDirection.y() > 0) {
-                    addTransform->setRotation(QQuaternion());
+            QQuaternion rotation;
+            {
+                QVector3D localUp(0, 1, 0);
+                QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
+                if (rotAxis.length() < 0.001f) {
+                    rotation = normDir.y() > 0
+                        ? QQuaternion()
+                        : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f);
                 } else {
-                    addTransform->setRotation(QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f));
+                    float rotAngle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
+                    rotation = QQuaternion::fromAxisAndAngle(rotAxis.normalized(), rotAngle);
                 }
-            } else {
-                float rotationAngle = qAcos(QVector3D::dotProduct(localUp, normalizedDirection)) * 180.0f / M_PI;
-                addTransform->setRotation(QQuaternion::fromAxisAndAngle(rotationAxis.normalized(), rotationAngle));
             }
-            
-                    additionalBondEntity->addComponent(addCylinderMesh);
-                    additionalBondEntity->addComponent(addTransform);
-                    additionalBondEntity->addComponent(material);
 
-                    // Claude Generated - Fix 2: Store additional bond reference
-                    m_bondEntities.append(additionalBondEntity);
-                    m_bondTransforms.append(addTransform);  // cache for O(1) access
+            QVector3D offsetDir(0, 0, 0);
+            if (bond.bondOrder > 1) {
+                offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
+                if (offsetDir.length() < 0.001f)
+                    offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
+            }
+
+            const QColor colorA = getAtomColor(atoms[bond.atom1].element, atoms[bond.atom1].charge);
+            const QColor colorB = getAtomColor(atoms[bond.atom2].element, atoms[bond.atom2].charge);
+
+            auto makeHalf = [&](const QVector3D& center, const QColor& col, bool attachPicker) {
+                Qt3DCore::QEntity* halfEntity = new Qt3DCore::QEntity(moleculeEntity);
+
+                Qt3DExtras::QCylinderMesh* mesh = new Qt3DExtras::QCylinderMesh();
+                mesh->setRadius(bondRadius);
+                mesh->setRings(cylinderSlices);
+                mesh->setSlices(cylinderSlices);
+
+                Qt3DExtras::QPhongMaterial* material = new Qt3DExtras::QPhongMaterial();
+                material->setAmbient(col.darker(180));
+                material->setDiffuse(col);
+                material->setShininess(m_atomShininess);
+
+                Qt3DCore::QTransform* transform = new Qt3DCore::QTransform();
+                transform->setTranslation(center);
+                transform->setScale3D(QVector3D(1.0f, length * 0.5f, 1.0f));
+                transform->setRotation(rotation);
+
+                halfEntity->addComponent(mesh);
+                halfEntity->addComponent(transform);
+                halfEntity->addComponent(material);
+
+                if (attachPicker && usePickers) {
+                    int bondIndex = m_bondEntities.size();
+                    Qt3DRender::QObjectPicker* picker = new Qt3DRender::QObjectPicker(halfEntity);
+                    picker->setHoverEnabled(true);
+                    halfEntity->addComponent(picker);
+                    m_bondPickerToIndex[picker] = bondIndex;
+                    connect(picker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onBondPicked);
                 }
+
+                m_bondEntities.append(halfEntity);
+                m_bondTransforms.append(transform);
+            };
+
+            for (int r = 0; r < bond.bondOrder; ++r) {
+                QVector3D repOffset(0, 0, 0);
+                if (r > 0) {
+                    const float currentOffset = (r % 2 == 0 ? 1 : -1) * multiBondOffset * ((r + 1) / 2);
+                    repOffset = offsetDir * currentOffset;
+                }
+                const QVector3D a = posA + repOffset;
+                const QVector3D b = posB + repOffset;
+                const QVector3D mid = 0.5f * (a + b);
+                makeHalf(0.5f * (a + mid), colorA, r == 0);
+                makeHalf(0.5f * (mid + b), colorB, false);
             }
         }
     }
@@ -1161,27 +1252,35 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
 void MoleculeViewer::setDefaultView()
 {
     if (!m_camera) return;
-    
+
+    // Reset model rotation
+    m_modelRotation = QQuaternion();
+    m_modelTransform->setRotation(QQuaternion());
+    m_modelTransform->setTranslation(QVector3D(0, 0, 0));
+    m_modelTransform->setScale(1.0f);
+
     // Berechne optimale Kamera-Distanz basierend auf Molekülgröße
     float effectiveRadius = m_moleculeRadius;
     if (effectiveRadius < 1.0f) {
         effectiveRadius = 10.0f; // Mindestradius für kleine Moleküle
     }
-    
+
     // Distanz für gute Übersicht - adaptiv zur Molekülgröße
     float distance = effectiveRadius * 3.0f;
-    
+
     // Position Kamera auf Z-Achse vom Molekülzentrum aus
     QVector3D cameraPos = m_moleculeCenter + QVector3D(0.0f, 0.0f, distance);
-    
+
     m_camera->setPosition(cameraPos);
     m_camera->setViewCenter(m_moleculeCenter);
     m_camera->setUpVector(QVector3D(0.0f, 1.0f, 0.0f));
-    
+
     // Kamera-Lens erweitern für große Moleküle
     float maxDistance = distance + effectiveRadius * 2.0f;
     m_camera->lens()->setNearPlane(qMax(0.1f, effectiveRadius * 0.1f));
     m_camera->lens()->setFarPlane(qMax(1000.0f, maxDistance));
+
+    updateInstancingCameraPosition();
 }
 
 void MoleculeViewer::resetView()
@@ -1295,7 +1394,7 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
 
     // Render the molecule using trajectory data
     Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
-    moleculeEntity->setParent(m_rootEntity);
+    moleculeEntity->setParent(m_modelEntity);
 
     // Claude Generated 2026 - Phase 6: notify listeners (sim dock) of the new molecule.
     emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
@@ -1342,7 +1441,7 @@ void MoleculeViewer::showFrame(int frameIndex)
 
         clearScene();
         Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[frameIndex], m_trajectoryBonds[frameIndex]);
-        moleculeEntity->setParent(m_rootEntity);
+        moleculeEntity->setParent(m_modelEntity);
 
         // Setze Kamera für diese Frame
         setDefaultView();
@@ -1362,10 +1461,10 @@ void MoleculeViewer::showFrame(int frameIndex)
 
         // Claude Generated - Phase 2B: Update measurement visualization for new frame
         if (m_measurementOverlay && m_measurementMode != 0) {
-            // Convert atom positions to QVector for measurement overlay
+            // Convert atom positions to world space for measurement overlay
             QVector<QVector3D> positions;
             for (const Atom& atom : m_trajectoryAtoms[frameIndex]) {
-                positions.append(atom.position);
+                positions.append(modelToWorld(atom.position));
             }
             m_measurementOverlay->updateMeasurement(positions);
         }
@@ -1392,45 +1491,69 @@ void MoleculeViewer::updateFramePositions(int frameIndex)
 
     // Update bond transforms using cached pointers
     const QVector<Bond>& bonds = m_trajectoryBonds[frameIndex];
+    // Claude Generated - Per-half bond layout: stride per bond = bondOrder * 2.
     int bondIndex = 0;
     for (int i = 0; i < bonds.size(); ++i) {
         if (bondIndex >= m_bondTransforms.size()) break;
         const Bond& bond = bonds[i];
+        if (bond.atom1 < 0 || bond.atom1 >= atoms.size() ||
+            bond.atom2 < 0 || bond.atom2 >= atoms.size()) {
+            bondIndex += bond.bondOrder * 2;
+            continue;
+        }
 
-        QVector3D start = atoms[bond.atom1].position;
-        QVector3D end = atoms[bond.atom2].position;
-        QVector3D direction = end - start;
-        float length = direction.length();
+        const QVector3D posA = atoms[bond.atom1].position;
+        const QVector3D posB = atoms[bond.atom2].position;
+        const QVector3D direction = posB - posA;
+        const float length = direction.length();
+        if (length < 1e-4f) {
+            bondIndex += bond.bondOrder * 2;
+            continue;
+        }
+        const QVector3D normDir = direction / length;
 
-        auto updateBondTransform = [&](Qt3DCore::QTransform* transform, QVector3D center) {
-            if (!transform) return;
-            transform->setTranslation(center);
-            transform->setScale3D(QVector3D(1.0f, length, 1.0f));
+        QQuaternion rotation;
+        {
             QVector3D localUp(0, 1, 0);
-            QVector3D normDir = direction.normalized();
             QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
             if (rotAxis.length() < 0.001f) {
-                transform->setRotation(normDir.y() > 0 ? QQuaternion()
-                    : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f));
+                rotation = normDir.y() > 0 ? QQuaternion()
+                    : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f);
             } else {
                 float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
-                transform->setRotation(QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle));
+                rotation = QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle);
             }
+        }
+
+        QVector3D offsetDir(0, 0, 0);
+        if (bond.bondOrder > 1) {
+            offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
+            if (offsetDir.length() < 0.001f)
+                offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
+        }
+        const float multiBondOffset = 0.2f;
+
+        auto writeHalf = [&](const QVector3D& center) {
+            if (bondIndex >= m_bondTransforms.size()) return;
+            if (auto* t = m_bondTransforms[bondIndex]) {
+                t->setTranslation(center);
+                t->setScale3D(QVector3D(1.0f, length * 0.5f, 1.0f));
+                t->setRotation(rotation);
+            }
+            ++bondIndex;
         };
 
-        updateBondTransform(m_bondTransforms[bondIndex], start + direction * 0.5f);
-        bondIndex++;
-
-        // Additional bond entities for double/triple bonds
-        for (int j = 1; j < bond.bondOrder && bondIndex < m_bondTransforms.size(); ++j, ++bondIndex) {
-            // Offset direction perpendicular to bond
-            QVector3D offsetDir = QVector3D::crossProduct(direction.normalized(), QVector3D(0, 0, 1)).normalized();
-            if (offsetDir.length() < 0.001f)
-                offsetDir = QVector3D::crossProduct(direction.normalized(), QVector3D(0, 1, 0)).normalized();
-            float offset = 0.2f;
-            float currentOffset = (j % 2 == 0 ? 1 : -1) * offset * ((j + 1) / 2);
-            QVector3D offsetCenter = (start + end) * 0.5f + offsetDir * currentOffset;
-            updateBondTransform(m_bondTransforms[bondIndex], offsetCenter);
+        for (int r = 0; r < bond.bondOrder; ++r) {
+            QVector3D repOffset(0, 0, 0);
+            if (r > 0) {
+                float currentOffset = (r % 2 == 0 ? 1 : -1) * multiBondOffset * ((r + 1) / 2);
+                repOffset = offsetDir * currentOffset;
+            }
+            const QVector3D a = posA + repOffset;
+            const QVector3D b = posB + repOffset;
+            const QVector3D mid = 0.5f * (a + b);
+            writeHalf(0.5f * (a + mid));
+            writeHalf(0.5f * (mid + b));
         }
     }
 
@@ -1451,7 +1574,7 @@ void MoleculeViewer::updateFramePositions(int frameIndex)
     if (m_measurementOverlay && m_measurementMode != 0) {
         QVector<QVector3D> positions;
         for (const Atom& atom : atoms) {
-            positions.append(atom.position);
+            positions.append(modelToWorld(atom.position));
         }
         m_measurementOverlay->updateMeasurement(positions);
     }
@@ -1538,37 +1661,48 @@ void MoleculeViewer::updateBondsHybrid(int frameIndex)
     // Recompute centers + halfLengths (rotations stay cached from scene build).
     // Multi-bond offsets approximated using cached rotations — visual parity with hybrid path.
     if (m_bondInstancing && m_bondInstancing->bondCount() > 0) {
+        // Claude Generated - Per-half instanced bond layout: 2 instances per bond
+        // replica. Emit centers/halfLengths in the same order as setBonds.
         QVector<QVector3D> centers;
         QVector<float> halfLengths;
         const int expected = m_bondInstancing->bondCount();
         centers.reserve(expected);
         halfLengths.reserve(expected);
 
+        const float multiBondOffset = 0.2f;
         for (const Bond& bond : bonds) {
             if (bond.atom1 < 0 || bond.atom1 >= atoms.size()
                 || bond.atom2 < 0 || bond.atom2 >= atoms.size())
                 continue;
-            const QVector3D start = atoms[bond.atom1].position;
-            const QVector3D end = atoms[bond.atom2].position;
-            const QVector3D direction = end - start;
+            const QVector3D posA = atoms[bond.atom1].position;
+            const QVector3D posB = atoms[bond.atom2].position;
+            const QVector3D direction = posB - posA;
             const float length = direction.length();
             if (length < 1e-4f)
                 continue;
             const QVector3D normDir = direction / length;
-            const QVector3D center = start + direction * 0.5f;
-            centers.append(center);
-            halfLengths.append(length * 0.5f);
+            const float quarterLen = length * 0.25f;
 
+            QVector3D offsetDir(0, 0, 0);
             if (bond.bondOrder > 1) {
-                QVector3D offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
+                offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
                 if (offsetDir.length() < 0.001f)
                     offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
-                const float offset = 0.2f;
-                for (int i = 1; i < bond.bondOrder; ++i) {
-                    const float currentOffset = (i % 2 == 0 ? 1 : -1) * offset * ((i + 1) / 2);
-                    centers.append(center + offsetDir * currentOffset);
-                    halfLengths.append(length * 0.5f);
+            }
+
+            for (int r = 0; r < bond.bondOrder; ++r) {
+                QVector3D repOffset(0, 0, 0);
+                if (r > 0) {
+                    const float currentOffset = (r % 2 == 0 ? 1 : -1) * multiBondOffset * ((r + 1) / 2);
+                    repOffset = offsetDir * currentOffset;
                 }
+                const QVector3D a = posA + repOffset;
+                const QVector3D b = posB + repOffset;
+                const QVector3D mid = 0.5f * (a + b);
+                centers.append(0.5f * (a + mid));
+                halfLengths.append(quarterLen);
+                centers.append(0.5f * (mid + b));
+                halfLengths.append(quarterLen);
             }
             if (centers.size() >= expected)
                 break;
@@ -1583,60 +1717,68 @@ void MoleculeViewer::updateBondsHybrid(int frameIndex)
         return;
     }
 
+    // Claude Generated - Per-half bond layout: stride per bond = bondOrder * 2.
     int bondIndex = 0;
     for (int i = 0; i < bonds.size() && bondIndex < m_bondTransforms.size(); ++i) {
         const Bond& bond = bonds[i];
+        if (bond.atom1 < 0 || bond.atom1 >= atoms.size() ||
+            bond.atom2 < 0 || bond.atom2 >= atoms.size()) {
+            bondIndex += bond.bondOrder * 2;
+            continue;
+        }
 
-        QVector3D start = atoms[bond.atom1].position;
-        QVector3D end = atoms[bond.atom2].position;
-        QVector3D direction = end - start;
-        float length = direction.length();
+        const QVector3D posA = atoms[bond.atom1].position;
+        const QVector3D posB = atoms[bond.atom2].position;
+        const QVector3D direction = posB - posA;
+        const float length = direction.length();
+        if (length < 1e-4f) {
+            bondIndex += bond.bondOrder * 2;
+            continue;
+        }
+        const QVector3D normDir = direction / length;
 
-        // Update center + length + rotation (rotation must be recalculated each frame
-        // because bond direction changes as atoms move during simulation)
-        if (m_bondTransforms[bondIndex]) {
-            m_bondTransforms[bondIndex]->setTranslation(start + direction * 0.5f);
-            m_bondTransforms[bondIndex]->setScale3D(QVector3D(1.0f, length, 1.0f));
-
-            // Calculate rotation to align cylinder Y-axis with bond direction
+        QQuaternion rotation;
+        {
             QVector3D localUp(0, 1, 0);
-            QVector3D normDir = direction.normalized();
             QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
             if (rotAxis.length() < 0.001f) {
-                m_bondTransforms[bondIndex]->setRotation(normDir.y() > 0 ? QQuaternion()
-                    : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f));
+                rotation = normDir.y() > 0 ? QQuaternion()
+                    : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f);
             } else {
                 float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
-                m_bondTransforms[bondIndex]->setRotation(QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle));
+                rotation = QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle);
             }
         }
-        ++bondIndex;
 
-        // Additional bonds for double/triple bonds
-        for (int j = 1; j < bond.bondOrder && bondIndex < m_bondTransforms.size(); ++j, ++bondIndex) {
-            QVector3D offsetDir = QVector3D::crossProduct(direction.normalized(), QVector3D(0, 0, 1)).normalized();
+        QVector3D offsetDir(0, 0, 0);
+        if (bond.bondOrder > 1) {
+            offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
             if (offsetDir.length() < 0.001f)
-                offsetDir = QVector3D::crossProduct(direction.normalized(), QVector3D(0, 1, 0)).normalized();
-            float offset = 0.2f;
-            float currentOffset = (j % 2 == 0 ? 1 : -1) * offset * ((j + 1) / 2);
-            QVector3D offsetCenter = (start + end) * 0.5f + offsetDir * currentOffset;
+                offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
+        }
+        const float multiBondOffset = 0.2f;
 
-            if (m_bondTransforms[bondIndex]) {
-                m_bondTransforms[bondIndex]->setTranslation(offsetCenter);
-                m_bondTransforms[bondIndex]->setScale3D(QVector3D(1.0f, length, 1.0f));
-
-                // Calculate rotation to align cylinder Y-axis with bond direction
-                QVector3D localUp(0, 1, 0);
-                QVector3D normDir = direction.normalized();
-                QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
-                if (rotAxis.length() < 0.001f) {
-                    m_bondTransforms[bondIndex]->setRotation(normDir.y() > 0 ? QQuaternion()
-                        : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f));
-                } else {
-                    float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
-                    m_bondTransforms[bondIndex]->setRotation(QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle));
-                }
+        auto writeHalf = [&](const QVector3D& center) {
+            if (bondIndex >= m_bondTransforms.size()) return;
+            if (auto* t = m_bondTransforms[bondIndex]) {
+                t->setTranslation(center);
+                t->setScale3D(QVector3D(1.0f, length * 0.5f, 1.0f));
+                t->setRotation(rotation);
             }
+            ++bondIndex;
+        };
+
+        for (int r = 0; r < bond.bondOrder; ++r) {
+            QVector3D repOffset(0, 0, 0);
+            if (r > 0) {
+                float currentOffset = (r % 2 == 0 ? 1 : -1) * multiBondOffset * ((r + 1) / 2);
+                repOffset = offsetDir * currentOffset;
+            }
+            const QVector3D a = posA + repOffset;
+            const QVector3D b = posB + repOffset;
+            const QVector3D mid = 0.5f * (a + b);
+            writeHalf(0.5f * (a + mid));
+            writeHalf(0.5f * (mid + b));
         }
     }
 }
@@ -1784,7 +1926,7 @@ void MoleculeViewer::showTrajectoryFrame(int frameIndex)
         
         // Use stored trajectory data
         Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[frameIndex], m_trajectoryBonds[frameIndex]);
-        moleculeEntity->setParent(m_rootEntity);
+        moleculeEntity->setParent(m_modelEntity);
         setDefaultView();
         
         emit frameChanged(m_currentFrame);
@@ -2223,6 +2365,56 @@ void MoleculeViewer::setupControlPanel()
     });
     panelLayout->addWidget(bondEditCombo);
 
+    // Separator
+    panelLayout->addWidget(createSeparator());
+
+    // Claude Generated - 4 corner light toggles. Compact 2×2 grid of
+    // QToolButton switches labeled by corner (TL=top-left, TR, BL=back-left,
+    // BR=back-right relative to +Z front). Hover tooltip clarifies each.
+    {
+        QWidget* lightsBox = new QWidget;
+        QGridLayout* g = new QGridLayout(lightsBox);
+        g->setContentsMargins(0, 0, 0, 0);
+        g->setSpacing(1);
+        struct CornerSpec { const char* label; const char* tip; int row; int col; };
+        const CornerSpec specs[4] = {
+            {"◤", "Top-front-left light",  0, 0},
+            {"◥", "Top-front-right light", 0, 1},
+            {"◣", "Top-back-left light",   1, 0},
+            {"◢", "Top-back-right light",  1, 1},
+        };
+        for (int i = 0; i < 4; ++i) {
+            QToolButton* btn = new QToolButton;
+            btn->setText(tr(specs[i].label));
+            btn->setToolTip(tr(specs[i].tip));
+            btn->setCheckable(true);
+            btn->setChecked(m_cornerLightEnabled[i]);
+            btn->setFixedSize(22, 22);
+            connect(btn, &QToolButton::toggled, this, [this, i](bool on) {
+                setCornerLightEnabled(i, on);
+            });
+            g->addWidget(btn, specs[i].row, specs[i].col);
+        }
+        panelLayout->addWidget(lightsBox);
+    }
+
+    // Claude Generated - Background color picker.
+    QPushButton* bgColorBtn = new QPushButton(tr("BG"));
+    bgColorBtn->setToolTip(tr("Change 3D view background color"));
+    bgColorBtn->setMaximumWidth(40);
+    auto applyBgSwatch = [this, bgColorBtn]() {
+        bgColorBtn->setStyleSheet(QString("background-color: %1;").arg(m_backgroundColor.name()));
+    };
+    applyBgSwatch();
+    connect(bgColorBtn, &QPushButton::clicked, this, [this, applyBgSwatch]() {
+        QColor c = QColorDialog::getColor(m_backgroundColor, this, tr("Background Color"));
+        if (c.isValid()) {
+            setBackgroundColor(c);
+            applyBgSwatch();
+        }
+    });
+    panelLayout->addWidget(bgColorBtn);
+
     panelLayout->addStretch();
 }
 
@@ -2343,7 +2535,7 @@ void MoleculeViewer::refreshVisualization()
         m_trajectoryAtoms[m_currentFrame],
         m_trajectoryBonds[m_currentFrame]
     );
-    moleculeEntity->setParent(m_rootEntity);
+    moleculeEntity->setParent(m_modelEntity);
 
     // NOTE: Intentionally NO setDefaultView() call - preserve camera position!
 }
@@ -2399,15 +2591,19 @@ void MoleculeViewer::centerOnAtom(int atomIndex)
 
     // Move camera to look at selected atom
     const auto& atom = atoms[atomIndex];
-    QVector3D direction = m_camera->position() - atom.position;
+    // Transform model-local position to world space for camera targeting
+    QVector3D worldPos = m_modelRotation.rotatedVector(atom.position - m_moleculeCenter) + m_moleculeCenter;
+    QVector3D direction = m_camera->position() - worldPos;
     if (direction.length() < 0.001f) {
         direction = QVector3D(0, 0, 1);  // Default if too close
     }
     direction.normalize();
 
     float distance = 5.0f;  // Default viewing distance
-    m_camera->setPosition(atom.position + direction * distance);
-    m_camera->setViewCenter(atom.position);
+    m_camera->setPosition(worldPos + direction * distance);
+    m_camera->setViewCenter(worldPos);
+
+    updateInstancingCameraPosition();
 }
 
 void MoleculeViewer::zoomToSelection(const QVector<int>& atomIndices)
@@ -2422,8 +2618,11 @@ void MoleculeViewer::zoomToSelection(const QVector<int>& atomIndices)
     float radius;
     getSelectedBounds(center, radius);
 
+    // Transform model-local center to world space
+    QVector3D worldCenter = m_modelRotation.rotatedVector(center - m_moleculeCenter) + m_moleculeCenter;
+
     // Position camera to view selection
-    QVector3D direction = m_camera->position() - center;
+    QVector3D direction = m_camera->position() - worldCenter;
     if (direction.length() < 0.001f) {
         direction = QVector3D(0, 0, 1);
     }
@@ -2434,19 +2633,22 @@ void MoleculeViewer::zoomToSelection(const QVector<int>& atomIndices)
     float distance = radius / 0.4142f;  // ~tan(22.5°)
     if (distance < 1.0f) distance = 1.0f;
 
-    m_camera->setPosition(center + direction * distance);
-    m_camera->setViewCenter(center);
+    m_camera->setPosition(worldCenter + direction * distance);
+    m_camera->setViewCenter(worldCenter);
+
+    updateInstancingCameraPosition();
 }
 
 void MoleculeViewer::fitAllInView()
 {
     if (m_trajectoryAtoms.isEmpty() || m_currentFrame >= m_trajectoryAtoms.size()) return;
 
-    QVector3D center = m_moleculeCenter;
+    // Molecule center in world space (may be offset by model rotation)
+    QVector3D worldCenter = m_modelRotation.rotatedVector(m_moleculeCenter - m_moleculeCenter) + m_moleculeCenter;
     float radius = m_moleculeRadius;
 
     // Position camera to view entire molecule
-    QVector3D direction = m_camera->position() - center;
+    QVector3D direction = m_camera->position() - worldCenter;
     if (direction.length() < 0.001f) {
         direction = QVector3D(0, 0, 1);
     }
@@ -2456,8 +2658,10 @@ void MoleculeViewer::fitAllInView()
     float distance = radius / 0.4142f;  // ~tan(22.5°) for 45 degree FOV
     if (distance < 1.0f) distance = 5.0f;
 
-    m_camera->setPosition(center + direction * distance);
-    m_camera->setViewCenter(center);
+    m_camera->setPosition(worldCenter + direction * distance);
+    m_camera->setViewCenter(worldCenter);
+
+    updateInstancingCameraPosition();
 }
 
 // Claude Generated - Phase 2A: Handle ObjectPicker click events
@@ -2503,11 +2707,11 @@ void MoleculeViewer::onAtomPicked(Qt3DRender::QPickEvent *pickEvent)
         if (measurementType != MeasurementOverlay::NoMeasurement) {
             m_measurementOverlay->setMeasurement(measurementType, QVector<int>(selectedAtoms));
 
-            // Update with current frame positions
+            // Update with current frame positions (world space)
             if (m_currentFrame < m_trajectoryAtoms.size()) {
                 QVector<QVector3D> positions;
                 for (const Atom& atom : m_trajectoryAtoms[m_currentFrame]) {
-                    positions.append(atom.position);
+                    positions.append(modelToWorld(atom.position));
                 }
                 m_measurementOverlay->updateMeasurement(positions);
             }

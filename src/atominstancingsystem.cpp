@@ -296,9 +296,19 @@ void AtomInstancingSystem::setupMaterial()
 
     technique->addRenderPass(renderPass);
     effect->addTechnique(technique);
+
+    m_cameraPosParam = new Qt3DRender::QParameter("cameraPosition", QVector3D(0, 0, 100), material);
+    material->addParameter(m_cameraPosParam);
+
     material->setEffect(effect);
 
     m_instancedEntity->addComponent(material);
+}
+
+void AtomInstancingSystem::setCameraPosition(const QVector3D &pos)
+{
+    if (m_cameraPosParam)
+        m_cameraPosParam->setValue(pos);
 }
 
 void AtomInstancingSystem::updateAtomPositions(const QVector<QVector3D>& positions)

@@ -1,5 +1,6 @@
 // main.cpp
 #include <QApplication>
+#include <QSurfaceFormat>
 #include <QTimer>
 
 #include "mainwindow.h"
@@ -14,6 +15,16 @@
 int main(int argc, char *argv[])
 {
     initialize_generated_registry();
+
+    // Claude Generated - Request 4x MSAA + 24-bit depth for smoother atom
+    // silhouettes and better depth resolution. Must be set before QApplication
+    // so the Qt3D GL context picks it up.
+    {
+        QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();
+        fmt.setSamples(4);
+        fmt.setDepthBufferSize(24);
+        QSurfaceFormat::setDefaultFormat(fmt);
+    }
 
     QApplication app(argc, argv);
     MainWindow window;

@@ -25,6 +25,7 @@ class PBRMaterial;  // Claude Generated - Phase 4A - Forward declaration
 class PerformanceOptimizer;  // Claude Generated - LOD wire-up
 class AtomInstancingSystem;  // Claude Generated - Phase 3.1 - GPU instancing
 class BondInstancingSystem;  // Claude Generated - Phase 3.2 - GPU instancing
+namespace Qt3DRender { class QPointLight; }  // Claude Generated - corner lights
 
 class MoleculeViewer : public QWidget
 {
@@ -236,6 +237,14 @@ public slots:
      *  Claude Generated - Fix for grab feedback on instanced molecules. */
     void ensurePickersForGrab();
 
+    // Claude Generated - User-controlled viewer appearance.
+    /** Change 3D view background color. */
+    void setBackgroundColor(const QColor& color);
+    QColor getBackgroundColor() const { return m_backgroundColor; }
+    /** Enable/disable one of the 4 corner lights (index 0..3). */
+    void setCornerLightEnabled(int index, bool on);
+    bool isCornerLightEnabled(int index) const;
+
 public:
     void clearScenePublic();  // Public wrapper for file loading
 
@@ -261,8 +270,21 @@ private:
     QSpinBox *m_frameJumpBox = nullptr;
 
     Qt3DCore::QEntity *m_rootEntity;
+    Qt3DCore::QEntity *m_modelEntity = nullptr;  // Model rotation parent
+    Qt3DCore::QTransform *m_modelTransform = nullptr;  // Model rotation transform
+    QQuaternion m_modelRotation;  // Accumulated model rotation
     Qt3DRender::QCamera *m_camera;
     Qt3DExtras::QOrbitCameraController *m_cameraController;
+
+    // Claude Generated - 4 world-fixed corner lights (upper cube corners).
+    // Indices: 0=top-front-left, 1=top-front-right, 2=top-back-left, 3=top-back-right.
+    // Parented to m_lightRoot (a persistent sub-entity of m_rootEntity) so that
+    // clearScene() can skip them — otherwise scene rebuilds would destroy the
+    // lights and leave dangling QDirectionalLight* pointers.
+    Qt3DCore::QEntity* m_lightRoot = nullptr;
+    Qt3DRender::QPointLight* m_cornerLights[4] = {nullptr, nullptr, nullptr, nullptr};
+    bool m_cornerLightEnabled[4] = {true, true, false, false};
+    QColor m_backgroundColor{32, 36, 44};  // Slightly lifted dark, not pure black
 
     void setupViewer();
     void setupControlPanel();  // Claude Generated - Setup integrated control panel
@@ -289,6 +311,11 @@ private:
     static const float DEFAULT_BOND_DISTANCE; // Maximaler Abstand für automatische Bindungserkennung
     QVector<Bond> detectBonds(const QVector<Atom>& atoms);
     void setDefaultView();
+    // Update camera position uniform in instancing shaders after camera moves.
+    void updateInstancingCameraPosition();
+    // Transform model-local position to world space (applies model rotation).
+    QVector3D modelToWorld(const QVector3D& localPos) const;
+
     QVector3D m_moleculeCenter;
     float m_moleculeRadius;
 
@@ -386,6 +413,7 @@ private:
     void handleMouseRotation(const QPoint& currentPos);
     void handleMousePan(const QPoint& currentPos);
     void handleMouseZoom(int delta);
+    void updateModelTransformFromRotation();  // Pivot-rotate model around molecule center
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

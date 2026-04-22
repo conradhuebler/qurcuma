@@ -7,6 +7,7 @@
 #include <Qt3DRender/QFilterKey>
 #include <Qt3DRender/QGraphicsApiFilter>
 #include <Qt3DRender/QMaterial>
+#include <Qt3DRender/QParameter>
 #include <Qt3DRender/QRenderPass>
 #include <Qt3DRender/QShaderProgram>
 #include <Qt3DRender/QTechnique>
@@ -134,7 +135,17 @@ void BondInstancingSystem::setBonds(const QVector<BondInstance>& instances)
 
     createGeometry();
     createInstanceBuffer();
-    m_instancedEntity->addComponent(buildBondMaterial(m_instancedEntity));
+    auto* material = buildBondMaterial(m_instancedEntity);
+    m_instancedEntity->addComponent(material);
+
+    m_cameraPosParam = new Qt3DRender::QParameter("cameraPosition", QVector3D(0, 0, 100), material);
+    material->addParameter(m_cameraPosParam);
+}
+
+void BondInstancingSystem::setCameraPosition(const QVector3D &pos)
+{
+    if (m_cameraPosParam)
+        m_cameraPosParam->setValue(pos);
 }
 
 void BondInstancingSystem::updateTransforms(const QVector<QVector3D>& centers,

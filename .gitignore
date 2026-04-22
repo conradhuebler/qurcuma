@@ -65,6 +65,7 @@ compile_commands.json
 
 # Test executables and artifacts (generated in root)
 test_vtf*
+!test_vtf*.cpp
 test_frame_detection*
 test_trajectory.xyz
 test_xyz_parser
