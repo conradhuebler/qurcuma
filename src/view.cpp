@@ -79,6 +79,7 @@ void MoleculeViewer::setupViewer()
     // 3D Window erstellen
     m_view = new Qt3DExtras::Qt3DWindow();
     m_container = QWidget::createWindowContainer(m_view, this);
+    m_container->setMouseTracking(true);  // Receive hover events without button press
 
     // Claude Generated - User-configurable clear color. Default is a lifted
     // dark slate, not pitch black, so atom silhouettes have contrast without
@@ -221,8 +222,8 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
                         m_grabbedAtom = -1;
                         emit atomGrabReleased();
                         // Reset cursor after grab release
-                        if (m_container)
-                            m_container->setCursor(Qt::ArrowCursor);
+                        if (m_view) m_view->setCursor(m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor);
+                        if (m_container) m_container->setCursor(m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor);
                     }
                     return true;
                 } else if (mouseEvent->button() == Qt::RightButton) {
@@ -282,6 +283,15 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
                 QWheelEvent *wheelEvent = static_cast<QWheelEvent*>(event);
                 handleMouseZoom(wheelEvent->angleDelta().y());
                 return true;
+            }
+            case QEvent::Leave: {
+                // Reset cursor when mouse leaves the 3D viewport
+                if (m_grabbedAtom < 0) {
+                    Qt::CursorShape shape = m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor;
+                    if (m_view) m_view->setCursor(shape);
+                    if (m_container) m_container->setCursor(shape);
+                }
+                break;
             }
             default:
                 break;
@@ -441,12 +451,10 @@ QVector3D MoleculeViewer::modelToWorld(const QVector3D& localPos) const
 void MoleculeViewer::setSimulationActive(bool on)
 {
     m_simulationActive = on;
-    if (!on) {
-        m_grabbedAtom = -1;
-        // Reset cursor when sim stops
-        if (m_container)
-            m_container->setCursor(Qt::ArrowCursor);
-    }
+    m_grabbedAtom = -1;
+    // Default cursor: rotation indicator when idle, arrow when no simulation.
+    if (m_view) m_view->setCursor(on ? Qt::SizeAllCursor : Qt::ArrowCursor);
+    if (m_container) m_container->setCursor(on ? Qt::SizeAllCursor : Qt::ArrowCursor);
 }
 
 void MoleculeViewer::setPickingActive(bool active)
@@ -2736,8 +2744,8 @@ void MoleculeViewer::onAtomPressedForGrab(Qt3DRender::QPickEvent *pickEvent)
         return;
     m_grabbedAtom = m_atomPickerToIndex[picker];
     // Change cursor to indicate active grabbing
-    if (m_container)
-        m_container->setCursor(Qt::ClosedHandCursor);
+    if (m_view) m_view->setCursor(Qt::ClosedHandCursor);
+    if (m_container) m_container->setCursor(Qt::ClosedHandCursor);
 }
 
 // Claude Generated - Visual feedback when hovering over grab-capable atoms
@@ -2762,10 +2770,9 @@ void MoleculeViewer::onAtomHoverEntered()
             .arg(atomIndex + 1).arg(atom.element));
     }
 
-    // Change cursor to "Open Hand" to indicate grab-ability
-    if (m_container) {
-        m_container->setCursor(Qt::OpenHandCursor);
-    }
+    // Change cursor to OpenHand to indicate grab-ability
+    if (m_view) m_view->setCursor(Qt::OpenHandCursor);
+    if (m_container) m_container->setCursor(Qt::OpenHandCursor);
 }
 
 // Claude Generated - Clear visual feedback when leaving atom
@@ -2774,9 +2781,10 @@ void MoleculeViewer::onAtomHoverExited()
     if (!m_simulationActive)
         return;
 
-    // Only reset cursor if we're not currently grabbing
-    if (m_grabbedAtom < 0 && m_container) {
-        m_container->setCursor(Qt::ArrowCursor);
+    // Reset to rotation cursor (simulation active, not over atom)
+    if (m_grabbedAtom < 0) {
+        if (m_view) m_view->setCursor(Qt::SizeAllCursor);
+        if (m_container) m_container->setCursor(Qt::SizeAllCursor);
     }
 }
 
