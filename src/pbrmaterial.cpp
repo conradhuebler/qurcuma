@@ -64,6 +64,14 @@ void PBRMaterial::buildMaterial()
     addParameter(m_lightColorParameter);
     addParameter(m_cameraPositionParameter);
 
+    // Claude Generated 2026 - Phase 1 Fog parameters
+    m_fogEnabledParameter = new Qt3DRender::QParameter("fogEnabled", 0.0f, this);
+    m_fogColorParameter = new Qt3DRender::QParameter("fogColor", QVector3D(0.125f, 0.141f, 0.172f), this);
+    m_fogDensityParameter = new Qt3DRender::QParameter("fogDensity", 0.015f, this);
+    addParameter(m_fogEnabledParameter);
+    addParameter(m_fogColorParameter);
+    addParameter(m_fogDensityParameter);
+
     // Add technique to effect
     m_technique->addRenderPass(m_renderPass);
     m_effect->addTechnique(m_technique);
@@ -111,6 +119,25 @@ void PBRMaterial::setAmbientOcclusion(float value)
         m_aoParameter->setValue(value);
         emit ambientOcclusionChanged(value);
     }
+}
+
+// Claude Generated 2026 - Phase 1 Fog setters
+void PBRMaterial::setFogEnabled(bool enabled)
+{
+    if (m_fogEnabledParameter)
+        m_fogEnabledParameter->setValue(enabled ? 1.0f : 0.0f);
+}
+
+void PBRMaterial::setFogColor(const QColor &color)
+{
+    if (m_fogColorParameter)
+        m_fogColorParameter->setValue(QVector3D(color.redF(), color.greenF(), color.blueF()));
+}
+
+void PBRMaterial::setFogDensity(float density)
+{
+    if (m_fogDensityParameter)
+        m_fogDensityParameter->setValue(density);
 }
 
 void PBRMaterial::setMaterialPreset(MaterialPreset preset)

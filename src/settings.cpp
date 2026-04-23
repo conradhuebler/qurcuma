@@ -180,6 +180,9 @@ Settings::VisualizationSettings Settings::getVisualizationSettings() const
     settings.bloomIntensity = m_settings.value(VIZ_SETTINGS_PREFIX + "bloomIntensity", 1.0f).toFloat();
     settings.hdrEnabled = m_settings.value(VIZ_SETTINGS_PREFIX + "hdrEnabled", true).toBool();
     settings.exposure = m_settings.value(VIZ_SETTINGS_PREFIX + "exposure", 1.0f).toFloat();
+    // Claude Generated 2026 - Interaction / Performance
+    settings.rotationMode = m_settings.value(VIZ_SETTINGS_PREFIX + "rotationMode", 0).toInt();
+    settings.instancingThreshold = m_settings.value(VIZ_SETTINGS_PREFIX + "instancingThreshold", 500).toInt();
 
     return settings;
 }
@@ -205,6 +208,9 @@ void Settings::setVisualizationSettings(const VisualizationSettings& settings)
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "bloomIntensity", settings.bloomIntensity);
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "hdrEnabled", settings.hdrEnabled);
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "exposure", settings.exposure);
+    // Claude Generated 2026 - Interaction / Performance
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "rotationMode", settings.rotationMode);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "instancingThreshold", settings.instancingThreshold);
     m_settings.sync();
 }
 

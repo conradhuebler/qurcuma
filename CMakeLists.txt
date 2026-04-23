@@ -72,12 +72,8 @@ set(SOURCES
     src/performanceoptimizer.cpp  # Claude Generated Phase 3B
     src/bondeditor.cpp  # Claude Generated Phase 4B
     src/pbrmaterial.cpp  # Claude Generated Phase 4A
-    src/customframegraph.cpp  # Claude Generated Phase 5A
-    src/fullscreenquad.cpp  # Claude Generated Phase 5A
     src/pdbparser.cpp  # Claude Generated Phase 5C
     src/mol2parser.cpp  # Claude Generated Phase 5C
-    src/frustumculler.cpp  # Claude Generated Phase 5D (frustum culling)
-    src/fileloadingworker.cpp  # Claude Generated Phase 5D (async file loading)
 
     #src/dialogs/nmrstructuremodel.cpp
     src/atominstancingsystem.cpp  # Claude Generated Phase 5D (GPU instancing implementation)
@@ -109,12 +105,8 @@ set(HEADERS
     src/performanceoptimizer.h  # Claude Generated Phase 3B
     src/bondeditor.h  # Claude Generated Phase 4B
     src/pbrmaterial.h  # Claude Generated Phase 4A
-    src/customframegraph.h  # Claude Generated Phase 5A
-    src/fullscreenquad.h  # Claude Generated Phase 5A
     src/pdbparser.h  # Claude Generated Phase 5C
     src/mol2parser.h  # Claude Generated Phase 5C
-    src/frustumculler.h  # Claude Generated Phase 5D (frustum culling)
-    src/fileloadingworker.h  # Claude Generated Phase 5D (async file loading)
     src/atominstancingsystem.h  # Claude Generated Phase 5D (GPU instancing implementation)
     src/bondinstancingsystem.h  # Claude Generated Phase 3.2 - Interactive Sim: bond GPU instancing
     src/simulationworker.h  # Claude Generated - Interactive Simulation Integration

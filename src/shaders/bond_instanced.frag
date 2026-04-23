@@ -10,6 +10,11 @@ in vec4 instColor;
 uniform vec3 cameraPosition;
 uniform mat4 viewMatrix;
 
+// Claude Generated 2026 - Phase 1 Fog: exponential squared distance fog
+uniform float fogEnabled = 0.0;
+uniform vec3  fogColor   = vec3(0.125, 0.141, 0.172);
+uniform float fogDensity = 0.015;
+
 out vec4 fragColor;
 
 void main()
@@ -30,5 +35,15 @@ void main()
     vec3 diffuse = instColor.rgb * diff * 0.75;
     vec3 specular = vec3(0.25) * spec;
 
-    fragColor = vec4(ambient + diffuse + specular, instColor.a);
+    vec3 color = ambient + diffuse + specular;
+
+    // Claude Generated 2026 - Phase 1 Fog blend
+    if (fogEnabled > 0.5) {
+        float d = length(cameraPosition - worldPos);
+        float f = exp(-pow(d * fogDensity, 2.0));
+        f = clamp(f, 0.0, 1.0);
+        color = mix(fogColor, color, f);
+    }
+
+    fragColor = vec4(color, instColor.a);
 }

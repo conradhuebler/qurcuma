@@ -17,7 +17,6 @@
 #include <Qt3DRender/QCamera>
 #include <Qt3DRender/QPointLight>        // Claude Generated - world-fixed lights
 #include <Qt3DRender/QPickEvent>      // Claude Generated - Phase 2A
-#include <Qt3DExtras/QOrbitCameraController>
 #include <QMouseEvent>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -161,31 +160,6 @@ void MoleculeViewer::setupViewer()
     m_camera->setPosition(QVector3D(0, 0, 100.0f));
     m_camera->setViewCenter(QVector3D(0, 0, 0));
 
-    // Kamera-Controller erstellen aber NICHT aktivieren
-    // Stattdessen verwenden wir custom mouse handling im eventFilter
-    m_cameraController = new Qt3DExtras::QOrbitCameraController(m_rootEntity);
-    // NICHT aktivieren: m_cameraController->setCamera(m_camera);
-
-    // Claude Generated - Phase 5A: Initialize custom multi-pass frame graph
-    // TEMPORARILY DISABLED (Option A): CustomFrameGraph causes rendering failures on some GPUs
-    // Using standard Qt3D rendering instead. Will implement proper fallback in Option B.
-    // Reason: RGB8_UNorm format and render target creation failing with RHI backend
-    /*
-    m_frameGraph = new CustomFrameGraph();
-
-    // Use a QTimer to defer initialization until after layout and show() have completed
-    QTimer::singleShot(0, this, [this]() {
-        if (m_frameGraph && !m_frameGraph->isInitialized()) {
-            QSize frameGraphSize = m_container->size();
-            if (frameGraphSize.isEmpty()) {
-                frameGraphSize = QSize(800, 600);  // Fallback if still not sized
-            }
-            m_frameGraph->initialize(frameGraphSize, m_camera, m_rootEntity);
-            m_view->setActiveFrameGraph(m_frameGraph);
-        }
-    });
-    */
-
     m_view->setRootEntity(m_rootEntity);
 
     // Install event filter für custom mouse interactions
@@ -302,24 +276,11 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
 
 void MoleculeViewer::resizeEvent(QResizeEvent *event)
 {
-    // Claude Generated - Handle widget resize and update frame graph viewport
     QWidget::resizeEvent(event);
-
-    // Update frame graph viewport size when widget is resized
-    // DISABLED (Option A): CustomFrameGraph temporarily disabled
-    /*
-    if (m_frameGraph && m_container) {
-        QSize newSize = m_container->size();
-        if (!newSize.isEmpty()) {
-            m_frameGraph->updateViewportSize(newSize);
-        }
-    }
-    */
 }
 
 void MoleculeViewer::handleMouseRotation(const QPoint& currentPos)
 {
-    // Model-based rotation: rotate the molecule, not the camera.
     if (!m_camera) return;
 
     QPoint delta = currentPos - m_lastMousePos;
@@ -330,7 +291,24 @@ void MoleculeViewer::handleMouseRotation(const QPoint& currentPos)
     QVector3D rightVector = QVector3D::crossProduct(viewDir, m_camera->upVector()).normalized();
     QVector3D upVector = QVector3D::crossProduct(rightVector, viewDir).normalized();
 
-    // Incremental rotation from screen-space deltas
+    if (m_rotationMode == RotationMode::CameraOrbit) {
+        // Claude Generated 2026 - Camera orbit around molecule center (pivot).
+        QQuaternion yaw = QQuaternion::fromAxisAndAngle(upVector, -delta.x() * rotationSensitivity);
+        QQuaternion pitch = QQuaternion::fromAxisAndAngle(rightVector, delta.y() * rotationSensitivity);
+        QQuaternion combined = yaw * pitch;
+
+        QVector3D camPos = m_camera->position();
+        QVector3D offset = camPos - m_moleculeCenter;
+        offset = combined.rotatedVector(offset);
+        m_camera->setPosition(m_moleculeCenter + offset);
+        m_camera->setViewCenter(m_moleculeCenter);
+        QVector3D newUp = combined.rotatedVector(m_camera->upVector()).normalized();
+        m_camera->setUpVector(newUp);
+        updateInstancingCameraPosition();
+        return;
+    }
+
+    // Model-based rotation: rotate the molecule, camera stays put.
     QQuaternion horizontalRotation = QQuaternion::fromAxisAndAngle(upVector, delta.x() * rotationSensitivity);
     QQuaternion verticalRotation = QQuaternion::fromAxisAndAngle(rightVector, -delta.y() * rotationSensitivity);
 
@@ -340,6 +318,34 @@ void MoleculeViewer::handleMouseRotation(const QPoint& currentPos)
     m_modelRotation.normalize();
 
     updateModelTransformFromRotation();
+}
+
+// Claude Generated 2026 - Rotation mode switch.
+// Model: molecule rotates, camera fixed. CameraOrbit: camera orbits, molecule identity.
+void MoleculeViewer::setRotationMode(int mode)
+{
+    RotationMode newMode = (mode == 1) ? RotationMode::CameraOrbit : RotationMode::Model;
+    if (newMode == m_rotationMode) return;
+    m_rotationMode = newMode;
+
+    if (m_rotationMode == RotationMode::CameraOrbit) {
+        // Reset model rotation so camera-orbit starts from clean state
+        m_modelRotation = QQuaternion();
+        if (m_modelTransform)
+            m_modelTransform->setMatrix(QMatrix4x4());
+    } else {
+        // Back to model mode: reset camera to default position, keep accumulated model rotation
+        setDefaultView();
+    }
+    updateInstancingCameraPosition();
+}
+
+// Claude Generated 2026 - Change instancing threshold at runtime.
+// Does not auto-rebuild current scene; next molecule load (or trajectory switch) applies it.
+void MoleculeViewer::setInstancingThreshold(int n)
+{
+    if (n < 1) n = 1;
+    m_instancingThreshold = n;
 }
 
 void MoleculeViewer::updateModelTransformFromRotation()
@@ -569,12 +575,6 @@ void MoleculeViewer::clearScene()
 }
 
 
-    void MoleculeViewer::resetCamera()
-{
-    // Reset auf gespeichertes Molekülzentrum
-    resetViewToMolecule();
-}
-
 // Claude Generated - Visual settings setters
 void MoleculeViewer::setRenderingMode(RenderingMode mode)
 {
@@ -709,6 +709,14 @@ void MoleculeViewer::setBondThickness(float thickness)
 // Claude Generated - Fix 2 & Phase 4 Final: Incremental update methods for smooth rendering
 void MoleculeViewer::updateMaterials()
 {
+    // Claude Generated 2026 - Instancing path has no per-atom QMaterial objects.
+    // Fall back to full rebuild so colors/transparency/shininess actually change.
+    if (m_atomInstancing || m_atomMaterials.isEmpty()) {
+        if (!m_trajectoryAtoms.isEmpty())
+            refreshVisualization();
+        return;
+    }
+
     // Update only the material properties of existing atoms (colors, transparency, shininess)
     // This is much faster than full scene rebuild
     for (int i = 0; i < m_atomMaterials.size(); ++i) {
@@ -768,6 +776,14 @@ void MoleculeViewer::updateMaterials()
 
 void MoleculeViewer::updateAtomGeometry()
 {
+    // Claude Generated 2026 - Instancing uses per-instance scale buffer, not per-entity meshes.
+    // Rebuild via refreshVisualization so AtomScaleFactor actually shows up.
+    if (m_atomInstancing || m_atomEntities.isEmpty()) {
+        if (!m_trajectoryAtoms.isEmpty())
+            refreshVisualization();
+        return;
+    }
+
     // Update only atom scales (transforms) - used when changing atom size
     for (int i = 0; i < m_atomEntities.size(); ++i) {
         Qt3DCore::QEntity *atomEntity = m_atomEntities[i];
@@ -797,6 +813,14 @@ void MoleculeViewer::updateAtomGeometry()
 
 void MoleculeViewer::updateBondGeometry()
 {
+    // Claude Generated 2026 - Instanced bonds don't have per-entity transforms.
+    // Full rebuild is the reliable path for BondThickness changes.
+    if (m_bondInstancing || m_bondEntities.isEmpty()) {
+        if (!m_trajectoryAtoms.isEmpty())
+            refreshVisualization();
+        return;
+    }
+
     // Update only bond thickness (transforms) - used when changing bond thickness
     for (int i = 0; i < m_bondEntities.size(); ++i) {
         Qt3DCore::QEntity *bondEntity = m_bondEntities[i];
@@ -961,7 +985,7 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
 
     // Claude Generated - Phase 3.1: GPU instancing path for large atom counts.
     // Auto-enabled when atom count exceeds threshold for performance.
-    const bool useInstancing = renderAtoms && atoms.size() >= kAtomInstancingThreshold;
+    const bool useInstancing = renderAtoms && atoms.size() >= m_instancingThreshold;
 
     if (useInstancing) {
         if (m_atomInstancing) {
@@ -993,7 +1017,7 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
     // Claude Generated - Perf: skip per-atom/per-bond QObjectPicker for large scenes.
     // Even disabled pickers add scene-graph traversal cost per mouse event. Picking for
     // large molecules should be handled by a single ray-cast, not N pickers.
-    const bool usePickers = atoms.size() < kAtomInstancingThreshold;
+    const bool usePickers = atoms.size() < m_instancingThreshold;
 
     if (renderAtoms && !useInstancing) {
         for (int atomIndex = 0; atomIndex < atoms.size(); ++atomIndex) {
@@ -1042,7 +1066,7 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             atomEntity->addComponent(material);
 
             // Claude Generated - Phase 2A: Add ObjectPicker for 3D atom selection.
-            // Skipped for large scenes (>= kAtomInstancingThreshold) to keep scene graph lean.
+            // Skipped for large scenes (>= m_instancingThreshold) to keep scene graph lean.
             if (usePickers) {
                 Qt3DRender::QObjectPicker *picker = new Qt3DRender::QObjectPicker(atomEntity);
                 picker->setHoverEnabled(true);
@@ -1407,13 +1431,11 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
     // Claude Generated 2026 - Phase 6: notify listeners (sim dock) of the new molecule.
     emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
 
-    // Kamera-Controller aktivieren (falls noch nicht aktiv)
-    if (!m_cameraController) {
-        m_cameraController = new Qt3DExtras::QOrbitCameraController(m_rootEntity);
-        m_cameraController->setLinearSpeed(50.0f);
-        m_cameraController->setLookSpeed(180.0f);
-        m_cameraController->setCamera(m_camera);
-    }
+    // Claude Generated 2026 - Orbit controller no longer force-activated on trajectory load.
+    // Rotation mode is set via setRotationMode() (Settings dialog / init path).
+
+    // Claude Generated 2026 - Phase 1 Fog: apply current fog state to freshly built materials
+    propagateFogToMaterials();
 
     // Setze die Standardansicht auf das Molekülzentrum
     setDefaultView();
@@ -1926,27 +1948,6 @@ void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, cons
         emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
 }
 
-void MoleculeViewer::showTrajectoryFrame(int frameIndex)
-{
-    if (frameIndex >= 0 && frameIndex < m_trajectoryAtoms.size()) {
-        m_currentFrame = frameIndex;
-        clearScene();
-        
-        // Use stored trajectory data
-        Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[frameIndex], m_trajectoryBonds[frameIndex]);
-        moleculeEntity->setParent(m_modelEntity);
-        setDefaultView();
-        
-        emit frameChanged(m_currentFrame);
-    }
-}
-
-void MoleculeViewer::setVTFTrajectoryData(const QVector<QVector<Atom>>& atoms, const QVector<QVector<Bond>>& bonds)
-{
-    // Same as setTrajectoryData, but specifically for VTF data
-    setTrajectoryData(atoms, bonds);
-}
-
 void MoleculeViewer::clearScenePublic()
 {
     clearScene();
@@ -2011,92 +2012,61 @@ void MoleculeViewer::saveScreenshotDialog()
                             tr("Screenshot saved to:\n%1").arg(filename));
 }
 
-// Claude Generated - Fog/Depth effect functions
+// Claude Generated 2026 - Phase 1 Fog: propagate fog parameters to all active materials.
+// intensity [0..1] maps to density [0..kFogDensityMax]. Fog color follows background color.
+static constexpr float kFogDensityMax = 0.05f;
+
+void MoleculeViewer::propagateFogToMaterials()
+{
+    const float density = m_fogIntensity * kFogDensityMax;
+    const QColor fogCol = m_backgroundColor;
+
+    // Non-instanced PBR materials (one per atom in PBR mode)
+    for (Qt3DRender::QMaterial* mat : m_atomMaterials) {
+        if (auto* pbr = qobject_cast<PBRMaterial*>(mat)) {
+            pbr->setFogEnabled(m_fogEnabled);
+            pbr->setFogColor(fogCol);
+            pbr->setFogDensity(density);
+        }
+    }
+
+    // Instanced atom/bond materials
+    if (m_atomInstancing) {
+        m_atomInstancing->setFogEnabled(m_fogEnabled);
+        m_atomInstancing->setFogColor(fogCol);
+        m_atomInstancing->setFogDensity(density);
+    }
+    if (m_bondInstancing) {
+        m_bondInstancing->setFogEnabled(m_fogEnabled);
+        m_bondInstancing->setFogColor(fogCol);
+        m_bondInstancing->setFogDensity(density);
+    }
+}
+
 void MoleculeViewer::setFogEnabled(bool enabled)
 {
     m_fogEnabled = enabled;
-    // Note: Actual fog rendering would require shader modifications
-    // For now, this stores the setting for potential future use
+    propagateFogToMaterials();
 }
 
 void MoleculeViewer::setFogIntensity(float intensity)
 {
     m_fogIntensity = qBound(0.0f, intensity, 1.0f);
+    propagateFogToMaterials();
 }
 
-// Claude Generated - Phase 5A: SSAO post-processing control
-void MoleculeViewer::setSSAOEnabled(bool enabled)
-{
-    m_ssaoEnabled = enabled;
-    if (m_frameGraph) {
-        m_frameGraph->setSSAOEnabled(enabled);
-    }
-}
+// Claude Generated 2026 - Post-processing (SSAO/Bloom/HDR/Exposure) setters store values only.
+// No render effect until Phase 2 framegraph rewrite wires a real multi-pass pipeline.
+void MoleculeViewer::setSSAOEnabled(bool enabled)     { m_ssaoEnabled = enabled; }
+void MoleculeViewer::setSSAOIntensity(float intensity){ m_ssaoIntensity = qBound(0.0f, intensity, 2.0f); }
+void MoleculeViewer::setSSAORadius(float radius)     { m_ssaoRadius = qBound(0.01f, radius, 0.2f); }
+void MoleculeViewer::setSSAOBias(float bias)         { m_ssaoBias = qBound(0.0f, bias, 0.1f); }
 
-void MoleculeViewer::setSSAOIntensity(float intensity)
-{
-    m_ssaoIntensity = qBound(0.0f, intensity, 2.0f);
-    if (m_frameGraph) {
-        m_frameGraph->setSSAOIntensity(m_ssaoIntensity);
-    }
-}
-
-void MoleculeViewer::setSSAORadius(float radius)
-{
-    m_ssaoRadius = qBound(0.01f, radius, 0.2f);
-    if (m_frameGraph) {
-        m_frameGraph->setSSAORadius(m_ssaoRadius);
-    }
-}
-
-void MoleculeViewer::setSSAOBias(float bias)
-{
-    m_ssaoBias = qBound(0.0f, bias, 0.1f);
-    if (m_frameGraph) {
-        m_frameGraph->setSSAOBias(m_ssaoBias);
-    }
-}
-
-// Claude Generated - Phase 5B: Bloom and HDR post-processing control
-void MoleculeViewer::setBloomEnabled(bool enabled)
-{
-    m_bloomEnabled = enabled;
-    if (m_frameGraph) {
-        m_frameGraph->setBloomEnabled(enabled);
-    }
-}
-
-void MoleculeViewer::setBloomThreshold(float threshold)
-{
-    m_bloomThreshold = qBound(0.5f, threshold, 1.5f);
-    if (m_frameGraph) {
-        m_frameGraph->setBloomThreshold(m_bloomThreshold);
-    }
-}
-
-void MoleculeViewer::setBloomIntensity(float intensity)
-{
-    m_bloomIntensity = qBound(0.0f, intensity, 2.0f);
-    if (m_frameGraph) {
-        m_frameGraph->setBloomIntensity(m_bloomIntensity);
-    }
-}
-
-void MoleculeViewer::setHDREnabled(bool enabled)
-{
-    m_hdrEnabled = enabled;
-    if (m_frameGraph) {
-        m_frameGraph->setHDREnabled(enabled);
-    }
-}
-
-void MoleculeViewer::setExposure(float exposure)
-{
-    m_exposure = qBound(0.5f, exposure, 3.0f);
-    if (m_frameGraph) {
-        m_frameGraph->setExposure(m_exposure);
-    }
-}
+void MoleculeViewer::setBloomEnabled(bool enabled)     { m_bloomEnabled = enabled; }
+void MoleculeViewer::setBloomThreshold(float threshold){ m_bloomThreshold = qBound(0.5f, threshold, 1.5f); }
+void MoleculeViewer::setBloomIntensity(float intensity){ m_bloomIntensity = qBound(0.0f, intensity, 2.0f); }
+void MoleculeViewer::setHDREnabled(bool enabled)       { m_hdrEnabled = enabled; }
+void MoleculeViewer::setExposure(float exposure)       { m_exposure = qBound(0.5f, exposure, 3.0f); }
 
 // Claude Generated - Trajectory animation functions
 void MoleculeViewer::startAnimation()

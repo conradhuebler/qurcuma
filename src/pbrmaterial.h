@@ -56,6 +56,11 @@ public:
 
     void setMaterialPreset(MaterialPreset preset);
 
+    // Claude Generated 2026 - Phase 1 Fog
+    void setFogEnabled(bool enabled);
+    void setFogColor(const QColor &color);
+    void setFogDensity(float density);
+
 signals:
     void baseColorChanged(const QColor &color);
     void metallicChanged(float value);
@@ -73,6 +78,11 @@ private:
     Qt3DRender::QParameter *m_lightPositionParameter = nullptr;
     Qt3DRender::QParameter *m_lightColorParameter = nullptr;
     Qt3DRender::QParameter *m_cameraPositionParameter = nullptr;
+
+    // Claude Generated 2026 - Phase 1 Fog
+    Qt3DRender::QParameter *m_fogEnabledParameter = nullptr;
+    Qt3DRender::QParameter *m_fogColorParameter = nullptr;
+    Qt3DRender::QParameter *m_fogDensityParameter = nullptr;
 
     // Material state
     QColor m_baseColor = QColor(200, 200, 200);

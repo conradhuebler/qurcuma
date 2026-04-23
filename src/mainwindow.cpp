@@ -131,6 +131,9 @@ void MainWindow::setupUI()
     m_moleculeView->setBondThickness(vizSettings.bondThickness);
     m_moleculeView->setFogEnabled(vizSettings.fogEnabled);
     m_moleculeView->setFogIntensity(vizSettings.fogIntensity);
+    // Claude Generated 2026 - Interaction & Performance persisted values
+    m_moleculeView->setRotationMode(vizSettings.rotationMode);
+    m_moleculeView->setInstancingThreshold(vizSettings.instancingThreshold);
     setCentralWidget(m_moleculeView);
 
     // Initialize available program commands before creating docks
@@ -878,7 +881,7 @@ void MainWindow::setupConnections()
                     DEBUG_LOG << "VTF: Total frames loaded:" << allAtoms.size();
                     // Set trajectory data in molecule viewer
                     // This automatically loads and displays the first frame
-                    m_moleculeView->setVTFTrajectoryData(allAtoms, allBonds);
+                    m_moleculeView->setTrajectoryData(allAtoms, allBonds);
 
                     // Frame controls are now managed by MoleculeViewer
                 } else {

@@ -44,6 +44,11 @@ public:
     // Update world-space camera position for correct specular lighting
     void setCameraPosition(const QVector3D &pos);
 
+    // Claude Generated 2026 - Phase 1 Fog
+    void setFogEnabled(bool enabled);
+    void setFogColor(const QColor &color);
+    void setFogDensity(float density);
+
 private:
     void createGeometry();
     void createInstanceBuffer();
@@ -57,6 +62,11 @@ private:
 
     // Lighting parameter - updated each frame with camera world position
     Qt3DRender::QParameter* m_cameraPosParam = nullptr;
+
+    // Claude Generated 2026 - Phase 1 Fog parameters
+    Qt3DRender::QParameter* m_fogEnabledParam = nullptr;
+    Qt3DRender::QParameter* m_fogColorParam = nullptr;
+    Qt3DRender::QParameter* m_fogDensityParam = nullptr;
 
     QVector<BondInstance> m_instances;
 };

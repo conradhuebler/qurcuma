@@ -300,6 +300,14 @@ void AtomInstancingSystem::setupMaterial()
     m_cameraPosParam = new Qt3DRender::QParameter("cameraPosition", QVector3D(0, 0, 100), material);
     material->addParameter(m_cameraPosParam);
 
+    // Claude Generated 2026 - Phase 1 Fog parameters
+    m_fogEnabledParam = new Qt3DRender::QParameter("fogEnabled", 0.0f, material);
+    m_fogColorParam = new Qt3DRender::QParameter("fogColor", QVector3D(0.125f, 0.141f, 0.172f), material);
+    m_fogDensityParam = new Qt3DRender::QParameter("fogDensity", 0.015f, material);
+    material->addParameter(m_fogEnabledParam);
+    material->addParameter(m_fogColorParam);
+    material->addParameter(m_fogDensityParam);
+
     material->setEffect(effect);
 
     m_instancedEntity->addComponent(material);
@@ -309,6 +317,25 @@ void AtomInstancingSystem::setCameraPosition(const QVector3D &pos)
 {
     if (m_cameraPosParam)
         m_cameraPosParam->setValue(pos);
+}
+
+// Claude Generated 2026 - Phase 1 Fog setters
+void AtomInstancingSystem::setFogEnabled(bool enabled)
+{
+    if (m_fogEnabledParam)
+        m_fogEnabledParam->setValue(enabled ? 1.0f : 0.0f);
+}
+
+void AtomInstancingSystem::setFogColor(const QColor &color)
+{
+    if (m_fogColorParam)
+        m_fogColorParam->setValue(QVector3D(color.redF(), color.greenF(), color.blueF()));
+}
+
+void AtomInstancingSystem::setFogDensity(float density)
+{
+    if (m_fogDensityParam)
+        m_fogDensityParam->setValue(density);
 }
 
 void AtomInstancingSystem::updateAtomPositions(const QVector<QVector3D>& positions)

@@ -258,6 +258,33 @@ void VisualizationSettingsDialog::createAppearanceGroup(QVBoxLayout* mainLayout)
     mainLayout->addWidget(appearanceGroup);
 }
 
+// Claude Generated 2026 - Interaction & Performance group: rotation mode + instancing threshold
+void VisualizationSettingsDialog::createInteractionGroup(QVBoxLayout* mainLayout)
+{
+    QGroupBox* group = new QGroupBox(tr("Interaction & Performance"), this);
+    QFormLayout* formLayout = new QFormLayout(group);
+
+    m_rotationModeCombo = new QComboBox(this);
+    m_rotationModeCombo->addItem(tr("Rotate molecule (camera fixed)"), static_cast<int>(MoleculeViewer::RotationMode::Model));
+    m_rotationModeCombo->addItem(tr("Rotate camera (orbit around molecule)"), static_cast<int>(MoleculeViewer::RotationMode::CameraOrbit));
+    m_rotationModeCombo->setToolTip(tr("Left-mouse drag behavior. Model mode rotates the molecule around its center, camera stays put. Orbit mode moves the camera around the molecule."));
+    connect(m_rotationModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &VisualizationSettingsDialog::onRotationModeChanged);
+    formLayout->addRow(tr("Rotation:"), m_rotationModeCombo);
+
+    m_instancingThresholdSpin = new QSpinBox(this);
+    m_instancingThresholdSpin->setRange(1, 100000);
+    m_instancingThresholdSpin->setSingleStep(100);
+    m_instancingThresholdSpin->setValue(500);
+    m_instancingThresholdSpin->setSuffix(tr(" atoms"));
+    m_instancingThresholdSpin->setToolTip(tr("Atom count at which rendering switches to GPU instancing. Per-atom picking/grab only available below this threshold. Raise to enable picking on larger systems (costs draw performance)."));
+    connect(m_instancingThresholdSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &VisualizationSettingsDialog::onInstancingThresholdChanged);
+    formLayout->addRow(tr("Instancing threshold:"), m_instancingThresholdSpin);
+
+    mainLayout->addWidget(group);
+}
+
 void VisualizationSettingsDialog::loadCurrentSettings()
 {
     if (!m_viewer) return;
@@ -282,6 +309,9 @@ void VisualizationSettingsDialog::loadCurrentSettings()
     m_bloomIntensitySlider->blockSignals(true);
     m_hdrEnabledCheckBox->blockSignals(true);
     m_exposureSpinBox->blockSignals(true);
+    // Claude Generated 2026 - Block interaction/performance signals
+    if (m_rotationModeCombo) m_rotationModeCombo->blockSignals(true);
+    if (m_instancingThresholdSpin) m_instancingThresholdSpin->blockSignals(true);
 
     // Claude Generated - Load from saved settings if available
     if (m_settings) {
@@ -329,6 +359,15 @@ void VisualizationSettingsDialog::loadCurrentSettings()
         m_bloomIntensityLabel->setText(QString::number(saved.bloomIntensity, 'f', 2));
         m_hdrEnabledCheckBox->setChecked(saved.hdrEnabled);
         m_exposureSpinBox->setValue(saved.exposure);
+
+        // Claude Generated 2026 - Interaction & Performance
+        if (m_rotationModeCombo) {
+            int idx = m_rotationModeCombo->findData(saved.rotationMode);
+            if (idx >= 0) m_rotationModeCombo->setCurrentIndex(idx);
+        }
+        if (m_instancingThresholdSpin) {
+            m_instancingThresholdSpin->setValue(saved.instancingThreshold);
+        }
     } else {
         // Fallback: Load from viewer (when no Settings available)
         int modeIndex = m_renderingModeCombo->findData(static_cast<int>(m_viewer->getRenderingMode()));
@@ -354,6 +393,15 @@ void VisualizationSettingsDialog::loadCurrentSettings()
         m_fogIntensitySlider->setValue(static_cast<int>(m_viewer->getFogIntensity() * 100.0f));
         m_fogIntensityLabel->setText(QString("%1%").arg(static_cast<int>(m_viewer->getFogIntensity() * 100.0f)));
         m_fogIntensitySlider->setEnabled(m_viewer->getFogEnabled());
+
+        // Claude Generated 2026 - Fallback: read from viewer
+        if (m_rotationModeCombo) {
+            int idx = m_rotationModeCombo->findData(m_viewer->getRotationMode());
+            if (idx >= 0) m_rotationModeCombo->setCurrentIndex(idx);
+        }
+        if (m_instancingThresholdSpin) {
+            m_instancingThresholdSpin->setValue(m_viewer->getInstancingThreshold());
+        }
     }
 
     // Claude Generated - Unblock signals on all widgets after loading complete
@@ -376,6 +424,9 @@ void VisualizationSettingsDialog::loadCurrentSettings()
     m_bloomIntensitySlider->blockSignals(false);
     m_hdrEnabledCheckBox->blockSignals(false);
     m_exposureSpinBox->blockSignals(false);
+    // Claude Generated 2026 - Unblock interaction/performance signals
+    if (m_rotationModeCombo) m_rotationModeCombo->blockSignals(false);
+    if (m_instancingThresholdSpin) m_instancingThresholdSpin->blockSignals(false);
 }
 
 void VisualizationSettingsDialog::onRenderingModeChanged(int index)
@@ -431,6 +482,10 @@ void VisualizationSettingsDialog::onResetDefaults()
     // Claude Generated - Reset fog settings
     m_fogEnabledCheckBox->setChecked(false);  // Fog disabled by default
     m_fogIntensitySlider->setValue(50);       // 50% intensity
+
+    // Claude Generated 2026 - Reset interaction/performance
+    if (m_rotationModeCombo) m_rotationModeCombo->setCurrentIndex(0);  // Model
+    if (m_instancingThresholdSpin) m_instancingThresholdSpin->setValue(500);
 }
 
 void VisualizationSettingsDialog::onApply()
@@ -457,6 +512,9 @@ void VisualizationSettingsDialog::onApply()
         current.bloomIntensity = m_viewer->getBloomIntensity();
         current.hdrEnabled = m_viewer->getHDREnabled();
         current.exposure = m_viewer->getExposure();
+        // Claude Generated 2026 - Interaction & Performance
+        current.rotationMode = m_viewer->getRotationMode();
+        current.instancingThreshold = m_viewer->getInstancingThreshold();
 
         m_settings->setVisualizationSettings(current);
     }
@@ -563,6 +621,21 @@ void VisualizationSettingsDialog::onExposureChanged(double value)
     m_viewer->setExposure(static_cast<float>(value));
 }
 
+// Claude Generated 2026 - Rotation mode combo
+void VisualizationSettingsDialog::onRotationModeChanged(int index)
+{
+    if (!m_viewer || !m_rotationModeCombo) return;
+    int mode = m_rotationModeCombo->itemData(index).toInt();
+    m_viewer->setRotationMode(mode);
+}
+
+// Claude Generated 2026 - Instancing threshold spinbox
+void VisualizationSettingsDialog::onInstancingThresholdChanged(int value)
+{
+    if (!m_viewer) return;
+    m_viewer->setInstancingThreshold(value);
+}
+
 // Claude Generated - Setup tabbed interface with all settings
 void VisualizationSettingsDialog::setupTabs()
 {
@@ -575,6 +648,7 @@ void VisualizationSettingsDialog::setupTabs()
     createMaterialGroup(settingsLayout);
     createSizeGroup(settingsLayout);
     createAppearanceGroup(settingsLayout);
+    createInteractionGroup(settingsLayout);  // Claude Generated 2026
     settingsLayout->addStretch();
     m_tabWidget->addTab(settingsTab, tr("Settings"));
 

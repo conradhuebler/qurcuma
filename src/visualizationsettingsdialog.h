@@ -12,6 +12,7 @@
 #include <QGroupBox>
 #include <QDoubleSpinBox>
 #include <QCheckBox>  // Claude Generated
+#include <QSpinBox>  // Claude Generated 2026 - instancing threshold control
 #include <QTabWidget>  // Claude Generated - Presets tab
 #include <QListWidget>  // Claude Generated - Preset list
 #include "view.h"
@@ -59,6 +60,9 @@ private slots:
     void onBloomIntensityChanged(int value);
     void onHDREnabledChanged(bool enabled);
     void onExposureChanged(double value);
+    // Claude Generated 2026 - Interaction & Performance controls
+    void onRotationModeChanged(int index);
+    void onInstancingThresholdChanged(int value);
     void onResetDefaults();
     void onApply();
 
@@ -80,6 +84,7 @@ private:
     void createMaterialGroup(QVBoxLayout* mainLayout);
     void createSizeGroup(QVBoxLayout* mainLayout);
     void createAppearanceGroup(QVBoxLayout* mainLayout);  // Claude Generated - Fog effects
+    void createInteractionGroup(QVBoxLayout* mainLayout);  // Claude Generated 2026 - Rotation + Threshold
     void createPresetsTab(QTabWidget* tabs);  // Claude Generated
 
     // Widgets
@@ -110,6 +115,10 @@ private:
     QLabel* m_bloomIntensityLabel;
     QCheckBox* m_hdrEnabledCheckBox;
     QDoubleSpinBox* m_exposureSpinBox;
+
+    // Claude Generated 2026 - Interaction & Performance controls
+    QComboBox* m_rotationModeCombo = nullptr;
+    QSpinBox* m_instancingThresholdSpin = nullptr;
 
     // Claude Generated - Preset management widgets
     QTabWidget* m_tabWidget;

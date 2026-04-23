@@ -20,6 +20,11 @@ uniform vec3 lightPosition;    // World space light position
 uniform vec3 lightColor;       // Light color and intensity
 uniform vec3 cameraPosition;   // Camera/eye position
 
+// Claude Generated 2026 - Phase 1 Fog: exponential squared distance fog
+uniform float fogEnabled = 0.0;  // 0.0 = off, 1.0 = on
+uniform vec3  fogColor   = vec3(0.125, 0.141, 0.172);
+uniform float fogDensity = 0.015;
+
 out vec4 fragColor;
 
 // Constants
@@ -114,6 +119,14 @@ void main()
 
     // Gamma correction
     color = pow(color, vec3(1.0 / 2.2));
+
+    // Claude Generated 2026 - Phase 1 Fog blend (exp squared)
+    if (fogEnabled > 0.5) {
+        float d = length(cameraPosition - worldPosition);
+        float f = exp(-pow(d * fogDensity, 2.0));
+        f = clamp(f, 0.0, 1.0);
+        color = mix(fogColor, color, f);
+    }
 
     fragColor = vec4(color, 1.0);
 }

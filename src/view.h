@@ -14,8 +14,6 @@
 #include <Qt3DCore/QEntity>
 #include <Qt3DCore/QTransform>
 #include <QVector3D>
-#include <Qt3DExtras/QOrbitCameraController>
-#include "customframegraph.h"  // Claude Generated - Phase 5A
 #include "simulationframe.h"  // Claude Generated - Zero-copy simulation payload
 
 class SelectionManager;  // Forward declaration
@@ -127,23 +125,31 @@ public:
     void setExposure(float exposure);
     float getExposure() const { return m_exposure; }
 
+    // Claude Generated 2026 - Rotation mode toggle (Model vs. Camera-Orbit)
+    enum class RotationMode {
+        Model = 0,        // Rotate molecule, camera stays put (default)
+        CameraOrbit = 1   // Rotate camera around molecule center
+    };
+    void setRotationMode(int mode);
+    int getRotationMode() const { return static_cast<int>(m_rotationMode); }
+
+    // Claude Generated 2026 - Configurable GPU-instancing threshold.
+    // Below threshold: per-atom entities with pickers. At/above: single instanced draw (picking disabled).
+    void setInstancingThreshold(int n);
+    int getInstancingThreshold() const { return m_instancingThreshold; }
+
     // Frame navigation support for trajectories
     void setFrameCount(int frameCount) { m_frameCount = frameCount; }
     int getFrameCount() const { return m_frameCount; }
     void setCurrentFrame(int frameIndex) { m_currentFrame = frameIndex; }
     int getCurrentFrame() const { return m_currentFrame; }
     
-    // XYZ trajectory support
+    // Trajectory data (XYZ, VTF, etc.) — call with multiple frames
     void setTrajectoryData(const QVector<QVector<Atom>>& atoms, const QVector<QVector<Bond>>& bonds);
-    void showTrajectoryFrame(int frameIndex);
-    
-    // VTF trajectory support (existing)
-    void setVTFTrajectoryData(const QVector<QVector<Atom>>& atoms, const QVector<QVector<Bond>>& bonds);
 
 public slots:
-    void resetCamera();
     void resetView();
-    void resetViewToMolecule();  // Reset auf Molekülzentrum
+    void resetViewToMolecule();  // Reset to molecule center (fallback to default if none loaded)
     void showFrame(int frameIndex);  // Show specific frame
     void nextFrame();               // Show next frame
     void previousFrame();           // Show previous frame
@@ -261,7 +267,6 @@ private:
     Qt3DExtras::Qt3DWindow *m_view;
     QWidget *m_container;
     QWidget *m_controlPanel;  // Claude Generated - Integrated control panel
-    CustomFrameGraph *m_frameGraph = nullptr;  // Claude Generated - Phase 5A: Multi-pass rendering
 
     // Claude Generated - Frame control widgets (shown/hidden based on frame count)
     QWidget *m_frameControlWidget = nullptr;
@@ -274,7 +279,6 @@ private:
     Qt3DCore::QTransform *m_modelTransform = nullptr;  // Model rotation transform
     QQuaternion m_modelRotation;  // Accumulated model rotation
     Qt3DRender::QCamera *m_camera;
-    Qt3DExtras::QOrbitCameraController *m_cameraController;
 
     // Claude Generated - 4 world-fixed corner lights (upper cube corners).
     // Indices: 0=top-front-left, 1=top-front-right, 2=top-back-left, 3=top-back-right.
@@ -302,6 +306,9 @@ private:
     void updateMaterials();     // Update only atom colors/transparency/shininess
     void updateAtomGeometry();  // Update only atom scales (transform)
     void updateBondGeometry();  // Update only bond thickness (transform scale)
+
+    // Claude Generated 2026 - Phase 1 Fog: push fog params into all active materials
+    void propagateFogToMaterials();
 
     Qt3DCore::QEntity* createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
     QColor getAtomColor(const QString& element, float charge = 0.0f);  // Claude Generated - changed to non-static for ColorScheme support
@@ -392,7 +399,11 @@ private:
     // Claude Generated - Phase 3.1: GPU instanced atom renderer.
     // Active when atoms.size() >= kAtomInstancingThreshold and atoms are drawn.
     AtomInstancingSystem *m_atomInstancing = nullptr;
-    static constexpr int kAtomInstancingThreshold = 500;
+    static constexpr int kAtomInstancingThresholdDefault = 500;
+    int m_instancingThreshold = kAtomInstancingThresholdDefault;  // Claude Generated 2026 - configurable
+
+    // Claude Generated 2026 - Rotation mode state (Model is default)
+    RotationMode m_rotationMode = RotationMode::Model;
 
     // Claude Generated - Phase 3.2: GPU instanced bond renderer.
     // Activated alongside atom instancing. Per-frame update just uploads centers + lengths.

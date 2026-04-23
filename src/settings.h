@@ -83,6 +83,9 @@ public:
         float bloomIntensity = 1.0f;
         bool hdrEnabled = true;
         float exposure = 1.0f;
+        // Claude Generated 2026 - Interaction / Performance
+        int rotationMode = 0;          // 0 = Model, 1 = CameraOrbit
+        int instancingThreshold = 500; // Atom count >= threshold switches to GPU instancing (picking disabled)
     };
 
     VisualizationSettings getVisualizationSettings() const;

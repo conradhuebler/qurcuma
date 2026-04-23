@@ -121,4 +121,3 @@ See **[AIChangelog.md](AIChangelog.md)** for significant improvements by date.
 - **Include Co-Author info**: All commits include Claude contribution notes with proper attribution
 - **Test artifacts stay local**: Build artifacts (test_vtf*, test_frame_detection, etc.) are ignored
 - **.gitignore is comprehensive**: CMake files, build directories, test artifacts, OS files are all ignored
-
