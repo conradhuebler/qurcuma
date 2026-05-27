@@ -138,6 +138,61 @@ Phase 2 ist Voraussetzung für Phase 4, weil ein einheitliches Material mit Pass
 - `src/shaders/*.frag`, `.vert` — bestehende SSAO/Bloom/Blur/Tonemap-Shader warten auf Phase 4.
 - `src/visualizationsettingsdialog.cpp/.h` — Dialog wartet passiv auf Phase-2-Wirksamkeit.
 
+## Technische Schulden — Detaillierte Analyse (2026-04)
+
+### HOCH — Sofort behebbar oder täuscht User
+
+| # | Fundstelle | Problem | Fix |
+|---|-----------|---------|-----|
+| 1 | `pbr.frag:78` | `mix(vertColor, vertColor, 0.5)` ist No-Op, ergibt immer `vertColor`. Vermutlich `mix(vertColor, baseColor, 0.5)` gemeint. **Rendering-Bug.** | `mix`-Aufruf korrigieren |
+| 2 | `resources.qrc:5-6` | Stylesheet-Einträge (`dark.qss`, `light.qss`) auskommentiert, aber `mainwindow.cpp:2677-2678` lädt sie zur Laufzeit → stilles Fallback auf kein Stylesheet | `.qrc`-Einträge reaktivieren ODER Lade-Code entfernen |
+| 3 | `visualizationsettingsdialog` | 9 UI-Widgets (SSAO/Bloom/HDR) haben keine Render-Wirkung — User stellt Slider, nichts passiert | Widgets disablen + Tooltip "Kommt in Phase 4" ODER ausblenden |
+| 4 | 8 Shader in `resources.qrc` | `ssao.vert/.frag`, `ssao_blur.frag`, `bloom_bright.frag`, `blur_horizontal.frag`, `blur_vertical.frag`, `bloom_composite.frag`, `tonemapping.frag` — kompiliert in Binary, nie geladen | In Phase 4 reaktivieren, bis dahin Kommentar im .qrc |
+
+### MITTEL — Strukturelle Schulden, mit Phase 2/3 auflösen
+
+| # | Fundstelle | Problem | Phase |
+|---|-----------|---------|-------|
+| 5 | QPhongMaterial — 15+ Referenzen in `view.cpp/h`, `measurementoverlay.cpp`, `atominstancingsystem.cpp` | Gesonderter Material-Pfad, kein Fog, doppelte Update-Logik. `atominstancingsystem.cpp:7` hat totes `#include` | Phase 2 (MolMaterial ersetzt alles) |
+| 6 | Fog/Camera-Parameter 3× identisch verdrahtet | `PBRMaterial`, `AtomInstancingSystem`, `BondInstancingSystem` kopieren gleiche `QParameter`+Setter | Phase 2 |
+| 7 | `AtomInstancingSystem` — 5 tote Methoden | `raycastAtom()`, `isSupported()`, `getLastError()`, `updateAtomColors()`, `updateAtomScales()` nie aufgerufen. `VertexData`-Struct ungenutzt. `elements`-Parameter von `setAtoms()` ignoriert | Phase 2 oder vorher |
+| 8 | `view.h` — 7 tote Member | `DEFAULT_BOND_DISTANCE` (nie gelesen), `m_currentFilePath` (nie geschrieben → Auto-Save tot), `m_autoSaveEnabled`, `m_hasUnsavedChanges`, `m_firstSelectedAtomForBond` (immer -1), `m_bondRotations` (Cache geschrieben, nie gelesen), `#include <QImage>` (unbenutzt) | Phase 3 oder vorher |
+| 9 | 9 No-Op-Setter in `view.cpp:2060-2069` | SSAO/Bloom/HDR/Exposure speichern nur Werte, kein Render-Effekt | Phase 4 |
+| 10 | 11 Setter-Gates `!m_trajectoryAtoms.isEmpty()` | Semantisch falsch — prüft Trajectory-Daten, meint "Molekül geladen". `addMolecule()` missbraucht als 1-Frame-Trajectory | Phase 3 |
+| 11 | `PerformanceOptimizer` — 11 tote API-Methoden + 3 Signale | `startMonitoring()`, `stopMonitoring()`, `recordFrame()`, `setFrustumCullingEnabled()`, `isFrustumCullingEnabled()`, `getPerformanceWarning()`, `recommendQualityMode()`, `setAdaptiveQualityEnabled()`, `isAdaptiveQualityEnabled()`, `getAverageFPS()`, `getFrameCount()` — nie extern aufgerufen | Aufräumen |
+| 12 | `BondEditor` — ~10 tote Methoden/Signale | `deselectBond()`, `clearSelection()`, `getSelectedBonds()`, `getBondCount()`, `getBond()`, `canUndo()`, `saveState()` + Signale `bondAdded/Removed/Modified`, `selectionChanged`, `editModeChanged`, `validationError` — nie extern verbunden | Aufräumen |
+| 13 | `MeasurementOverlay` — 3 tote Methoden | `updateLineColor()`, `setLineThickness()`, `calculateLabelPosition()` — nie aufgerufen | Aufräumen |
+| 14 | `XYZParser::detectAndScaleUnits()` | Aufruf auskommentiert (cpp:101-103), Funktion existiert nutzlos | Entfernen |
+| 15 | `view.cpp` — `updateMeasurementDisplay()` | Deklariert + definiert, nie aufgerufen. Messung inline in `onAtomPicked()` | Entfernen |
+| 16 | `view.cpp` — redundante Methoden | `resetView()` ≈ `resetViewToMolecule()`, `clearScenePublic()` ist trivialer Wrapper, `setFrameCount()`/`setCurrentFrame()` werden sofort von `setTrajectoryData()` überschrieben | Phase 3 |
+| 17 | 24/25 `qDebug`/`qWarning` ohne `#ifdef DEBUG_ON` | CLAUDE.md-Regel verletzt. Nur 1 Aufruf (Zeile 1879) korrekt gewrapped | Wrappen |
+
+### NIEDRIG — Sauberkeit, kein Funktionsverlust
+
+| # | Fundstelle | Problem |
+|---|-----------|---------|
+| 18 | `atom_instanced.frag:25`, `bond_instanced.frag:25` | Variable `V` deklariert, nie referenziert |
+| 19 | `ssao.frag:26-28` | `random()`-Funktion deklariert, nie aufgerufen |
+| 20 | `ssao.frag:10` | `uniform sampler2D normalTexture` deklariert, nie gelesen |
+| 21 | `pbr.frag:10` + `pbr.vert:9` | `vertColor`-Input → Standard-Qt3D-Geometrie hat kein `vertexColor`-Attribut an Location 2 → undefined/zeros |
+| 22 | `pbr.frag:117-121` | Reinhard-Tonemapping im Fragment-Shader + `tonemapping.frag` identisch → doppeltes Tonemapping-Risiko wenn Framegraph aktiviert |
+| 23 | `atom_instanced.frag` ≈ `bond_instanced.frag` | Fast identisch (nur specular-Power und ambient/diffuse-Ratios verschieden) → Konsolidierungsschuld |
+| 24 | Instancing-Shader hardcodiert Licht | `Lview = normalize(vec3(0.3, 0.7, 0.5))`, PBR nutzt `lightPosition`-Uniform → Inkonsistenz |
+| 25 | `NMR_DEBUG` 4× definiert | In `nmrspectrumdialog.h:11`, `nmrcontroller.h:15`, `nmrdatastore.h:15`, `nmrstructureproxymodel.h:14` → Redefinition-Warnungen |
+| 26 | `nmrspectrumdialog.h:99` | Tote auskommentierte Method-Deklaration |
+| 27 | `nmrcontroller.cpp:164` | Totes `// emit dataExportFailed(...)` |
+| 28 | `mainwindow.cpp:114` | Irreführendes `//delete m_currentProcess;` (Qt auto-deleted) |
+
+### Empfohlene Reihenfolge für Quick-Wins (vor Phase 2)
+
+1. **pbr.frag `mix`-Bug fixen** — 1-Zeilen-Change, Rendering-Korrektur
+2. **Tote Methoden entfernen**: `updateMeasurementDisplay()`, `AtomInstancingSystem::raycastAtom/isSupported/getLastError/updateAtomColors/updateAtomScales/VertexData`, `MeasurementOverlay::updateLineColor/setLineThickness/calculateLabelPosition`, `XYZParser::detectAndScaleUnits()`
+3. **Tote Member entfernen**: `DEFAULT_BOND_DISTANCE`, `m_currentFilePath`, `m_autoSaveEnabled`, `m_hasUnsavedChanges`, `m_firstSelectedAtomForBond`, `m_bondRotations`, `#include <QImage>`
+4. **SSAO/Bloom/HDR-Widgets disablen** mit Hinweis bis Phase 4
+5. **qDebug/qWarning in `#ifdef DEBUG_ON` wrappen**
+6. **Stylesheet-.qrc-Problem klären** — reaktivieren oder Lade-Code entfernen
+7. **`NMR_DEBUG`-Doppeldefinitionen** in ein gemeinsames Header oder `#ifndef`-Guard
+
 ## Referenzen
 
 - `docs/architecture/rendering-pipeline.md` — Stand vor Cleanup (veraltet, zu aktualisieren nach Phase 2).

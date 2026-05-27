@@ -38,13 +38,10 @@ public:
 
     // Atom rendering
     void setAtoms(const QVector<QVector3D>& positions,
-                  const QVector<QString>& elements,
                   const QVector<QColor>& colors,
                   const QVector<float>& scales);
 
     void updateAtomPositions(const QVector<QVector3D>& positions);
-    void updateAtomColors(const QVector<QColor>& colors);
-    void updateAtomScales(const QVector<float>& scales);
 
     // Update world-space camera position for correct specular lighting
     void setCameraPosition(const QVector3D &pos);
@@ -54,15 +51,8 @@ public:
     void setFogColor(const QColor &color);
     void setFogDensity(float density);
 
-    // Picking support
-    int raycastAtom(const QVector3D& rayOrigin, const QVector3D& rayDirection,
-                   const QVector<QVector3D>& atomPositions,
-                   float pickingRadius = 0.3f) const;
-
     // Status
     int getAtomCount() const { return m_atomInstances.size(); }
-    bool isSupported() const { return m_isSupported; }
-    QString getLastError() const { return m_lastError; }
 
     // Show/hide
     void setVisible(bool visible);
@@ -98,16 +88,7 @@ private:
     Qt3DRender::QParameter* m_fogColorParam = nullptr;
     Qt3DRender::QParameter* m_fogDensityParam = nullptr;
 
-    // Status
-    bool m_isSupported = true;
     bool m_isVisible = true;
-    QString m_lastError = "";
-
-    // Atom vertex attribute structure
-    struct VertexData {
-        QVector3D position;
-        float radius;
-    };
 };
 
 #endif // ATOMINSTANCINGSYSTEM_H

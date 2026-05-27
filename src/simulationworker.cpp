@@ -7,11 +7,11 @@
 #include "external/json.hpp"
 using json = nlohmann::json;
 
+#include <src/core/molecule.h>
 #include <src/capabilities/simplemd.h>
 #include <src/capabilities/optimizer_factory.h>
 #include <src/capabilities/optimizer_interface.h>
 #include <src/core/energycalculator.h>
-#include <src/core/molecule.h>
 #include <src/core/elements.h>
 
 #include <QMutexLocker>
@@ -19,6 +19,7 @@ using json = nlohmann::json;
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QDebug>
+#include <algorithm>
 #include <limits>
 
 SimulationWorker::SimulationWorker(QObject* parent)
@@ -334,7 +335,7 @@ void SimulationWorker::runOptimization()
                 QThread::msleep(static_cast<unsigned long>(std::min(remaining, qint64(50))));
                 remaining = targetMs - m_lastEmitTimer.elapsed();
             }
-            emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), energy, 0.0, iter));
+            Q_EMIT frameReady(moleculeToFrame(mol, m_initialAtoms.size(), energy, 0.0, iter));
             m_lastEmitTimer.restart();
             return true;
         });

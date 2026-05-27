@@ -75,7 +75,7 @@ void main()
     vec3 H = normalize(V + L);
 
     // Material properties
-    vec3 finalBaseColor = mix(vertColor, vertColor, 0.5) * baseColor;  // Use vertex color if available
+    vec3 finalBaseColor = vertColor * baseColor;
     vec3 F0 = mix(vec3(0.04), finalBaseColor, metallic);  // Fresnel base (0.04 for dielectrics)
 
     // Cook-Torrance BRDF

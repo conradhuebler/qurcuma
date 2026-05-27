@@ -299,7 +299,6 @@ private:
     void prepareSimulationBonds(); // Claude Generated - Precompute bond rotations once before simulation
     void clearScene();  // Private implementation
     void onAnimationTick();  // Claude Generated - Timer callback for animation
-    void updateMeasurementDisplay();  // Claude Generated - Update distance/angle display
     void refreshVisualization();  // Claude Generated - Refresh without camera reset
 
     // Claude Generated - Incremental update methods (Fix 2) - more efficient than full refresh
@@ -315,7 +314,6 @@ private:
     float getAtomRadius(const QString& element);  // Claude Generated - changed to non-static for scaling support
     float getCovalentRadius(const QString& element);  // Claude Generated - Covalent radii for bond detection
 
-    static const float DEFAULT_BOND_DISTANCE; // Maximaler Abstand für automatische Bindungserkennung
     QVector<Bond> detectBonds(const QVector<Atom>& atoms);
     void setDefaultView();
     // Update camera position uniform in instancing shaders after camera moves.
@@ -385,7 +383,6 @@ private:
     BondEditor *m_bondEditor = nullptr;
     QMap<Qt3DRender::QObjectPicker*, int> m_bondPickerToIndex;  // Map ObjectPicker to bond index for picking
     int m_bondEditMode = 0;  // 0=None, 1=AddBond (click 2 atoms), 2=DeleteBond, 3=ChangeBondOrder
-    int m_firstSelectedAtomForBond = -1;  // Track first atom when adding bond
 
     // Claude Generated - Phase 4B: Auto-save system
     QString m_currentFilePath;  // Path to current XYZ file

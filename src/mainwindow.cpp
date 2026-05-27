@@ -111,7 +111,6 @@ MainWindow::~MainWindow()
 {
     delete m_vtfParser;
     delete m_xyzParser;
-    //delete m_currentProcess;
 }
 
 void MainWindow::setupUI()

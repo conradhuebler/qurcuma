@@ -24,7 +24,6 @@
 #include <QFile>  // Claude Generated - Phase 4B - For auto-save backup
 #include <QMessageBox>
 #include <QInputDialog>
-#include <QImage>
 #include <QPixmap>
 #include <QColorDialog>
 #include <QComboBox>
@@ -37,8 +36,6 @@
 #include <QTimer>
 #include <QToolButton>
 #include <cmath>
-
-const float MoleculeViewer::DEFAULT_BOND_DISTANCE = 3.0f; // Å
 
 MoleculeViewer::MoleculeViewer(QWidget *parent)
     : QWidget(parent)
@@ -486,7 +483,9 @@ void MoleculeViewer::ensurePickersForGrab()
 
     // Cannot create pickers for instanced molecules - they use GPU instancing without individual entities
     if (m_atomEntities.isEmpty() || m_atomInstancing) {
+#ifdef DEBUG_ON
         qDebug() << "ensurePickersForGrab: Cannot create pickers for instanced molecule or no entities";
+#endif
         return;
     }
 
@@ -531,7 +530,9 @@ void MoleculeViewer::ensurePickersForGrab()
         }
     }
 
+    #ifdef DEBUG_ON
     qDebug() << "ensurePickersForGrab: Created" << m_atomPickerToIndex.size() << "pickers";
+    #endif
 }
 
 void MoleculeViewer::clearScene()
@@ -593,7 +594,9 @@ void MoleculeViewer::setMaterialMode(MaterialMode mode)
     if (m_materialMode != mode) {
         m_materialMode = mode;
         const char* modeNames[] = {"Phong", "PBR (Cook-Torrance)"};
+        #ifdef DEBUG_ON
         qDebug() << "Material mode changed to:" << modeNames[static_cast<int>(mode)];
+        #endif
 
         // Rebuild entire scene with new material mode
         if (!m_trajectoryAtoms.isEmpty()) {
@@ -608,7 +611,9 @@ void MoleculeViewer::setGlowIntensity(float intensity)
     float newIntensity = qBound(1.0f, intensity, 2.0f);  // Clamp to 1.0-2.0
     if (!qFuzzyCompare(m_glowIntensity, newIntensity)) {
         m_glowIntensity = newIntensity;
+        #ifdef DEBUG_ON
         qDebug() << "Glow intensity set to:" << m_glowIntensity;
+        #endif
 
         // Update materials to reflect new glow intensity
         if (!m_trajectoryAtoms.isEmpty()) {
@@ -1011,7 +1016,7 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             colors.append(c);
             scales.append(getAtomRadius(atom.element));
         }
-        m_atomInstancing->setAtoms(positions, elements, colors, scales);
+        m_atomInstancing->setAtoms(positions, colors, scales);
     }
 
     // Claude Generated - Perf: skip per-atom/per-bond QObjectPicker for large scenes.
@@ -1674,7 +1679,9 @@ void MoleculeViewer::prepareSimulationBonds()
             m_bondRotations.append(q);
         }
     }
+    #ifdef DEBUG_ON
     qDebug() << "Prepared" << m_bondRotations.size() << "bond rotations for simulation";
+    #endif
 }
 
 // Claude Generated - Hybrid bond update: rotation cached, update center+length only
@@ -1978,7 +1985,9 @@ void MoleculeViewer::saveScreenshot(const QString& filename, int scaleFactor)
 
     // Save to file
     if (screenshot.save(filename)) {
+        #ifdef DEBUG_ON
         qDebug() << "Screenshot saved to:" << filename;
+        #endif
     } else {
         qWarning() << "Failed to save screenshot to:" << filename;
     }
@@ -2071,8 +2080,10 @@ void MoleculeViewer::setExposure(float exposure)       { m_exposure = qBound(0.5
 // Claude Generated - Trajectory animation functions
 void MoleculeViewer::startAnimation()
 {
+    #ifdef DEBUG_ON
     qDebug() << "▶ startAnimation() called - trajectorySize:" << m_trajectoryAtoms.size()
              << "currentFrame:" << m_currentFrame << "isAnimating:" << m_isAnimating;
+    #endif
 
     if (m_trajectoryAtoms.size() <= 1) {
         qWarning() << "Cannot start animation: no trajectory data";
@@ -2080,7 +2091,9 @@ void MoleculeViewer::startAnimation()
     }
 
     if (m_isAnimating) {
+        #ifdef DEBUG_ON
         qDebug() << "Already animating, returning";
+        #endif
         return;  // Already animating
     }
 
@@ -2089,13 +2102,17 @@ void MoleculeViewer::startAnimation()
     if (!m_animationTimer) {
         m_animationTimer = new QTimer(this);
         connect(m_animationTimer, &QTimer::timeout, this, &MoleculeViewer::onAnimationTick);
+        #ifdef DEBUG_ON
         qDebug() << "Created new animation timer";
+        #endif
     }
 
     // Set interval based on FPS (1000ms / FPS = interval in ms)
     int intervalMs = qMax(1, 1000 / m_animationFPS);
     m_animationTimer->start(intervalMs);
+    #ifdef DEBUG_ON
     qDebug() << "Timer started with interval:" << intervalMs << "ms (FPS:" << m_animationFPS << ")";
+    #endif
 }
 
 void MoleculeViewer::stopAnimation()
@@ -2448,55 +2465,9 @@ void MoleculeViewer::setBondEditMode(int mode)
 
         // Log mode change for debugging
         const char* modeNames[] = {"None", "AddBond", "DeleteBond", "ChangeBondOrder"};
+        #ifdef DEBUG_ON
         qDebug() << "Bond edit mode:" << modeNames[m_bondEditMode];
-    }
-}
-
-void MoleculeViewer::updateMeasurementDisplay()
-{
-    if (m_selectedAtoms.isEmpty() || m_trajectoryAtoms.isEmpty()) {
-        return;
-    }
-
-    const auto& atoms = m_trajectoryAtoms[m_currentFrame];
-
-    if (m_selectedAtoms.size() >= 2 && m_measurementMode == 1) {
-        // Distance measurement
-        int idx0 = m_selectedAtoms[0];
-        int idx1 = m_selectedAtoms[1];
-
-        if (idx0 >= 0 && idx0 < atoms.size() && idx1 >= 0 && idx1 < atoms.size()) {
-            QVector3D v1 = atoms[idx0].position;
-            QVector3D v2 = atoms[idx1].position;
-            float distance = (v2 - v1).length();
-
-            qDebug() << QString("Distance: %1-%2 = %3 Å")
-                .arg(atoms[idx0].element).arg(atoms[idx1].element).arg(distance, 0, 'f', 3);
-        }
-    }
-
-    if (m_selectedAtoms.size() >= 3 && m_measurementMode == 2) {
-        // Angle measurement
-        int idx0 = m_selectedAtoms[0];
-        int idx1 = m_selectedAtoms[1];
-        int idx2 = m_selectedAtoms[2];
-
-        if (idx0 >= 0 && idx0 < atoms.size() && idx1 >= 0 && idx1 < atoms.size() && idx2 >= 0 && idx2 < atoms.size()) {
-            QVector3D v1 = atoms[idx0].position;
-            QVector3D v2 = atoms[idx1].position;
-            QVector3D v3 = atoms[idx2].position;
-
-            QVector3D vec1 = (v1 - v2).normalized();
-            QVector3D vec2 = (v3 - v2).normalized();
-
-            float cosAngle = QVector3D::dotProduct(vec1, vec2);
-            cosAngle = qBound(-1.0f, cosAngle, 1.0f);
-            float angle = qAcos(cosAngle) * 180.0f / M_PI;
-
-            qDebug() << QString("Angle: %1-%2-%3 = %4°")
-                .arg(atoms[idx0].element).arg(atoms[idx1].element).arg(atoms[idx2].element)
-                .arg(angle, 0, 'f', 1);
-        }
+        #endif
     }
 }
 
@@ -2786,7 +2757,6 @@ void MoleculeViewer::onBondPicked(Qt3DRender::QPickEvent *pickEvent)
                 int atom2 = selectedAtoms[selectedAtoms.size() - 1];
 
                 if (m_bondEditor->addBond(atom1, atom2, 1)) {
-                    m_firstSelectedAtomForBond = -1;  // Reset
                     refreshVisualization();  // Rebuild geometry with new bond
                 } else {
                     qWarning() << "Failed to add bond";
@@ -2830,7 +2800,9 @@ void MoleculeViewer::onStructureChanged()
     // Signal from BondEditor when structure changes
     if (m_autoSaveEnabled && !m_currentFilePath.isEmpty()) {
         m_hasUnsavedChanges = true;
+        #ifdef DEBUG_ON
         qDebug() << "Structure changed - marking for auto-save";
+        #endif
 
         // Restart debouncing timer
         m_autoSaveTimer->stop();
@@ -2852,7 +2824,9 @@ void MoleculeViewer::onAutoSaveTimer()
     // Create backup on first edit
     if (!QFile::exists(m_currentFilePath + ".backup")) {
         QFile::copy(m_currentFilePath, m_currentFilePath + ".backup");
+        #ifdef DEBUG_ON
         qDebug() << "Created backup:" << m_currentFilePath + ".backup";
+        #endif
     }
 
     // Convert current frame to XYZ and write
@@ -2862,7 +2836,9 @@ void MoleculeViewer::onAutoSaveTimer()
                                              xyzFrame)) {
         if (XYZParser::writeFile(m_currentFilePath, xyzFrame)) {
             m_hasUnsavedChanges = false;
+            #ifdef DEBUG_ON
             qDebug() << "Auto-saved to:" << m_currentFilePath;
+            #endif
         } else {
             qWarning() << "Auto-save failed for:" << m_currentFilePath;
         }

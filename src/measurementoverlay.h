@@ -45,13 +45,6 @@ public:
     // Update measurements based on atom positions
     void updateMeasurement(const QVector<QVector3D>& atomPositions);
 
-    // Visual updates
-    void updateLineColor(const QColor& color);
-    void setLineThickness(float thickness);
-
-    // Text positioning helper
-    static QVector3D calculateLabelPosition(const QVector<QVector3D>& positions);
-
 private:
     Qt3DCore::QEntity *m_rootEntity = nullptr;
     Qt3DCore::QEntity *m_linesEntity = nullptr;       // Contains line meshes (cylinders)

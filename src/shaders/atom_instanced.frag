@@ -22,7 +22,6 @@ void main()
     // Key light in view space: lighting stays fixed relative to camera
     // regardless of model rotation, matching the feel of camera-orbit rotation.
     vec3 N = normalize(worldNormal);
-    vec3 V = normalize(cameraPosition - worldPos);
     // Transform normal to view space for headlight-style lighting
     vec3 Nview = normalize((viewMatrix * vec4(N, 0.0)).xyz);
     vec3 Lview = normalize(vec3(0.3, 0.7, 0.5));  // view-space key light

@@ -4,7 +4,6 @@
 #include <Qt3DCore/QGeometry>
 #include <Qt3DCore/QAttribute>
 #include <Qt3DCore/QBuffer>
-#include <Qt3DExtras/QPhongMaterial>
 #include <Qt3DRender/QEffect>
 #include <Qt3DRender/QFilterKey>
 #include <Qt3DRender/QGeometryRenderer>
@@ -16,7 +15,6 @@
 #include <QDebug>
 #include <QUrl>
 #include <cmath>
-#include <limits>
 
 AtomInstancingSystem::AtomInstancingSystem(Qt3DCore::QEntity *rootEntity, QObject *parent)
     : QObject(parent)
@@ -32,7 +30,6 @@ AtomInstancingSystem::~AtomInstancingSystem()
 }
 
 void AtomInstancingSystem::setAtoms(const QVector<QVector3D>& positions,
-                                     const QVector<QString>& elements,
                                      const QVector<QColor>& colors,
                                      const QVector<float>& scales)
 {
@@ -349,76 +346,6 @@ void AtomInstancingSystem::updateAtomPositions(const QVector<QVector3D>& positio
     }
 
     updateInstanceBuffer();
-}
-
-void AtomInstancingSystem::updateAtomColors(const QVector<QColor>& colors)
-{
-    if (colors.size() != m_atomInstances.size()) {
-        return;
-    }
-
-    for (int i = 0; i < colors.size(); ++i) {
-        m_atomInstances[i].color = colors[i];
-    }
-
-    updateInstanceBuffer();
-}
-
-void AtomInstancingSystem::updateAtomScales(const QVector<float>& scales)
-{
-    if (scales.size() != m_atomInstances.size()) {
-        return;
-    }
-
-    for (int i = 0; i < scales.size(); ++i) {
-        m_atomInstances[i].scale = scales[i];
-    }
-
-    updateInstanceBuffer();
-}
-
-int AtomInstancingSystem::raycastAtom(const QVector3D& rayOrigin,
-                                      const QVector3D& rayDirection,
-                                      const QVector<QVector3D>& atomPositions,
-                                      float pickingRadius) const
-{
-    // Claude Generated - Phase 5D: Custom ray-casting for instanced atom picking
-    // Since ObjectPicker doesn't work with instancing, we manually cast rays
-    // Ray-sphere intersection test for each atom
-
-    int closestAtom = -1;
-    float closestDistance = std::numeric_limits<float>::max();
-
-    for (int i = 0; i < atomPositions.size(); ++i) {
-        QVector3D atomPos = atomPositions[i];
-
-        // Vector from ray origin to atom
-        QVector3D toAtom = atomPos - rayOrigin;
-
-        // Project onto ray direction
-        float t = QVector3D::dotProduct(toAtom, rayDirection);
-
-        if (t < 0) continue;  // Atom is behind ray origin
-
-        // Closest point on ray to atom
-        QVector3D closestPoint = rayOrigin + rayDirection * t;
-
-        // Distance from atom to ray
-        float distance = (atomPos - closestPoint).length();
-
-        // Check if within picking radius (scaled by atom size)
-        float scaledRadius = pickingRadius;
-        if (i < m_atomInstances.size()) {
-            scaledRadius *= m_atomInstances[i].scale;
-        }
-
-        if (distance <= scaledRadius && t < closestDistance) {
-            closestDistance = t;
-            closestAtom = i;
-        }
-    }
-
-    return closestAtom;
 }
 
 void AtomInstancingSystem::setVisible(bool visible)

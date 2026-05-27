@@ -3,7 +3,6 @@
 #include <Qt3DExtras/QCylinderMesh>
 #include <Qt3DExtras/QPhongMaterial>
 #include <Qt3DCore/QTransform>
-#include <cmath>
 #include <QDebug>
 
 MeasurementOverlay::MeasurementOverlay(Qt3DCore::QEntity *rootEntity)
@@ -229,27 +228,3 @@ void MeasurementOverlay::clearVisualization()
     m_lineEntities.clear();
 }
 
-void MeasurementOverlay::updateLineColor(const QColor& color)
-{
-    m_lineColor = color;
-}
-
-void MeasurementOverlay::setLineThickness(float thickness)
-{
-    m_lineThickness = qBound(0.05f, thickness, 0.5f);
-}
-
-QVector3D MeasurementOverlay::calculateLabelPosition(const QVector<QVector3D>& positions)
-{
-    // Calculate centroid of all positions
-    QVector3D centroid(0, 0, 0);
-    for (const QVector3D& pos : positions) {
-        centroid += pos;
-    }
-    centroid /= static_cast<float>(positions.size());
-
-    // Offset label slightly above measurements
-    centroid += QVector3D(0, 1.0f, 0);  // 1 Å offset upward
-
-    return centroid;
-}
