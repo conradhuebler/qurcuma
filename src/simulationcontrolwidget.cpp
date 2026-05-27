@@ -242,7 +242,9 @@ void SimulationControlWidget::setupUI()
 
     // ---- Interactive grab ----
     auto* grabGroup = new QGroupBox(tr("Interactive Grab"), this);
-    auto* grabForm = new QFormLayout(grabGroup);
+    auto* grabOuter = new QVBoxLayout(grabGroup);
+    grabOuter->setContentsMargins(4, 4, 4, 4);
+    grabOuter->setSpacing(4);
 
     m_grabStrengthSpin = new QDoubleSpinBox(this);
     m_grabStrengthSpin->setRange(1e-4, 1.0);
@@ -250,21 +252,46 @@ void SimulationControlWidget::setupUI()
     m_grabStrengthSpin->setSingleStep(1e-3);
     m_grabStrengthSpin->setValue(0.01);
     m_grabStrengthSpin->setToolTip(tr("World-space force per screen pixel (Eh/Bohr)"));
+
+    auto* grabForm = new QFormLayout;
     grabForm->addRow(tr("Strength:"), m_grabStrengthSpin);
+    grabOuter->addLayout(grabForm);
+
+    // Stiffness presets — map coupled α + maxShells to physical behaviour
+    m_grabPresetCombo = new QComboBox(this);
+    m_grabPresetCombo->addItem(tr("Soft (local drag)"), 0);   // α=0.2, shells=5
+    m_grabPresetCombo->addItem(tr("Balanced"), 1);           // α=0.4, shells=3
+    m_grabPresetCombo->addItem(tr("Stiff (rigid pull)"), 2);  // α=0.8, shells=1
+    m_grabPresetCombo->setCurrentIndex(1);  // Balanced default
+    m_grabPresetCombo->setToolTip(tr("Force propagation: Soft affects only nearest neighbours, "
+                                     "Stiff pulls the whole fragment as a unit"));
+    grabForm->addRow(tr("Stiffness:"), m_grabPresetCombo);
+
+    // Advanced controls — hidden by default
+    m_grabAdvancedCheck = new QCheckBox(tr("Advanced"), this);
+    grabForm->addRow("", m_grabAdvancedCheck);
+
+    m_grabAdvancedWidget = new QWidget(this);
+    auto* advLayout = new QFormLayout(m_grabAdvancedWidget);
+    advLayout->setContentsMargins(0, 0, 0, 0);
 
     m_grabAlphaSpin = new QDoubleSpinBox(this);
     m_grabAlphaSpin->setRange(0.0, 1.0);
     m_grabAlphaSpin->setDecimals(2);
     m_grabAlphaSpin->setSingleStep(0.05);
     m_grabAlphaSpin->setValue(0.4);
-    m_grabAlphaSpin->setToolTip(tr("Shell decay α^depth"));
-    grabForm->addRow(tr("α decay:"), m_grabAlphaSpin);
+    m_grabAlphaSpin->setToolTip(tr("Shell decay factor α^depth (0 = only grabbed atom, 1 = uniform)"));
+    advLayout->addRow(tr("α decay:"), m_grabAlphaSpin);
 
     m_grabMaxShellsSpin = new QSpinBox(this);
-    m_grabMaxShellsSpin->setRange(0, 10);
+    m_grabMaxShellsSpin->setRange(-1, 20);
     m_grabMaxShellsSpin->setValue(3);
-    m_grabMaxShellsSpin->setToolTip(tr("Max BFS depth for force propagation"));
-    grabForm->addRow(tr("Max shells:"), m_grabMaxShellsSpin);
+    m_grabMaxShellsSpin->setSpecialValueText(tr("∞"));
+    m_grabMaxShellsSpin->setToolTip(tr("Max BFS depth for force propagation (-1 = unlimited)"));
+    advLayout->addRow(tr("Max shells:"), m_grabMaxShellsSpin);
+
+    m_grabAdvancedWidget->setVisible(false);
+    grabOuter->addWidget(m_grabAdvancedWidget);
 
     innerLayout->addWidget(grabGroup);
 
@@ -313,6 +340,30 @@ void SimulationControlWidget::setupUI()
     connect(m_grabStrengthSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyGrab);
     connect(m_grabAlphaSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyGrab);
     connect(m_grabMaxShellsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyGrab);
+
+    // Preset → alpha + maxShells
+    connect(m_grabPresetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int index) {
+            static constexpr double alphas[] = { 0.2, 0.4, 0.8 };
+            static constexpr int shells[] = { -1, 3, 1 };  // -1 = unlimited
+            if (index >= 0 && index < 3) {
+                m_grabAlphaSpin->setValue(alphas[index]);
+                m_grabMaxShellsSpin->setValue(shells[index]);
+            }
+        });
+
+    // Advanced toggle
+    connect(m_grabAdvancedCheck, &QCheckBox::toggled, this,
+        [this](bool on) { m_grabAdvancedWidget->setVisible(on); });
+
+    // Spinbox manual change → switch preset to "custom" (deselect)
+    auto markCustom = [this]() {
+        m_grabPresetCombo->blockSignals(true);
+        m_grabPresetCombo->setCurrentIndex(-1);
+        m_grabPresetCombo->blockSignals(false);
+    };
+    connect(m_grabAlphaSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, markCustom);
+    connect(m_grabMaxShellsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, markCustom);
 
     // Show/hide topology mode only for GFN-FF
     connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,

@@ -23,6 +23,7 @@ class PBRMaterial;  // Claude Generated - Phase 4A - Forward declaration
 class PerformanceOptimizer;  // Claude Generated - LOD wire-up
 class AtomInstancingSystem;  // Claude Generated - Phase 3.1 - GPU instancing
 class BondInstancingSystem;  // Claude Generated - Phase 3.2 - GPU instancing
+class ForceOverlay;          // Claude Generated 2026 - Force visualization overlay
 namespace Qt3DRender { class QPointLight; }  // Claude Generated - corner lights
 
 class MoleculeViewer : public QWidget
@@ -311,7 +312,7 @@ private:
 
     Qt3DCore::QEntity* createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
     QColor getAtomColor(const QString& element, float charge = 0.0f);  // Claude Generated - changed to non-static for ColorScheme support
-    float getAtomRadius(const QString& element);  // Claude Generated - changed to non-static for scaling support
+    float getAtomRadius(const QString& element) const;  // Claude Generated - changed to non-static for scaling support
     float getCovalentRadius(const QString& element);  // Claude Generated - Covalent radii for bond detection
 
     QVector<Bond> detectBonds(const QVector<Atom>& atoms);
@@ -417,6 +418,18 @@ private:
     int m_grabMaxShells = 3;
     bool m_rightMousePressed = false;
     QPoint m_lastMousePos;
+
+    // Claude Generated 2026 - Force visualization overlay
+    ForceOverlay *m_forceOverlay = nullptr;
+    QVector<QVector<int>> m_forceAdjacency;
+
+    // Ray-casting picking for atom grab (works for instanced + non-instanced)
+    int pickAtomAtScreenPos(const QPoint &screenPos) const;
+    QVector3D screenToWorldDirection(const QPoint &screenPos) const;
+    // Compute grab force from screen-space mouse-to-atom distance
+    QVector3D computeGrabForce(const QPoint &mousePos, int atomIndex) const;
+    void buildForceAdjacency();
+    void updateForceOverlay();
 
     void handleMouseRotation(const QPoint& currentPos);
     void handleMousePan(const QPoint& currentPos);

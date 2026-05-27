@@ -47,7 +47,7 @@ Eigen::MatrixXd distributeForce(
         const double scale = (depth == 0) ? 1.0 : std::pow(alpha, depth);
         forces.row(idx) = scale * seedForce.transpose();
 
-        if (depth >= maxShells)
+        if (maxShells >= 0 && depth >= maxShells)
             continue;
         if (idx >= adjacency.size())
             continue;

@@ -107,6 +107,9 @@ private:
     QDoubleSpinBox* m_grabStrengthSpin = nullptr;
     QDoubleSpinBox* m_grabAlphaSpin = nullptr;
     QSpinBox* m_grabMaxShellsSpin = nullptr;
+    QComboBox* m_grabPresetCombo = nullptr;
+    QCheckBox* m_grabAdvancedCheck = nullptr;
+    QWidget* m_grabAdvancedWidget = nullptr;
 
     // --- Buttons / status ---
     QPushButton* m_startBtn = nullptr;

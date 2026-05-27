@@ -7,7 +7,10 @@
 #include "performanceoptimizer.h"  // Claude Generated - LOD wire-up
 #include "atominstancingsystem.h"  // Claude Generated - Phase 3.1 - GPU instancing
 #include "bondinstancingsystem.h"  // Claude Generated - Phase 3.2 - GPU instancing
+#include "forceoverlay.h"  // Claude Generated 2026 - Force visualization overlay
+#include "forceinjector.h"  // Claude Generated 2026 - Topological force distribution
 #include "xyzparser.h"  // Claude Generated - Phase 4B - For auto-save XYZ writing
+#include <Eigen/Dense>  // Claude Generated 2026 - Eigen for force distribution
 #include <QElapsedTimer>  // Claude Generated - Simulation frame timing
 #include <Qt3DCore/QTransform>
 #include <Qt3DExtras/QSphereMesh>
@@ -54,6 +57,7 @@ MoleculeViewer::MoleculeViewer(QWidget *parent)
     // Claude Generated - Phase 4B: Initialize auto-save system with 500ms debouncing
     m_autoSaveTimer = new QTimer(this);
     m_autoSaveTimer->setSingleShot(true);
+
     m_autoSaveTimer->setInterval(500);  // 500ms debounce delay
     connect(m_autoSaveTimer, &QTimer::timeout, this, &MoleculeViewer::onAutoSaveTimer);
 
@@ -159,6 +163,9 @@ void MoleculeViewer::setupViewer()
 
     m_view->setRootEntity(m_rootEntity);
 
+    // Claude Generated 2026 - Force visualization overlay
+    m_forceOverlay = new ForceOverlay(m_rootEntity);
+
     // Install event filter für custom mouse interactions
     m_view->installEventFilter(this);
 }
@@ -172,6 +179,17 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
                 if (mouseEvent->button() == Qt::LeftButton) {
                     m_leftMousePressed = true;
                     m_lastMousePos = mouseEvent->position().toPoint();
+                    // Claude Generated 2026 - Ray-casting picking for sim grab.
+                    // Replaces QObjectPicker so it works for instanced molecules too.
+                    if (m_simulationActive) {
+                        int picked = pickAtomAtScreenPos(m_lastMousePos);
+                        if (picked >= 0) {
+                            m_grabbedAtom = picked;
+                            if (m_view) m_view->setCursor(Qt::ClosedHandCursor);
+                            if (m_container) m_container->setCursor(Qt::ClosedHandCursor);
+                            if (m_forceOverlay) m_forceOverlay->clear();
+                        }
+                    }
                     return true;
                 } else if (mouseEvent->button() == Qt::RightButton) {
                     m_rightMousePressed = true;
@@ -192,6 +210,8 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
                     if (m_grabbedAtom >= 0) {
                         m_grabbedAtom = -1;
                         emit atomGrabReleased();
+                        // Claude Generated 2026 - Clear force overlay
+                        if (m_forceOverlay) m_forceOverlay->clear();
                         // Reset cursor after grab release
                         if (m_view) m_view->setCursor(m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor);
                         if (m_container) m_container->setCursor(m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor);
@@ -207,35 +227,19 @@ bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
                 QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
                 QPoint currentPos = mouseEvent->position().toPoint();
 
-                // Claude Generated 2026 - Phase 5: active grab overrides camera
-                // rotation. Convert the per-frame pixel delta into a world-space
-                // force along the current screen axes and ship it to the worker.
-                // Note: Camera controller is disabled during grab to prevent conflicts.
+                // Claude Generated 2026 - Active grab overrides camera rotation.
+                // Compute force from screen-space distance between atom projection
+                // and mouse cursor. Atom follows mouse intuitively.
                 if (m_grabbedAtom >= 0 && m_leftMousePressed && m_camera) {
-                    QPoint delta = currentPos - m_lastMousePos;
-                    // Get camera basis vectors for screen-to-world mapping
-                    QVector3D view = m_camera->viewVector().normalized();
-                    QVector3D up = m_camera->upVector().normalized();
-                    // right = up × view (not view × up) - follows right-hand rule
-                    QVector3D right = QVector3D::crossProduct(up, view);
-                    // Safety: if up and view are parallel, cross product is zero
-                    if (right.lengthSquared() < 1e-6f) {
-                        // Use a default right vector (X axis) when camera is top-down
-                        right = QVector3D(1, 0, 0);
-                    } else {
-                        right.normalize();
-                    }
-                    // Screen coords: +X right, +Y down
-                    // World coords: need to map screen movement to world movement
-                    QVector3D worldForce =
-                        (static_cast<float>(delta.x()) * right
-                         + static_cast<float>(delta.y()) * up)
-                        * static_cast<float>(m_grabStrength);
-                    // Transform world-space force to model-local space (atom positions are model-local)
-                    QVector3D modelLocalForce = m_modelRotation.inverted().rotatedVector(worldForce);
-                    emit atomForceRequested(m_grabbedAtom, modelLocalForce,
-                        m_grabAlpha, m_grabMaxShells);
                     m_lastMousePos = currentPos;
+                    QVector3D modelLocalForce = computeGrabForce(currentPos, m_grabbedAtom);
+                    // curcuma adds force to gradient (gradient += force).
+                    // Since accel = -gradient, the effective force is opposite.
+                    // Negate so the atom moves in the direction of the arrow.
+                    emit atomForceRequested(m_grabbedAtom, -modelLocalForce,
+                        m_grabAlpha, m_grabMaxShells);
+                    // Update force visualization overlay (shows non-negated force)
+                    updateForceOverlay();
                     return true;
                 }
 
@@ -447,6 +451,169 @@ QVector3D MoleculeViewer::modelToWorld(const QVector3D& localPos) const
     return m_modelRotation.rotatedVector(localPos - m_moleculeCenter) + m_moleculeCenter;
 }
 
+// Claude Generated 2026 - Ray-casting atom picking for sim grab.
+// Works for both instanced and non-instanced molecules (replaces QObjectPicker).
+int MoleculeViewer::pickAtomAtScreenPos(const QPoint &screenPos) const
+{
+    if (!m_camera || m_trajectoryAtoms.isEmpty())
+        return -1;
+
+    int w = m_view->width();
+    int h = m_view->height();
+    if (w <= 0 || h <= 0)
+        return -1;
+
+    QMatrix4x4 proj = m_camera->lens()->projectionMatrix();
+    QMatrix4x4 view = m_camera->viewMatrix();
+    bool invertible = false;
+    QMatrix4x4 invPV = (proj * view).inverted(&invertible);
+    if (!invertible)
+        return -1;
+
+    float ndcX = (2.0f * screenPos.x() / w) - 1.0f;
+    float ndcY = 1.0f - (2.0f * screenPos.y() / h);
+
+    QVector4D nearP = invPV * QVector4D(ndcX, ndcY, -1.0f, 1.0f);
+    QVector4D farP = invPV * QVector4D(ndcX, ndcY, 1.0f, 1.0f);
+    if (qFuzzyIsNull(nearP.w()) || qFuzzyIsNull(farP.w()))
+        return -1;
+    nearP /= nearP.w();
+    farP /= farP.w();
+
+    QVector3D rayOrigin(nearP.x(), nearP.y(), nearP.z());
+    QVector3D rayDir = QVector3D(farP.x() - nearP.x(), farP.y() - nearP.y(), farP.z() - nearP.z()).normalized();
+
+    const auto &atoms = m_trajectoryAtoms[m_currentFrame];
+    int bestIdx = -1;
+    float bestT = 1e20f;
+
+    for (int i = 0; i < atoms.size(); ++i) {
+        QVector3D center = modelToWorld(atoms[i].position);
+        float radius = getAtomRadius(atoms[i].element) * 1.5f; // generous hit radius
+        QVector3D oc = rayOrigin - center;
+        float a = QVector3D::dotProduct(rayDir, rayDir);
+        float b = 2.0f * QVector3D::dotProduct(oc, rayDir);
+        float c = QVector3D::dotProduct(oc, oc) - radius * radius;
+        float discriminant = b * b - 4.0f * a * c;
+        if (discriminant < 0.0f)
+            continue;
+        float sqrtD = std::sqrt(discriminant);
+        float t = (-b - sqrtD) / (2.0f * a);
+        if (t < 0.0f)
+            t = (-b + sqrtD) / (2.0f * a);
+        if (t > 0.0f && t < bestT) {
+            bestT = t;
+            bestIdx = i;
+        }
+    }
+    return bestIdx;
+}
+
+// Claude Generated 2026 - Compute grab force from screen-space mouse-to-atom distance.
+// Intuitive: atom follows the mouse cursor.
+QVector3D MoleculeViewer::computeGrabForce(const QPoint &mousePos, int atomIndex) const
+{
+    if (!m_camera || atomIndex < 0)
+        return QVector3D();
+
+    const auto &atoms = m_trajectoryAtoms[m_currentFrame];
+    if (atomIndex >= atoms.size())
+        return QVector3D();
+
+    QVector3D atomWorld = modelToWorld(atoms[atomIndex].position);
+
+    // Project atom world position to screen
+    QMatrix4x4 proj = m_camera->lens()->projectionMatrix();
+    QMatrix4x4 view = m_camera->viewMatrix();
+    QVector4D clip = proj * view * QVector4D(atomWorld, 1.0f);
+    if (qFuzzyIsNull(clip.w()))
+        return QVector3D();
+    QVector3D ndc(clip.x() / clip.w(), clip.y() / clip.w(), clip.z() / clip.w());
+    int w = m_view->width();
+    int h = m_view->height();
+    if (w <= 0 || h <= 0)
+        return QVector3D();
+    float atomSx = (ndc.x() + 1.0f) * 0.5f * w;
+    float atomSy = (1.0f - ndc.y()) * 0.5f * h;
+
+    QPoint delta(mousePos.x() - static_cast<int>(atomSx),
+        mousePos.y() - static_cast<int>(atomSy));
+
+    // Camera basis vectors
+    QVector3D camView = m_camera->viewVector().normalized();
+    QVector3D camUp = m_camera->upVector().normalized();
+    // right = view × up (matches handleMouseRotation convention)
+    QVector3D camRight = QVector3D::crossProduct(camView, camUp);
+    if (camRight.lengthSquared() < 1e-6f)
+        camRight = QVector3D(1, 0, 0);
+    else
+        camRight.normalize();
+
+    // Convert screen pixels to world-space distance at the atom's depth
+    float dist = (atomWorld - m_camera->position()).length();
+    float fovY = m_camera->lens()->fieldOfView(); // degrees
+    float worldPerPixel = dist * std::tan(fovY * M_PI / 360.0f) / (h * 0.5f);
+
+    // Screen Y is down; world Y (camUp) is up -> negate delta.y
+    QVector3D worldForce = (static_cast<float>(delta.x()) * camRight
+                           - static_cast<float>(delta.y()) * camUp)
+        * static_cast<float>(worldPerPixel * m_grabStrength);
+
+    // Transform to model-local coordinates
+    return m_modelRotation.inverted().rotatedVector(worldForce);
+}
+
+// Claude Generated 2026 - Build adjacency list for force distribution.
+void MoleculeViewer::buildForceAdjacency()
+{
+    if (m_trajectoryBonds.isEmpty() || m_trajectoryAtoms.isEmpty())
+        return;
+    m_forceAdjacency = forceinjector::buildAdjacency(
+        m_trajectoryAtoms[0].size(), m_trajectoryBonds[0]);
+}
+
+// Claude Generated 2026 - Update force overlay with main and distributed arrows.
+void MoleculeViewer::updateForceOverlay()
+{
+    if (!m_forceOverlay || m_grabbedAtom < 0 || m_trajectoryAtoms.isEmpty())
+        return;
+
+    const auto &atoms = m_trajectoryAtoms[m_currentFrame];
+    if (m_grabbedAtom >= atoms.size())
+        return;
+
+    QVector<QVector3D> worldPositions;
+    worldPositions.reserve(atoms.size());
+    for (const auto &atom : atoms)
+        worldPositions.append(modelToWorld(atom.position));
+
+    QVector3D modelForce = computeGrabForce(m_lastMousePos, m_grabbedAtom);
+    // Overlay arrows are positioned in world space; rotate force to world coords
+    QVector3D worldForce = m_modelRotation.rotatedVector(modelForce);
+
+    // Main arrow
+    m_forceOverlay->updateMainArrow(m_grabbedAtom, worldForce, worldPositions);
+
+    // Distributed forces on neighbours
+    if (!m_forceAdjacency.isEmpty()) {
+        Eigen::Vector3d f(modelForce.x(), modelForce.y(), modelForce.z());
+        Eigen::MatrixXd distributed = forceinjector::distributeForce(
+            m_grabbedAtom, f, m_forceAdjacency, m_grabAlpha, m_grabMaxShells, atoms.size());
+
+        QVector<int> indices;
+        QVector<QVector3D> forces;
+        for (int i = 0; i < atoms.size(); ++i) {
+            Eigen::Vector3d row = distributed.row(i);
+            if (row.squaredNorm() > 1e-14) {
+                QVector3D df(row.x(), row.y(), row.z());
+                forces.append(m_modelRotation.rotatedVector(df));
+                indices.append(i);
+            }
+        }
+        m_forceOverlay->updateDistributedArrows(indices, forces, worldPositions);
+    }
+}
+
 // Claude Generated - Bulk-toggle all per-atom/per-bond QObjectPickers.
 // Qt3D's object-picker service traverses the scene for each mouse event; at ~5000 atoms
 // this shows up in profiles. Simulation rarely needs picking, so disable while running.
@@ -455,6 +622,7 @@ void MoleculeViewer::setSimulationActive(bool on)
 {
     m_simulationActive = on;
     m_grabbedAtom = -1;
+    if (m_forceOverlay) m_forceOverlay->clear();
     // Default cursor: rotation indicator when idle, arrow when no simulation.
     if (m_view) m_view->setCursor(on ? Qt::SizeAllCursor : Qt::ArrowCursor);
     if (m_container) m_container->setCursor(on ? Qt::SizeAllCursor : Qt::ArrowCursor);
@@ -573,6 +741,9 @@ void MoleculeViewer::clearScene()
     m_modelTransform->setRotation(QQuaternion());
     m_modelTransform->setTranslation(QVector3D(0, 0, 0));
     m_modelTransform->setScale(1.0f);
+
+    // Claude Generated 2026 - Clear force overlay
+    if (m_forceOverlay) m_forceOverlay->clear();
 }
 
 
@@ -904,7 +1075,7 @@ QColor MoleculeViewer::getAtomColor(const QString& element, float charge)
 }
 
 // Claude Generated - getAtomRadius now applies scale factor
-float MoleculeViewer::getAtomRadius(const QString& element)
+float MoleculeViewer::getAtomRadius(const QString& element) const
 {
     // Van der Waals Radien in Ångström (base values)
     static const QMap<QString, float> radii = {
@@ -1444,6 +1615,9 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
 
     // Setze die Standardansicht auf das Molekülzentrum
     setDefaultView();
+
+    // Claude Generated 2026 - Build adjacency for force distribution
+    buildForceAdjacency();
 }
 
 void MoleculeViewer::showFrame(int frameIndex)
@@ -1896,6 +2070,17 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
     updateAtomPositionsOnly(0);
     updateBondsHybrid(0);
 #endif
+
+    // Claude Generated 2026 - Re-send force + update overlay while grabbing.
+    // Called at sim-FPS cadence — natural coupling to simulation update rate.
+    if (m_grabbedAtom >= 0 && m_camera) {
+        QVector3D modelLocalForce = computeGrabForce(m_lastMousePos, m_grabbedAtom);
+        // curcuma adds force to gradient (gradient += force).
+        // Since accel = -gradient, negate so atom moves with the arrow.
+        emit atomForceRequested(m_grabbedAtom, -modelLocalForce,
+            m_grabAlpha, m_grabMaxShells);
+        updateForceOverlay();
+    }
 }
 
 void MoleculeViewer::nextFrame()
@@ -1953,6 +2138,9 @@ void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, cons
     // Claude Generated 2026 - Phase 6: advertise first frame to the sim dock.
     if (m_frameCount > 0)
         emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
+
+    // Claude Generated 2026 - Build adjacency for force distribution
+    buildForceAdjacency();
 }
 
 void MoleculeViewer::clearScenePublic()

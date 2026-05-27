@@ -26,7 +26,7 @@ Adjacency buildAdjacency(int atomCount, const QVector<MoleculeViewer::Bond>& bon
  *  @param seedForce   Force vector in the integrator's units (Eh/Bohr).
  *  @param adjacency   Adjacency list — entry i holds the indices bonded to i.
  *  @param alpha       Per-shell damping factor, typically 0.3-0.6.
- *  @param maxShells   Maximum BFS depth (0 = only the seed atom).
+ *  @param maxShells   Maximum BFS depth (0 = only the seed atom, -1 = unlimited).
  *  @param totalAtoms  Size of the returned matrix.
  *  @return (totalAtoms x 3) matrix of per-atom forces. */
 Eigen::MatrixXd distributeForce(
