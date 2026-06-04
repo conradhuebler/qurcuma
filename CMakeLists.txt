@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(qurcuma VERSION 1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -31,21 +31,37 @@ else()
     endif()
 endif()
 
-add_subdirectory(external/CuteChart)
+# External dependencies via FetchContent (replaces git submodules)
+include(FetchContent)
 
-# Claude Generated - Curcuma simulation backend (Interactive Simulation Integration)
-# Build curcuma_core and curcuma_cap as libraries, no standalone executable needed here
+FetchContent_Declare(CuteChart
+    GIT_REPOSITORY https://github.com/conradhuebler/CuteChart
+    GIT_TAG        master
+    SOURCE_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/external/CuteChart
+)
+
+# Curcuma simulation backend — options must be set BEFORE FetchContent_MakeAvailable
 set(USE_XTB OFF CACHE BOOL "" FORCE)
 set(USE_TBLITE OFF CACHE BOOL "" FORCE)
 set(USE_GFNFF OFF CACHE BOOL "" FORCE)
 set(USE_ULYSSES OFF CACHE BOOL "" FORCE)
 set(USE_D3 OFF CACHE BOOL "" FORCE)
 set(USE_D4 OFF CACHE BOOL "" FORCE)
-# Claude Generated - CUDA: user-overridable via -DUSE_CUDA=ON; not forced so GPU builds work
 option(USE_CUDA "Enable CUDA-accelerated GFN-FF (requires CUDA toolkit, gfnff -gpu cuda)" OFF)
 set(USE_PCH OFF CACHE BOOL "" FORCE)
 set(Helper OFF CACHE BOOL "" FORCE)
-add_subdirectory(external/curcuma EXCLUDE_FROM_ALL)
+
+FetchContent_Declare(curcuma
+    GIT_REPOSITORY https://github.com/conradhuebler/curcuma
+    GIT_TAG        master
+    SOURCE_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma
+)
+
+FetchContent_MakeAvailable(CuteChart curcuma)
+
+# Exclude curcuma standalone executables from default build
+set_target_properties(curcuma PROPERTIES EXCLUDE_FROM_ALL TRUE)
+set_target_properties(curcuma_helper PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # Quelldateien
 set(SOURCES
@@ -81,6 +97,7 @@ set(SOURCES
     src/simulationworker.cpp  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.cpp  # Claude Generated - Interactive Simulation Integration
     src/forceinjector.cpp  # Claude Generated 2026 - Topological force distribution (Phase 4)
+    src/forceoverlay.cpp  # Claude Generated 2026 - Force visualization overlay
 )
 
 # Header-Dateien
@@ -112,6 +129,7 @@ set(HEADERS
     src/simulationworker.h  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.h  # Claude Generated - Interactive Simulation Integration
     src/forceinjector.h  # Claude Generated 2026 - Topological force distribution (Phase 4)
+    src/forceoverlay.h  # Claude Generated 2026 - Force visualization overlay
     #src/dialogs/nmrstructuremodel.h
 
 )
@@ -140,22 +158,23 @@ curcuma_cap   # Claude Generated - Curcuma capabilities (MD, Opt)
 $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>  # Claude Generated - OpenMP for curcuma
 )
 
-# Include-Verzeichnisse
+# Include directories — curcuma deps fetched by curcuma's FetchContent into external/
 target_include_directories(qurcuma PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/external/
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma  # Claude Generated - Curcuma headers
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/src  # Claude Generated - Curcuma src headers
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/external/eigen-3.4.0  # Claude Generated - Eigen for curcuma types
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/external  # Claude Generated - json.hpp and other curcuma externals
-    ${CMAKE_CURRENT_BINARY_DIR}/external/curcuma  # Claude Generated - generated global_config.h at src/global_config.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/LBFGSpp/include  # Claude Generated - LBFGSpp for curcuma
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/fmt/include  # Claude Generated - fmt for curcuma
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/ripser  # Claude Generated - ripser for curcuma
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/cpp-d4/include  # Claude Generated - cpp-d4 for curcuma
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/ulysses-main/src  # Claude Generated - ulysses for curcuma
-    ${LIBSSH_INCLUDE_DIRS}  # Claude Generated - SFTP support
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/LBFGSpp/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/fmt/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/ripser
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/cpp-d4/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/ulysses-main/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/CxxThreadPool/include
+    ${LIBSSH_INCLUDE_DIRS}
 )
 
 # VTF Parser Test

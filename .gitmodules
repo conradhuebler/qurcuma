@@ -1,6 +1,0 @@
-[submodule "external/CuteChart"]
-	path = external/CuteChart
-	url = https://github.com/conradhuebler/CuteChart
-[submodule "external/curcuma"]
-	path = external/curcuma
-	url = https://github.com/conradhuebler/curcuma

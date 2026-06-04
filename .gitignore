@@ -97,7 +97,9 @@ scnp_cut.vtf
 settings.ini
 *.log
 
-# FetchContent downloads (curcuma dependencies)
+# FetchContent-populated external dependencies (populated by cmake, not tracked by git)
+external/CuteChart/
+external/curcuma/
 external/fmt/
 external/LBFGSpp/
 external/CxxThreadPool/
