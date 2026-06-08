@@ -68,7 +68,7 @@ private slots:
     /**
      * Handles element filter changes
      */
-    void elementFilterChanged(int state);
+    void elementFilterChanged(Qt::CheckState state);
 
     /**
      * Sets the number of plot points
