@@ -66,6 +66,11 @@ private slots:
     void onResetDefaults();
     void onApply();
 
+    // Claude Generated 2026 - "Use Invocation Directory" preference
+    // Bridges the dialog checkbox to MainWindow, which performs the actual
+    // switchWorkingDirectory side-effect.
+    void onUseInvocationDirectoryToggled(bool enabled);
+
     // Claude Generated - Preset management slots
     void onLoadPreset(int index);
     void onSavePreset();
@@ -75,6 +80,12 @@ private slots:
 public:
     // Claude Generated - Make public for synchronization with shortcuts
     void loadCurrentSettings();
+
+signals:
+    // Claude Generated 2026 - emitted when the user toggles the
+    // "Use Invocation Directory" checkbox. The boolean is the
+    // desired new state. MainWindow handles the live switch.
+    void useInvocationDirectoryToggled(bool enabled);
 
 private:
     void setupUI();
@@ -119,6 +130,9 @@ private:
     // Claude Generated 2026 - Interaction & Performance controls
     QComboBox* m_rotationModeCombo = nullptr;
     QSpinBox* m_instancingThresholdSpin = nullptr;
+
+    // Claude Generated 2026 - "Use Invocation Directory" preference
+    QCheckBox* m_useInvocationDirCheckBox = nullptr;
 
     // Claude Generated - Preset management widgets
     QTabWidget* m_tabWidget;

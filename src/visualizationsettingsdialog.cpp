@@ -312,6 +312,8 @@ void VisualizationSettingsDialog::loadCurrentSettings()
     // Claude Generated 2026 - Block interaction/performance signals
     if (m_rotationModeCombo) m_rotationModeCombo->blockSignals(true);
     if (m_instancingThresholdSpin) m_instancingThresholdSpin->blockSignals(true);
+    // Claude Generated 2026 - Block "Use Invocation Directory" signal
+    if (m_useInvocationDirCheckBox) m_useInvocationDirCheckBox->blockSignals(true);
 
     // Claude Generated - Load from saved settings if available
     if (m_settings) {
@@ -427,6 +429,16 @@ void VisualizationSettingsDialog::loadCurrentSettings()
     // Claude Generated 2026 - Unblock interaction/performance signals
     if (m_rotationModeCombo) m_rotationModeCombo->blockSignals(false);
     if (m_instancingThresholdSpin) m_instancingThresholdSpin->blockSignals(false);
+
+    // Claude Generated 2026 - "Use Invocation Directory" preference.
+    // Load the persisted bool into the checkbox. The check happens outside
+    // m_viewer so a missing viewer does not suppress the value, and we
+    // block signals to prevent the dialog from emitting a toggle that
+    // would re-trigger switchWorkingDirectory on every dialog open.
+    if (m_useInvocationDirCheckBox && m_settings) {
+        m_useInvocationDirCheckBox->setChecked(m_settings->useInvocationDirectoryEnabled());
+        m_useInvocationDirCheckBox->blockSignals(false);
+    }
 }
 
 void VisualizationSettingsDialog::onRenderingModeChanged(int index)
@@ -636,6 +648,15 @@ void VisualizationSettingsDialog::onInstancingThresholdChanged(int value)
     m_viewer->setInstancingThreshold(value);
 }
 
+// Claude Generated 2026 - "Use Invocation Directory" preference.
+// Forwards the checkbox state to MainWindow, which performs the live
+// switchWorkingDirectory. We do not write to Settings here because
+// MainWindow's helper does that and we want a single source of truth.
+void VisualizationSettingsDialog::onUseInvocationDirectoryToggled(bool enabled)
+{
+    emit useInvocationDirectoryToggled(enabled);
+}
+
 // Claude Generated - Setup tabbed interface with all settings
 void VisualizationSettingsDialog::setupTabs()
 {
@@ -651,6 +672,35 @@ void VisualizationSettingsDialog::setupTabs()
     createInteractionGroup(settingsLayout);  // Claude Generated 2026
     settingsLayout->addStretch();
     m_tabWidget->addTab(settingsTab, tr("Settings"));
+
+    // Claude Generated 2026 - Working Directory tab.
+    // Single checkbox that mirrors the &Settings menu action. The actual
+    // side-effect (switchWorkingDirectory) is performed by MainWindow when
+    // it receives the useInvocationDirectoryToggled signal.
+    QWidget* workingDirTab = new QWidget();
+    QVBoxLayout* workingDirLayout = new QVBoxLayout(workingDirTab);
+
+    QGroupBox* workDirGroup = new QGroupBox(tr("Working Directory"), this);
+    QVBoxLayout* workDirGroupLayout = new QVBoxLayout(workDirGroup);
+
+    m_useInvocationDirCheckBox = new QCheckBox(
+        tr("Use &Invocation Directory as Working Directory"), workDirGroup);
+    m_useInvocationDirCheckBox->setToolTip(
+        tr("If enabled, treat the directory from which qurcuma was launched "
+           "as the active Working Directory. The change takes effect "
+           "immediately and is remembered for future launches."));
+    workDirGroupLayout->addWidget(m_useInvocationDirCheckBox);
+    workDirGroupLayout->addStretch();
+
+    workingDirLayout->addWidget(workDirGroup);
+    workingDirLayout->addStretch();
+    m_tabWidget->addTab(workingDirTab, tr("Working Directory"));
+
+    // Claude Generated 2026 - route the checkbox through the dialog signal.
+    // MainWindow listens to useInvocationDirectoryToggled and runs the
+    // switchWorkingDirectory side-effect.
+    connect(m_useInvocationDirCheckBox, &QCheckBox::toggled,
+            this, &VisualizationSettingsDialog::onUseInvocationDirectoryToggled);
 
     // Presets Tab
     createPresetsTab(m_tabWidget);

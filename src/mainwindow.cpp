@@ -67,9 +67,14 @@
 #define DEBUG_LOG if(false) qDebug()
 #endif
 
-MainWindow::MainWindow(QWidget *parent)
+// Claude Generated 2026 - "Use Invocation Directory" preference.
+// invocationDir is captured from QDir::currentPath() in main.cpp BEFORE
+// QApplication is created. When useInvocationDirectoryEnabled() is true,
+// this directory becomes the active Working Directory.
+MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     : QMainWindow(parent)
 {
+    m_invocationDir = invocationDir;
     // Claude Generated - Initialize m_currentProcess first (needed by setupConnections)
     m_currentProcess = new QProcess(this);
 
@@ -93,6 +98,22 @@ MainWindow::MainWindow(QWidget *parent)
     QString lastDir = m_settings.lastUsedWorkingDirectory();
     if (!lastDir.isEmpty() && QDir(lastDir).exists()) {
         switchWorkingDirectory(lastDir);
+    }
+
+    // Claude Generated 2026 - "Use Invocation Directory" preference.
+    // The invocation dir was captured at the top of the constructor; here we
+    // read the persisted toggle, reflect it on the menu action, and apply
+    // switchWorkingDirectory if the user opted in. If the dir is missing
+    // (e.g. USB stick gone), switchWorkingDirectory shows a warning and the
+    // last-used dir stays.
+    m_useInvocationDirectoryEnabled = m_settings.useInvocationDirectoryEnabled();
+    if (m_useInvocationDirAction) {
+        m_useInvocationDirAction->setChecked(m_useInvocationDirectoryEnabled);
+    }
+    if (m_useInvocationDirectoryEnabled
+        && !m_invocationDir.isEmpty()
+        && QDir(m_invocationDir).exists()) {
+        switchWorkingDirectory(m_invocationDir);
     }
 
     m_nmrDialog = new NMRSpectrumDialog(this);
@@ -513,6 +534,28 @@ void MainWindow::createMenus()
     // File Menu
     QMenu *fileMenu = menuBar->addMenu(tr("&File"));
 
+    // Claude Generated 2026 - Local file open. The previous File menu only
+    // exposed "Open Remote File..."; the standard "Open File..." action was
+    // missing. The action uses the current Working Directory as the dialog's
+    // start path so the user lands where they expect, and the underlying
+    // loadMoleculeFile() will auto-switch the working directory to the
+    // file's parent directory on a successful load.
+    QAction *openFileAction = fileMenu->addAction(QIcon::fromTheme("document-open"), tr("&Open File..."));
+    openFileAction->setShortcut(QKeySequence::Open);  // Ctrl+O / Cmd+O
+    connect(openFileAction, &QAction::triggered, this, [this]() {
+        const QString startDir = m_workingDirectory.isEmpty()
+                                 ? QDir::homePath()
+                                 : m_workingDirectory;
+        const QString path = QFileDialog::getOpenFileName(this,
+            tr("Open Molecule File"),
+            startDir,
+            tr("Molecule Files (*.xyz *.vtf *.pdb *.mol2);;All Files (*)"));
+        if (path.isEmpty()) return;
+        loadMoleculeFile(path);
+    });
+
+    fileMenu->addSeparator();
+
     // Claude Generated - SFTP: Open Remote File
     QAction *openRemoteAction = fileMenu->addAction(QIcon::fromTheme("folder-remote"), tr("Open &Remote File..."));
     openRemoteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R));
@@ -636,6 +679,18 @@ void MainWindow::createMenus()
 
     // Settings Menu
     QMenu *settingsMenu = menuBar->addMenu(tr("&Settings"));
+
+    // Claude Generated 2026 - "Use Invocation Directory" preference
+    // Checkbox state is updated in the constructor after settings are loaded.
+    m_useInvocationDirAction = settingsMenu->addAction(tr("Use &Invocation Directory"));
+    m_useInvocationDirAction->setCheckable(true);
+    m_useInvocationDirAction->setToolTip(
+        tr("If enabled, treat the directory from which qurcuma was launched "
+           "as the active Working Directory on each launch."));
+    connect(m_useInvocationDirAction, &QAction::triggered,
+            this, &MainWindow::toggleUseInvocationDirectory);
+
+    settingsMenu->addSeparator();
 
     // Claude Generated - Visual Polish: Dark mode toggle (checkbox state set later after loading settings)
     m_darkModeAction = settingsMenu->addAction(tr("&Dark Mode"));
@@ -2576,6 +2631,17 @@ void MainWindow::openVisualizationSettings()
     // Store dialog pointer for shortcut synchronization (Fix: Shortcuts sync with dialog)
     m_visualizationDialog = new VisualizationSettingsDialog(m_moleculeView, &m_settings, this);
     m_visualizationDialog->setAttribute(Qt::WA_DeleteOnClose);
+
+    // Claude Generated 2026 - "Use Invocation Directory" live toggle from the dialog.
+    // Routes the dialog checkbox's toggled signal through the same helper as the
+    // menu action, so the menu and dialog stay in sync and the same validation
+    // / restoration logic applies to both entry points.
+    connect(m_visualizationDialog,
+            &VisualizationSettingsDialog::useInvocationDirectoryToggled,
+            this, [this](bool enabled) {
+        applyUseInvocationDirectoryState(enabled);
+    });
+
     m_visualizationDialog->show();
 }
 
@@ -2704,6 +2770,65 @@ void MainWindow::toggleDarkMode()
     if (m_darkModeAction) {
         m_darkModeAction->setChecked(newMode);
     }
+}
+
+// Claude Generated 2026 - "Use Invocation Directory" preference
+// Centralized logic used by the menu toggle, the dialog checkbox signal,
+// and the constructor. Keeps a single source of truth for the
+// "use the directory qurcuma was launched from" feature.
+void MainWindow::applyUseInvocationDirectoryState(bool enabled)
+{
+    m_useInvocationDirectoryEnabled = enabled;
+    m_settings.setUseInvocationDirectoryEnabled(enabled);
+
+    if (m_useInvocationDirAction) {
+        m_useInvocationDirAction->setChecked(enabled);
+    }
+
+    if (enabled) {
+        // If we somehow lack a captured dir (e.g. toggled via dialog before
+        // main.cpp populated it, or the dir was removed), fall back to the
+        // process CWD right now. Without this branch the feature would
+        // silently do nothing.
+        if (m_invocationDir.isEmpty() || !QDir(m_invocationDir).exists()) {
+            m_invocationDir = QDir::currentPath();
+        }
+        if (!m_invocationDir.isEmpty() && QDir(m_invocationDir).exists()) {
+            switchWorkingDirectory(m_invocationDir);
+        } else {
+            QMessageBox::warning(this, tr("Invocation Directory"),
+                tr("No valid invocation directory is available."));
+            m_useInvocationDirectoryEnabled = false;
+            m_settings.setUseInvocationDirectoryEnabled(false);
+            if (m_useInvocationDirAction) {
+                m_useInvocationDirAction->setChecked(false);
+            }
+        }
+    } else {
+        // Toggling OFF: restore the last-used working dir (or the settings
+        // default if no last-used dir is recorded). User expects their
+        // previous working state back when they uncheck.
+        const QString lastDir = m_settings.lastUsedWorkingDirectory();
+        if (!lastDir.isEmpty() && QDir(lastDir).exists()) {
+            switchWorkingDirectory(lastDir);
+        } else {
+            const QString fallback = m_settings.workingDirectory();
+            if (!fallback.isEmpty() && QDir(fallback).exists()) {
+                switchWorkingDirectory(fallback);
+            }
+        }
+    }
+}
+
+// Claude Generated 2026 - "Use Invocation Directory" preference
+// Reads the desired new state from the menu action (or falls back to the
+// in-memory mirror) and delegates to applyUseInvocationDirectoryState.
+void MainWindow::toggleUseInvocationDirectory()
+{
+    const bool newState = !(m_useInvocationDirAction
+                            ? m_useInvocationDirAction->isChecked()
+                            : m_useInvocationDirectoryEnabled);
+    applyUseInvocationDirectoryState(newState);
 }
 
 // Claude Generated - Quick Win: Drag & Drop support
@@ -3085,6 +3210,11 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     QString suffix = QFileInfo(filePath).suffix().toLower();
     QString basename = QFileInfo(filePath).baseName();
 
+    // Claude Generated 2026 - tracks whether at least one parser successfully
+    // loaded the file. Only used at the end to decide whether to auto-switch
+    // the working directory to the file's parent directory.
+    bool fileLoaded = false;
+
     if (suffix == "xyz") {
         // XYZ file loading
         if (m_xyzParser->parseTrajectory(filePath)) {
@@ -3131,6 +3261,7 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
             if (m_simulationControlWidget && !allAtoms.isEmpty())
                 m_simulationControlWidget->setMolecule(allAtoms.first(),
                     !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
+            fileLoaded = true;
         } else {
             m_moleculeView->clearScenePublic();
             qWarning() << "Failed to parse XYZ file:" << filePath;
@@ -3181,6 +3312,7 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
             if (m_simulationControlWidget && !allAtoms.isEmpty())
                 m_simulationControlWidget->setMolecule(allAtoms.first(),
                     !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
+            fileLoaded = true;
         } else {
             m_moleculeView->clearScenePublic();
             qWarning() << "Failed to parse VTF file:" << filePath;
@@ -3192,6 +3324,20 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     }
     else {
         statusBar()->showMessage(tr("Unsupported file format: %1").arg(suffix), 2000);
+    }
+
+    // Claude Generated 2026 - "Open file follows its own directory" semantics.
+    // When a file is loaded successfully, the user almost always wants to
+    // work next to the file (output files, sidecar data, related files).
+    // We auto-switch the Working Directory to the file's parent directory.
+    // Failure cases (parse error, unsupported format) leave the current
+    // Working Directory untouched. switchWorkingDirectory already shows a
+    // status-bar message and updates recent files.
+    if (fileLoaded) {
+        const QString fileDir = QFileInfo(filePath).absolutePath();
+        if (!fileDir.isEmpty() && QDir(fileDir).exists() && fileDir != m_workingDirectory) {
+            switchWorkingDirectory(fileDir);
+        }
     }
 }
 
@@ -3976,4 +4122,33 @@ void MainWindow::loadFileFromArg(const QString& path)
         return;
     }
     loadMoleculeFile(absPath);
+    // Note: loadMoleculeFile() now auto-switches the working directory to
+    // the file's parent directory on success, so no explicit switch here.
+}
+
+// Claude Generated 2026: Switch the working directory to the file's parent dir
+// after a successful load. Extracted as a separate entry point so it can be
+// called from any place that loads a molecule file (CLI, File menu, drag-drop).
+void MainWindow::setWorkingDirFromArg(const QString& dir)
+{
+    QString target = dir.isEmpty() ? m_invocationDir : dir;
+    if (target.isEmpty() || !QDir(target).exists()) return;
+    if (target == m_workingDirectory) return;
+    switchWorkingDirectory(target);
+}
+
+// Claude Generated 2026: CLI entry point for `qurcuma <directory>`.
+// Switches the working directory without loading any file. Lets the user
+// launch qurcuma pointing at a project directory (e.g. `qurcuma .`).
+void MainWindow::loadDirFromArg(const QString& dir)
+{
+    if (dir.isEmpty()) return;
+    QString absDir = QFileInfo(dir).absoluteFilePath();
+    if (!QDir(absDir).exists()) {
+        qWarning() << "Command-line directory not found:" << absDir;
+        return;
+    }
+    if (absDir != m_workingDirectory) {
+        switchWorkingDirectory(absDir);
+    }
 }

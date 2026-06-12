@@ -61,6 +61,13 @@ public:
     bool darkModeEnabled() const;
     void setDarkMode(bool enabled);
 
+    // Claude Generated 2026 - "Use Invocation Directory" preference.
+    // When enabled, the directory from which qurcuma was launched
+    // (QDir::currentPath() at process start) becomes the active Working
+    // Directory. The captured path itself is never persisted.
+    bool useInvocationDirectoryEnabled() const;
+    void setUseInvocationDirectoryEnabled(bool enabled);
+
     // Claude Generated - Visualization Settings Persistence
     // Structure to hold all visualization parameters
     struct VisualizationSettings {
@@ -216,6 +223,7 @@ private:
     static const QString WORKING_DIRS_KEY;
     static const QString LAST_USED_DIR_KEY;
     static const QString VIZ_SETTINGS_PREFIX;
+    static const QString USE_INVOCATION_DIR_KEY;  // Claude Generated 2026 - "Use Invocation Directory" preference
 };
 
 #endif

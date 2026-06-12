@@ -87,7 +87,11 @@ public:
         Analysis        // All panels visible, balanced layout
     };
 
-    MainWindow(QWidget *parent = nullptr);
+    // Claude Generated 2026 - "Use Invocation Directory" preference
+    // invocationDir is captured from QDir::currentPath() in main.cpp BEFORE
+    // QApplication is created. When useInvocationDirectoryEnabled() is true,
+    // this directory becomes the active Working Directory.
+    MainWindow(const QString& invocationDir = QString(), QWidget *parent = nullptr);
     ~MainWindow();
 
     /**
@@ -100,6 +104,31 @@ public:
      * @param path  Absolute or relative path to the molecule file (.xyz, .vtf, .pdb, .mol2)
      */
     void loadFileFromArg(const QString& path);
+
+    /**
+     * @brief Switch the working directory to the directory where the molecule file
+     *        resides, after it was loaded successfully.
+     *
+     * Claude Generated 2026: Wired to be called by loadMoleculeFile() so the user
+     * automatically lands in the file's parent directory after a successful load.
+     * No-op if the path is empty or does not exist.
+     *
+     * @param dir  Directory to switch to. If empty, falls back to the captured
+     *             invocation dir (m_invocationDir).
+     */
+    void setWorkingDirFromArg(const QString& dir);
+
+    /**
+     * @brief Switch the working directory to a directory given on the command line
+     *        (e.g. `qurcuma .`).
+     *
+     * Claude Generated 2026: Separate entry point from setWorkingDirFromArg() so
+     * the CLI '.' case never triggers a file load. Called from main.cpp after
+     * the event loop starts, so it has access to switchWorkingDirectory().
+     *
+     * @param dir  Absolute directory path. If empty, no-op.
+     */
+    void loadDirFromArg(const QString& dir);
 
 private slots:
     void runCommand();
@@ -161,6 +190,9 @@ private slots:
 
     // Claude Generated - Visual Polish: Dark mode
     void toggleDarkMode();
+
+    // Claude Generated 2026 - "Use Invocation Directory" preference
+    void toggleUseInvocationDirectory();
 
     // Claude Generated - Create new directory (moved from private to slots)
     void createNewDirectory();
@@ -322,6 +354,12 @@ private:
     bool m_darkModeEnabled = false;
     QAction* m_darkModeAction = nullptr;  // Store checkbox reference
     void applyStylesheet(bool darkMode);
+
+    // Claude Generated 2026 - "Use Invocation Directory" preference
+    QString m_invocationDir;                       // captured from QDir::currentPath() in main()
+    bool m_useInvocationDirectoryEnabled = false;  // mirror of the QSettings bool
+    QAction* m_useInvocationDirAction = nullptr;   // settings-menu checkable action
+    void applyUseInvocationDirectoryState(bool enabled);
 
     // Claude Generated - Remote Directory Mounting
     QTreeWidget* m_remoteDirectoriesView = nullptr;

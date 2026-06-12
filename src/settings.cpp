@@ -10,6 +10,7 @@ const QString Settings::PROGRAM_PATH_PREFIX = "programs/";
 const QString Settings::WORKING_DIRS_KEY = "workingDirectories";
 const QString Settings::LAST_USED_DIR_KEY = "lastUsedWorkingDirectory";
 const QString Settings::VIZ_SETTINGS_PREFIX = "visualization/";
+const QString Settings::USE_INVOCATION_DIR_KEY = "useInvocationDirectory";  // Claude Generated 2026
 
 Settings::Settings(QObject* parent)
     : QObject(parent)
@@ -153,6 +154,18 @@ bool Settings::darkModeEnabled() const
 void Settings::setDarkMode(bool enabled)
 {
     m_settings.setValue("darkMode", enabled);
+    m_settings.sync();
+}
+
+// Claude Generated 2026 - "Use Invocation Directory" preference
+bool Settings::useInvocationDirectoryEnabled() const
+{
+    return m_settings.value(USE_INVOCATION_DIR_KEY, false).toBool();
+}
+
+void Settings::setUseInvocationDirectoryEnabled(bool enabled)
+{
+    m_settings.setValue(USE_INVOCATION_DIR_KEY, enabled);
     m_settings.sync();
 }
 
