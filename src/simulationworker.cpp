@@ -508,9 +508,15 @@ void SimulationWorker::runOptimization()
         // the last optimize call (mouse-grab in Opt mode) and feed it to the
         // optimizer as a gradient bias. The bias persists across every
         // iteration of the upcoming Optimize() call, then is cleared below.
+        // We always call setExternalForces or clearExternalForces so a
+        // mid-run release (clearInjectedForce from the dock) immediately drops
+        // the bias on the next iteration, even when drainPendingForces
+        // returns empty.
         Vector ext = pendingForcesToFlatVector(drainPendingForces(m_initialAtoms.size()));
         if (ext.size() > 0)
             optimizer->setExternalForces(ext);
+        else
+            optimizer->clearExternalForces();
 
         Optimization::OptimizationResult result = optimizer->Optimize(m_config.writeTrajectory, 0);
 
