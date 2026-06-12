@@ -10,6 +10,10 @@
   - Opt: eine LBFGS/DIIS/RFO/ANCOpt-Iteration (`single_step_mode=true`, fertig)
   - Dock-throttlet Klicks auf `1000/fpsLimit` ms → "max XXX FPS" wird eingehalten
 - `Speed`-Spinner bleibt während eines laufenden Runs editierbar (Live-Throttle)
+- **Force-Injection auch in der Optimierung** (Maus-Grab Parität mit MD):
+  - curcuma: `OptimizationContext.external_forces` (atom-major flat Vector) + `OptimizerDriver::setExternalForces/clearExternalForces`
+  - In `evaluateEnergyAndGradient` wird `gradient -= external_forces` subtrahiert → Optimizer-Step (`-gradient`) zieht in Force-Richtung; nach Constraints angewendet, damit fixed atoms externe Kräfte ignorieren
+  - qurcuma: `runOptimization` und `stepOnce` drainen jetzt pending forces und reichen sie an den Optimizer weiter; nach dem Optimize-Aufruf wird der Bias automatisch gecleart
 
 ## April 2026 - Simulation: Echtzeit-Schrittanzeige & RATTLE-UI
 
