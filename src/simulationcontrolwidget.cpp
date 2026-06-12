@@ -59,45 +59,90 @@ void SimulationControlWidget::setupUI()
     simForm->addRow(tr("Mode:"), m_modeCombo);
     innerLayout->addLayout(simForm);
 
-    // ---- Run buttons ----
-    auto* btnRow = new QHBoxLayout;
-    m_startBtn = new QPushButton(tr("▶ Start"), this);
-    m_pauseBtn = new QPushButton(tr("⏸"), this);
-    m_stopBtn = new QPushButton(tr("■"), this);
-    m_saveBtn = new QPushButton(tr("💾 Save"), this);  // Claude Generated 2026
+    // ---- Compact icon button bar + state pill (Claude Generated 2026) ----
+    // Replaces the old text+icon row: 5 QToolButtons (Start/Pause/Step/Stop/Save)
+    // take ~32px instead of ~36+text. State pill next to the buttons replaces
+    // the separate "● Modified" / status rows.
+    auto* ctrlRow = new QHBoxLayout;
+    ctrlRow->setSpacing(2);
+
+    auto makeToolButton = [this](const QString& text, const QString& tooltip) {
+        auto* b = new QToolButton(this);
+        b->setText(text);
+        b->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        b->setAutoRaise(false);
+        b->setIconSize(QSize(20, 20));
+        b->setFixedWidth(34);
+        b->setFixedHeight(28);
+        b->setToolTip(tooltip);
+        return b;
+    };
+    m_startBtn = makeToolButton(QStringLiteral("▶"), tr("Start auto-run (Space)"));
+    m_pauseBtn = makeToolButton(QStringLiteral("⏸"), tr("Pause / resume auto-run"));
+    m_stepBtn = makeToolButton(QStringLiteral("⏭"), tr("Step once (one MD step / one Opt iteration)"));
+    m_stopBtn = makeToolButton(QStringLiteral("■"), tr("Stop"));
+    m_saveBtn = makeToolButton(QStringLiteral("💾"), tr("Save the modified structure"));
+    m_saveBtn->setEnabled(false);  // enabled only when structure is modified
     m_pauseBtn->setEnabled(false);
     m_stopBtn->setEnabled(false);
-    m_saveBtn->setEnabled(false);  // enabled only when structure is modified
-    m_saveBtn->setToolTip(tr("Save the modified structure (overwrites source XYZ; "
-                            "opens a dialog for other formats)"));
-    btnRow->addWidget(m_startBtn);
-    btnRow->addWidget(m_pauseBtn);
-    btnRow->addWidget(m_stopBtn);
-    btnRow->addWidget(m_saveBtn);
-    innerLayout->addLayout(btnRow);
+    m_stepBtn->setEnabled(false);  // enabled only when no run is in progress
 
-    // ---- Modified indicator ----
-    // Claude Generated 2026 - small persistent hint that the on-screen structure
-    // no longer matches the on-disk source. Hidden by default; shown via
-    // setStructureModified(true) from MainWindow after MD/Opt produces a new
-    // geometry.
+    ctrlRow->addWidget(m_startBtn);
+    ctrlRow->addWidget(m_pauseBtn);
+    ctrlRow->addWidget(m_stepBtn);
+    ctrlRow->addWidget(m_stopBtn);
+    ctrlRow->addWidget(m_saveBtn);
+
+    ctrlRow->addSpacing(8);
+
+    // Modified hint lives next to the save button (no longer its own row)
     m_modifiedLabel = new QLabel(this);
     m_modifiedLabel->setTextFormat(Qt::RichText);
     m_modifiedLabel->setText(
-        QStringLiteral("<span style='color:#d35400; font-weight:600;'>"
-                       "● Modified — unsaved</span>"));
+        QStringLiteral("<span style='color:#d35400; font-weight:600;'>● Modified</span>"));
     m_modifiedLabel->setVisible(false);
-    innerLayout->addWidget(m_modifiedLabel);
+    m_modifiedLabel->setToolTip(tr("On-screen structure differs from the source file"));
+    ctrlRow->addWidget(m_modifiedLabel);
 
-    // ---- Status ----
+    ctrlRow->addSpacing(8);
+
+    // State pill: shows ● Running / ⏸ Paused / ● Finished / ○ Ready
+    m_stateLabel = new QLabel(this);
+    m_stateLabel->setTextFormat(Qt::RichText);
+    m_stateLabel->setStyleSheet("color: gray; font-weight: 600;");
+    ctrlRow->addWidget(m_stateLabel);
+
+    ctrlRow->addStretch();
+
+    innerLayout->addLayout(ctrlRow);
+
+    // ---- Speed (FPS) — visible in both modes (Claude Generated 2026) ----
+    // For MD: throttles the auto-run emit cadence. For Opt: throttles the per-
+    // iteration emit cadence AND the Step button's re-arm rate (clickable only
+    // every 1/fpsLimit seconds so "max XXX FPS" is honoured on click-driven
+    // single-step optimisation).
+    auto* speedForm = new QFormLayout;
+    m_fpsLimitSpin = new QSpinBox(this);
+    m_fpsLimitSpin->setRange(1, 240);
+    m_fpsLimitSpin->setValue(30);
+    m_fpsLimitSpin->setSuffix(tr(" fps"));
+    m_fpsLimitSpin->setToolTip(tr("Maximum steps/iterations emitted per second "
+                                  "(throttles the auto-run cadence and the Step button rate)"));
+    speedForm->addRow(tr("Speed:"), m_fpsLimitSpin);
+    innerLayout->addLayout(speedForm);
+
+    // ---- Per-frame status (separate from state pill) ----
     m_statusLabel = new QLabel(tr("Ready"), this);
     m_statusLabel->setTextFormat(Qt::RichText);
     m_statusLabel->setStyleSheet("color: gray; font-size: 11px;");
     m_statusLabel->setWordWrap(true);
     innerLayout->addWidget(m_statusLabel);
 
+    // Initial state pill
+    setState(tr("○ Ready"), "gray");
+
     // Claude Generated 2026 - wire the in-dock save button to the public signal.
-    connect(m_saveBtn, &QPushButton::clicked,
+    connect(m_saveBtn, &QToolButton::clicked,
             this, &SimulationControlWidget::saveStructureRequested);
 
     // ---- Potential / Methode ----
@@ -152,12 +197,8 @@ void SimulationControlWidget::setupUI()
     m_stepsSpin->setSuffix(tr(" steps"));
     mdForm->addRow(tr("Total steps:"), m_stepsSpin);
 
-    m_fpsLimitSpin = new QSpinBox(this);
-    m_fpsLimitSpin->setRange(1, 240);
-    m_fpsLimitSpin->setValue(30);
-    m_fpsLimitSpin->setSuffix(tr(" fps"));
-    m_fpsLimitSpin->setToolTip(tr("Steps displayed per second — controls simulation speed"));
-    mdForm->addRow(tr("Speed:"), m_fpsLimitSpin);
+    // Claude Generated 2026 - Speed (fpsLimit) is now a top-level control visible
+    // in both MD and Opt modes; the in-MD-group copy has been removed.
 
     m_hmassSpin = new QDoubleSpinBox(this);
     m_hmassSpin->setRange(1.0, 5.0);
@@ -324,9 +365,10 @@ void SimulationControlWidget::setupUI()
     outer->addWidget(scroll);
 
     // ---- Connections ----
-    connect(m_startBtn, &QPushButton::clicked, this, &SimulationControlWidget::onStartClicked);
-    connect(m_pauseBtn, &QPushButton::clicked, this, &SimulationControlWidget::onPauseClicked);
-    connect(m_stopBtn, &QPushButton::clicked, this, &SimulationControlWidget::onStopClicked);
+    connect(m_startBtn, &QToolButton::clicked, this, &SimulationControlWidget::onStartClicked);
+    connect(m_pauseBtn, &QToolButton::clicked, this, &SimulationControlWidget::onPauseClicked);
+    connect(m_stepBtn, &QToolButton::clicked, this, &SimulationControlWidget::onStepClicked);
+    connect(m_stopBtn, &QToolButton::clicked, this, &SimulationControlWidget::onStopClicked);
     connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
         this, &SimulationControlWidget::onModeChanged);
 
@@ -445,6 +487,7 @@ void SimulationControlWidget::onStartClicked()
         return;
     }
 
+    // Tear down any prior worker
     if (m_thread && m_thread->isRunning()) {
         if (m_worker)
             m_worker->requestStop();
@@ -470,6 +513,11 @@ void SimulationControlWidget::onStartClicked()
     connect(m_thread, &QThread::started, m_worker, &SimulationWorker::run);
     connect(m_worker, &SimulationWorker::frameReady, this, &SimulationControlWidget::onFrameReady);
     connect(m_worker, &SimulationWorker::finished, this, &SimulationControlWidget::onSimulationFinished);
+    connect(m_worker, &SimulationWorker::paused, this, [this]() {
+        m_pauseBtn->setText(tr("▶"));
+        m_paused = true;
+        setState(tr("⏸ Paused"), "#d4a017");  // amber
+    });
     connect(m_worker, &SimulationWorker::errorOccurred, this, [this](const QString& msg) {
         m_statusLabel->setText(tr("Error: %1").arg(msg));
         onSimulationFinished();
@@ -486,7 +534,69 @@ void SimulationControlWidget::onStartClicked()
     m_fpsTimer.invalidate();
 
     setRunning(true);
+    setState(tr("● Running"), "#27ae60");  // green
     m_statusLabel->setText(tr("Starting..."));
+    m_thread->start();
+}
+
+// Claude Generated 2026 - Step button: spawn a fresh worker that runs exactly
+// one MD step / one Opt iteration and emits one frame, then finishes. We
+// re-use the dock's running-state plumbing so the toolbar looks identical to
+// the auto-run path (Start greyed, Pause/Stop/Step shown-but-Stop-only-meaningful).
+// The Speed knob throttles the click rate so "max XXX FPS" is honoured.
+void SimulationControlWidget::onStepClicked()
+{
+    if (m_atoms.isEmpty()) {
+        m_statusLabel->setText(tr("No molecule loaded."));
+        return;
+    }
+
+    // Claude Generated 2026 - Throttle: only allow one Step click per 1000/fpsLimit ms.
+    // This is the dock-side enforcement of "max XXX FPS" the user asked for.
+    if (m_stepThrottleTimer.isValid() && m_stepThrottleTimer.elapsed() < (1000 / qMax(1, m_fpsLimitSpin->value()))) {
+        return;
+    }
+    m_stepThrottleTimer.restart();
+
+    // Tear down any prior worker (shouldn't exist if Step is only enabled when idle)
+    if (m_thread && m_thread->isRunning()) {
+        if (m_worker)
+            m_worker->requestStop();
+        m_thread->quit();
+        m_thread->wait(2000);
+    }
+
+    m_worker = new SimulationWorker;
+    emit workerStarted(m_worker);
+    m_worker->setMolecule(m_atoms);
+    m_worker->setBonds(m_bonds);
+    m_worker->setConfig(buildConfig());
+
+    m_thread = new QThread(this);
+    m_worker->moveToThread(m_thread);
+
+    // Single-shot step: QThread::started → stepOnce() (NOT run()).
+    connect(m_thread, &QThread::started, m_worker, &SimulationWorker::stepOnce);
+    connect(m_worker, &SimulationWorker::frameReady, this, &SimulationControlWidget::onFrameReady);
+    connect(m_worker, &SimulationWorker::finished, this, &SimulationControlWidget::onSimulationFinished);
+    connect(m_worker, &SimulationWorker::errorOccurred, this, [this](const QString& msg) {
+        m_statusLabel->setText(tr("Error: %1").arg(msg));
+        onSimulationFinished();
+    });
+    connect(m_worker, &SimulationWorker::finished, m_thread, &QThread::quit);
+    connect(m_worker, &SimulationWorker::finished, m_worker, &QObject::deleteLater);
+    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
+
+    m_config = buildConfig();
+
+    // Reset FPS measurement
+    m_frameCount = 0;
+    m_actualFps = 0.0;
+    m_fpsTimer.invalidate();
+
+    setRunning(true);
+    setState(tr("⏭ Stepping"), "#2980b9");  // blue
+    m_statusLabel->setText(tr("Stepping once..."));
     m_thread->start();
 }
 
@@ -497,12 +607,12 @@ void SimulationControlWidget::onPauseClicked()
     if (m_paused) {
         m_worker->requestResume();
         m_pauseBtn->setText(tr("⏸"));
-        m_statusLabel->setText(tr("Running..."));
+        setState(tr("● Running"), "#27ae60");  // green
         m_paused = false;
     } else {
         m_worker->requestPause();
         m_pauseBtn->setText(tr("▶"));
-        m_statusLabel->setText(tr("Paused"));
+        setState(tr("⏸ Paused"), "#d4a017");  // amber
         m_paused = true;
     }
 }
@@ -561,6 +671,7 @@ void SimulationControlWidget::onSimulationFinished()
     m_worker = nullptr;
     m_thread = nullptr;
     m_paused = false;
+    setState(tr("● Finished"), "#7f8c8d");  // grey
     m_statusLabel->setText(tr("Finished."));
     emit simulationFinished();
 }
@@ -583,6 +694,10 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
     m_mdGroup->setVisible(isMD);
     m_rattleGroup->setVisible(isMD);
     m_optGroup->setVisible(!isMD);
+
+    // Speed is visible in both modes (single-step optimisation uses it as a
+    // click-rate cap; MD uses it as the auto-run emit cadence cap).
+    // m_fpsLimitSpin is already a top-level control — no per-mode visibility needed.
 }
 
 void SimulationControlWidget::setRunning(bool running)
@@ -590,13 +705,17 @@ void SimulationControlWidget::setRunning(bool running)
     m_startBtn->setEnabled(!running);
     m_pauseBtn->setEnabled(running);
     m_stopBtn->setEnabled(running);
+    // Step is the inverse: enabled when idle so the user can iterate manually.
+    m_stepBtn->setEnabled(!running);
     m_modeCombo->setEnabled(!running);
     m_methodCombo->setEnabled(!running);
     m_optimizerCombo->setEnabled(!running);
     m_tempSpin->setEnabled(!running);
     m_timestepSpin->setEnabled(!running);
     m_stepsSpin->setEnabled(!running);
-    m_fpsLimitSpin->setEnabled(!running);
+    // Speed stays editable during a run — the user often wants to slow down
+    // or speed up a live MD/Opt without stopping it.
+    // m_fpsLimitSpin->setEnabled(!running);
     m_hmassSpin->setEnabled(!running);
     m_gpuCombo->setEnabled(!running);
     m_writeTrjCheck->setEnabled(!running);
@@ -610,4 +729,14 @@ void SimulationControlWidget::setRunning(bool running)
     m_rattleMaxIterSpin->setEnabled(!running);
 
     emit simulationRunningChanged(running);
+}
+
+// Claude Generated 2026 - Update the state pill (color-coded run-state indicator
+// next to the button bar). Pass a plain text + a CSS color name.
+void SimulationControlWidget::setState(const QString& label, const QString& color)
+{
+    if (!m_stateLabel)
+        return;
+    m_stateLabel->setText(QStringLiteral("<span style='color:%1; font-weight:600;'>%2</span>")
+                              .arg(color, label.toHtmlEscaped()));
 }

@@ -32,6 +32,12 @@ SimulationWorker::SimulationWorker(QObject* parent)
 // Defined here (not =default in header) so unique_ptr<SimpleMD>'s deleter sees the complete type.
 SimulationWorker::~SimulationWorker() = default;
 
+// Forward declarations for helpers used by both stepOnce() (above their
+// definition site) and the rest of the worker methods.
+static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms);
+static SimulationFramePtr moleculeToFrame(
+    const Molecule& mol, int referenceSize, double energy, double ekin, int step);
+
 void SimulationWorker::setMolecule(const QVector<MoleculeViewer::Atom>& atoms)
 {
     m_initialAtoms = atoms;
@@ -62,6 +68,133 @@ void SimulationWorker::clearInjectedForce()
     QMutexLocker lock(&m_forceMutex);
     m_pendingForcesValid = false;
     m_pendingForces.resize(0, 0);
+}
+
+// Claude Generated 2026 - One-shot step from the dock's Step button.
+//
+// Spawns a fresh worker state for a single iteration:
+//   - MD mode: builds a new SimpleMD on the current geometry, runs exactly one
+//     md.step(), emits one frame, then emits finished().
+//   - Opt mode: builds the OptimizerDriver fresh on the current geometry, calls
+//     Optimize(max_iterations=1, single_step_mode=true) so curcuma exits after
+//     one iteration, emits one frame, then emits finished().
+//
+// Safe to call repeatedly — each click is independent. The dock throttles
+// clicks by 1/fpsLimit to honour the user's "max XXX FPS" preference.
+void SimulationWorker::stepOnce()
+{
+    if (m_initialAtoms.isEmpty()) {
+        emit errorOccurred(tr("No molecule loaded. Please open a molecule file first."));
+        emit finished();
+        return;
+    }
+
+    m_stopRequested.storeRelaxed(0);
+    m_lastEmitTimer.start();
+
+    switch (m_config.mode) {
+    case SimulationConfig::Mode::MolecularDynamics: {
+        // Use a single-step MD: build SimpleMD on the worker's current geometry
+        // (which is the same as the initial geometry the dock fed in, since we
+        // run each Step click independently). For MD, the geometry is whatever
+        // the viewer has — for now we restart from m_initialAtoms. The dock
+        // should re-spawn the worker with the current viewer geometry; this is
+        // handled by the standard setMolecule() path before the call.
+        json simplemd_params;
+        simplemd_params["method"] = m_config.method.toStdString();
+        simplemd_params["temperature"] = m_config.temperature;
+        simplemd_params["time_step"] = m_config.timestep;
+        simplemd_params["dump_frequency"] = 1;
+        simplemd_params["max_time"] = m_config.timestep;  // one step only
+        simplemd_params["print_frequency"] = m_config.performanceAnalysis ? 1 : 1000;
+        simplemd_params["write_xyz"] = false;
+        simplemd_params["no_restart"] = true;
+        simplemd_params["no_center"] = true;
+        simplemd_params["hmass"] = m_config.hmass;
+
+        json controller;
+        controller["simplemd"] = simplemd_params;
+        controller["global"]["method"] = m_config.method.toStdString();
+        controller["global"]["gpu"] = m_config.gpu.toStdString();
+        controller["global"]["verbosity"] = 0;
+        controller["verbosity"] = 0;
+
+        auto md = std::make_unique<SimpleMD>(controller, true);
+        md->setMolecule(atomsToMolecule(m_initialAtoms));
+        if (!md->Initialise()) {
+            emit errorOccurred(tr("MD initialization failed for single step."));
+            emit finished();
+            return;
+        }
+        md->prepareRun();
+        // Drain any pending grab force for this step
+        Eigen::MatrixXd pending = drainPendingForces(m_initialAtoms.size());
+        if (pending.rows() > 0) {
+            Geometry ext = pending;
+            md->applyExternalForces(ext);
+        }
+        if (md->step()) {
+            emit frameReady(moleculeToFrame(
+                md->currentMolecule(), m_initialAtoms.size(),
+                md->potentialEnergy(), md->kineticEnergy(), md->stepCount()));
+        }
+        md->finalizeRun();
+        emit finished();
+        return;
+    }
+    case SimulationConfig::Mode::GeometryOptimization: {
+        // Build a fresh OptimizerDriver on the current geometry and run exactly
+        // one iteration via single_step_mode. This restarts LBFGS history from
+        // scratch each click — expensive for big systems, but matches the dock's
+        // "manual convergence" UX. The user can also click Start to run a full
+        // auto-converge in one shot.
+        json opt_config;
+        opt_config["max_iterations"] = 1;
+        opt_config["gradient_threshold"] = m_config.convergence;
+        opt_config["single_step_mode"] = true;  // break after one iteration
+        opt_config["write_trajectory"] = false;
+        opt_config["verbosity"] = 0;
+
+        json energy_controller;
+        energy_controller["method"] = m_config.method.toStdString();
+        energy_controller["gpu"] = m_config.gpu.toStdString();
+        energy_controller["verbosity"] = 0;
+
+        try {
+            EnergyCalculator calc(m_config.method.toStdString(), energy_controller);
+            Optimization::OptimizerType opt_type =
+                Optimization::parseOptimizerType(m_config.optimizer.toStdString());
+            auto optimizer = Optimization::OptimizerFactory::createOptimizer(opt_type, &calc);
+            if (!optimizer) {
+                emit errorOccurred(tr("Failed to create optimizer '%1'").arg(m_config.optimizer));
+                emit finished();
+                return;
+            }
+            json merged = optimizer->GetDefaultConfiguration();
+            for (auto it = opt_config.begin(); it != opt_config.end(); ++it)
+                merged[it.key()] = it.value();
+            optimizer->LoadConfiguration(merged);
+
+            Molecule mol = atomsToMolecule(m_initialAtoms);
+            emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), 0.0, 0.0, 0));
+            if (!optimizer->InitializeOptimization(mol)) {
+                emit errorOccurred(tr("Optimizer initialization failed for single step."));
+                emit finished();
+                return;
+            }
+            Optimization::OptimizationResult result = optimizer->Optimize(false, 0);
+            if (result.iterations_performed > 0) {
+                emit frameReady(moleculeToFrame(
+                    result.final_molecule, m_initialAtoms.size(),
+                    result.final_energy, 0.0, result.iterations_performed));
+            }
+        } catch (const std::exception& e) {
+            emit errorOccurred(tr("Single-step optimization threw: %1").arg(QString::fromUtf8(e.what())));
+        }
+        emit finished();
+        return;
+    }
+    }
 }
 
 // Move the pending force matrix out from under the mutex so the worker can

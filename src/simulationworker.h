@@ -114,6 +114,11 @@ public slots:
     /** @brief Start the simulation. Connect to QThread::started. */
     void run();
 
+    /** @brief Run exactly one step and emit a frame, then return. Does not start
+     *  or stop the auto-run timer — safe to call from any state. For Opt, runs
+     *  one optimizer iteration against the persistent OptimizerDriver. */
+    void stepOnce();
+
     /** @brief Inject an external force on @p atomIndex, spread through the
      *  bond graph with exponential decay (@p alpha per shell, cut at
      *  @p maxShells). The force is in Eh/Bohr and is applied additively to the

@@ -13,9 +13,9 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QObject>
-#include <QPushButton>
 #include <QSpinBox>
 #include <QThread>
+#include <QToolButton>
 #include <QWidget>
 
 /**
@@ -65,6 +65,7 @@ public slots:
     void onStartClicked();
     void onPauseClicked();
     void onStopClicked();
+    void onStepClicked();
     void onFrameReady(SimulationFramePtr frame);
     void onSimulationFinished();
     void onModeChanged(int index);
@@ -78,6 +79,8 @@ public slots:
 private:
     void setupUI();
     void setRunning(bool running);
+    void setState(const QString& label, const QString& color);  // Claude Generated 2026 - state pill
+    void onStepButtonEnableToggled();  // Claude Generated 2026 - re-arm Step after throttle
     SimulationConfig buildConfig() const;
 
     // --- Mode / method ---
@@ -85,11 +88,14 @@ private:
     QComboBox* m_methodCombo = nullptr;
     QComboBox* m_optimizerCombo = nullptr;  // Claude Generated 2026 - opt algorithm picker
 
+    // --- Common (visible in both modes) ---
+    QSpinBox* m_fpsLimitSpin = nullptr;  // Speed: max emits per second
+    QLabel* m_stateLabel = nullptr;      // Claude Generated 2026 - "○ Ready / ● Running" pill
+
     // --- MD parameters ---
     QDoubleSpinBox* m_tempSpin = nullptr;
     QDoubleSpinBox* m_timestepSpin = nullptr;
     QSpinBox* m_stepsSpin = nullptr;
-    QSpinBox* m_fpsLimitSpin = nullptr;
     QDoubleSpinBox* m_hmassSpin = nullptr;  // Hydrogen mass scaling
     QComboBox* m_gpuCombo = nullptr;
     QCheckBox* m_writeTrjCheck = nullptr;
@@ -122,10 +128,11 @@ private:
     QWidget* m_grabAdvancedWidget = nullptr;
 
     // --- Buttons / status ---
-    QPushButton* m_startBtn = nullptr;
-    QPushButton* m_pauseBtn = nullptr;
-    QPushButton* m_stopBtn = nullptr;
-    QPushButton* m_saveBtn = nullptr;       // Claude Generated 2026 - in-dock save
+    QToolButton* m_startBtn = nullptr;
+    QToolButton* m_pauseBtn = nullptr;
+    QToolButton* m_stepBtn = nullptr;       // Claude Generated 2026 - one-shot step (works in MD + Opt)
+    QToolButton* m_stopBtn = nullptr;
+    QToolButton* m_saveBtn = nullptr;       // Claude Generated 2026 - in-dock save
     QLabel* m_modifiedLabel = nullptr;      // Claude Generated 2026 - "● Modified" hint
     QLabel* m_statusLabel = nullptr;
 
@@ -139,4 +146,7 @@ private:
     SimulationWorker* m_worker = nullptr;
     QThread* m_thread = nullptr;
     bool m_paused = false;
+    // Claude Generated 2026 - throttle for the Step button: re-enabled after 1000/fpsLimit ms
+    // so the user can click at the configured "max XXX FPS" but not faster.
+    QElapsedTimer m_stepThrottleTimer;
 };
