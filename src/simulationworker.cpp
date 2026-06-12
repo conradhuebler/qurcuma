@@ -37,6 +37,7 @@ SimulationWorker::~SimulationWorker() = default;
 static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms);
 static SimulationFramePtr moleculeToFrame(
     const Molecule& mol, int referenceSize, double energy, double ekin, int step);
+static Vector pendingForcesToFlatVector(const Eigen::MatrixXd& pending);
 
 void SimulationWorker::setMolecule(const QVector<MoleculeViewer::Atom>& atoms)
 {
@@ -182,7 +183,13 @@ void SimulationWorker::stepOnce()
                 emit finished();
                 return;
             }
+            // Claude Generated 2026 - Drain any pending mouse-grab force and
+            // feed it to the optimizer before the single iteration.
+            Vector ext = pendingForcesToFlatVector(drainPendingForces(m_initialAtoms.size()));
+            if (ext.size() > 0)
+                optimizer->setExternalForces(ext);
             Optimization::OptimizationResult result = optimizer->Optimize(false, 0);
+            optimizer->clearExternalForces();
             if (result.iterations_performed > 0) {
                 emit frameReady(moleculeToFrame(
                     result.final_molecule, m_initialAtoms.size(),
@@ -208,6 +215,24 @@ Eigen::MatrixXd SimulationWorker::drainPendingForces(int atomCount)
     m_pendingForces.resize(0, 0);
     m_pendingForcesValid = false;
     return out;
+}
+
+// Claude Generated 2026 - Convert the (N_atoms × 3) force matrix produced by
+// forceinjector::distributeForce (column-major Eigen) into a flat atom-major
+// Vector the optimizer can subtract from its gradient. Returns an empty
+// vector when there are no pending forces for this molecule size.
+static Vector pendingForcesToFlatVector(const Eigen::MatrixXd& pending)
+{
+    if (pending.rows() == 0)
+        return Vector();
+    const Eigen::Index n = pending.rows();
+    Vector flat(3 * n);
+    for (Eigen::Index i = 0; i < n; ++i) {
+        flat[3 * i + 0] = pending(i, 0);
+        flat[3 * i + 1] = pending(i, 1);
+        flat[3 * i + 2] = pending(i, 2);
+    }
+    return flat;
 }
 
 void SimulationWorker::run()
@@ -478,7 +503,20 @@ void SimulationWorker::runOptimization()
             return;
         }
 
+        // Claude Generated 2026 - Interactive force injection (parity with
+        // SimpleMD::applyExternalForces). Drain any force the GUI queued since
+        // the last optimize call (mouse-grab in Opt mode) and feed it to the
+        // optimizer as a gradient bias. The bias persists across every
+        // iteration of the upcoming Optimize() call, then is cleared below.
+        Vector ext = pendingForcesToFlatVector(drainPendingForces(m_initialAtoms.size()));
+        if (ext.size() > 0)
+            optimizer->setExternalForces(ext);
+
         Optimization::OptimizationResult result = optimizer->Optimize(m_config.writeTrajectory, 0);
+
+        // Always clear external forces after the optimize call so a subsequent
+        // run without a new grab doesn't inherit stale bias.
+        optimizer->clearExternalForces();
 
         if (!result.success && !m_stopRequested.loadRelaxed()) {
             emit errorOccurred(tr("Optimization failed: %1")
