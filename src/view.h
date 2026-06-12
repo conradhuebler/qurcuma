@@ -71,6 +71,13 @@ public:
     void addMolecule(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
     void addMolecule(const QVector<Atom>& atoms) { addMolecule(atoms, {}); }
 
+    // Claude Generated 2026 - Reset the throttled-emit dirty flag. Must be
+    // called by MainWindow whenever a new SimulationWorker is wired up, so the
+    // first frame of the *new* run emits moleculeUpdated (and thus re-syncs
+    // SimulationControlWidget::m_atoms) instead of being silently dropped
+    // because the flag was still set from the previous run.
+    void resetSimDirty() { m_moleculeDirty = false; }
+
     // Claude Generated - Visual settings setters
     void setRenderingMode(RenderingMode mode);
     RenderingMode getRenderingMode() const { return m_renderingMode; }
@@ -189,6 +196,15 @@ public slots:
      * Used by simulation integration to pass the current molecule to the simulation engine.
      */
     QVector<Atom> getCurrentFrameAtoms() const;
+
+    // Claude Generated 2026 - Companion getter to getCurrentFrameAtoms; the
+    // bond graph is normally stable across a simulation run, but the sim
+    // dock needs the live copy before starting a new run.
+    QVector<Bond> getCurrentFrameBonds() const {
+        if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryBonds.size())
+            return m_trajectoryBonds[m_currentFrame];
+        return {};
+    }
 
     /**
      * @brief Update atom positions for live simulation without scene rebuild or bond detection.
@@ -390,6 +406,13 @@ private:
     QTimer *m_autoSaveTimer = nullptr;  // Debouncing timer (500ms)
     bool m_autoSaveEnabled = true;  // Enable/disable auto-save
     bool m_hasUnsavedChanges = false;  // Track unsaved state
+
+    // Claude Generated 2026 - Throttle moleculeUpdated emits from the in-place
+    // simulation update path. Updated by MD/Opt runs (set true on first frame),
+    // cleared by fresh loads (setTrajectoryData / addMolecule). The downstream
+    // SimulationControlWidget cache depends on this signal to stay in lockstep
+    // with the viewer's current positions.
+    bool m_moleculeDirty = false;
 
     // Claude Generated - LOD: adaptive sphere/cylinder tessellation per atom count
     PerformanceOptimizer *m_perfOpt = nullptr;

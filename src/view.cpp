@@ -1604,6 +1604,10 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
     Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
     moleculeEntity->setParent(m_modelEntity);
 
+    // Claude Generated 2026 - Fresh load: clear the sim-dirty flag so a follow-up
+    // simulation run is allowed to emit moleculeUpdated again (once per run).
+    m_moleculeDirty = false;
+
     // Claude Generated 2026 - Phase 6: notify listeners (sim dock) of the new molecule.
     emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
 
@@ -2071,6 +2075,16 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
     updateBondsHybrid(0);
 #endif
 
+    // Claude Generated 2026 - Throttled emit: signal the cache downstream
+    // (SimulationControlWidget::m_atoms) exactly once per worker run, so a
+    // second "Start" continues from the latest positions instead of the
+    // original file-load geometry. m_moleculeDirty is cleared in
+    // setTrajectoryData() / addMolecule() so the next sim run re-emits.
+    if (!m_moleculeDirty) {
+        m_moleculeDirty = true;
+        emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
+    }
+
     // Claude Generated 2026 - Re-send force + update overlay while grabbing.
     // Called at sim-FPS cadence — natural coupling to simulation update rate.
     if (m_grabbedAtom >= 0 && m_camera) {
@@ -2102,6 +2116,10 @@ void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, cons
     m_trajectoryAtoms = atoms;
     m_frameCount = atoms.size();
     m_currentFrame = 0;
+
+    // Claude Generated 2026 - Fresh trajectory load: reset sim-dirty so the next
+    // MD/Opt run re-emits moleculeUpdated exactly once.
+    m_moleculeDirty = false;
 
     // Claude Generated - Auto-detect bonds if empty (for XYZ files)
     m_trajectoryBonds.clear();

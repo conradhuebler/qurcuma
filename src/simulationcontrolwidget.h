@@ -57,13 +57,23 @@ signals:
      *  its live scaling. */
     void grabSettingsChanged(double strength, double alpha, int maxShells);
 
-private slots:
+    // Claude Generated 2026 - User clicked the in-dock "Save" button. MainWindow
+    // routes this to the central saveStructure() implementation.
+    void saveStructureRequested();
+
+public slots:
     void onStartClicked();
     void onPauseClicked();
     void onStopClicked();
     void onFrameReady(SimulationFramePtr frame);
     void onSimulationFinished();
     void onModeChanged(int index);
+
+    // Claude Generated 2026 - Receive modified-state from MainWindow and reflect
+    // it in the dock UI (label visibility + save-button enabled). Public so
+    // MainWindow can drive it from both the moleculeUpdated lambda and the
+    // save/load paths.
+    void setStructureModified(bool modified);
 
 private:
     void setupUI();
@@ -115,6 +125,8 @@ private:
     QPushButton* m_startBtn = nullptr;
     QPushButton* m_pauseBtn = nullptr;
     QPushButton* m_stopBtn = nullptr;
+    QPushButton* m_saveBtn = nullptr;       // Claude Generated 2026 - in-dock save
+    QLabel* m_modifiedLabel = nullptr;      // Claude Generated 2026 - "● Modified" hint
     QLabel* m_statusLabel = nullptr;
 
     // --- State ---

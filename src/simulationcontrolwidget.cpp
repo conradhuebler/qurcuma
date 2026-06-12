@@ -64,12 +64,30 @@ void SimulationControlWidget::setupUI()
     m_startBtn = new QPushButton(tr("▶ Start"), this);
     m_pauseBtn = new QPushButton(tr("⏸"), this);
     m_stopBtn = new QPushButton(tr("■"), this);
+    m_saveBtn = new QPushButton(tr("💾 Save"), this);  // Claude Generated 2026
     m_pauseBtn->setEnabled(false);
     m_stopBtn->setEnabled(false);
+    m_saveBtn->setEnabled(false);  // enabled only when structure is modified
+    m_saveBtn->setToolTip(tr("Save the modified structure (overwrites source XYZ; "
+                            "opens a dialog for other formats)"));
     btnRow->addWidget(m_startBtn);
     btnRow->addWidget(m_pauseBtn);
     btnRow->addWidget(m_stopBtn);
+    btnRow->addWidget(m_saveBtn);
     innerLayout->addLayout(btnRow);
+
+    // ---- Modified indicator ----
+    // Claude Generated 2026 - small persistent hint that the on-screen structure
+    // no longer matches the on-disk source. Hidden by default; shown via
+    // setStructureModified(true) from MainWindow after MD/Opt produces a new
+    // geometry.
+    m_modifiedLabel = new QLabel(this);
+    m_modifiedLabel->setTextFormat(Qt::RichText);
+    m_modifiedLabel->setText(
+        QStringLiteral("<span style='color:#d35400; font-weight:600;'>"
+                       "● Modified — unsaved</span>"));
+    m_modifiedLabel->setVisible(false);
+    innerLayout->addWidget(m_modifiedLabel);
 
     // ---- Status ----
     m_statusLabel = new QLabel(tr("Ready"), this);
@@ -77,6 +95,10 @@ void SimulationControlWidget::setupUI()
     m_statusLabel->setStyleSheet("color: gray; font-size: 11px;");
     m_statusLabel->setWordWrap(true);
     innerLayout->addWidget(m_statusLabel);
+
+    // Claude Generated 2026 - wire the in-dock save button to the public signal.
+    connect(m_saveBtn, &QPushButton::clicked,
+            this, &SimulationControlWidget::saveStructureRequested);
 
     // ---- Potential / Methode ----
     auto* potentialGroup = new QGroupBox(tr("Potential / Method"), this);
@@ -431,6 +453,13 @@ void SimulationControlWidget::onStartClicked()
     }
 
     m_worker = new SimulationWorker;
+    // Claude Generated 2026 - Emit workerStarted BEFORE setMolecule so the
+    // MainWindow can re-sync m_atoms with the viewer's *current* geometry
+    // (e.g. the final coordinates of the previous MD/Opt run) and re-arm
+    // the viewer's throttled moleculeUpdated emit. After this signal,
+    // m_atoms holds the live viewer state and is what the worker should
+    // start from.
+    emit workerStarted(m_worker);
     m_worker->setMolecule(m_atoms);
     m_worker->setBonds(m_bonds);
     m_worker->setConfig(buildConfig());
@@ -456,7 +485,6 @@ void SimulationControlWidget::onStartClicked()
     m_actualFps = 0.0;
     m_fpsTimer.invalidate();
 
-    emit workerStarted(m_worker);
     setRunning(true);
     m_statusLabel->setText(tr("Starting..."));
     m_thread->start();
@@ -535,6 +563,15 @@ void SimulationControlWidget::onSimulationFinished()
     m_paused = false;
     m_statusLabel->setText(tr("Finished."));
     emit simulationFinished();
+}
+
+// Claude Generated 2026 - Mirror MainWindow's modified-state in the dock UI.
+void SimulationControlWidget::setStructureModified(bool modified)
+{
+    if (m_modifiedLabel)
+        m_modifiedLabel->setVisible(modified);
+    if (m_saveBtn)
+        m_saveBtn->setEnabled(modified);
 }
 
 void SimulationControlWidget::onModeChanged(int /*index*/)

@@ -556,6 +556,24 @@ void MainWindow::createMenus()
 
     fileMenu->addSeparator();
 
+    // Claude Generated 2026 - Save / Save As. The Save action overwrites the
+    // source XYZ when the source is a .xyz file; otherwise it falls through
+    // to a Save-As dialog. Save As always opens the dialog.
+    m_saveAction = fileMenu->addAction(QIcon::fromTheme("document-save"), tr("&Save"));
+    m_saveAction->setShortcut(QKeySequence::Save);
+    m_saveAction->setToolTip(tr("Save the current structure. Overwrites the source "
+                               "XYZ, or opens a Save As dialog for other formats."));
+    m_saveAction->setEnabled(false);
+    connect(m_saveAction, &QAction::triggered, this, &MainWindow::saveCurrentStructure);
+
+    m_saveAsAction = fileMenu->addAction(QIcon::fromTheme("document-save-as"), tr("Save &As..."));
+    m_saveAsAction->setShortcut(QKeySequence::SaveAs);
+    m_saveAsAction->setToolTip(tr("Save the current structure to a new XYZ file"));
+    m_saveAsAction->setEnabled(false);
+    connect(m_saveAsAction, &QAction::triggered, this, &MainWindow::saveCurrentStructureAs);
+
+    fileMenu->addSeparator();
+
     // Claude Generated - SFTP: Open Remote File
     QAction *openRemoteAction = fileMenu->addAction(QIcon::fromTheme("folder-remote"), tr("Open &Remote File..."));
     openRemoteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R));
@@ -1071,7 +1089,10 @@ void MainWindow::setupShortcuts()
     new QShortcut(QKeySequence::New, this, SLOT(createNewDirectory()));
     new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_R), this, SLOT(runSimulation()));
     new QShortcut(QKeySequence::Refresh, this, SLOT(runSimulation()));  // F5
-    new QShortcut(QKeySequence::Save, this, SLOT(saveCurrentEditor()));
+    // Claude Generated 2026 - Ctrl+S is bound to the File>Save menu action
+    // (m_saveAction) below, so we deliberately omit a second QShortcut here to
+    // avoid double-firing. The editor save behaviour is still reachable via
+    // saveCurrentStructureAs() / editor shortcuts.
     new QShortcut(Qt::Key_Escape, this, SLOT(cancelCalculation()));
     new QShortcut(QKeySequence::NextChild, this, SLOT(switchEditorTab()));  // Ctrl+Tab
 
@@ -2514,6 +2535,94 @@ void MainWindow::saveCurrentEditor()
     }
 }
 
+// Claude Generated 2026 - Central molecule-save routine. Used by:
+//   - File > Save / File > Save As (Ctrl+S / Ctrl+Shift+S)
+//   - The Save button inside the simulation dock
+//   - The Save/Discard/Cancel prompt when opening a new structure
+//
+// Strategy:
+//   1. If `path` is empty AND the loaded source is .xyz → overwrite it.
+//   2. Otherwise open a Save-As dialog with the .xyz default filter.
+//   3. Build an XYZ frame from the current viewer geometry and write it.
+bool MainWindow::saveStructure(const QString& path)
+{
+    if (!m_moleculeView) {
+        statusBar()->showMessage(tr("No molecule viewer"), 3000);
+        return false;
+    }
+    const QVector<MoleculeViewer::Atom> atoms = m_moleculeView->getCurrentFrameAtoms();
+    if (atoms.isEmpty()) {
+        statusBar()->showMessage(tr("No molecule to save"), 3000);
+        return false;
+    }
+
+    // 1) Resolve target path
+    QString targetPath = path;
+    if (targetPath.isEmpty()) {
+        const QString suffix = QFileInfo(m_currentMoleculeFilePath).suffix().toLower();
+        if (suffix == QLatin1String("xyz") && QFile::exists(m_currentMoleculeFilePath)) {
+            targetPath = m_currentMoleculeFilePath;  // silent overwrite of source
+        } else {
+            const QString startDir = m_workingDirectory.isEmpty()
+                ? QDir::homePath() : m_workingDirectory;
+            targetPath = QFileDialog::getSaveFileName(this,
+                tr("Save Molecule File As"),
+                QDir(startDir).filePath(
+                    QFileInfo(m_currentMoleculeFilePath).completeBaseName().isEmpty()
+                        ? QStringLiteral("structure.xyz")
+                        : QFileInfo(m_currentMoleculeFilePath).completeBaseName() + QStringLiteral(".xyz")),
+                tr("XYZ Files (*.xyz);;All Files (*)"));
+            if (targetPath.isEmpty())  // user cancelled
+                return false;
+            // Force .xyz suffix if the user typed something else — XYZParser::writeFile
+            // writes raw text regardless, but the dialog filter and recent-files menu
+            // behave more predictably with a .xyz extension.
+            if (QFileInfo(targetPath).suffix().isEmpty())
+                targetPath += QStringLiteral(".xyz");
+        }
+    }
+
+    // 2) Build the frame
+    XYZParser::XYZFrame frame;
+    const QString comment = tr("Saved from Qurcuma after MD/Optimization");
+    XYZParser::convertFromMoleculeViewer(atoms, comment, frame);
+
+    // 3) Write
+    if (!XYZParser::writeFile(targetPath, frame)) {
+        QMessageBox::critical(this, tr("Save failed"),
+            tr("Could not write %1").arg(targetPath));
+        return false;
+    }
+
+    // 4) Update application state
+    m_currentMoleculeFilePath = targetPath;
+    m_structureModified = false;
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setStructureModified(false);
+    if (m_structureFileEdit)
+        m_structureFileEdit->setText(QFileInfo(targetPath).fileName());
+    statusBar()->showMessage(tr("Saved: %1").arg(targetPath), 3000);
+    addToRecentFiles(targetPath);
+    return true;
+}
+
+bool MainWindow::saveCurrentStructure()
+{
+    return saveStructure(QString());
+}
+
+void MainWindow::saveCurrentStructureAs()
+{
+    // Pass an explicitly-empty path AND clear the cached source path so the
+    // saveStructure() resolution always falls through to the Save-As dialog,
+    // even when the source was a .xyz file.
+    const QString oldPath = m_currentMoleculeFilePath;
+    m_currentMoleculeFilePath.clear();
+    const bool ok = saveStructure(QString());
+    if (!ok)
+        m_currentMoleculeFilePath = oldPath;  // user cancelled; keep old target
+}
+
 // Claude Generated - Quick Win: Auto-save drafts
 void MainWindow::autoSaveDrafts()
 {
@@ -2736,30 +2845,35 @@ void MainWindow::updateWorkflowState(WorkflowState state)
 }
 
 // Claude Generated - Visual Polish: Apply stylesheet (dark/light mode)
+// Claude Generated 2026 - The .qss files in stylesheets/ are intentionally NOT
+// applied any more. They were a stop-gap "Material-style" theme that
+// overrode Qt's native look-and-feel. The setting/state plumbing stays
+// (so the dark-mode menu action remains a working toggle), but the actual
+// qApp->setStyleSheet() call is now a no-op. Restore by reverting this
+// function and uncommenting the file load below.
 void MainWindow::applyStylesheet(bool darkMode)
 {
-    QString stylesheetPath = darkMode ?
-        ":/stylesheets/dark.qss" :
-        ":/stylesheets/light.qss";
+    Q_UNUSED(darkMode);
 
-    DEBUG_LOG << "[Dark Mode] Attempting to load stylesheet:" << stylesheetPath;
+    // --- Disabled 2026: do not load any custom stylesheet. ---
+    // QString stylesheetPath = darkMode ?
+    //     ":/stylesheets/dark.qss" :
+    //     ":/stylesheets/light.qss";
+    // QFile styleFile(stylesheetPath);
+    // if (styleFile.open(QFile::ReadOnly)) {
+    //     QString styleSheet = QString::fromUtf8(styleFile.readAll());
+    //     qApp->setStyleSheet(styleSheet);
+    //     styleFile.close();
+    // } else {
+    //     qWarning() << "[Dark Mode] FAILED to open stylesheet file:" << stylesheetPath;
+    //     qWarning() << "[Dark Mode] Error:" << styleFile.errorString();
+    // }
 
-    QFile styleFile(stylesheetPath);
-    if (styleFile.open(QFile::ReadOnly)) {
-        QString styleSheet = QString::fromUtf8(styleFile.readAll());
-        DEBUG_LOG << "[Dark Mode] Stylesheet loaded successfully, size:" << styleSheet.length() << "bytes";
-        qApp->setStyleSheet(styleSheet);
-        styleFile.close();
-        m_darkModeEnabled = darkMode;
-        m_settings.setDarkMode(darkMode);
-        DEBUG_LOG << "[Dark Mode] Settings saved: darkMode =" << darkMode;
-        statusBar()->showMessage(
-            darkMode ? tr("Dark Mode enabled") : tr("Light Mode enabled"),
-            2000);
-    } else {
-        qWarning() << "[Dark Mode] FAILED to open stylesheet file:" << stylesheetPath;
-        qWarning() << "[Dark Mode] Error:" << styleFile.errorString();
-    }
+    m_darkModeEnabled = darkMode;
+    m_settings.setDarkMode(darkMode);
+    statusBar()->showMessage(
+        darkMode ? tr("Dark Mode (native)") : tr("Light Mode (native)"),
+        2000);
 }
 
 void MainWindow::toggleDarkMode()
@@ -3207,6 +3321,30 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
         return;
     }
 
+    // Claude Generated 2026 - If the user has modified the structure (e.g. by
+    // running an MD/Opt), prompt before discarding those changes. Save runs
+    // through the central saveStructure() helper which itself may show a
+    // Save-As dialog; if the user cancels that, the load is aborted.
+    if (m_structureModified) {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle(tr("Unsaved changes"));
+        box.setText(tr("The current structure has unsaved changes from a "
+                       "previous MD/optimization run."));
+        box.setInformativeText(tr("Save them before opening a new file?"));
+        QPushButton* saveBtn    = box.addButton(tr("Save..."),  QMessageBox::AcceptRole);
+        QPushButton* discardBtn = box.addButton(tr("Discard"),  QMessageBox::DestructiveRole);
+        QPushButton* cancelBtn  = box.addButton(tr("Cancel"),   QMessageBox::RejectRole);
+        box.setDefaultButton(saveBtn);
+        box.exec();
+        QAbstractButton* clicked = box.clickedButton();
+        if (clicked == cancelBtn)
+            return;
+        if (clicked == saveBtn && !saveCurrentStructure())
+            return;  // user cancelled Save-As — keep the unsaved structure
+        // Discard falls through silently.
+    }
+
     QString suffix = QFileInfo(filePath).suffix().toLower();
     QString basename = QFileInfo(filePath).baseName();
 
@@ -3261,6 +3399,16 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
             if (m_simulationControlWidget && !allAtoms.isEmpty())
                 m_simulationControlWidget->setMolecule(allAtoms.first(),
                     !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
+            // Claude Generated 2026 - Fresh load: clear the modified flag, cache
+            // the new source path (so a follow-up Save overwrites it), and
+            // enable the File>Save actions. The Save action is enabled as soon
+            // as a molecule is on screen, regardless of modification state.
+            m_currentMoleculeFilePath = filePath;
+            m_structureModified = false;
+            if (m_simulationControlWidget)
+                m_simulationControlWidget->setStructureModified(false);
+            if (m_saveAction) m_saveAction->setEnabled(true);
+            if (m_saveAsAction) m_saveAsAction->setEnabled(true);
             fileLoaded = true;
         } else {
             m_moleculeView->clearScenePublic();
@@ -3312,6 +3460,16 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
             if (m_simulationControlWidget && !allAtoms.isEmpty())
                 m_simulationControlWidget->setMolecule(allAtoms.first(),
                     !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
+            // Claude Generated 2026 - Fresh load: clear the modified flag, cache
+            // the new source path (so a follow-up Save overwrites it), and
+            // enable the File>Save actions. The Save action is enabled as soon
+            // as a molecule is on screen, regardless of modification state.
+            m_currentMoleculeFilePath = filePath;
+            m_structureModified = false;
+            if (m_simulationControlWidget)
+                m_simulationControlWidget->setStructureModified(false);
+            if (m_saveAction) m_saveAction->setEnabled(true);
+            if (m_saveAsAction) m_saveAsAction->setEnabled(true);
             fileLoaded = true;
         } else {
             m_moleculeView->clearScenePublic();
@@ -3864,6 +4022,11 @@ void MainWindow::createDockWidgets()
     // Claude Generated - Worker is wired to view + status slot directly (skips widget mid-hop).
     // Claude Generated 2026 - Phase 6: every molecule load path emits MoleculeViewer::moleculeUpdated;
     // centralising the sim-dock sync here replaces a dozen ad-hoc setMolecule callsites.
+    // Claude Generated 2026 - The sim path (MoleculeViewer::updateSimulationFrame)
+    // also emits moleculeUpdated (throttled to once per worker run) so the sim
+    // dock's m_atoms cache stays in lockstep with the viewer. We mark the
+    // structure as modified here too, which surfaces the "● Modified" hint and
+    // enables the save button / File>Save action.
     if (m_moleculeView) {
         connect(m_moleculeView, &MoleculeViewer::moleculeUpdated,
             m_simulationControlWidget,
@@ -3871,12 +4034,18 @@ void MainWindow::createDockWidgets()
                 const QVector<MoleculeViewer::Bond>& bonds) {
                 if (m_simulationControlWidget)
                     m_simulationControlWidget->setMolecule(atoms, bonds);
+                m_structureModified = true;
+                if (m_simulationControlWidget)
+                    m_simulationControlWidget->setStructureModified(true);
             });
     }
     connect(m_simulationControlWidget, &SimulationControlWidget::workerStarted,
         this, &MainWindow::wireSimulationWorker);
     connect(m_simulationControlWidget, &SimulationControlWidget::configChanged,
         this, &MainWindow::onSimulationConfigChanged);
+    // Claude Generated 2026 - In-dock "Save" button routes to the central save.
+    connect(m_simulationControlWidget, &SimulationControlWidget::saveStructureRequested,
+        this, [this]() { saveCurrentStructure(); });
     // Claude Generated 2026 - Phase 6: keep pickers ON during sim so click+drag
     // on an atom triggers the grab path (QObjectPicker::pressed). Without this
     // the camera controller would eat the press and rotate instead.
@@ -4080,6 +4249,14 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
         return;
 
     if (m_moleculeView) {
+        // Claude Generated 2026 - Critical: a new worker run must re-arm the
+        // viewer's throttled moleculeUpdated emit. Otherwise the *first* frame
+        // of e.g. an MD-after-Opt run is dropped (m_moleculeDirty was still
+        // true from the previous run's first frame), the sim dock's m_atoms
+        // cache never sees the new geometry, and the new run starts from the
+        // stale cache instead of the previous run's final coordinates.
+        m_moleculeView->resetSimDirty();
+
         connect(worker, &SimulationWorker::frameReady,
             m_moleculeView, &MoleculeViewer::updateSimulationFrame,
             Qt::QueuedConnection);
@@ -4091,6 +4268,19 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
         connect(m_moleculeView, &MoleculeViewer::atomGrabReleased,
             worker, &SimulationWorker::clearInjectedForce,
             Qt::QueuedConnection);
+    }
+
+    // Claude Generated 2026 - Re-sync the sim-dock m_atoms cache with the
+    // viewer's *current* geometry before the new run starts. The
+    // moleculeUpdated signal from the previous run's first frame only ever
+    // captured frame-1 coordinates; every frame after that mutated
+    // m_trajectoryAtoms[0] in place but the dock was never told. So the
+    // cache is always one run behind — unless we refresh it here.
+    if (m_simulationControlWidget && m_moleculeView) {
+        const QVector<MoleculeViewer::Atom> liveAtoms = m_moleculeView->getCurrentFrameAtoms();
+        if (!liveAtoms.isEmpty())
+            m_simulationControlWidget->setMolecule(liveAtoms,
+                m_moleculeView->getCurrentFrameBonds());
     }
 
     // Status-bar slot is a lambda so we don't need a Qt slot declaration.

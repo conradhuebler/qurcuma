@@ -146,6 +146,12 @@ private slots:
     void switchEditorTab();
     void saveCurrentEditor();
 
+    // Claude Generated 2026 - Save the (possibly MD/Opt-modified) molecule.
+    // Empty path → overwrite the current XYZ source if it's a .xyz file,
+    // otherwise open a Save-As dialog. Returns true on success.
+    bool saveCurrentStructure();
+    void saveCurrentStructureAs();
+
     // Claude Generated - Visualization settings
     void openVisualizationSettings();
 
@@ -335,6 +341,19 @@ private:
     // Claude Generated - Quick Win: Recent files
     QMenu* m_recentFilesMenu = nullptr;
     QVector<Settings::RecentFileEntry> m_recentFiles;  // Claude Generated Phase 2 - Now with timestamps
+
+    // Claude Generated 2026 - Molecule save state. m_currentMoleculeFilePath
+    // is the path of the most recently *loaded* structure (XYZ/VTF/...). The
+    // save flow re-uses it as the default target if the extension is .xyz,
+    // otherwise it falls back to a Save-As dialog. m_structureModified tracks
+    // whether the in-memory geometry has diverged from that source (e.g. after
+    // an MD/Opt run) and is consulted by loadMoleculeFile() to prompt the
+    // user with Save/Discard/Cancel.
+    QString m_currentMoleculeFilePath;
+    bool m_structureModified = false;
+    QAction* m_saveAction = nullptr;
+    QAction* m_saveAsAction = nullptr;
+    bool saveStructure(const QString& path = QString());
 
     // Claude Generated - Phase SFTP Integration: Recent remote connections
     QMenu* m_recentConnectionsMenu = nullptr;
