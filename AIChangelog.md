@@ -1,5 +1,16 @@
 # AIChangelog - Qurcuma Improvements
 
+## June 2026 - Simulation dock UX: kompakte Buttons + Step für MD & Opt
+
+- Button-Reihe von 4 text+icon QPushButtons auf 5 icon-only QToolButtons (▶ Start, ⏸ Pause, ⏭ Step, ■ Stop, 💾 Save) geschrumpft — spart ~30px Vertikalraum im Dock
+- Farbiger Status-Pill (`● Running` grün / `⏸ Paused` amber / `● Finished` grau / `⏭ Stepping` blau) ersetzt separaten Status-Text
+- `Speed` (fpsLimit) aus der MD-Gruppe an Top-Level verschoben — jetzt in beiden Modi sichtbar
+- Neuer **Step**-Button funktioniert symmetrisch für MD und Opt:
+  - MD: ein `md.step()` (frischer SimpleMD, ein Schritt, fertig)
+  - Opt: eine LBFGS/DIIS/RFO/ANCOpt-Iteration (`single_step_mode=true`, fertig)
+  - Dock-throttlet Klicks auf `1000/fpsLimit` ms → "max XXX FPS" wird eingehalten
+- `Speed`-Spinner bleibt während eines laufenden Runs editierbar (Live-Throttle)
+
 ## April 2026 - Simulation: Echtzeit-Schrittanzeige & RATTLE-UI
 
 - MD: Jeder berechnete Schritt wird angezeigt; `fpsLimit` koppelt Step-Rate an Anzeige-Rate 1:1, throttelt nur wenn CPU schneller als Ziel (bei langsamer Rechnung läuft jede Step voll durch)
