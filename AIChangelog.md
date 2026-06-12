@@ -11,8 +11,12 @@
   - Dock-throttlet Klicks auf `1000/fpsLimit` ms → "max XXX FPS" wird eingehalten
 - `Speed`-Spinner bleibt während eines laufenden Runs editierbar (Live-Throttle)
 - **Force-Injection auch in der Optimierung** (Maus-Grab Parität mit MD):
-  - curcuma: `OptimizationContext.external_forces` (atom-major flat Vector) + `OptimizerDriver::setExternalForces/clearExternalForces`
-  - In `evaluateEnergyAndGradient` wird `gradient -= external_forces` subtrahiert → Optimizer-Step (`-gradient`) zieht in Force-Richtung; nach Constraints angewendet, damit fixed atoms externe Kräfte ignorieren
+  - curcuma: `OptimizationContext.external_forces` (atom-major flat Vector) + `OptimizerDriver::setExternalForces/clearExternalForces/applyExternalForcesBias`
+  - Bias wird jetzt in ALLEN Gradient-Pfaden angewendet (nicht nur in `evaluateEnergyAndGradient`):
+    1. `evaluateEnergyAndGradient` (Standard-Pfad, nach Constraints)
+    2. `LBFGSppObjectiveFunction::operator()` — LBFGSpp ruft das Objective intern aus der Line-Search, daher bekommt die Klasse einen `const Vector* m_external_forces` und subtrahiert den Bias bei jedem `grad`
+    3. `LBFGSppOptimizer::CalculateOptimizationStep` — zusätzlich auf `m_context.step_gradient`, damit der Treiber-Loop den bias auch in `m_current_gradient` der nächsten Iteration propagiert
+    4. `NativeOptimizerAdapter::CalculateOptimizationStep` (DIIS/RFO) — gleiche Behandlung
   - qurcuma: `runOptimization` und `stepOnce` drainen jetzt pending forces und reichen sie an den Optimizer weiter; nach dem Optimize-Aufruf wird der Bias automatisch gecleart
 
 ## April 2026 - Simulation: Echtzeit-Schrittanzeige & RATTLE-UI
