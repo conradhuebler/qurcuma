@@ -549,15 +549,19 @@ QVector3D MoleculeViewer::computeGrabForce(const QPoint &mousePos, int atomIndex
     else
         camRight.normalize();
 
-    // Convert screen pixels to world-space distance at the atom's depth
+    // Convert screen pixels to world-space distance at the atom's depth.
+    // Viewer coordinates are in Angstrom; curcuma forces are in Eh/Bohr,
+    // so we scale by the Angstrom-to-Bohr factor.
     float dist = (atomWorld - m_camera->position()).length();
     float fovY = m_camera->lens()->fieldOfView(); // degrees
-    float worldPerPixel = dist * std::tan(fovY * M_PI / 360.0f) / (h * 0.5f);
+    static constexpr float Angstrom2Bohr = 1.8897259886f;
+    float worldPerPixelAngstrom = dist * std::tan(fovY * M_PI / 360.0f) / (h * 0.5f);
+    float worldPerPixelBohr = worldPerPixelAngstrom * Angstrom2Bohr;
 
     // Screen Y is down; world Y (camUp) is up -> negate delta.y
     QVector3D worldForce = (static_cast<float>(delta.x()) * camRight
                            - static_cast<float>(delta.y()) * camUp)
-        * static_cast<float>(worldPerPixel * m_grabStrength);
+        * static_cast<float>(worldPerPixelBohr * m_grabStrength);
 
     // Transform to model-local coordinates
     return m_modelRotation.inverted().rotatedVector(worldForce);

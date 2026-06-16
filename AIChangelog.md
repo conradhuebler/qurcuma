@@ -1,5 +1,19 @@
 # AIChangelog - Qurcuma Improvements
 
+## June 2026 - Interaktive Simulation: live Force-Update in Opt + korrigierte Grab-Skala
+
+- Opt-Auto-Run reagiert jetzt live auf Mausziehen: der Step-Callback drainiert `pendingForces` nach jeder Iteration und aktualisiert `optimizer->setExternalForces()` / `clearExternalForces()`
+- Grab-Force-Skala korrigiert: `computeGrabForce()` rechnet screen-space-Delta von Å nach Bohr um; Default `m_grabStrength` von 0.01 auf 0.1, Range bis 10.0
+- Tote `ForceOverlay::updatePositions()` entfernt
+
+## June 2026 - Simulation dock: Reset + Snapshot-History-Foundation
+
+- Reset-Button im Simulation-Dock neben Save; Status-Labels (Modified/Finished) auf eine zweite Zeile ausgelagert
+- Reset-Button ist jetzt index-basiert und stellt Snapshot 0 wieder her; Snapshot 0 wird automatisch beim Laden erzeugt
+- `m_originalSnapshot` entfernt; Reset greift konsistent auf `m_snapshots[0]` zu
+- Manuelle Snapshot-History im neuen Snapshots-Tab: Take/Restore/Delete; globaler `MoleculeSnapshot`-Typ wird von `MainWindow` und `SnapshotsWidget` geteilt
+- Auto-Snapshot-Stride im Snapshots-Tab: jede N-te MD/Opt-Step erzeugt automatisch einen Snapshot (0 = aus)
+
 ## June 2026 - Simulation dock UX: kompakte Buttons + Step für MD & Opt
 
 - Button-Reihe von 4 text+icon QPushButtons auf 5 icon-only QToolButtons (▶ Start, ⏸ Pause, ⏭ Step, ■ Stop, 💾 Save) geschrumpft — spart ~30px Vertikalraum im Dock

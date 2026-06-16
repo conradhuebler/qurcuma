@@ -203,21 +203,3 @@ void ForceOverlay::updateDistributedArrows(const QVector<int> &atomIndices,
     }
 }
 
-void ForceOverlay::updatePositions(const QVector<QVector3D> &atomPositions)
-{
-    // Update main arrow
-    if (m_mainArrow.parent && m_mainArrow.atomIndex >= 0
-        && m_mainArrow.atomIndex < atomPositions.size()) {
-        applyArrowGeometry(&m_mainArrow, atomPositions[m_mainArrow.atomIndex],
-            m_mainArrow.cachedForce, /*isMain=*/true);
-    }
-
-    // Update distributed arrows
-    for (auto it = m_distArrows.begin(); it != m_distArrows.end(); ++it) {
-        Arrow &arrow = it.value();
-        if (arrow.atomIndex >= 0 && arrow.atomIndex < atomPositions.size()) {
-            applyArrowGeometry(&arrow, atomPositions[arrow.atomIndex],
-                arrow.cachedForce, /*isMain=*/false);
-        }
-    }
-}

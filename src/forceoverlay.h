@@ -38,9 +38,6 @@ public:
         const QVector<QVector3D> &forces,
         const QVector<QVector3D> &atomPositions);
 
-    /** Reposition arrows after atoms moved (frame update during sim). */
-    void updatePositions(const QVector<QVector3D> &atomPositions);
-
     /** Remove all arrows. */
     void clear();
 

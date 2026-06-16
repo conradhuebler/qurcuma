@@ -436,7 +436,7 @@ private:
     // Claude Generated 2026 - Phase 5: Interactive-sim grab state
     bool m_simulationActive = false;
     int m_grabbedAtom = -1;
-    double m_grabStrength = 0.01;  // Eh/Bohr per screen pixel
+    double m_grabStrength = 0.1;   // Eh/Bohr per screen pixel (Bohr-corrected scale)
     double m_grabAlpha = 0.4;
     int m_grabMaxShells = 3;
     bool m_rightMousePressed = false;

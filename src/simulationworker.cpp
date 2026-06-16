@@ -478,7 +478,7 @@ void SimulationWorker::runOptimization()
         // If the optimizer step itself exceeds the fps budget, every iteration emits
         // immediately (throttle is a no-op when remaining ≤ 0).
         m_lastEmitTimer.restart();
-        optimizer->setStepCallback([this](int iter, const Molecule& mol, double energy) -> bool {
+        optimizer->setStepCallback([this, optimizer_ptr = optimizer.get()](int iter, const Molecule& mol, double energy) -> bool {
             if (m_stopRequested.loadRelaxed())
                 return false;
             while (m_pauseRequested.loadRelaxed()) {
@@ -495,6 +495,17 @@ void SimulationWorker::runOptimization()
             }
             Q_EMIT frameReady(moleculeToFrame(mol, m_initialAtoms.size(), energy, 0.0, iter));
             m_lastEmitTimer.restart();
+
+            // Claude Generated 2026 - Refresh injected mouse-grab forces every
+            // iteration so the optimizer reacts live while the user drags an atom.
+            // This mirrors MD's per-step drain and keeps the external-forces bias
+            // in sync with the latest GUI input.
+            Vector ext = pendingForcesToFlatVector(drainPendingForces(m_initialAtoms.size()));
+            if (ext.size() > 0)
+                optimizer_ptr->setExternalForces(ext);
+            else
+                optimizer_ptr->clearExternalForces();
+
             return true;
         });
 
