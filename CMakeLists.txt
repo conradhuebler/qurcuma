@@ -48,12 +48,16 @@ set(USE_ULYSSES OFF CACHE BOOL "" FORCE)
 set(USE_D3 OFF CACHE BOOL "" FORCE)
 set(USE_D4 OFF CACHE BOOL "" FORCE)
 option(USE_CUDA "Enable CUDA-accelerated GFN-FF (requires CUDA toolkit, gfnff -gpu cuda)" OFF)
+option(USE_ROCM "Enable ROCm/HIP GPU backend (requires ROCm, gfn1/gfn2 -gpu rocm)" OFF)
+option(USE_VULKAN "Enable Vulkan Compute GPU backend (requires Vulkan SDK, gfn1/gfn2 -gpu vulkan)" OFF)
+set(USE_ROCM_XTB   ${USE_ROCM} CACHE BOOL "" FORCE)
+set(USE_VULKAN_XTB ${USE_VULKAN} CACHE BOOL "" FORCE)
 set(USE_PCH OFF CACHE BOOL "" FORCE)
 set(Helper OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(curcuma
     GIT_REPOSITORY https://github.com/conradhuebler/curcuma
-    GIT_TAG        master
+    GIT_TAG        feature/vulkan_rocm
     SOURCE_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma
 )
 

@@ -41,7 +41,7 @@ struct SimulationConfig {
     int fpsLimit = 30;            // Simulation speed in steps/sec (0 = unlimited)
     bool performanceAnalysis = false; // Per-frame timing stats every N steps
     int performanceInterval = 100;   // Output summary every N frames
-    QString gpu = "none";         // GPU acceleration: "none", "cuda", "auto"
+    QString gpu = "none";         // GPU acceleration: "none", "cuda", "rocm", "vulkan", "auto"
 
     // RATTLE constraints (MD only)
     int rattleMode = 0;           // 0=off, 1=RATTLE, 2=RATTLE H-only

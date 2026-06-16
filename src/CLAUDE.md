@@ -14,7 +14,8 @@
 - Mouse grab distributes a screen-space drag as Eh/Bohr force across bonded shells (Angstrom-to-Bohr corrected in `computeGrabForce`)
 - Opt Auto-Run refreshes injected forces every iteration via the step callback (live response to user drag)
 - Reset restores snapshot index 0, which is captured automatically when a molecule is loaded
-- Snapshots tab provides manual take/restore/delete history plus an auto-snapshot stride (every N steps/iterations, 0 = off)
+- Snapshots tab provides manual take/restore/delete history plus an auto-snapshot stride in Simulation tab (every N steps/iterations, 0 = off)
+- GPU dropdown shows only compiled backends (CUDA/ROCm/Vulkan via `USE_*` CMake options); curcuma `feature/vulkan_rocm` branch
 
 ## Mouse Interactions
 - Left-click: rotate view

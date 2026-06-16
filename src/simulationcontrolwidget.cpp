@@ -186,7 +186,15 @@ void SimulationControlWidget::setupUI()
 
     m_gpuCombo = new QComboBox(this);
     m_gpuCombo->addItem(tr("CPU (none)"), "none");
+#if defined(USE_CUDA)
     m_gpuCombo->addItem(tr("CUDA"), "cuda");
+#endif
+#if defined(USE_ROCM)
+    m_gpuCombo->addItem(tr("ROCm"), "rocm");
+#endif
+#if defined(USE_VULKAN)
+    m_gpuCombo->addItem(tr("Vulkan"), "vulkan");
+#endif
     m_gpuCombo->addItem(tr("Auto"), "auto");
     m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
     potentialForm->addRow(tr("GPU:"), m_gpuCombo);
