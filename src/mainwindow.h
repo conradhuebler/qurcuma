@@ -43,14 +43,14 @@
 #include "dialogs/nmrspectrumdialog.h"
 #include "modifiabletextedit.h"
 #include "widgets/breadcrumbbar.h"
+#include "snapshotswidget.h"  // Claude Generated 2026 - global MoleculeSnapshot + SnapshotsWidget
+#include "simulationworker.h"  // Claude Generated - for SimulationConfig
 class MoleculeViewer;
 class VisualizationSettingsDialog;  // Claude Generated - For shortcut synchronization
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
 class SimulationControlWidget;  // Claude Generated - Interactive Simulation Integration
-// Claude Generated 2026 - Phase 6: SimulationDialog removed
-#include "simulationworker.h"  // Claude Generated - for SimulationConfig
 
 
 struct CalculationEntry {
@@ -151,6 +151,9 @@ private slots:
     // otherwise open a Save-As dialog. Returns true on success.
     bool saveCurrentStructure();
     void saveCurrentStructureAs();
+
+    // Claude Generated 2026 - Reload the current file to discard simulation changes.
+    void reloadCurrentFile();
 
     // Claude Generated - Visualization settings
     void openVisualizationSettings();
@@ -315,6 +318,7 @@ private:
     MoleculeViewer *m_moleculeView;
     NMRSpectrumDialog* m_nmrDialog;
     AtomListPanel* m_atomListPanel = nullptr;  // Claude Generated Phase 2C - Atom list panel
+    SnapshotsWidget* m_snapshotsWidget = nullptr;  // Claude Generated 2026 - Snapshot history
 
     // VTF/XYZ Parser
     VTFParser* m_vtfParser;
@@ -354,6 +358,20 @@ private:
     QAction* m_saveAction = nullptr;
     QAction* m_saveAsAction = nullptr;
     bool saveStructure(const QString& path = QString());
+
+    // Claude Generated 2026 - Snapshot history. m_snapshots[0] is always the
+    // geometry as it was when the molecule was loaded (or the editor was last
+    // applied). Higher indices are user-managed or auto-stride snapshots. The
+    // policy is intentionally simple for now (manual add/reset, no automatic limit).
+    // MoleculeSnapshot is defined globally in snapshotswidget.h so the widget and
+    // MainWindow share one type.
+    QVector<MoleculeSnapshot> m_snapshots;
+    void takeSnapshot(const QString& name = QString());
+    void restoreSnapshot(const MoleculeSnapshot& snapshot);
+    void resetToOriginalSnapshot();
+    void captureInitialSnapshot(const QString& filePath,
+        const QVector<MoleculeViewer::Atom>& atoms,
+        const QVector<MoleculeViewer::Bond>& bonds);
 
     // Claude Generated - Phase SFTP Integration: Recent remote connections
     QMenu* m_recentConnectionsMenu = nullptr;

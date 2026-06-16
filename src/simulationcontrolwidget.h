@@ -43,9 +43,12 @@ public:
     SimulationConfig currentConfig() const { return buildConfig(); }
 
     /** @brief Grab strength (world Å/Bohr per screen pixel) for the viewer. */
-    double grabStrength() const { return m_grabStrengthSpin ? m_grabStrengthSpin->value() : 0.01; }
+    double grabStrength() const { return m_grabStrengthSpin ? m_grabStrengthSpin->value() : 0.1; }
     double grabAlpha() const { return m_grabAlphaSpin ? m_grabAlphaSpin->value() : 0.4; }
     int grabMaxShells() const { return m_grabMaxShellsSpin ? m_grabMaxShellsSpin->value() : 3; }
+
+    /** @brief Auto-snapshot stride. 0 = disabled, N > 0 = snapshot every N steps/iterations. */
+    int autoStride() const { return m_strideSpin ? m_strideSpin->value() : 0; }
 
 signals:
     void simulationFinished();
@@ -60,6 +63,11 @@ signals:
     // Claude Generated 2026 - User clicked the in-dock "Save" button. MainWindow
     // routes this to the central saveStructure() implementation.
     void saveStructureRequested();
+
+    // Claude Generated 2026 - User clicked the in-dock "Reset" button. The int
+    // argument is the snapshot index to restore (0 = first snapshot, set
+    // automatically at load time). MainWindow resolves it to the matching snapshot.
+    void resetStructureRequested(int index);
 
 public slots:
     void onStartClicked();
@@ -76,6 +84,11 @@ public slots:
     // save/load paths.
     void setStructureModified(bool modified);
 
+    // Claude Generated 2026 - MainWindow tells the dock whether at least one
+    // snapshot is available, so the Reset button can stay enabled independently
+    // of the modified flag.
+    void setResetEnabled(bool enabled);
+
 private:
     void setupUI();
     void setRunning(bool running);
@@ -90,6 +103,7 @@ private:
 
     // --- Common (visible in both modes) ---
     QSpinBox* m_fpsLimitSpin = nullptr;  // Speed: max emits per second
+    QSpinBox* m_strideSpin = nullptr;    // Claude Generated 2026 - auto-snapshot stride
     QLabel* m_stateLabel = nullptr;      // Claude Generated 2026 - "○ Ready / ● Running" pill
 
     // --- MD parameters ---
@@ -133,10 +147,13 @@ private:
     QToolButton* m_stepBtn = nullptr;       // Claude Generated 2026 - one-shot step (works in MD + Opt)
     QToolButton* m_stopBtn = nullptr;
     QToolButton* m_saveBtn = nullptr;       // Claude Generated 2026 - in-dock save
+    QToolButton* m_resetBtn = nullptr;      // Claude Generated 2026 - in-dock reset
     QLabel* m_modifiedLabel = nullptr;      // Claude Generated 2026 - "● Modified" hint
     QLabel* m_statusLabel = nullptr;
 
     // --- State ---
+    bool m_structureModifiedState = false;  // Claude Generated 2026 - tracked separately from button state
+    bool m_running = false;  // Claude Generated 2026 - tracked for derived button enable logic
     QElapsedTimer m_fpsTimer;
     int m_frameCount = 0;
     double m_actualFps = 0.0;

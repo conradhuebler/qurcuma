@@ -69,9 +69,8 @@ void SimulationControlWidget::setupUI()
     auto makeToolButton = [this](const QString& text, const QString& tooltip) {
         auto* b = new QToolButton(this);
         b->setText(text);
-        b->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        b->setToolButtonStyle(Qt::ToolButtonTextOnly);
         b->setAutoRaise(false);
-        b->setIconSize(QSize(20, 20));
         b->setFixedWidth(34);
         b->setFixedHeight(28);
         b->setToolTip(tooltip);
@@ -83,6 +82,8 @@ void SimulationControlWidget::setupUI()
     m_stopBtn = makeToolButton(QStringLiteral("■"), tr("Stop"));
     m_saveBtn = makeToolButton(QStringLiteral("💾"), tr("Save the modified structure"));
     m_saveBtn->setEnabled(false);  // enabled only when structure is modified
+    m_resetBtn = makeToolButton(QStringLiteral("↩"), tr("Reset to the original structure"));
+    m_resetBtn->setEnabled(false); // enabled when at least one snapshot is available
     m_pauseBtn->setEnabled(false);
     m_stopBtn->setEnabled(false);
     m_stepBtn->setEnabled(false);  // enabled only when no run is in progress
@@ -92,17 +93,7 @@ void SimulationControlWidget::setupUI()
     ctrlRow->addWidget(m_stepBtn);
     ctrlRow->addWidget(m_stopBtn);
     ctrlRow->addWidget(m_saveBtn);
-
-    ctrlRow->addSpacing(8);
-
-    // Modified hint lives next to the save button (no longer its own row)
-    m_modifiedLabel = new QLabel(this);
-    m_modifiedLabel->setTextFormat(Qt::RichText);
-    m_modifiedLabel->setText(
-        QStringLiteral("<span style='color:#d35400; font-weight:600;'>● Modified</span>"));
-    m_modifiedLabel->setVisible(false);
-    m_modifiedLabel->setToolTip(tr("On-screen structure differs from the source file"));
-    ctrlRow->addWidget(m_modifiedLabel);
+    ctrlRow->addWidget(m_resetBtn);
 
     ctrlRow->addSpacing(8);
 
@@ -115,6 +106,24 @@ void SimulationControlWidget::setupUI()
     ctrlRow->addStretch();
 
     innerLayout->addLayout(ctrlRow);
+
+    // ---- Modified / Finished / State pill on second row ----
+    auto* statusRow = new QHBoxLayout;
+    statusRow->setSpacing(4);
+
+    m_modifiedLabel = new QLabel(this);
+    m_modifiedLabel->setTextFormat(Qt::RichText);
+    m_modifiedLabel->setText(
+        QStringLiteral("<span style='color:#d35400; font-weight:600;'>● Modified</span>"));
+    m_modifiedLabel->setVisible(false);
+    m_modifiedLabel->setToolTip(tr("On-screen structure differs from the source file"));
+    statusRow->addWidget(m_modifiedLabel);
+
+    statusRow->addSpacing(8);
+
+    statusRow->addStretch();
+
+    innerLayout->addLayout(statusRow);
 
     // ---- Speed (FPS) — visible in both modes (Claude Generated 2026) ----
     // For MD: throttles the auto-run emit cadence. For Opt: throttles the per-
@@ -131,6 +140,20 @@ void SimulationControlWidget::setupUI()
     speedForm->addRow(tr("Speed:"), m_fpsLimitSpin);
     innerLayout->addLayout(speedForm);
 
+    // Claude Generated 2026 - Auto-snapshot stride: 0 = off, N > 0 = every N steps.
+    // Lives in the Simulation tab (not the Snapshots tab) because it controls
+    // how the simulation produces snapshots, not how the user manages them.
+    auto* strideRow = new QHBoxLayout;
+    strideRow->addWidget(new QLabel(tr("Snapshot every"), this));
+    m_strideSpin = new QSpinBox(this);
+    m_strideSpin->setRange(0, 10000);
+    m_strideSpin->setValue(0);
+    m_strideSpin->setSuffix(tr(" steps"));
+    m_strideSpin->setToolTip(tr("Automatically take a snapshot every N simulation steps/iterations. 0 = off."));
+    strideRow->addWidget(m_strideSpin);
+    strideRow->addStretch();
+    innerLayout->addLayout(strideRow);
+
     // ---- Per-frame status (separate from state pill) ----
     m_statusLabel = new QLabel(tr("Ready"), this);
     m_statusLabel->setTextFormat(Qt::RichText);
@@ -144,6 +167,11 @@ void SimulationControlWidget::setupUI()
     // Claude Generated 2026 - wire the in-dock save button to the public signal.
     connect(m_saveBtn, &QToolButton::clicked,
             this, &SimulationControlWidget::saveStructureRequested);
+    // Claude Generated 2026 - wire the in-dock reset button to the public signal.
+    // Reset always restores the first snapshot (index 0), which is captured
+    // automatically when a molecule is loaded.
+    connect(m_resetBtn, &QToolButton::clicked,
+            this, [this]() { emit resetStructureRequested(0); });
 
     // ---- Potential / Methode ----
     auto* potentialGroup = new QGroupBox(tr("Potential / Method"), this);
@@ -310,11 +338,11 @@ void SimulationControlWidget::setupUI()
     grabOuter->setSpacing(4);
 
     m_grabStrengthSpin = new QDoubleSpinBox(this);
-    m_grabStrengthSpin->setRange(1e-4, 1.0);
+    m_grabStrengthSpin->setRange(1e-4, 10.0);
     m_grabStrengthSpin->setDecimals(4);
-    m_grabStrengthSpin->setSingleStep(1e-3);
-    m_grabStrengthSpin->setValue(0.01);
-    m_grabStrengthSpin->setToolTip(tr("World-space force per screen pixel (Eh/Bohr)"));
+    m_grabStrengthSpin->setSingleStep(0.01);
+    m_grabStrengthSpin->setValue(0.1);
+    m_grabStrengthSpin->setToolTip(tr("World-space force per screen pixel (Eh/Bohr), Angstrom-to-Bohr corrected"));
 
     auto* grabForm = new QFormLayout;
     grabForm->addRow(tr("Strength:"), m_grabStrengthSpin);
@@ -679,10 +707,18 @@ void SimulationControlWidget::onSimulationFinished()
 // Claude Generated 2026 - Mirror MainWindow's modified-state in the dock UI.
 void SimulationControlWidget::setStructureModified(bool modified)
 {
+    m_structureModifiedState = modified;
     if (m_modifiedLabel)
         m_modifiedLabel->setVisible(modified);
     if (m_saveBtn)
-        m_saveBtn->setEnabled(modified);
+        m_saveBtn->setEnabled(!m_running && m_structureModifiedState);
+    // Reset availability is driven by setResetEnabled(); do not disable it here.
+}
+
+void SimulationControlWidget::setResetEnabled(bool enabled)
+{
+    if (m_resetBtn)
+        m_resetBtn->setEnabled(enabled);
 }
 
 void SimulationControlWidget::onModeChanged(int /*index*/)
@@ -702,11 +738,15 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
 
 void SimulationControlWidget::setRunning(bool running)
 {
+    m_running = running;
     m_startBtn->setEnabled(!running);
     m_pauseBtn->setEnabled(running);
     m_stopBtn->setEnabled(running);
     // Step is the inverse: enabled when idle so the user can iterate manually.
     m_stepBtn->setEnabled(!running);
+    m_saveBtn->setEnabled(!m_running && m_structureModifiedState);
+    // Reset stays enabled while running so the user can abort and revert at any
+    // time. Its own availability is controlled by setResetEnabled().
     m_modeCombo->setEnabled(!running);
     m_methodCombo->setEnabled(!running);
     m_optimizerCombo->setEnabled(!running);

@@ -4,6 +4,7 @@
 #include "sftpmodel.hpp"  // Claude Generated - Remote Directory Mounting
 #include "dialogs/sftpdialog.h"  // Claude Generated - Remote Directory Mounting
 #include "simulationcontrolwidget.h"  // Claude Generated - Interactive Simulation Integration
+#include "snapshotswidget.h"  // Claude Generated 2026 - Snapshot history foundation
 // Claude Generated 2026 - Phase 6: SimulationDialog removed; the dock widget is the sole sim UI.
 #include <algorithm>  // Claude Generated - for std::min/std::max
 #include <QApplication>
@@ -332,25 +333,10 @@ void MainWindow::setupContextMenu()
                 QAction *visualizerAction = contextMenu.addAction(tr("Open with 3D Viewer"));
 
                 connect(visualizerAction, &QAction::triggered,
-                    [this, filePath]() { 
-                        // VTF-Datei im 3D-Viewer laden mit Trajektorie-Support
-                        if (m_vtfParser->parseTrajectory(filePath)) {
-                            int frameCount = m_vtfParser->getFrameCount();
-                            m_moleculeView->setFrameCount(frameCount);
-                            
-                            VTFParser::VTFFrame frame;
-                            if (m_vtfParser->getFrame(0, frame)) {
-                                QVector<MoleculeViewer::Atom> atoms;
-                                QVector<MoleculeViewer::Bond> bonds;
-                                VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
-                                m_moleculeView->addMolecule(atoms, bonds);
-                                // Claude Generated - Pass to simulation widget for interactive simulation
-                                if (m_simulationControlWidget)
-                                    m_simulationControlWidget->setMolecule(atoms, bonds);
-                                
-                                // Frame controls are now managed by MoleculeViewer
-                            }
-                        }
+                    [this, filePath]() {
+                        // Claude Generated 2026 - Route through loadMoleculeFile
+                        // so snapshots, save-path, and simulation dock are synced.
+                        loadMoleculeFile(filePath);
                     });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
@@ -863,104 +849,11 @@ void MainWindow::setupConnections()
             QString filePath = m_directoryContentModel->filePath(index);
             QString suffix = QFileInfo(filePath).suffix().toLower();
             QString basename = QFileInfo(filePath).baseName();
-            if (suffix == "xyz") {
-                // XYZ-Datei mit Parser laden
-                if (m_xyzParser->parseTrajectory(filePath)) {
-                    // Lade XYZ-Daten als Text anzeigen
-                    QFile file(filePath);
-                    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                        m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
-                        m_structureFileEdit->setText(QFileInfo(filePath).fileName());
-                        file.close();
-                    }
-
-                    // Get frame count and setup trajectory data
-                    int frameCount = m_xyzParser->getFrameCount();
-                    DEBUG_LOG << "XYZ: frameCount =" << frameCount;
-                    m_moleculeView->setFrameCount(frameCount);
-
-                    // Reset molecule viewer for new file
-                    m_moleculeView->clearScenePublic();
-
-                    // Convert all frames to trajectory data
-                    QVector<QVector<MoleculeViewer::Atom>> allAtoms;
-                    QVector<QVector<MoleculeViewer::Bond>> allBonds;
-
-                    for (int i = 0; i < frameCount; ++i) {
-                        XYZParser::XYZFrame frame;
-                        if (m_xyzParser->getFrame(i, frame)) {
-                            QVector<MoleculeViewer::Atom> atoms;
-                            QVector<MoleculeViewer::Bond> bonds;
-                            XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
-                            allAtoms.append(atoms);
-                            allBonds.append(bonds);
-                            DEBUG_LOG << "XYZ: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
-                        } else {
-                            DEBUG_LOG << "XYZ: Failed to load frame" << i;
-                        }
-                    }
-
-                    DEBUG_LOG << "XYZ: Total frames loaded:" << allAtoms.size();
-                    // Set trajectory data in molecule viewer
-                    // This automatically loads and displays the first frame
-                    m_moleculeView->setTrajectoryData(allAtoms, allBonds);
-
-                    // Frame controls are now managed by MoleculeViewer
-                } else {
-                    // Clear any previous content if parsing fails
-                    m_moleculeView->clearScenePublic();
-                    qWarning() << "Failed to parse XYZ file:" << filePath;
-                }
-            }
-            else if (suffix == "vtf") {
-                // VTF-Datei mit Parser laden
-                m_vtfParser = new VTFParser(); // Fresh parser for each file
-                if (m_vtfParser->parseTrajectory(filePath)) {
-                    // Lade VTF-Daten als Text anzeigen
-                    QFile file(filePath);
-                    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                        m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
-                        m_structureFileEdit->setText(QFileInfo(filePath).fileName());
-                        file.close();
-                    }
-                    
-                    // Get frame count and setup trajectory data
-                    int frameCount = m_vtfParser->getFrameCount();
-                    DEBUG_LOG << "VTF: frameCount =" << frameCount;
-                    m_moleculeView->setFrameCount(frameCount);
-
-                    // Reset molecule viewer for new file
-                    m_moleculeView->clearScenePublic();
-
-                    // Convert all frames to trajectory data
-                    QVector<QVector<MoleculeViewer::Atom>> allAtoms;
-                    QVector<QVector<MoleculeViewer::Bond>> allBonds;
-
-                    for (int i = 0; i < frameCount; ++i) {
-                        VTFParser::VTFFrame frame;
-                        if (m_vtfParser->getFrame(i, frame)) {
-                            QVector<MoleculeViewer::Atom> atoms;
-                            QVector<MoleculeViewer::Bond> bonds;
-                            VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
-                            allAtoms.append(atoms);
-                            allBonds.append(bonds);
-                            DEBUG_LOG << "VTF: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
-                        } else {
-                            DEBUG_LOG << "VTF: Failed to load frame" << i;
-                        }
-                    }
-
-                    DEBUG_LOG << "VTF: Total frames loaded:" << allAtoms.size();
-                    // Set trajectory data in molecule viewer
-                    // This automatically loads and displays the first frame
-                    m_moleculeView->setTrajectoryData(allAtoms, allBonds);
-
-                    // Frame controls are now managed by MoleculeViewer
-                } else {
-                    // Clear any previous content if parsing fails
-                    m_moleculeView->clearScenePublic();
-                    qWarning() << "Failed to parse VTF file:" << filePath;
-                }
+            if (suffix == "xyz" || suffix == "vtf") {
+                // Claude Generated 2026 - Route molecule files through the
+                // central loadMoleculeFile() which handles snapshots, simulation
+                // dock sync, save-path tracking, and modified-state flags.
+                loadMoleculeFile(filePath);
             }
             else if (suffix == "log" || suffix == "out" || suffix == "txt") {
                 // Log/Output-Dateien in Output View laden
@@ -2623,6 +2516,117 @@ void MainWindow::saveCurrentStructureAs()
         m_currentMoleculeFilePath = oldPath;  // user cancelled; keep old target
 }
 
+// Claude Generated 2026 - In-dock reset: reload the current source file to
+// discard any MD/Opt changes and start over from the original structure.
+void MainWindow::reloadCurrentFile()
+{
+    resetToOriginalSnapshot();
+}
+
+// Claude Generated 2026 - Restore the first snapshot (index 0), which is always
+// the geometry as it was when the molecule was loaded. If no snapshot exists,
+// fall back to reloading the source file.
+void MainWindow::resetToOriginalSnapshot()
+{
+    if (m_snapshots.isEmpty()) {
+        // Fall back to reloading the source file if no snapshot exists.
+        if (m_currentMoleculeFilePath.isEmpty() || !QFile::exists(m_currentMoleculeFilePath)) {
+            statusBar()->showMessage(tr("No original structure to reset to"), 2000);
+            return;
+        }
+        if (m_simulationControlWidget)
+            m_simulationControlWidget->onStopClicked();
+        m_structureModified = false;
+        if (m_simulationControlWidget)
+            m_simulationControlWidget->setStructureModified(false);
+        loadMoleculeFile(m_currentMoleculeFilePath);
+        statusBar()->showMessage(tr("Reloaded original structure"), 2000);
+        return;
+    }
+
+    restoreSnapshot(m_snapshots[0]);
+
+    // Reset means "back to the loaded original", so the modified flag must be
+    // cleared afterwards. restoreSnapshot() sets it to true because restoring an
+    // arbitrary snapshot is a user edit; for the initial snapshot it is not.
+    m_structureModified = false;
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setStructureModified(false);
+
+    statusBar()->showMessage(tr("Reset to original structure"), 2000);
+}
+
+// Claude Generated 2026 - Store the initial snapshot (index 0) from the loaded geometry.
+// Called once per loadMoleculeFile(); clears any previous snapshots, creates snapshot 0
+// from the first frame, and enables the Reset button.
+void MainWindow::captureInitialSnapshot(const QString& filePath,
+    const QVector<MoleculeViewer::Atom>& atoms,
+    const QVector<MoleculeViewer::Bond>& bonds)
+{
+    m_snapshots.clear();
+    if (m_snapshotsWidget)
+        m_snapshotsWidget->clearSnapshots();
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setResetEnabled(false);
+
+    MoleculeSnapshot snap;
+    snap.name = QFileInfo(filePath).fileName();
+    snap.timestamp = QDateTime::currentDateTime();
+    snap.atoms = atoms;
+    snap.bonds = bonds;
+    m_snapshots.append(snap);
+
+    if (m_snapshotsWidget)
+        m_snapshotsWidget->addSnapshot(snap);
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setResetEnabled(true);
+}
+
+// Claude Generated 2026 - Capture the current viewer geometry as a named snapshot.
+void MainWindow::takeSnapshot(const QString& name)
+{
+    if (!m_moleculeView)
+        return;
+    const QVector<MoleculeViewer::Atom> atoms = m_moleculeView->getCurrentFrameAtoms();
+    const QVector<MoleculeViewer::Bond> bonds = m_moleculeView->getCurrentFrameBonds();
+    if (atoms.isEmpty())
+        return;
+
+    MoleculeSnapshot snap;
+    snap.name = name.isEmpty()
+        ? tr("Snapshot %1").arg(m_snapshots.size() + 1)
+        : name;
+    snap.timestamp = QDateTime::currentDateTime();
+    snap.atoms = atoms;
+    snap.bonds = bonds;
+    m_snapshots.append(snap);
+
+    if (m_snapshotsWidget)
+        m_snapshotsWidget->addSnapshot(snap);
+}
+
+// Claude Generated 2026 - Restore any snapshot to the viewer and simulation dock.
+void MainWindow::restoreSnapshot(const MoleculeSnapshot& snapshot)
+{
+    if (!m_moleculeView)
+        return;
+
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->onStopClicked();
+
+    m_moleculeView->setTrajectoryData(
+        QVector<QVector<MoleculeViewer::Atom>>{ snapshot.atoms },
+        QVector<QVector<MoleculeViewer::Bond>>{ snapshot.bonds });
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setMolecule(snapshot.atoms, snapshot.bonds);
+
+    m_structureModified = true;
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setStructureModified(true);
+
+    statusBar()->showMessage(tr("Restored snapshot: %1").arg(snapshot.name), 2000);
+}
+
 // Claude Generated - Quick Win: Auto-save drafts
 void MainWindow::autoSaveDrafts()
 {
@@ -3409,6 +3413,14 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
                 m_simulationControlWidget->setStructureModified(false);
             if (m_saveAction) m_saveAction->setEnabled(true);
             if (m_saveAsAction) m_saveAsAction->setEnabled(true);
+            // Store an in-memory snapshot of the original geometry so the
+            // in-dock Reset button can restore it without reloading the file.
+            // Snapshot 0 is the automatic load-time snapshot and also seeds the
+            // manual snapshot history list.
+            if (!allAtoms.isEmpty()) {
+                captureInitialSnapshot(filePath, allAtoms.first(),
+                    !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
+            }
             fileLoaded = true;
         } else {
             m_moleculeView->clearScenePublic();
@@ -3416,7 +3428,6 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
         }
     }
     else if (suffix == "vtf") {
-        // VTF file loading
         m_vtfParser = new VTFParser();
         if (m_vtfParser->parseTrajectory(filePath)) {
             // Load VTF data as text
@@ -3470,6 +3481,14 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
                 m_simulationControlWidget->setStructureModified(false);
             if (m_saveAction) m_saveAction->setEnabled(true);
             if (m_saveAsAction) m_saveAsAction->setEnabled(true);
+            // Store an in-memory snapshot of the original geometry so the
+            // in-dock Reset button can restore it without reloading the file.
+            // Snapshot 0 is the automatic load-time snapshot and also seeds the
+            // manual snapshot history list.
+            if (!allAtoms.isEmpty()) {
+                captureInitialSnapshot(filePath, allAtoms.first(),
+                    !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
+            }
             fileLoaded = true;
         } else {
             m_moleculeView->clearScenePublic();
@@ -4017,6 +4036,9 @@ void MainWindow::createDockWidgets()
     m_simulationControlWidget = new SimulationControlWidget(this);
     m_atomsSimulationTabs->addTab(m_simulationControlWidget, tr("Simulation"));
 
+    m_snapshotsWidget = new SnapshotsWidget(this);
+    m_atomsSimulationTabs->addTab(m_snapshotsWidget, tr("Snapshots"));
+
     m_atomsSimulationDock->setWidget(m_atomsSimulationTabs);
 
     // Claude Generated - Worker is wired to view + status slot directly (skips widget mid-hop).
@@ -4046,6 +4068,36 @@ void MainWindow::createDockWidgets()
     // Claude Generated 2026 - In-dock "Save" button routes to the central save.
     connect(m_simulationControlWidget, &SimulationControlWidget::saveStructureRequested,
         this, [this]() { saveCurrentStructure(); });
+    // Claude Generated 2026 - In-dock "Reset" button restores the original geometry.
+    // Always calls resetToOriginalSnapshot() which handles the empty-snapshots
+    // fallback and correctly clears the modified flag (unlike restoreSnapshot).
+    connect(m_simulationControlWidget, &SimulationControlWidget::resetStructureRequested,
+        this, [this](int /*index*/) {
+            resetToOriginalSnapshot();
+        });
+
+    // Claude Generated 2026 - Snapshot widget controls.
+    connect(m_snapshotsWidget, &SnapshotsWidget::takeSnapshotRequested,
+        this, [this]() {
+            takeSnapshot();
+        });
+    connect(m_snapshotsWidget, &SnapshotsWidget::restoreSnapshotRequested,
+        this, [this](int index) {
+            if (index >= 0 && index < m_snapshots.size())
+                restoreSnapshot(m_snapshots[index]);
+        });
+    // Claude Generated 2026 - Protect snapshot 0 (original geometry) from deletion.
+    // Deleting it would break the Reset-to-original invariant.
+    connect(m_snapshotsWidget, &SnapshotsWidget::deleteSnapshotRequested,
+        this, [this](int index) {
+            if (index == 0)
+                return;  // Original snapshot must not be deleted
+            if (index > 0 && index < m_snapshots.size()) {
+                m_snapshots.removeAt(index);
+                if (m_simulationControlWidget)
+                    m_simulationControlWidget->setResetEnabled(!m_snapshots.isEmpty());
+            }
+        });
     // Claude Generated 2026 - Phase 6: keep pickers ON during sim so click+drag
     // on an atom triggers the grab path (QObjectPicker::pressed). Without this
     // the camera controller would eat the press and rotate instead.
@@ -4297,6 +4349,22 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
                     .arg(frame->energy, 0, 'f', 8)
                     .arg(frame->ekin, 0, 'f', 6),
                 0);
+        },
+        Qt::QueuedConnection);
+
+    // Claude Generated 2026 - Auto-snapshot stride: if the user sets N > 0 in the
+    // Snapshots tab, capture a snapshot every N-th simulation step/iteration.
+    connect(worker, &SimulationWorker::frameReady,
+        this, [this](SimulationFramePtr frame) {
+            if (!frame || frame->step <= 0)
+                return;
+            const int stride = m_simulationControlWidget
+                ? m_simulationControlWidget->autoStride() : 0;
+            if (stride <= 0)
+                return;
+            if (frame->step % stride != 0)
+                return;
+            takeSnapshot(tr("Auto step %1").arg(frame->step));
         },
         Qt::QueuedConnection);
 }
