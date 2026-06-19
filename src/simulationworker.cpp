@@ -14,6 +14,7 @@ using json = nlohmann::json;
 #include <src/core/energycalculator.h>
 #include <src/core/elements.h>
 
+#include <QCoreApplication>
 #include <QMutexLocker>
 #include <QThread>
 #include <QTimer>
@@ -55,6 +56,12 @@ void SimulationWorker::injectForce(int atomIndex, QVector3D force, double alpha,
 {
     if (m_initialAtoms.isEmpty())
         return;
+    // [GRAB-DEBUG] temporary: confirm the GUI->worker cross-thread call arrives.
+    // qDebug().nospace() << "[GRAB] injectForce atom=" << atomIndex
+    //                    << " f=(" << force.x() << "," << force.y() << "," << force.z() << ")"
+    //                    << " |f|=" << force.length()
+    //                    << " alpha=" << alpha << " shells=" << maxShells
+    //                    << " thread=" << QThread::currentThread();
     Eigen::Vector3d f(force.x(), force.y(), force.z());
     Eigen::MatrixXd distributed = forceinjector::distributeForce(
         atomIndex, f, m_adjacency, alpha, maxShells, m_initialAtoms.size());
@@ -66,6 +73,7 @@ void SimulationWorker::injectForce(int atomIndex, QVector3D force, double alpha,
 
 void SimulationWorker::clearInjectedForce()
 {
+    // qDebug() << "[GRAB] clearInjectedForce (grab released)";
     QMutexLocker lock(&m_forceMutex);
     m_pendingForcesValid = false;
     m_pendingForces.resize(0, 0);
@@ -128,8 +136,8 @@ void SimulationWorker::stepOnce()
             return;
         }
         md->prepareRun();
-        // Drain any pending grab force for this step
-        Eigen::MatrixXd pending = drainPendingForces(m_initialAtoms.size());
+        // Apply the currently held grab force for this single step
+        Eigen::MatrixXd pending = currentInjectedForces(m_initialAtoms.size());
         if (pending.rows() > 0) {
             Geometry ext = pending;
             md->applyExternalForces(ext);
@@ -183,9 +191,9 @@ void SimulationWorker::stepOnce()
                 emit finished();
                 return;
             }
-            // Claude Generated 2026 - Drain any pending mouse-grab force and
-            // feed it to the optimizer before the single iteration.
-            Vector ext = pendingForcesToFlatVector(drainPendingForces(m_initialAtoms.size()));
+            // Claude Generated 2026 - Apply the currently held mouse-grab force
+            // and feed it to the optimizer before the single iteration.
+            Vector ext = pendingForcesToFlatVector(currentInjectedForces(m_initialAtoms.size()));
             if (ext.size() > 0)
                 optimizer->setExternalForces(ext);
             Optimization::OptimizationResult result = optimizer->Optimize(false, 0);
@@ -204,17 +212,18 @@ void SimulationWorker::stepOnce()
     }
 }
 
-// Move the pending force matrix out from under the mutex so the worker can
-// hand it to SimpleMD without holding the lock across curcuma calls.
-Eigen::MatrixXd SimulationWorker::drainPendingForces(int atomCount)
+// Copy the currently held mouse-grab force out from under the mutex so the
+// worker can hand it to curcuma without holding the lock across the call.
+// "Sticky": unlike a drain, this does NOT clear the force — the same grab keeps
+// biasing every step until clearInjectedForce() (mouse release) drops it. This
+// is what makes the force act for as long as the button is held, instead of
+// only on the step that coincides with a mouse-move event.
+Eigen::MatrixXd SimulationWorker::currentInjectedForces(int atomCount)
 {
     QMutexLocker lock(&m_forceMutex);
     if (!m_pendingForcesValid || m_pendingForces.rows() != atomCount)
         return Eigen::MatrixXd();
-    Eigen::MatrixXd out = std::move(m_pendingForces);
-    m_pendingForces.resize(0, 0);
-    m_pendingForcesValid = false;
-    return out;
+    return m_pendingForces;  // copy; stays valid until clearInjectedForce()
 }
 
 // Claude Generated 2026 - Convert the (N_atoms × 3) force matrix produced by
@@ -379,9 +388,10 @@ void SimulationWorker::performMDStep()
     QElapsedTimer stepClock;
     stepClock.start();
 
-    // Apply any force the GUI queued since the previous step (mouse grab).
+    // Apply the currently held mouse-grab force (sticky: re-applied every step
+    // for as long as the user holds the grab, not only on mouse-move steps).
     // Converted from MatrixXd (col-major) to Geometry (row-major) on assign.
-    Eigen::MatrixXd pending = drainPendingForces(m_initialAtoms.size());
+    Eigen::MatrixXd pending = currentInjectedForces(m_initialAtoms.size());
     if (pending.rows() > 0) {
         Geometry ext = pending;
         m_md->applyExternalForces(ext);
@@ -443,6 +453,13 @@ void SimulationWorker::runOptimization()
     opt_config["gradient_threshold"] = m_config.convergence;
     opt_config["write_trajectory"] = m_config.writeTrajectory;
     opt_config["verbosity"] = 0;
+    // Claude Generated 2026 - Interactive grab intentionally pulls atoms away from
+    // the minimum, which RAISES the true energy. The driver's default energy-rise
+    // guard (100 kJ/mol) then aborts with an EMPTY failed_result, discarding the
+    // whole step — so the grabbed geometry snapped back every keep-alive cycle.
+    // Disable the guard here; the grab force is bounded and the objective still
+    // rejects NaN coordinates, so the optimisation cannot diverge silently.
+    opt_config["max_energy_rise"] = 1.0e12;
 
     json energy_controller;
     energy_controller["method"] = m_config.method.toStdString();
@@ -462,6 +479,32 @@ void SimulationWorker::runOptimization()
         Optimization::OptimizerType opt_type =
             Optimization::parseOptimizerType(m_config.optimizer.toStdString());
 
+        // Claude Generated 2026 - Keep-alive loop (interactive Opt). A single
+        // Optimize() returns once it converges (or its line search stalls under a
+        // hard grab), leaving the mouse grab with no running optimization to push
+        // against. So we loop Optimize() and continue from the latest geometry,
+        // exiting only on Stop. Two crashes shaped this design:
+        //   1. Re-running Optimize() on a spent LBFGSpp solver re-enters dead
+        //      single-step state (SIGSEGV) — so each cycle re-initialises the
+        //      solver (recreates it) before optimising again.
+        //   2. Rebuilding the force field (GFN-FF setMolecule) from a heavily
+        //      grab-distorted geometry crashes. With m_config.optKeepParameters
+        //      (default ON) we keep the FF parameters/topology fixed and only move
+        //      atoms (ReinitializeKeepCalculator → updateGeometry). The FF is built
+        //      ONCE up front from the original (undistorted) geometry.
+        // The optimizer object + callback are created once; only the solver state
+        // is reset per cycle.
+        Molecule current = mol;          // geometry carried across cycles
+        Molecule lastSeen = current;     // latest accepted geometry from the callback
+        // [GRAB-DEBUG] temporary: max per-coordinate displacement between two geometries.
+        auto maxDisp = [](const Molecule& a, const Molecule& b) -> double {
+            Geometry ga = a.getGeometry();
+            Geometry gb = b.getGeometry();
+            if (ga.rows() != gb.rows() || ga.rows() == 0)
+                return -1.0;
+            return (ga - gb).cwiseAbs().maxCoeff();
+        };
+
         auto optimizer = Optimization::OptimizerFactory::createOptimizer(opt_type, &calc);
         if (!optimizer) {
             emit errorOccurred(tr("Failed to create optimizer '%1'").arg(m_config.optimizer));
@@ -469,81 +512,143 @@ void SimulationWorker::runOptimization()
         }
 
         // Merge user config on top of driver defaults so subclass settings are preserved.
-        json merged = optimizer->GetDefaultConfiguration();
-        for (auto it = opt_config.begin(); it != opt_config.end(); ++it)
-            merged[it.key()] = it.value();
-        optimizer->LoadConfiguration(merged);
+        {
+            json merged = optimizer->GetDefaultConfiguration();
+            for (auto it = opt_config.begin(); it != opt_config.end(); ++it)
+                merged[it.key()] = it.value();
+            optimizer->LoadConfiguration(merged);
+        }
 
         // Per-step callback: throttle-then-emit, same cadence model as runMD().
         // If the optimizer step itself exceeds the fps budget, every iteration emits
         // immediately (throttle is a no-op when remaining ≤ 0).
+        // lastSeen captures the latest accepted geometry so we can carry it into the
+        // next cycle even if Optimize() returns an empty failed_result —
+        // result.final_molecule is empty on any failure path.
         m_lastEmitTimer.restart();
-        optimizer->setStepCallback([this, optimizer_ptr = optimizer.get()](int iter, const Molecule& mol, double energy) -> bool {
-            if (m_stopRequested.loadRelaxed())
-                return false;
-            while (m_pauseRequested.loadRelaxed()) {
+        optimizer->setStepCallback([this, optimizer_ptr = optimizer.get(), &lastSeen](int iter, const Molecule& mol, double energy) -> bool {
                 if (m_stopRequested.loadRelaxed())
                     return false;
-                QThread::msleep(50);
-            }
-            int effectiveFps = m_config.fpsLimit > 0 ? m_config.fpsLimit : 60;
-            qint64 targetMs = 1000 / effectiveFps;
-            qint64 remaining = targetMs - m_lastEmitTimer.elapsed();
-            while (remaining > 10 && !m_stopRequested.loadRelaxed()) {
-                QThread::msleep(static_cast<unsigned long>(std::min(remaining, qint64(50))));
-                remaining = targetMs - m_lastEmitTimer.elapsed();
-            }
-            Q_EMIT frameReady(moleculeToFrame(mol, m_initialAtoms.size(), energy, 0.0, iter));
-            m_lastEmitTimer.restart();
+                while (m_pauseRequested.loadRelaxed()) {
+                    if (m_stopRequested.loadRelaxed())
+                        return false;
+                    QThread::msleep(50);
+                }
+                int effectiveFps = m_config.fpsLimit > 0 ? m_config.fpsLimit : 60;
+                qint64 targetMs = 1000 / effectiveFps;
+                qint64 remaining = targetMs - m_lastEmitTimer.elapsed();
+                while (remaining > 10 && !m_stopRequested.loadRelaxed()) {
+                    QThread::msleep(static_cast<unsigned long>(std::min(remaining, qint64(50))));
+                    remaining = targetMs - m_lastEmitTimer.elapsed();
+                }
+                Q_EMIT frameReady(moleculeToFrame(mol, m_initialAtoms.size(), energy, 0.0, iter));
+                m_lastEmitTimer.restart();
+                lastSeen = mol;  // remember the latest geometry for robust carry-forward
 
-            // Claude Generated 2026 - Refresh injected mouse-grab forces every
-            // iteration so the optimizer reacts live while the user drags an atom.
-            // This mirrors MD's per-step drain and keeps the external-forces bias
-            // in sync with the latest GUI input.
-            Vector ext = pendingForcesToFlatVector(drainPendingForces(m_initialAtoms.size()));
-            if (ext.size() > 0)
-                optimizer_ptr->setExternalForces(ext);
-            else
-                optimizer_ptr->clearExternalForces();
+                // Claude Generated 2026 - Deliver queued cross-thread mouse-grab calls.
+                // Optimize() runs synchronously on this worker thread, so the thread's
+                // event loop is NOT spinning and the QueuedConnection injectForce()/
+                // clearInjectedForce() slots would never run during the optimization
+                // (unlike MD, which is QTimer-driven and processes events between steps).
+                // Pump the worker thread's posted events here so the read below sees
+                // the latest grab force. Without this, interactive Opt never reacts.
+                QCoreApplication::processEvents();
 
-            return true;
-        });
+                // Claude Generated 2026 - Re-apply the currently held mouse-grab force
+                // every iteration so the optimizer reacts live while the user holds an
+                // atom. The force is sticky (held until mouse release), so it keeps
+                // biasing the gradient even when the cursor is not moving — without
+                // this, a still grab would relax straight back to the minimum. When
+                // the grab is released, clearInjectedForce() empties the force and we
+                // drop the optimizer bias on the next iteration.
+                Vector ext = pendingForcesToFlatVector(currentInjectedForces(m_initialAtoms.size()));
+                if (ext.size() > 0) {
+                    optimizer_ptr->setExternalForces(ext);
+                    // [GRAB-DEBUG] temporary: confirm the worker reads a live grab force.
+                    double maxabs = 0.0;
+                    for (int k = 0; k < ext.size(); ++k)
+                        maxabs = std::max(maxabs, std::abs(ext[k]));
+                    qDebug().nospace() << "[GRAB] opt iter " << iter
+                                       << " ext.size=" << static_cast<int>(ext.size())
+                                       << " maxAbsForce=" << maxabs;
+                } else {
+                    optimizer_ptr->clearExternalForces();
+                }
 
-        if (!optimizer->InitializeOptimization(mol)) {
+                return true;
+            });
+
+        // First-time full init: builds the force field ONCE from the original,
+        // undistorted geometry (current == mol here). Subsequent cycles reuse it.
+        if (!optimizer->InitializeOptimization(current)) {
             emit errorOccurred(tr("Optimizer initialization failed."));
             return;
         }
 
-        // Claude Generated 2026 - Interactive force injection (parity with
-        // SimpleMD::applyExternalForces). Drain any force the GUI queued since
-        // the last optimize call (mouse-grab in Opt mode) and feed it to the
-        // optimizer as a gradient bias. The bias persists across every
-        // iteration of the upcoming Optimize() call, then is cleared below.
-        // We always call setExternalForces or clearExternalForces so a
-        // mid-run release (clearInjectedForce from the dock) immediately drops
-        // the bias on the next iteration, even when drainPendingForces
-        // returns empty.
-        Vector ext = pendingForcesToFlatVector(drainPendingForces(m_initialAtoms.size()));
-        if (ext.size() > 0)
-            optimizer->setExternalForces(ext);
-        else
+        int cycle = 0;
+        while (!m_stopRequested.loadRelaxed()) {
+            // Restart the optimiser for this cycle from the latest geometry.
+            // optKeepParameters (default ON): keep the force-field parameters and
+            // only move atoms (no GFN-FF rebuild from the distorted geometry).
+            // Off: rebuild the FF each cycle (adaptive topology, slower, can crash
+            // on large distortions). Cycle 0 already did the full init above.
+            if (cycle > 0) {
+                const bool ok = m_config.optKeepParameters
+                    ? optimizer->ReinitializeKeepCalculator(current)
+                    : optimizer->InitializeOptimization(current);
+                if (!ok) {
+                    emit errorOccurred(tr("Optimizer re-initialization failed."));
+                    return;
+                }
+            }
+            // [GRAB-DEBUG] temporary: does the displaced geometry carry into this cycle?
+            qDebug().nospace() << "[GRAB] cycle " << cycle
+                               << " START dispFromOrig=" << maxDisp(current, mol);
+
+            // Claude Generated 2026 - Seed iteration 1 with the force held right now
+            // (mouse-grab in Opt mode); the callback above keeps it refreshed. Always
+            // set or clear so a release immediately drops the bias even when no force
+            // is held.
+            Vector ext = pendingForcesToFlatVector(currentInjectedForces(m_initialAtoms.size()));
+            if (ext.size() > 0)
+                optimizer->setExternalForces(ext);
+            else
+                optimizer->clearExternalForces();
+
+            Optimization::OptimizationResult result = optimizer->Optimize(m_config.writeTrajectory, 0);
             optimizer->clearExternalForces();
 
-        Optimization::OptimizationResult result = optimizer->Optimize(m_config.writeTrajectory, 0);
+            // Carry the geometry we just reached into the next cycle so the grab's
+            // displacement (and any optimisation progress) is not lost on restart.
+            // Prefer the callback's last-seen geometry (always populated, even when
+            // Optimize() returns an empty failed_result), fall back to final_molecule.
+            const bool carried = lastSeen.AtomCount() == static_cast<std::size_t>(m_initialAtoms.size());
+            if (carried)
+                current = lastSeen;
+            else if (result.final_molecule.AtomCount() == static_cast<std::size_t>(m_initialAtoms.size()))
+                current = result.final_molecule;
 
-        // Always clear external forces after the optimize call so a subsequent
-        // run without a new grab doesn't inherit stale bias.
-        optimizer->clearExternalForces();
+            // [GRAB-DEBUG] temporary: did this cycle move the geometry, and did it carry?
+            qDebug().nospace() << "[GRAB] cycle " << cycle
+                               << " END success=" << result.success
+                               << " iters=" << result.iterations_performed
+                               << " carried=" << carried
+                               << " dispFromOrig=" << maxDisp(current, mol);
 
-        if (!result.success && !m_stopRequested.loadRelaxed()) {
-            emit errorOccurred(tr("Optimization failed: %1")
-                                   .arg(QString::fromStdString(result.error_message)));
-            return;
-        }
-
-        if (result.success)
-            emit frameReady(moleculeToFrame(result.final_molecule, m_initialAtoms.size(),
+            emit frameReady(moleculeToFrame(current, m_initialAtoms.size(),
                 result.final_energy, 0.0, result.iterations_performed));
+
+            // Anti-spin: when it converged in ~0 iterations (idle at the minimum,
+            // no grab), throttle the restart to the FPS budget so we don't busy
+            // re-evaluate the energy. A held grab does many iterations → no sleep.
+            if (result.iterations_performed < 2 && !m_stopRequested.loadRelaxed()) {
+                int fps = m_config.fpsLimit > 0 ? m_config.fpsLimit : 60;
+                QThread::msleep(static_cast<unsigned long>(1000 / fps));
+            }
+            if ((cycle++ % 50) == 0)
+                qDebug().nospace() << "[GRAB] opt keep-alive cycle " << cycle
+                                   << " lastIters=" << result.iterations_performed;
+        }
     } catch (const std::exception& e) {
         emit errorOccurred(tr("Optimization threw: %1").arg(QString::fromUtf8(e.what())));
     }

@@ -37,6 +37,10 @@ struct SimulationConfig {
     double timestep = 1.0;        // fs (MD only)
     int steps = 1000;             // Total MD steps or max opt iterations
     double convergence = 1e-6;    // Gradient convergence threshold (opt only)
+    // Interactive Opt: keep the force-field parameters/topology fixed across the
+    // keep-alive restarts (no rebuild from grab-distorted geometry). Default ON —
+    // rebuilding GFN-FF from a heavily distorted geometry is slow and can crash.
+    bool optKeepParameters = true;
     bool writeTrajectory = false; // Also write .trj.xyz file to disk
     int fpsLimit = 30;            // Simulation speed in steps/sec (0 = unlimited)
     bool performanceAnalysis = false; // Per-frame timing stats every N steps
@@ -122,11 +126,15 @@ public slots:
     /** @brief Inject an external force on @p atomIndex, spread through the
      *  bond graph with exponential decay (@p alpha per shell, cut at
      *  @p maxShells). The force is in Eh/Bohr and is applied additively to the
-     *  gradient of the next MD step. Thread-safe; may be called from the GUI
-     *  thread via QueuedConnection. */
+     *  gradient of EVERY subsequent MD step / Opt iteration until
+     *  clearInjectedForce() is called — i.e. the force is "sticky" and acts for
+     *  as long as the user holds the mouse grab, not just on the step that
+     *  happens to coincide with a mouse-move event. Thread-safe; may be called
+     *  from the GUI thread via QueuedConnection. */
     void injectForce(int atomIndex, QVector3D force, double alpha, int maxShells);
 
-    /** @brief Clear any pending injected force (mouse release / stop grab). */
+    /** @brief Drop the sticky injected force (mouse release / stop grab). After
+     *  this the next step/iteration applies no external bias. */
     void clearInjectedForce();
 
 signals:
@@ -161,7 +169,10 @@ private:
     // which must not be exposed in this header to avoid include pollution).
     // Claude Generated - curcuma types are encapsulated in the .cpp translation unit.
 
-    Eigen::MatrixXd drainPendingForces(int atomCount);
+    // Returns a copy of the currently held mouse-grab force (N_atoms × 3), or an
+    // empty matrix when none is active. "Sticky": does NOT consume the force, so
+    // the same grab keeps biasing every step until clearInjectedForce() drops it.
+    Eigen::MatrixXd currentInjectedForces(int atomCount);
 
     QVector<MoleculeViewer::Atom> m_initialAtoms;
     QVector<MoleculeViewer::Bond> m_bonds;
@@ -182,7 +193,9 @@ private:
     qint64 m_mdMinStepTime = std::numeric_limits<qint64>::max();
     qint64 m_mdMaxStepTime = 0;
 
-    // Injected force queue (produced by GUI thread, drained by worker thread)
+    // Sticky mouse-grab force: written by the GUI thread (injectForce /
+    // clearInjectedForce), read every step by the worker thread. Held until the
+    // grab is released so it biases every MD step / Opt iteration in between.
     QMutex m_forceMutex;
     Eigen::MatrixXd m_pendingForces;
     bool m_pendingForcesValid = false;
