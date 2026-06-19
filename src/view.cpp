@@ -1163,16 +1163,21 @@ float MoleculeViewer::getCovalentRadius(const QString& element)
     return covalentRadii.value(element, 0.76f);  // Default to carbon if unknown
 }
 
-Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds)
+Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds,
+    const QColor* uniformColor, float uniformAlpha, bool trackForUpdates)
 {
     Qt3DCore::QEntity *moleculeEntity = new Qt3DCore::QEntity();
 
-    // Claude Generated - Fix 2: Clear entity/material references for incremental updates
-    m_atomEntities.clear();
-    m_bondEntities.clear();
-    m_atomMaterials.clear();
-    m_atomTransforms.clear();  // Claude Generated - cached transform pointers
-    m_bondTransforms.clear();
+    // Claude Generated - Fix 2: Clear entity/material references for incremental updates.
+    // Skipped for the overlay target (trackForUpdates=false) so the primary molecule's
+    // bookkeeping (built by the preceding tracked call) survives.
+    if (trackForUpdates) {
+        m_atomEntities.clear();
+        m_bondEntities.clear();
+        m_atomMaterials.clear();
+        m_atomTransforms.clear();  // Claude Generated - cached transform pointers
+        m_bondTransforms.clear();
+    }
 
     // Claude Generated - Render atoms based on rendering mode
     bool renderAtoms = (m_renderingMode == RenderingMode::BallAndStick ||
@@ -1185,7 +1190,9 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
 
     // Claude Generated - Phase 3.1: GPU instancing path for large atom counts.
     // Auto-enabled when atom count exceeds threshold for performance.
-    const bool useInstancing = renderAtoms && atoms.size() >= m_instancingThreshold;
+    // Forced off for the overlay target: instancing singletons are shared and a
+    // second build would delete the primary molecule's instanced renderer.
+    const bool useInstancing = trackForUpdates && renderAtoms && atoms.size() >= m_instancingThreshold;
 
     if (useInstancing) {
         if (m_atomInstancing) {
@@ -1217,7 +1224,7 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
     // Claude Generated - Perf: skip per-atom/per-bond QObjectPicker for large scenes.
     // Even disabled pickers add scene-graph traversal cost per mouse event. Picking for
     // large molecules should be handled by a single ray-cast, not N pickers.
-    const bool usePickers = atoms.size() < m_instancingThreshold;
+    const bool usePickers = trackForUpdates && atoms.size() < m_instancingThreshold;
 
     if (renderAtoms && !useInstancing) {
         for (int atomIndex = 0; atomIndex < atoms.size(); ++atomIndex) {
@@ -1231,10 +1238,13 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             sphereMesh->setSlices(sphereSlices);
 
             // Claude Generated - Phase 4 Final: Conditional material (PBR vs Phong)
-            QColor atomColor = getAtomColor(atom.element, atom.charge);
+            // Claude Generated 2026 - uniformColor overrides the element colour (overlay target).
+            QColor atomColor = uniformColor ? *uniformColor : getAtomColor(atom.element, atom.charge);
 
             // Apply transparency
-            if (m_atomTransparency < 1.0f) {
+            if (uniformColor) {
+                atomColor.setAlphaF(uniformAlpha);
+            } else if (m_atomTransparency < 1.0f) {
                 atomColor.setAlphaF(m_atomTransparency);
             }
 
@@ -1281,9 +1291,12 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
             }
 
             // Claude Generated - Fix 2: Store references for incremental updates
-            m_atomEntities.append(atomEntity);
-            m_atomMaterials.append(material);
-            m_atomTransforms.append(transform);  // cache for O(1) access in updateFramePositions
+            // (overlay target is static — skip to keep the primary molecule's arrays intact)
+            if (trackForUpdates) {
+                m_atomEntities.append(atomEntity);
+                m_atomMaterials.append(material);
+                m_atomTransforms.append(transform);  // cache for O(1) access in updateFramePositions
+            }
         }
     }
 
@@ -1426,11 +1439,16 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
                     offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
             }
 
-            const QColor colorA = getAtomColor(atoms[bond.atom1].element, atoms[bond.atom1].charge);
-            const QColor colorB = getAtomColor(atoms[bond.atom2].element, atoms[bond.atom2].charge);
+            // Claude Generated 2026 - uniformColor overrides per-element bond colour (overlay target).
+            const QColor colorA = uniformColor ? *uniformColor : getAtomColor(atoms[bond.atom1].element, atoms[bond.atom1].charge);
+            const QColor colorB = uniformColor ? *uniformColor : getAtomColor(atoms[bond.atom2].element, atoms[bond.atom2].charge);
 
-            auto makeHalf = [&](const QVector3D& center, const QColor& col, bool attachPicker) {
+            auto makeHalf = [&](const QVector3D& center, const QColor& colIn, bool attachPicker) {
                 Qt3DCore::QEntity* halfEntity = new Qt3DCore::QEntity(moleculeEntity);
+
+                QColor col = colIn;
+                if (uniformColor)
+                    col.setAlphaF(uniformAlpha);
 
                 Qt3DExtras::QCylinderMesh* mesh = new Qt3DExtras::QCylinderMesh();
                 mesh->setRadius(bondRadius);
@@ -1460,8 +1478,11 @@ Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& ato
                     connect(picker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onBondPicked);
                 }
 
-                m_bondEntities.append(halfEntity);
-                m_bondTransforms.append(transform);
+                // Static overlay target: skip bookkeeping so frame/sim updates ignore it.
+                if (trackForUpdates) {
+                    m_bondEntities.append(halfEntity);
+                    m_bondTransforms.append(transform);
+                }
             };
 
             for (int r = 0; r < bond.bondOrder; ++r) {
@@ -1646,6 +1667,51 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
 
     // Claude Generated 2026 - Build adjacency for force distribution
     buildForceAdjacency();
+}
+
+// Claude Generated 2026 - Overlay two structures for RMSD/align comparison.
+void MoleculeViewer::showOverlay(const QVector<Atom>& refAtoms, const QVector<Bond>& refBonds,
+    const QVector<Atom>& targetAtoms, const QVector<Bond>& targetBonds)
+{
+    if (refAtoms.isEmpty()) {
+        qWarning() << "showOverlay: empty reference structure";
+        return;
+    }
+
+    // Build the reference exactly like a normal single-molecule load: this sets
+    // up trajectory/sim state, the incremental-update bookkeeping, BondEditor,
+    // force adjacency, and centres the camera. The reference keeps the normal
+    // colour scheme.
+    addMolecule(refAtoms, refBonds);
+
+    if (targetAtoms.isEmpty())
+        return;
+
+    // Add the (already aligned) target as a static, distinctly coloured overlay.
+    // trackForUpdates=false keeps the reference's bookkeeping/instancing intact.
+    const QVector<Bond> tgtBonds = targetBonds.isEmpty() ? detectBonds(targetAtoms) : targetBonds;
+    QColor overlayColor(255, 200, 40);  // gold — clearly distinct from CPK colours
+    Qt3DCore::QEntity* targetEntity = createMoleculeEntity(targetAtoms, tgtBonds,
+        &overlayColor, 0.6f, /*trackForUpdates=*/false);
+    targetEntity->setParent(m_modelEntity);
+
+    // Re-fit the camera to the combined bounds of both structures.
+    QVector3D mn = refAtoms[0].position;
+    QVector3D mx = refAtoms[0].position;
+    auto expand = [&](const QVector<Atom>& as) {
+        for (const Atom& a : as) {
+            mn = QVector3D(qMin(mn.x(), a.position.x()), qMin(mn.y(), a.position.y()), qMin(mn.z(), a.position.z()));
+            mx = QVector3D(qMax(mx.x(), a.position.x()), qMax(mx.y(), a.position.y()), qMax(mx.z(), a.position.z()));
+        }
+    };
+    expand(refAtoms);
+    expand(targetAtoms);
+    m_moleculeCenter = (mn + mx) * 0.5f;
+    m_moleculeRadius = (mx - mn).length() * 0.5f;
+    if (m_moleculeRadius < 1.0f)
+        m_moleculeRadius = 10.0f;
+
+    setDefaultView();
 }
 
 void MoleculeViewer::showFrame(int frameIndex)

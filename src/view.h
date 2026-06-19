@@ -71,6 +71,18 @@ public:
     void addMolecule(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
     void addMolecule(const QVector<Atom>& atoms) { addMolecule(atoms, {}); }
 
+    /**
+     * @brief Overlay two structures simultaneously (RMSD/align comparison view).
+     * Claude Generated 2026 - The reference is drawn with the normal colour
+     * scheme; the (already aligned) target is drawn in a single distinct colour
+     * so the two structures can be told apart. This is a static comparison view:
+     * it does not populate trajectory/sim state, and any subsequent load or
+     * simulation replaces it via clearScene(). Bonds are auto-detected per
+     * structure when not supplied (no cross-structure bonds).
+     */
+    void showOverlay(const QVector<Atom>& refAtoms, const QVector<Bond>& refBonds,
+        const QVector<Atom>& targetAtoms, const QVector<Bond>& targetBonds = {});
+
     // Claude Generated 2026 - Reset the throttled-emit dirty flag. Must be
     // called by MainWindow whenever a new SimulationWorker is wired up, so the
     // first frame of the *new* run emits moleculeUpdated (and thus re-syncs
@@ -326,7 +338,12 @@ private:
     // Claude Generated 2026 - Phase 1 Fog: push fog params into all active materials
     void propagateFogToMaterials();
 
-    Qt3DCore::QEntity* createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
+    // Claude Generated 2026 - Optional uniformColor (+ uniformAlpha) overrides the
+    // per-element colour scheme (used to tint the overlay target). trackForUpdates
+    // is false for the overlay target so it does not clobber the primary molecule's
+    // entity/material/picker/instancing bookkeeping (see showOverlay()).
+    Qt3DCore::QEntity* createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds,
+        const QColor* uniformColor = nullptr, float uniformAlpha = 1.0f, bool trackForUpdates = true);
     QColor getAtomColor(const QString& element, float charge = 0.0f);  // Claude Generated - changed to non-static for ColorScheme support
     float getAtomRadius(const QString& element) const;  // Claude Generated - changed to non-static for scaling support
     float getCovalentRadius(const QString& element);  // Claude Generated - Covalent radii for bond detection

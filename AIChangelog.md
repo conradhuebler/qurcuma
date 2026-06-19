@@ -7,6 +7,15 @@
 - Neuer Param/Setter `setCornerLightIntensities()` in `AtomInstancingSystem`/`BondInstancingSystem`; `updateInstancingCornerLights()` pusht die Maske nach Rebuilds und Toggles. Intensität auf gemeinsame Konstante `kCornerLightIntensity` vereinheitlicht.
 - Echte geworfene Schatten (Shadow-Mapping) bewusst offen gelassen (Phase 2: Custom-Framegraph nötig).
 
+## Juni 2026 - RMSD/Align/Reorder-Tool aus curcuma direkt in qurcuma
+
+- Neuer Dialog (`src/dialogs/rmsddialog.*`) kapselt curcumas `RMSDDriver`: Referenz = aktuell angezeigte Struktur, Ziel = geladene Datei; richtet das Ziel aus und ordnet Atome optional um (Permutation), zeigt RMSD-Wert + Reorder-Mapping und speichert das ausgerichtete Ziel als XYZ.
+- Permutationsmethode wählbar (subspace/inertia/template/dtemplate/incr/molalign/predefined) plus Schalter protons/force_reorder/no_reorder, Template-Element und Threads.
+- 3D-Overlay: `MoleculeViewer::showOverlay()` zeigt beide Strukturen gleichzeitig — Referenz in CPK, ausgerichtetes Ziel einfarbig (Gold, transparent). `createMoleculeEntity` erhielt dafür einen optionalen Uniform-Color/Alpha- und `trackForUpdates`-Override (Ziel ist statisch, fasst die Inkrement-Update-/Picker-/Instancing-Bookkeeping der Primärstruktur nicht an).
+- Einstieg: Menü „Analysis ▸ RMSD / Align Structures…" und Kontextmenü im Datei-Manager (xyz/vtf/pdb/mol2 → „Overlay onto current (RMSD/Align)…").
+- Molekül-Brücke `src/moleculebridge.h` (atomsToMolecule/moleculeToAtoms) wiederverwendbar zwischen Viewer-Atomliste und curcuma `Molecule`.
+- Build-Fix: `FETCHCONTENT_FULLY_DISCONNECTED` automatisch gesetzt, wenn lokale `external/curcuma`/`external/CuteChart` vorhanden sind — FetchContent rebased/überschreibt den lokalen, push-fähigen curcuma-Checkout nicht mehr bei jedem Reconfigure (debug + release).
+
 ## Juni 2026 - Interaktiver Opt-Grab: Kraft wirkt als Potential + Keep-alive + Crash-Fix
 
 Per Print-Instrumentierung verifiziert, dass die Kraftkette vollständig ankommt (`injectForce` → Worker → `setExternalForces` → LBFGSpp-Gradient, |ext| bis ~0.6 Eh/Bohr). Drei verbleibende Probleme behoben:

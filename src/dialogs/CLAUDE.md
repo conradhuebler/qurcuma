@@ -15,6 +15,13 @@ Specialized dialog windows and analysis tools for molecular visualization.
   - Proxy model for filtering and organization
   - Persistent data storage
 
+### RMSD / Align / Reorder Dialog (rmsddialog.*)
+- **Purpose**: Overlay two structures via curcuma `RMSDDriver` (align + optional atom reordering/permutation)
+- **Status**: ✅ Builds; reference = current viewer structure, target = loaded file
+- **Flow**: build curcuma `Molecule`s (`../moleculebridge.h`) → `RMSDDriver(controller).start()` → emit `overlayRequested` → `MoleculeViewer::showOverlay()` (target tinted gold/translucent)
+- **Options**: method dropdown (subspace/inertia/template/dtemplate/incr/molalign/predefined), protons/force_reorder/no_reorder, template element, threads; saves aligned target as XYZ
+- **Entry points**: `Analysis ▸ RMSD / Align Structures…` menu + file-manager context menu (`openRMSDDialog(file)`)
+
 ### Frequency Analysis Dialog (frequencydialog.h)
 - **Purpose**: Analyze vibrational frequencies from quantum chemistry calculations
 - **Status**: Integrated with main window for frequency selection and visualization

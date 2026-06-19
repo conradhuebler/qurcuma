@@ -47,6 +47,7 @@
 #include "simulationworker.h"  // Claude Generated - for SimulationConfig
 class MoleculeViewer;
 class VisualizationSettingsDialog;  // Claude Generated - For shortcut synchronization
+class RMSDDialog;  // Claude Generated 2026 - RMSD / align / reorder dialog
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
@@ -172,6 +173,12 @@ private slots:
 
     // Claude Generated - Visualization settings
     void openVisualizationSettings();
+
+    // Claude Generated 2026 - RMSD / align / reorder tool (curcuma RMSDDriver).
+    // Opens the dialog with the current structure as reference; an optional
+    // targetFile preloads the comparison structure (used by the file-manager
+    // context menu).
+    void openRMSDDialog(const QString& targetFile = QString());
 
     // Claude Generated - Rendering shortcuts (1-4 for rendering modes)
     void setRenderingModeBallAndStick();
@@ -332,6 +339,7 @@ private:
     QLabel *m_stateIcon, *m_stateIndicator;
     MoleculeViewer *m_moleculeView;
     NMRSpectrumDialog* m_nmrDialog;
+    RMSDDialog* m_rmsdDialog = nullptr;  // Claude Generated 2026 - RMSD/align dialog (lazy)
     AtomListPanel* m_atomListPanel = nullptr;  // Claude Generated Phase 2C - Atom list panel
     SnapshotsWidget* m_snapshotsWidget = nullptr;  // Claude Generated 2026 - Snapshot history
 

@@ -57,6 +57,7 @@
 #include "visualizationsettingsdialog.h"
 
 #include "dialogs/nmrspectrumdialog.h"
+#include "dialogs/rmsddialog.h"  // Claude Generated 2026 - RMSD / align / reorder tool
 #include "dialogs/sftpdialog.h"  // Claude Generated - SFTP remote file access
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "mainwindow.h"
@@ -320,6 +321,12 @@ void MainWindow::setupContextMenu()
                 connect(iboviewAction, &QAction::triggered,
                     [this, filePath]() { openWithVisualizer(filePath, "iboview"); });
 
+                // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
+                contextMenu.addSeparator();
+                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                connect(rmsdAction, &QAction::triggered,
+                    [this, filePath]() { openRMSDDialog(filePath); });
+
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive))
             {
@@ -338,6 +345,12 @@ void MainWindow::setupContextMenu()
                         // so snapshots, save-path, and simulation dock are synced.
                         loadMoleculeFile(filePath);
                     });
+
+                // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
+                contextMenu.addSeparator();
+                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                connect(rmsdAction, &QAction::triggered,
+                    [this, filePath]() { openRMSDDialog(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".pdb", Qt::CaseInsensitive))
@@ -365,6 +378,12 @@ void MainWindow::setupContextMenu()
                         }
                     });
 
+                // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
+                contextMenu.addSeparator();
+                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                connect(rmsdAction, &QAction::triggered,
+                    [this, filePath]() { openRMSDDialog(filePath); });
+
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".mol2", Qt::CaseInsensitive))
             {
@@ -390,6 +409,12 @@ void MainWindow::setupContextMenu()
                             QMessageBox::warning(this, tr("Error"), tr("Failed to parse MOL2 file: %1").arg(mol2Parser.getLastError()));
                         }
                     });
+
+                // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
+                contextMenu.addSeparator();
+                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                connect(rmsdAction, &QAction::triggered,
+                    [this, filePath]() { openRMSDDialog(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             }else if(filePath.endsWith(".gbw", Qt::CaseInsensitive) || filePath.endsWith(".loc", Qt::CaseInsensitive) || filePath.endsWith(".ges", Qt::CaseInsensitive))
@@ -711,6 +736,14 @@ void MainWindow::createMenus()
     settingsMenu->addSeparator();
     QAction *configAction = settingsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure Programs..."));
     connect(configAction, &QAction::triggered, this, &MainWindow::configurePrograms);
+
+    // Claude Generated 2026 - Analysis Menu: structure comparison tools (curcuma)
+    QMenu *analysisMenu = menuBar->addMenu(tr("&Analysis"));
+    QAction *rmsdAction = analysisMenu->addAction(QIcon::fromTheme("view-object-histogram-linear"),
+        tr("&RMSD / Align Structures..."));
+    rmsdAction->setToolTip(
+        tr("Overlay two structures, align and optionally reorder atoms (curcuma RMSDDriver)."));
+    connect(rmsdAction, &QAction::triggered, this, [this]() { openRMSDDialog(); });
 
     // Simulation Menu - Claude Generated - Interactive Simulation Integration
     QMenu *simulationMenu = menuBar->addMenu(tr("&Simulation"));
@@ -2756,6 +2789,48 @@ void MainWindow::openVisualizationSettings()
     });
 
     m_visualizationDialog->show();
+}
+
+// Claude Generated 2026 - RMSD / align / reorder tool (curcuma RMSDDriver).
+// Reference = the structure currently shown in the viewer; optional targetFile
+// preloads the comparison structure (used by the file-manager context menu).
+void MainWindow::openRMSDDialog(const QString& targetFile)
+{
+    if (!m_moleculeView) {
+        QMessageBox::warning(this, tr("No Viewer"), tr("Molecule viewer is not available."));
+        return;
+    }
+
+    if (!m_rmsdDialog) {
+        m_rmsdDialog = new RMSDDialog(this);
+        // Overlay the aligned target onto the reference in the 3D viewer.
+        connect(m_rmsdDialog, &RMSDDialog::overlayRequested, this,
+            [this](const QVector<MoleculeViewer::Atom>& refAtoms,
+                const QVector<MoleculeViewer::Bond>& refBonds,
+                const QVector<MoleculeViewer::Atom>& targetAtoms) {
+                if (m_moleculeView)
+                    m_moleculeView->showOverlay(refAtoms, refBonds, targetAtoms);
+            });
+    }
+
+    // Seed the reference from the currently displayed structure.
+    const QVector<MoleculeViewer::Atom> refAtoms = m_moleculeView->getCurrentFrameAtoms();
+    if (refAtoms.isEmpty()) {
+        QMessageBox::information(this, tr("RMSD"),
+            tr("Load a structure first — it becomes the alignment reference."));
+        return;
+    }
+    const QString refName = m_currentMoleculeFilePath.isEmpty()
+        ? tr("current structure")
+        : QFileInfo(m_currentMoleculeFilePath).fileName();
+    m_rmsdDialog->setReferenceStructure(refAtoms, m_moleculeView->getCurrentFrameBonds(), refName);
+
+    if (!targetFile.isEmpty())
+        m_rmsdDialog->setTargetFile(targetFile);
+
+    m_rmsdDialog->show();
+    m_rmsdDialog->raise();
+    m_rmsdDialog->activateWindow();
 }
 
 // Claude Generated - Quick Fix: Show about dialog

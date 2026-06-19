@@ -61,6 +61,22 @@ FetchContent_Declare(curcuma
     SOURCE_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma
 )
 
+# Claude Generated 2026 - external/curcuma and external/CuteChart are active local
+# working trees (curcuma has local commits ahead of origin + uncommitted work).
+# FetchContent's populate/update step runs `git checkout/rebase <GIT_TAG>` and
+# aborts with merge conflicts on every (re)configure, breaking debug AND release
+# builds. When the local checkouts are already present, fully disconnect
+# FetchContent so it uses them as-is and never touches their git state. On a fresh
+# machine (checkouts absent) the normal clone path runs. Override per build dir
+# with -DFETCHCONTENT_FULLY_DISCONNECTED=OFF to re-enable git sync.
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/CMakeLists.txt
+    AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/CuteChart/CMakeLists.txt)
+    set(FETCHCONTENT_FULLY_DISCONNECTED ON)
+    message(STATUS "qurcuma: local external/curcuma + external/CuteChart present — FetchContent fully disconnected (no git update)")
+else()
+    set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+endif()
+
 FetchContent_MakeAvailable(CuteChart curcuma)
 
 # Exclude curcuma standalone executables from default build
@@ -78,6 +94,7 @@ set(SOURCES
     src/modifiabletextedit.cpp
     src/visualizationsettingsdialog.cpp
     src/dialogs/nmrspectrumdialog.cpp
+    src/dialogs/rmsddialog.cpp  # Claude Generated 2026 - RMSD / align / reorder tool
     src/dialogs/nmrcontroller.cpp
     src/dialogs/nmrdatastore.cpp
     src/dialogs/nmrstructureproxymodel.cpp
@@ -115,6 +132,7 @@ set(HEADERS
     src/modifiabletextedit.h
     src/visualizationsettingsdialog.h
     src/dialogs/nmrspectrumdialog.h
+    src/dialogs/rmsddialog.h  # Claude Generated 2026 - RMSD / align / reorder tool
     src/dialogs/sftpdialog.h  # Claude Generated - SFTP remote file access
     src/sftpmodel.hpp  # Claude Generated - SFTP model (header-only with Q_OBJECT)
     src/sshconfig.h  # Claude Generated - SSH config parser for SFTP integration
