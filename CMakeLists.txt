@@ -146,6 +146,32 @@ add_executable(qurcuma
     resources.qrc
 )
 
+# Claude Generated 2026 - Match curcuma's CPU/SIMD flags on the qurcuma target.
+#
+# curcuma (FetchContent, above) compiles its TUs with -march=native (or AVX-512)
+# when USE_MARCH_NATIVE/USE_AVX512 is set, but that set(CMAKE_CXX_FLAGS ...) lives
+# in curcuma's subdirectory scope and does NOT reach this parent-scope target.
+# The mismatch changes Eigen's EIGEN_MAX_ALIGN_BYTES (16 for SSE2 here vs 64 for
+# AVX-512), so a curcuma-allocated Eigen Geometry copied/freed inside a qurcuma TU
+# (e.g. moleculeToFrame: `Geometry geo = mol.getGeometry();`) hits mismatched
+# aligned-alloc bookkeeping -> "double free or corruption" the instant the
+# interactive MD/Opt starts (Release-only; Debug builds both sides SSE2 and works).
+# Mirroring curcuma's flag selection keeps both sides on the same Eigen ABI.
+include(CheckCXXCompilerFlag)
+if(USE_MARCH_NATIVE)
+    check_cxx_compiler_flag("-march=native" QURCUMA_SUPPORTS_MARCH_NATIVE)
+    if(QURCUMA_SUPPORTS_MARCH_NATIVE)
+        target_compile_options(qurcuma PRIVATE -march=native)
+        message(STATUS "qurcuma: matching curcuma -march=native (Eigen ABI alignment)")
+    endif()
+elseif(USE_AVX512)
+    target_compile_options(qurcuma PRIVATE -mavx512f -mavx512vl -mavx512dq -mfma)
+    message(STATUS "qurcuma: matching curcuma AVX-512 flags (Eigen ABI alignment)")
+elseif(USE_AVX2)
+    target_compile_options(qurcuma PRIVATE -mavx2 -mfma)
+    message(STATUS "qurcuma: matching curcuma AVX2 flags (Eigen ABI alignment)")
+endif()
+
 # Claude Generated - OpenMP needed by curcuma_core
 find_package(OpenMP)
 target_link_libraries(qurcuma PRIVATE
