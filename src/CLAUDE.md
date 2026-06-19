@@ -11,6 +11,9 @@
 - Multiple rendering styles: ball-and-stick, space-filling, wireframe
 - ✅ **Screen-fixed corner lights** - 4 toggleable lights (◤◥◣◢). Phong path: `QPointLight`s parented to the camera; instancing path: view-space lights via `cornerLightEnabled` vec4 uniform. Lit zone stays fixed to the view, does NOT rotate with the molecule. (Real cast shadows = future shadow-mapping work.)
 
+## Editors Dock (RMSD-Tab)
+- ✅ **RMSD / Align** (`src/rmsdwidget.*`, `RMSDWidget : QWidget`) — dritter Tab im Editors-Dock (`m_editorsTabs`: Structure/Input/RMSD), statt eigenem Dock. Backed by curcuma `RMSDDriver`; reference = Viewer-Struktur, target = Datei. Referenz-Saat per Auto (`showRMSDTool` → Tab-Index 2) + Button (`seedReferenceRequested` → `MainWindow::seedRMSDReference`); Overlay via `overlayRequested` → `MoleculeViewer::showOverlay`.
+
 ## Interactive Simulation
 - Mouse grab distributes a screen-space drag as Eh/Bohr force across bonded shells (Angstrom-to-Bohr corrected in `computeGrabForce`)
 - Grab force is **sticky**: `injectForce` holds it until `clearInjectedForce` (mouse release), and the worker *re-reads* (`currentInjectedForces`, peek not drain) it every MD step / Opt iteration. The viewer only emits `atomForceRequested` on mouse-*move* + once per frame, so the old one-shot drain dropped the bias whenever the cursor held still — fatal for Opt (no momentum: it relaxes straight back). Sticky = "force acts as long as the button is held"

@@ -1,18 +1,18 @@
-// rmsddialog.cpp
+// rmsdwidget.cpp
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
-// Claude Generated 2026 - Implementation of the RMSD / align / reorder dialog.
-// Wraps curcuma's RMSDDriver: aligns a target structure onto the currently
-// displayed reference, optionally reordering atoms (permutation) so chemically
-// equivalent atoms are matched, then reports RMSD + reorder mapping and emits
-// the aligned target for 3D overlay.
-#include "rmsddialog.h"
+// Claude Generated 2026 - Implementation of the RMSD / align / reorder widget
+// (Analysis dock). Wraps curcuma's RMSDDriver: aligns a target structure onto
+// the currently displayed reference, optionally reordering atoms (permutation)
+// so chemically equivalent atoms are matched, then reports RMSD + reorder
+// mapping and emits the aligned target for 3D overlay.
+#include "rmsdwidget.h"
 
-#include "../moleculebridge.h"
-#include "../mol2parser.h"
-#include "../pdbparser.h"
-#include "../vtfparser.h"
-#include "../xyzparser.h"
+#include "moleculebridge.h"
+#include "mol2parser.h"
+#include "pdbparser.h"
+#include "vtfparser.h"
+#include "xyzparser.h"
 
 #include <src/capabilities/rmsd.h>
 
@@ -32,34 +32,49 @@ using json = nlohmann::json;
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
 #include <vector>
 
-RMSDDialog::RMSDDialog(QWidget* parent)
-    : QDialog(parent)
+RMSDWidget::RMSDWidget(QWidget* parent)
+    : QWidget(parent)
 {
-    setWindowTitle(tr("RMSD / Align Structures"));
     setupUI();
     updateReferenceLabel();
     updateTargetLabel();
 }
 
-void RMSDDialog::setupUI()
+void RMSDWidget::setupUI()
 {
-    auto* mainLayout = new QVBoxLayout(this);
+    // Wrap the content in a scroll area so the panel can shrink below its
+    // preferred height (e.g. when the Editors dock is resized small) and the
+    // user can scroll through structures/options/result instead of clipping.
+    auto* scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+
+    auto* content = new QWidget;
+    auto* mainLayout = new QVBoxLayout(content);
 
     // --- Structures ---
     auto* structBox = new QGroupBox(tr("Structures"), this);
     auto* structLayout = new QVBoxLayout(structBox);
     m_referenceLabel = new QLabel(this);
-    auto* targetRow = new QHBoxLayout();
+    m_useReferenceButton = new QPushButton(tr("Use current as reference"), this);
+    m_useReferenceButton->setToolTip(
+        tr("Re-seed the reference from the structure currently shown in the viewer."));
+    auto* refRow = new QHBoxLayout();
+    refRow->addWidget(m_referenceLabel, 1);
+    refRow->addWidget(m_useReferenceButton);
+    structLayout->addLayout(refRow);
+
     m_targetLabel = new QLabel(this);
     m_loadTargetButton = new QPushButton(tr("Load target file…"), this);
+    auto* targetRow = new QHBoxLayout();
     targetRow->addWidget(m_targetLabel, 1);
     targetRow->addWidget(m_loadTargetButton);
-    structLayout->addWidget(m_referenceLabel);
     structLayout->addLayout(targetRow);
     mainLayout->addWidget(structBox);
 
@@ -72,7 +87,7 @@ void RMSDDialog::setupUI()
     m_methodCombo->addItem(tr("Subspace (recommended)"), QStringLiteral("subspace"));
     m_methodCombo->addItem(tr("Inertia (template-free)"), QStringLiteral("inertia"));
     m_methodCombo->addItem(tr("Template"), QStringLiteral("template"));
-    m_methodCombo->addItem(tr("Distance template"), QStringLiteral("dtemplate"));
+    m_methodCombo->addItem(tr("Distance template"), QStringLiteral("dtemplates"));
     m_methodCombo->addItem(tr("Incremental (legacy)"), QStringLiteral("incr"));
     m_methodCombo->addItem(tr("MolAlign (external)"), QStringLiteral("molalign"));
     m_methodCombo->addItem(tr("Predefined order"), QStringLiteral("predefined"));
@@ -116,22 +131,29 @@ void RMSDDialog::setupUI()
     resultLayout->addWidget(m_reorderText);
     resultLayout->addWidget(m_saveButton);
     mainLayout->addWidget(resultBox);
+    mainLayout->addStretch();
 
-    connect(m_loadTargetButton, &QPushButton::clicked, this, &RMSDDialog::onLoadTarget);
-    connect(m_alignButton, &QPushButton::clicked, this, &RMSDDialog::onAlign);
-    connect(m_saveButton, &QPushButton::clicked, this, &RMSDDialog::onSaveAligned);
+    scroll->setWidget(content);
+    auto* outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->addWidget(scroll);
+
+    connect(m_useReferenceButton, &QPushButton::clicked, this, &RMSDWidget::onUseCurrentAsReference);
+    connect(m_loadTargetButton, &QPushButton::clicked, this, &RMSDWidget::onLoadTarget);
+    connect(m_alignButton, &QPushButton::clicked, this, &RMSDWidget::onAlign);
+    connect(m_saveButton, &QPushButton::clicked, this, &RMSDWidget::onSaveAligned);
     connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-        this, &RMSDDialog::onMethodChanged);
+        this, &RMSDWidget::onMethodChanged);
 
     onMethodChanged(m_methodCombo->currentIndex());
 }
 
-QString RMSDDialog::currentMethod() const
+QString RMSDWidget::currentMethod() const
 {
     return m_methodCombo->currentData().toString();
 }
 
-void RMSDDialog::onMethodChanged(int /*index*/)
+void RMSDWidget::onMethodChanged(int /*index*/)
 {
     // Template element only matters for template-based methods.
     const QString m = currentMethod();
@@ -141,7 +163,7 @@ void RMSDDialog::onMethodChanged(int /*index*/)
     m_elementEdit->setEnabled(templateBased);
 }
 
-void RMSDDialog::setReferenceStructure(const QVector<MoleculeViewer::Atom>& atoms,
+void RMSDWidget::setReferenceStructure(const QVector<MoleculeViewer::Atom>& atoms,
     const QVector<MoleculeViewer::Bond>& bonds, const QString& name)
 {
     m_refAtoms = atoms;
@@ -150,7 +172,7 @@ void RMSDDialog::setReferenceStructure(const QVector<MoleculeViewer::Atom>& atom
     updateReferenceLabel();
 }
 
-void RMSDDialog::setTargetFile(const QString& path)
+void RMSDWidget::setTargetFile(const QString& path)
 {
     QVector<MoleculeViewer::Atom> atoms;
     QVector<MoleculeViewer::Bond> bonds;
@@ -165,19 +187,25 @@ void RMSDDialog::setTargetFile(const QString& path)
     updateTargetLabel();
 }
 
-void RMSDDialog::updateReferenceLabel()
+void RMSDWidget::updateReferenceLabel()
 {
     const QString name = m_refName.isEmpty() ? tr("(none)") : m_refName;
     m_referenceLabel->setText(tr("Reference: %1  [%2 atoms]").arg(name).arg(m_refAtoms.size()));
 }
 
-void RMSDDialog::updateTargetLabel()
+void RMSDWidget::updateTargetLabel()
 {
     const QString name = m_targetName.isEmpty() ? tr("(none — load a target file)") : m_targetName;
     m_targetLabel->setText(tr("Target: %1  [%2 atoms]").arg(name).arg(m_targetAtoms.size()));
 }
 
-void RMSDDialog::onLoadTarget()
+void RMSDWidget::onUseCurrentAsReference()
+{
+    // MainWindow owns the viewer; it re-seeds via setReferenceStructure().
+    emit seedReferenceRequested();
+}
+
+void RMSDWidget::onLoadTarget()
 {
     const QString path = QFileDialog::getOpenFileName(this, tr("Load Target Structure"),
         QString(), tr("Molecular structures (*.xyz *.pdb *.mol2 *.vtf)"));
@@ -186,7 +214,7 @@ void RMSDDialog::onLoadTarget()
     setTargetFile(path);
 }
 
-bool RMSDDialog::loadStructureFile(const QString& path,
+bool RMSDWidget::loadStructureFile(const QString& path,
     QVector<MoleculeViewer::Atom>& atoms, QVector<MoleculeViewer::Bond>& bonds)
 {
     atoms.clear();
@@ -223,7 +251,7 @@ bool RMSDDialog::loadStructureFile(const QString& path,
     return !atoms.isEmpty();
 }
 
-void RMSDDialog::onAlign()
+void RMSDWidget::onAlign()
 {
     if (m_refAtoms.isEmpty()) {
         QMessageBox::warning(this, tr("RMSD"),
@@ -303,7 +331,7 @@ void RMSDDialog::onAlign()
     emit overlayRequested(m_refAtoms, m_refBonds, m_alignedAtoms);
 }
 
-void RMSDDialog::onSaveAligned()
+void RMSDWidget::onSaveAligned()
 {
     if (!m_haveResult || m_alignedAtoms.isEmpty())
         return;

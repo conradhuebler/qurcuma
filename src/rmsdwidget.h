@@ -1,14 +1,19 @@
-// rmsddialog.h
+// rmsdwidget.h
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
-// Claude Generated 2026 - Dialog exposing curcuma's RMSDDriver (structure
-// alignment + atom reordering/permutation) directly in qurcuma. Lets the user
-// overlay two structures, pick the permutation method, read the RMSD value and
-// the reorder mapping, and save the aligned target.
-#ifndef RMSDDIALOG_H
-#define RMSDDIALOG_H
+// Claude Generated 2026 - RMSD / align / reorder tool widget, embedded in the
+// "Analysis" dock. Replaces the former RMSDDialog. Wraps curcuma's RMSDDriver:
+// aligns a target structure onto the reference (seeded from the viewer),
+// optionally reorders atoms (permutation) so chemically equivalent atoms match,
+// reports the RMSD + reorder mapping and emits the aligned target for 3D overlay.
+//
+// The widget stays decoupled from the viewer: the reference is pushed in by
+// MainWindow (setReferenceStructure), and the "Use current as reference" button
+// only emits seedReferenceRequested() — MainWindow reads the viewer and reseeds.
+#ifndef RMSDWIDGET_H
+#define RMSDWIDGET_H
 
-#include <QDialog>
+#include <QWidget>
 #include <QVector>
 
 #include "view.h"  // MoleculeViewer::Atom / Bond
@@ -22,19 +27,20 @@ class QPlainTextEdit;
 class QPushButton;
 
 /**
- * @brief RMSD / align / reorder dialog backed by curcuma's RMSDDriver.
+ * @brief RMSD / align / reorder panel backed by curcuma's RMSDDriver.
  *
  * Reference = the structure currently displayed in the viewer (seeded by
  * MainWindow). Target = a second structure loaded from a file. On "Align" the
- * dialog runs RMSDDriver with the chosen method/options, then emits
+ * widget runs RMSDDriver with the chosen method/options, then emits
  * overlayRequested() so MainWindow can superimpose both structures in the 3D
- * viewer (aligned target in a distinct colour).
+ * viewer (aligned target in a distinct colour). seedReferenceRequested() asks
+ * MainWindow to re-seed the reference from the current viewer frame.
  */
-class RMSDDialog : public QDialog {
+class RMSDWidget : public QWidget {
     Q_OBJECT
 
 public:
-    explicit RMSDDialog(QWidget* parent = nullptr);
+    explicit RMSDWidget(QWidget* parent = nullptr);
 
     /** Seed the reference structure (the currently displayed molecule). */
     void setReferenceStructure(const QVector<MoleculeViewer::Atom>& atoms,
@@ -58,11 +64,15 @@ signals:
         const QVector<MoleculeViewer::Bond>& refBonds,
         const QVector<MoleculeViewer::Atom>& targetAtoms);
 
+    /** Request MainWindow to re-seed the reference from the current viewer frame. */
+    void seedReferenceRequested();
+
 private slots:
     void onLoadTarget();
     void onAlign();
     void onSaveAligned();
     void onMethodChanged(int index);
+    void onUseCurrentAsReference();
 
 private:
     void setupUI();
@@ -84,6 +94,7 @@ private:
 
     // --- UI ---
     QLabel* m_referenceLabel = nullptr;
+    QPushButton* m_useReferenceButton = nullptr;
     QLabel* m_targetLabel = nullptr;
     QPushButton* m_loadTargetButton = nullptr;
     QComboBox* m_methodCombo = nullptr;
@@ -98,4 +109,4 @@ private:
     QPushButton* m_saveButton = nullptr;
 };
 
-#endif // RMSDDIALOG_H
+#endif // RMSDWIDGET_H

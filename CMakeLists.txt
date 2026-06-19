@@ -94,7 +94,6 @@ set(SOURCES
     src/modifiabletextedit.cpp
     src/visualizationsettingsdialog.cpp
     src/dialogs/nmrspectrumdialog.cpp
-    src/dialogs/rmsddialog.cpp  # Claude Generated 2026 - RMSD / align / reorder tool
     src/dialogs/nmrcontroller.cpp
     src/dialogs/nmrdatastore.cpp
     src/dialogs/nmrstructureproxymodel.cpp
@@ -118,6 +117,7 @@ set(SOURCES
     src/simulationworker.cpp  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.cpp  # Claude Generated - Interactive Simulation Integration
     src/snapshotswidget.cpp  # Claude Generated 2026 - Snapshot history foundation
+    src/rmsdwidget.cpp  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/forceinjector.cpp  # Claude Generated 2026 - Topological force distribution (Phase 4)
     src/forceoverlay.cpp  # Claude Generated 2026 - Force visualization overlay
 )
@@ -132,7 +132,6 @@ set(HEADERS
     src/modifiabletextedit.h
     src/visualizationsettingsdialog.h
     src/dialogs/nmrspectrumdialog.h
-    src/dialogs/rmsddialog.h  # Claude Generated 2026 - RMSD / align / reorder tool
     src/dialogs/sftpdialog.h  # Claude Generated - SFTP remote file access
     src/sftpmodel.hpp  # Claude Generated - SFTP model (header-only with Q_OBJECT)
     src/sshconfig.h  # Claude Generated - SSH config parser for SFTP integration
@@ -152,6 +151,7 @@ set(HEADERS
     src/simulationworker.h  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.h  # Claude Generated - Interactive Simulation Integration
     src/snapshotswidget.h  # Claude Generated 2026 - Snapshot history foundation
+    src/rmsdwidget.h  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/forceinjector.h  # Claude Generated 2026 - Topological force distribution (Phase 4)
     src/forceoverlay.h  # Claude Generated 2026 - Force visualization overlay
     #src/dialogs/nmrstructuremodel.h

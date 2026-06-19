@@ -57,7 +57,7 @@
 #include "visualizationsettingsdialog.h"
 
 #include "dialogs/nmrspectrumdialog.h"
-#include "dialogs/rmsddialog.h"  // Claude Generated 2026 - RMSD / align / reorder tool
+#include "rmsdwidget.h"  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
 #include "dialogs/sftpdialog.h"  // Claude Generated - SFTP remote file access
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "mainwindow.h"
@@ -325,7 +325,7 @@ void MainWindow::setupContextMenu()
                 contextMenu.addSeparator();
                 QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
                 connect(rmsdAction, &QAction::triggered,
-                    [this, filePath]() { openRMSDDialog(filePath); });
+                    [this, filePath]() { showRMSDTool(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive))
@@ -350,7 +350,7 @@ void MainWindow::setupContextMenu()
                 contextMenu.addSeparator();
                 QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
                 connect(rmsdAction, &QAction::triggered,
-                    [this, filePath]() { openRMSDDialog(filePath); });
+                    [this, filePath]() { showRMSDTool(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".pdb", Qt::CaseInsensitive))
@@ -382,7 +382,7 @@ void MainWindow::setupContextMenu()
                 contextMenu.addSeparator();
                 QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
                 connect(rmsdAction, &QAction::triggered,
-                    [this, filePath]() { openRMSDDialog(filePath); });
+                    [this, filePath]() { showRMSDTool(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".mol2", Qt::CaseInsensitive))
@@ -414,7 +414,7 @@ void MainWindow::setupContextMenu()
                 contextMenu.addSeparator();
                 QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
                 connect(rmsdAction, &QAction::triggered,
-                    [this, filePath]() { openRMSDDialog(filePath); });
+                    [this, filePath]() { showRMSDTool(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             }else if(filePath.endsWith(".gbw", Qt::CaseInsensitive) || filePath.endsWith(".loc", Qt::CaseInsensitive) || filePath.endsWith(".ges", Qt::CaseInsensitive))
@@ -740,10 +740,11 @@ void MainWindow::createMenus()
     // Claude Generated 2026 - Analysis Menu: structure comparison tools (curcuma)
     QMenu *analysisMenu = menuBar->addMenu(tr("&Analysis"));
     QAction *rmsdAction = analysisMenu->addAction(QIcon::fromTheme("view-object-histogram-linear"),
-        tr("&RMSD / Align Structures..."));
+        tr("&RMSD / Align Structures"));
     rmsdAction->setToolTip(
-        tr("Overlay two structures, align and optionally reorder atoms (curcuma RMSDDriver)."));
-    connect(rmsdAction, &QAction::triggered, this, [this]() { openRMSDDialog(); });
+        tr("Open the Analysis dock (RMSD tab): overlay two structures, align and "
+           "optionally reorder atoms (curcuma RMSDDriver)."));
+    connect(rmsdAction, &QAction::triggered, this, [this]() { showRMSDTool(); });
 
     // Simulation Menu - Claude Generated - Interactive Simulation Integration
     QMenu *simulationMenu = menuBar->addMenu(tr("&Simulation"));
@@ -2791,29 +2792,44 @@ void MainWindow::openVisualizationSettings()
     m_visualizationDialog->show();
 }
 
-// Claude Generated 2026 - RMSD / align / reorder tool (curcuma RMSDDriver).
-// Reference = the structure currently shown in the viewer; optional targetFile
+// Claude Generated 2026 - RMSD / align / reorder tool (curcuma RMSDDriver),
+// embedded as a tab in the Editors dock. Raises the Editors dock + RMSD tab and
+// re-seeds the reference from the current viewer frame; optional targetFile
 // preloads the comparison structure (used by the file-manager context menu).
-void MainWindow::openRMSDDialog(const QString& targetFile)
+void MainWindow::showRMSDTool(const QString& targetFile)
 {
     if (!m_moleculeView) {
         QMessageBox::warning(this, tr("No Viewer"), tr("Molecule viewer is not available."));
         return;
     }
 
-    if (!m_rmsdDialog) {
-        m_rmsdDialog = new RMSDDialog(this);
-        // Overlay the aligned target onto the reference in the 3D viewer.
-        connect(m_rmsdDialog, &RMSDDialog::overlayRequested, this,
-            [this](const QVector<MoleculeViewer::Atom>& refAtoms,
-                const QVector<MoleculeViewer::Bond>& refBonds,
-                const QVector<MoleculeViewer::Atom>& targetAtoms) {
-                if (m_moleculeView)
-                    m_moleculeView->showOverlay(refAtoms, refBonds, targetAtoms);
-            });
-    }
+    if (!m_rmsdWidget)
+        return;  // tab not built yet (should not happen post-construction)
 
-    // Seed the reference from the currently displayed structure.
+    // Auto-seed the reference from the currently displayed structure.
+    seedRMSDReference();
+
+    if (!targetFile.isEmpty())
+        m_rmsdWidget->setTargetFile(targetFile);
+
+    // Focus the Editors dock and switch to the RMSD / Align tab (index 2).
+    if (m_editorsDock) {
+        m_editorsDock->show();
+        m_editorsDock->raise();
+        m_editorsDock->activateWindow();
+    }
+    if (m_editorsTabs)
+        m_editorsTabs->setCurrentIndex(2);  // Structure=0, Input=1, RMSD / Align=2
+}
+
+// Claude Generated 2026 - Re-seed the RMSD reference from the current viewer
+// frame. Called on Analysis-menu/context-menu invocation and by the widget's
+// "Use current as reference" button (seedReferenceRequested).
+void MainWindow::seedRMSDReference()
+{
+    if (!m_moleculeView || !m_rmsdWidget)
+        return;
+
     const QVector<MoleculeViewer::Atom> refAtoms = m_moleculeView->getCurrentFrameAtoms();
     if (refAtoms.isEmpty()) {
         QMessageBox::information(this, tr("RMSD"),
@@ -2823,14 +2839,7 @@ void MainWindow::openRMSDDialog(const QString& targetFile)
     const QString refName = m_currentMoleculeFilePath.isEmpty()
         ? tr("current structure")
         : QFileInfo(m_currentMoleculeFilePath).fileName();
-    m_rmsdDialog->setReferenceStructure(refAtoms, m_moleculeView->getCurrentFrameBonds(), refName);
-
-    if (!targetFile.isEmpty())
-        m_rmsdDialog->setTargetFile(targetFile);
-
-    m_rmsdDialog->show();
-    m_rmsdDialog->raise();
-    m_rmsdDialog->activateWindow();
+    m_rmsdWidget->setReferenceStructure(refAtoms, m_moleculeView->getCurrentFrameBonds(), refName);
 }
 
 // Claude Generated - Quick Fix: Show about dialog
@@ -4095,6 +4104,23 @@ void MainWindow::createDockWidgets()
     m_inputView->setPlaceholderText("Input data");
     inputLayout->addWidget(m_inputView);
     m_editorsTabs->addTab(inputWidget, tr("Input"));
+
+    // Claude Generated 2026 - RMSD / align tool as a third Editors tab (folded
+    // here instead of its own dock, to keep the right side uncluttered).
+    // Backed by curcuma RMSDDriver; reference seeded by MainWindow.
+    m_rmsdWidget = new RMSDWidget(this);
+    m_editorsTabs->addTab(m_rmsdWidget, tr("RMSD / Align"));
+    // Overlay the aligned target onto the reference in the 3D viewer.
+    connect(m_rmsdWidget, &RMSDWidget::overlayRequested, this,
+        [this](const QVector<MoleculeViewer::Atom>& refAtoms,
+            const QVector<MoleculeViewer::Bond>& refBonds,
+            const QVector<MoleculeViewer::Atom>& targetAtoms) {
+            if (m_moleculeView)
+                m_moleculeView->showOverlay(refAtoms, refBonds, targetAtoms);
+        });
+    // "Use current as reference" button: re-seed from the current viewer frame.
+    connect(m_rmsdWidget, &RMSDWidget::seedReferenceRequested, this,
+        [this]() { seedRMSDReference(); });
 
     m_editorsDock->setWidget(m_editorsTabs);
 

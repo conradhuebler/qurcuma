@@ -47,7 +47,7 @@
 #include "simulationworker.h"  // Claude Generated - for SimulationConfig
 class MoleculeViewer;
 class VisualizationSettingsDialog;  // Claude Generated - For shortcut synchronization
-class RMSDDialog;  // Claude Generated 2026 - RMSD / align / reorder dialog
+class RMSDWidget;  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
@@ -174,11 +174,11 @@ private slots:
     // Claude Generated - Visualization settings
     void openVisualizationSettings();
 
-    // Claude Generated 2026 - RMSD / align / reorder tool (curcuma RMSDDriver).
-    // Opens the dialog with the current structure as reference; an optional
-    // targetFile preloads the comparison structure (used by the file-manager
-    // context menu).
-    void openRMSDDialog(const QString& targetFile = QString());
+    // Claude Generated 2026 - RMSD / align / reorder tool (curcuma RMSDDriver),
+    // embedded in the Analysis dock. Raises the dock + RMSD tab, re-seeds the
+    // reference from the current viewer frame; an optional targetFile preloads
+    // the comparison structure (used by the file-manager context menu).
+    void showRMSDTool(const QString& targetFile = QString());
 
     // Claude Generated - Rendering shortcuts (1-4 for rendering modes)
     void setRenderingModeBallAndStick();
@@ -232,6 +232,7 @@ private:
     void setupUI();
     void createToolbars();
     void createMenus();
+    void seedRMSDReference();  // Claude Generated 2026 - re-seed RMSD reference from viewer
     void setupProjectViewContextMenu();
     void setupConnections();
     void setupShortcuts();  // Claude Generated - Phase 1.2
@@ -339,7 +340,7 @@ private:
     QLabel *m_stateIcon, *m_stateIndicator;
     MoleculeViewer *m_moleculeView;
     NMRSpectrumDialog* m_nmrDialog;
-    RMSDDialog* m_rmsdDialog = nullptr;  // Claude Generated 2026 - RMSD/align dialog (lazy)
+    RMSDWidget* m_rmsdWidget = nullptr;  // Claude Generated 2026 - RMSD/align panel (Editors dock tab)
     AtomListPanel* m_atomListPanel = nullptr;  // Claude Generated Phase 2C - Atom list panel
     SnapshotsWidget* m_snapshotsWidget = nullptr;  // Claude Generated 2026 - Snapshot history
 
@@ -432,7 +433,7 @@ private:
     QDockWidget* m_editorsDock = nullptr;           // Right: structure + input editors (internal QTabWidget)
     QDockWidget* m_atomsSimulationDock = nullptr;   // Right: atom list + simulation (internal QTabWidget)
     QDockWidget* m_outputViewDock = nullptr;        // Bottom: output log
-    QTabWidget* m_editorsTabs = nullptr;            // Internal tabs inside m_editorsDock
+    QTabWidget* m_editorsTabs = nullptr;            // Internal tabs inside m_editorsDock (Structure/Input/RMSD)
     QTabWidget* m_atomsSimulationTabs = nullptr;    // Internal tabs inside m_atomsSimulationDock
     QTabWidget* m_navigationTabs = nullptr;         // Internal tabs inside m_navigationDock
     QByteArray m_defaultDockState;                  // Baseline after createDockWidgets

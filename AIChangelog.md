@@ -1,5 +1,11 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - RMSD-Tool vom Dialog in Editors-Dock-Tab umgewandelt
+
+- `RMSDDialog` (modaler Fremdkörper) → `RMSDWidget : public QWidget`, eingebettet als **dritter Tab im Editors-Dock** (`m_editorsTabs`: Structure/Input/RMSD) statt eigenem Dock — rechte Seite bleibt bei der 5-Dock-Architektur (Project/Navigation/Editors/Atoms&Simulation/Output).
+- Referenz-Saat jetzt **Auto + Button**: `showRMSDTool()` fokussiert den Editors-Dock + Tab-Index 2 und säht beim Menü-/Kontextmenü-Aufruf automatisch aus dem Viewer, plus Button "Use current as reference" im Widget (Signal `seedReferenceRequested` → `MainWindow::seedRMSDReference()`). Widget bleibt vom Viewer entkoppelt.
+- Menüeintrag `Analysis ▸ RMSD / Align Structures` fokussiert Editors-Dock + RMSD-Tab (Vorbild `showSimDock`); Layout-Presets unverändert (Editors-Sichtbarkeit steuert den Tab). `src/dialogs/rmsddialog.*` entfernt, `src/rmsdwidget.*` neu.
+
 ## Juni 2026 - Bildschirmfeste 4-Eck-Beleuchtung (dreht nicht mehr mit dem Molekül)
 
 - Eck-Lichter (`m_lightRoot`) von `m_modelEntity` an die **Kamera** gehängt → die beleuchtete Zone bleibt bildschirmfest; "Lampe links oben" leuchtet immer den aktuell links-oben sichtbaren Molekülteil aus, statt mit dem Molekül mitzudrehen (`view.cpp`).
