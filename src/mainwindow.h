@@ -106,6 +106,21 @@ public:
     void loadFileFromArg(const QString& path);
 
     /**
+     * @brief Auto-start the interactive simulation in the given mode after a
+     *        command-line file load (`qurcuma <file> -md` / `-opt`).
+     *
+     * Claude Generated 2026: Diagnostic lever for the release/AVX-512 crash —
+     * lets the interactive sim be launched from bash so the crash is
+     * reproducible under gdb/valgrind. No-op if no molecule was loaded.
+     * buildConfig() reflects the requested mode because setMode() drives the
+     * dock's mode combo. The workerStarted -> wireSimulationWorker connection
+     * is already in place, so the viewer lights up exactly as a button click.
+     *
+     * @param mode  MolecularDynamics or GeometryOptimization
+     */
+    void autoStartSimulation(SimulationConfig::Mode mode);
+
+    /**
      * @brief Switch the working directory to the directory where the molecule file
      *        resides, after it was loaded successfully.
      *

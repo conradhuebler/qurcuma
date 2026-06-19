@@ -4384,6 +4384,24 @@ void MainWindow::loadFileFromArg(const QString& path)
     // the file's parent directory on success, so no explicit switch here.
 }
 
+// Claude Generated 2026 - Auto-start the interactive simulation from the CLI
+// (-md / -opt). Called after loadFileFromArg() so the dock already holds the
+// loaded molecule. currentAtoms().isEmpty() mirrors onStartClicked()'s own
+// guard, so a failed load (or a dir positional) is a clean no-op. This is a
+// diagnostic lever: a direct onStartClicked() call is byte-for-byte identical
+// to a button click, so the release/AVX-512 crash reproduces faithfully.
+void MainWindow::autoStartSimulation(SimulationConfig::Mode mode)
+{
+    if (!m_simulationControlWidget)
+        return;
+    if (m_simulationControlWidget->currentAtoms().isEmpty())
+        return;  // load produced no molecule
+    qDebug() << "autoStartSimulation: mode=" << static_cast<int>(mode)
+             << "atoms=" << m_simulationControlWidget->currentAtoms().size();
+    m_simulationControlWidget->setMode(mode);
+    m_simulationControlWidget->onStartClicked();
+}
+
 // Claude Generated 2026: Switch the working directory to the file's parent dir
 // after a successful load. Extracted as a separate entry point so it can be
 // called from any place that loads a molecule file (CLI, File menu, drag-drop).
