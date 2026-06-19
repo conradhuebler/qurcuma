@@ -1,5 +1,35 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - Interaktiver Opt-Grab: Kraft wirkt als Potential + Keep-alive + Crash-Fix
+
+Per Print-Instrumentierung verifiziert, dass die Kraftkette vollständig ankommt (`injectForce` → Worker → `setExternalForces` → LBFGSpp-Gradient, |ext| bis ~0.6 Eh/Bohr). Drei verbleibende Probleme behoben:
+
+- **„Gefühlt passiert nichts"**: Der Bias wurde nur auf den **Gradienten** addiert, nicht auf die zurückgegebene **Energie**. LBFGSpps Backtracking-Line-Search akzeptiert aber nur Schritte, die die *Energie* senken → jeder Schritt in Grab-Richtung, der die echte GFN-FF-Energie erhöht, wurde verworfen → Atom bewegte sich kaum. Fix (curcuma `lbfgspp_optimizer.cpp`): konsistentes lineares Bias-**Potential** `E_bias = Σ f_ext·x` hinzufügen (dessen Gradient genau `f_ext` ist). Jetzt sind Energie und Gradient konsistent, der Schritt wird angenommen, das Atom wandert ins verschobene Gleichgewicht (Rückstellkraft balanciert den Zug). **Noch zu replizieren für native LBFGS + ANCOpt** (gleicher Gradient-only-Bias).
+- **Keep-alive bei Konvergenz**: `runOptimization` baut jetzt pro Zyklus einen **frischen** Optimizer (EnergyCalculator wird wiederverwendet) und macht von der aktuellen Geometrie weiter, statt `Optimize()` erneut aufzurufen. Beendet nur über Stop.
+- **SIGSEGV behoben**: Ein zweiter `Optimize()`-Aufruf auf demselben (verbrauchten) LBFGSpp-Solver betrat toten Single-Step-Zustand → Absturz. Der frische Optimizer pro Zyklus verhindert das.
+
+## Juni 2026 - Maus-Grab-Kraft ist jetzt "sticky" (wirkt solange geklickt gehalten)
+
+- **Symptom**: Im Opt-Modus reagierte das Molekül nicht auf den Grab, obwohl die Kraftvektoren korrekt angezeigt wurden.
+- **Ursache**: Der Viewer sendet `atomForceRequested` nur bei Maus-*Bewegung* (view.cpp:239) + einmal pro Frame (view.cpp:2094). Der Worker verbrauchte die Kraft per Einmal-Drain (`m_pendingForcesValid=false`). Bei stillgehaltener Maus kam kein neues Event → die Verzerrung wurde jeden Schritt gelöscht. MD kaschierte das über den Impuls; Opt hat keinen Impuls und relaxiert sofort zurück → keine sichtbare Bewegung.
+- **Fix**: Kraft ist jetzt *sticky*. `injectForce` hält sie bis `clearInjectedForce` (Mausloslassen); der Worker liest sie per Peek (`currentInjectedForces`, kein Verbrauch) bei *jedem* MD-Schritt / Opt-Iteration neu. Damit wirkt die Kraft genau solange der Button gehalten wird.
+- **Unverändert**: `processEvents()`-Pump im Opt-Callback (liefert die ge-queue-ten `injectForce`/`clearInjectedForce` an den im synchronen `Optimize()` blockierenden Worker; der Dispatcher existiert — MDs `QTimer` feuert) und die curcuma-seitige Gradient-Bias.
+
+## Juni 2026 - Release/AVX-512-Crash der interaktiven Simulation behoben
+
+- **Ursache**: Eigen-ABI-Mismatch zwischen qurcuma und curcuma. curcuma_core wird per FetchContent mit `-march=native` (hier AVX-512 → `EIGEN_MAX_ALIGN_BYTES=64`) gebaut, qurcumas eigene TUs aber nur mit `-O3` (SSE2 → `16`). curcumas `set(CMAKE_CXX_FLAGS ... -march=native)` liegt im Subdir-Scope und erreicht das qurcuma-Target nicht.
+- **Symptom**: `moleculeToFrame` kopiert/freed eine curcuma-allokierte `Geometry` in einer qurcuma-TU → `double free or corruption` direkt beim Start von MD/Opt (nur Release; Debug baut beide Seiten SSE2 → ok). Backtrace bestätigt: `#7 moleculeToFrame → #8 SimulationWorker::runOptimization`.
+- **Fix**: `CMakeLists.txt` spiegelt jetzt curcumas SIMD-Flags (`USE_MARCH_NATIVE`/`USE_AVX512`/`USE_AVX2`) per `target_compile_options(qurcuma ...)`, sodass beide Seiten dieselbe Eigen-Alignment-ABI nutzen.
+- **CLI-Reproduktion**: `qurcuma <file> -md|-opt` lädt die Datei und startet die Simulation direkt aus der Bash (diagnostischer Hebel; getestet mit `complex.xyz`, 231 Atome).
+
+## Juni 2026 - Force-Injection in Opt wirkt jetzt wirklich (alle Optimizer)
+
+Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
+
+- **qurcuma-Bug (eigentliche Ursache)**: `runOptimization` ruft `optimizer->Optimize()` synchron im Worker-Thread auf — dessen Qt-Event-Loop läuft währenddessen NICHT. `injectForce`/`clearInjectedForce` sind aber `QueuedConnection`-Slots an genau diesen Thread, ihre Events werden also nie zugestellt; `drainPendingForces` liefert immer leer → `clearExternalForces` → kein Bias. (MD funktioniert, weil es `QTimer`-getrieben ist und der Event-Loop zwischen Schritten läuft.) **Fix**: `QCoreApplication::processEvents()` im Opt-Step-Callback stellt die gequeueten Grab-Forces zu, bevor drainiert wird.
+- **curcuma-Bug**: Der frühere Bias hing nur am `OptimizerDriver::Optimize`-Loop (`m_current_gradient += m_external_forces`) — toter Code, da JEDER Optimizer seinen Gradienten selbst auswertet und `m_current_gradient` für den Schritt nie liest. **Fix (beide Kopien)**: Bias direkt an den echten Cartesian-Gradient-Stellen addiert: `LBFGSppObjectiveFunction::operator()` (deckt `auto`/`lbfgspp`), `LBFGS::getEnergyGradient` (deckt `native_lbfgs`/`diis`/`rfo`), `ANCOptimizer::CalculateOptimizationStep` vor der ANC-Transformation. Bias wird per `const Vector*` in die Nicht-Treiber-Klassen (`bindExternalForces`) geleitet, persistiert über Line-Search-Auswertungen und wird via `clearExternalForces()` beim Loslassen genullt. Sign/Layout/Einheiten identisch zum MD-Pfad (Eh/Bohr, atom-major).
+- **Verifiziert (CLI, ohne Maus)**: konstante Testkraft auf Atom 0 bewegt dessen Endposition deutlich (Baseline x=2.41 → Kraft 0.1: x=1.10 → Kraft 0.5: x=1.97), Bias erreicht also nachweislich den Optimierer-Gradienten.
+
 ## June 2026 - Interaktive Simulation: live Force-Update in Opt + korrigierte Grab-Skala
 
 - Opt-Auto-Run reagiert jetzt live auf Mausziehen: der Step-Callback drainiert `pendingForces` nach jeder Iteration und aktualisiert `optimizer->setExternalForces()` / `clearExternalForces()`
@@ -25,13 +55,8 @@
   - Dock-throttlet Klicks auf `1000/fpsLimit` ms → "max XXX FPS" wird eingehalten
 - `Speed`-Spinner bleibt während eines laufenden Runs editierbar (Live-Throttle)
 - **Force-Injection auch in der Optimierung** (Maus-Grab Parität mit MD):
-  - curcuma: `OptimizationContext.external_forces` (atom-major flat Vector) + `OptimizerDriver::setExternalForces/clearExternalForces/applyExternalForcesBias`
-  - Bias wird jetzt in ALLEN Gradient-Pfaden angewendet (nicht nur in `evaluateEnergyAndGradient`):
-    1. `evaluateEnergyAndGradient` (Standard-Pfad, nach Constraints)
-    2. `LBFGSppObjectiveFunction::operator()` — LBFGSpp ruft das Objective intern aus der Line-Search, daher bekommt die Klasse einen `const Vector* m_external_forces` und subtrahiert den Bias bei jedem `grad`
-    3. `LBFGSppOptimizer::CalculateOptimizationStep` — zusätzlich auf `m_context.step_gradient`, damit der Treiber-Loop den bias auch in `m_current_gradient` der nächsten Iteration propagiert
-    4. `NativeOptimizerAdapter::CalculateOptimizationStep` (DIIS/RFO) — gleiche Behandlung
-  - qurcuma: `runOptimization` und `stepOnce` drainen jetzt pending forces und reichen sie an den Optimizer weiter; nach dem Optimize-Aufruf wird der Bias automatisch gecleart
+  - qurcuma: `runOptimization` und `stepOnce` drainen pending forces und reichen sie via `setExternalForces`/`clearExternalForces` an den Optimizer weiter
+  - curcuma-seitige Anwendung war zunächst nur im Treiber-Loop (`m_current_gradient += bias`) und damit wirkungslos — korrekt umgesetzt in der Force-Injection-Korrektur (siehe oberste Changelog-Einträge Juni 2026)
 
 ## April 2026 - Simulation: Echtzeit-Schrittanzeige & RATTLE-UI
 
