@@ -42,6 +42,11 @@ public:
 
     SimulationConfig currentConfig() const { return buildConfig(); }
 
+    /** @brief Set the MD/Opt mode programmatically (drives the combo so that
+     *  buildConfig() reflects the requested mode). Used by the CLI auto-start
+     *  (-md / -opt). Claude Generated 2026. */
+    void setMode(SimulationConfig::Mode mode);
+
     /** @brief Grab strength (world Å/Bohr per screen pixel) for the viewer. */
     double grabStrength() const { return m_grabStrengthSpin ? m_grabStrengthSpin->value() : 0.1; }
     double grabAlpha() const { return m_grabAlphaSpin ? m_grabAlphaSpin->value() : 0.4; }
@@ -120,6 +125,7 @@ private:
 
     // --- Optimization parameters ---
     QDoubleSpinBox* m_convergenceSpin = nullptr;
+    QCheckBox* m_optKeepParamsCheck = nullptr;  // Claude Generated 2026 - keep FF params across interactive Opt restarts
 
     // --- MD/Opt specific groups (shown/hidden based on mode) ---
     QGroupBox*      m_mdGroup = nullptr;       // MD parameters

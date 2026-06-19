@@ -323,6 +323,18 @@ void SimulationControlWidget::setupUI()
     m_convergenceSpin->setValue(1e-6);
     optForm->addRow(tr("Gradient tol:"), m_convergenceSpin);
 
+    // Claude Generated 2026 - Opt-in: keep the force-field parameters/topology
+    // fixed while interactively dragging atoms during a geometry optimization.
+    // When on (default), keep-alive restarts reuse the existing FF and only move
+    // atoms (no rebuild from the grab-distorted geometry — faster, crash-free).
+    // When off, each restart rebuilds the FF from the current geometry (adaptive).
+    m_optKeepParamsCheck = new QCheckBox(tr("Keep parameters while dragging"), this);
+    m_optKeepParamsCheck->setChecked(true);
+    m_optKeepParamsCheck->setToolTip(tr("Interactive Opt: keep the force-field parameters/topology fixed "
+                                        "across keep-alive restarts instead of rebuilding them from the "
+                                        "(grab-distorted) geometry. Recommended on."));
+    optForm->addRow("", m_optKeepParamsCheck);
+
     innerLayout->addWidget(m_optGroup);
 
     // ---- Output Options ----
@@ -422,6 +434,7 @@ void SimulationControlWidget::setupUI()
     connect(m_writeTrjCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_perfCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_convergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_optKeepParamsCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_rattle12Check, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rattle13Check, &QCheckBox::toggled, this, notifyConfig);
@@ -503,6 +516,7 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.writeTrajectory = m_writeTrjCheck->isChecked();
     cfg.performanceAnalysis = m_perfCheck->isChecked();
     cfg.convergence = m_convergenceSpin->value();
+    cfg.optKeepParameters = m_optKeepParamsCheck->isChecked();
     cfg.rattleMode    = m_rattleCombo->currentData().toInt();
     cfg.rattle12      = m_rattle12Check->isChecked();
     cfg.rattle13      = m_rattle13Check->isChecked();
@@ -744,6 +758,22 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
     // m_fpsLimitSpin is already a top-level control — no per-mode visibility needed.
 }
 
+// Claude Generated 2026 - Programmatic mode setter for the CLI auto-start
+// (-md / -opt). Drives the combo via findData + setCurrentIndex so the existing
+// currentIndexChanged -> onModeChanged connection toggles the MD/Opt group
+// visibility and buildConfig() picks up the requested mode.
+void SimulationControlWidget::setMode(SimulationConfig::Mode mode)
+{
+    if (!m_modeCombo)
+        return;
+    const int idx = m_modeCombo->findData(static_cast<int>(mode));
+    if (idx < 0) {
+        qWarning() << "setMode: unknown mode" << static_cast<int>(mode);
+        return;
+    }
+    m_modeCombo->setCurrentIndex(idx);
+}
+
 void SimulationControlWidget::setRunning(bool running)
 {
     m_running = running;
@@ -769,6 +799,8 @@ void SimulationControlWidget::setRunning(bool running)
     m_writeTrjCheck->setEnabled(!running);
     m_perfCheck->setEnabled(!running);
     m_convergenceSpin->setEnabled(!running);
+    if (m_optKeepParamsCheck)
+        m_optKeepParamsCheck->setEnabled(!running);
     m_rattleCombo->setEnabled(!running);
     m_rattle12Check->setEnabled(!running);
     m_rattle13Check->setEnabled(!running);
