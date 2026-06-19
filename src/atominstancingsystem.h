@@ -8,6 +8,7 @@
 #include <Qt3DRender/QGeometryRenderer>
 #include <Qt3DRender/QParameter>
 #include <QVector3D>
+#include <QVector4D>
 #include <QColor>
 #include <QVector>
 #include <QString>
@@ -46,6 +47,10 @@ public:
     // Update world-space camera position for correct specular lighting
     void setCameraPosition(const QVector3D &pos);
 
+    // Claude Generated 2026 - Per-corner screen-fixed light intensities
+    // (x ◤, y ◥, z ◣, w ◢); 0 = off. Matches the 2×2 control grid.
+    void setCornerLightIntensities(const QVector4D &intensities);
+
     // Claude Generated 2026 - Phase 1 Fog
     void setFogEnabled(bool enabled);
     void setFogColor(const QColor &color);
@@ -82,6 +87,9 @@ private:
 
     // Lighting parameter - updated each frame with camera world position
     Qt3DRender::QParameter* m_cameraPosParam = nullptr;
+
+    // Claude Generated 2026 - vec4 mask/intensity for the 4 screen-fixed corner lights
+    Qt3DRender::QParameter* m_cornerLightParam = nullptr;
 
     // Claude Generated 2026 - Phase 1 Fog parameters
     Qt3DRender::QParameter* m_fogEnabledParam = nullptr;

@@ -9,6 +9,7 @@
 - OpenGL-based rendering with shader support
 - Interactive rotation, zoom, and pan controls
 - Multiple rendering styles: ball-and-stick, space-filling, wireframe
+- ✅ **Screen-fixed corner lights** - 4 toggleable lights (◤◥◣◢). Phong path: `QPointLight`s parented to the camera; instancing path: view-space lights via `cornerLightEnabled` vec4 uniform. Lit zone stays fixed to the view, does NOT rotate with the molecule. (Real cast shadows = future shadow-mapping work.)
 
 ## Interactive Simulation
 - Mouse grab distributes a screen-space drag as Eh/Bohr force across bonded shells (Angstrom-to-Bohr corrected in `computeGrabForce`)

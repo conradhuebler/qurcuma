@@ -297,11 +297,11 @@ private:
     QQuaternion m_modelRotation;  // Accumulated model rotation
     Qt3DRender::QCamera *m_camera;
 
-    // Claude Generated - 4 world-fixed corner lights (upper cube corners).
-    // Indices: 0=top-front-left, 1=top-front-right, 2=top-back-left, 3=top-back-right.
-    // Parented to m_lightRoot (a persistent sub-entity of m_rootEntity) so that
-    // clearScene() can skip them — otherwise scene rebuilds would destroy the
-    // lights and leave dangling QDirectionalLight* pointers.
+    // Claude Generated - 4 screen-fixed corner lights (◤ ◥ ◣ ◢, control grid order).
+    // Parented to the CAMERA so the lit zone stays fixed to the view and does not
+    // rotate with the molecule. m_lightRoot persists across clearScene() so scene
+    // rebuilds don't destroy the lights and leave dangling pointers.
+    static constexpr float kCornerLightIntensity = 1.0f;  // shared "on" intensity
     Qt3DCore::QEntity* m_lightRoot = nullptr;
     Qt3DRender::QPointLight* m_cornerLights[4] = {nullptr, nullptr, nullptr, nullptr};
     bool m_cornerLightEnabled[4] = {true, true, false, false};
@@ -335,6 +335,8 @@ private:
     void setDefaultView();
     // Update camera position uniform in instancing shaders after camera moves.
     void updateInstancingCameraPosition();
+    // Claude Generated 2026 - Push the 4 corner-light on/off mask into the instancing shaders.
+    void updateInstancingCornerLights();
     // Transform model-local position to world space (applies model rotation).
     QVector3D modelToWorld(const QVector3D& localPos) const;
 

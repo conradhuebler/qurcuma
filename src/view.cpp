@@ -38,6 +38,7 @@
 #include <QPushButton>
 #include <QTimer>
 #include <QToolButton>
+#include <QVector4D>
 #include <cmath>
 
 MoleculeViewer::MoleculeViewer(QWidget *parent)
@@ -111,36 +112,40 @@ void MoleculeViewer::setupViewer()
     m_modelEntity->addComponent(m_modelTransform);
     m_modelRotation = QQuaternion();
 
-    // Claude Generated - 4 world-fixed corner lights positioned at the 4
-    // corners of the FRONT face of the scene bounding cube (+Z, ±X, ±Y),
-    // not the 4 upper cube corners. Earlier +Y-only positions produced a
-    // symmetric "always-top-lit" pattern that looked camera-attached under
-    // horizontal orbit. Spreading corners across ±X AND ±Y breaks that
-    // symmetry, so camera rotation visibly shifts the lit zone.
-    //
-    // Uses QPointLight at far distance (≈directional) with a QTransform —
-    // Qt3D's default Phong shader reads QPointLight position from the
-    // entity's world transform. Parented to m_modelEntity so lights rotate
-    // with the model — lighting stays fixed relative to the molecule surface.
-    m_lightRoot = new Qt3DCore::QEntity(m_modelEntity);
+    // Kamera einrichten (vor den Lichtern, da diese an die Kamera gehängt werden)
+    m_camera = m_view->camera();
+    m_camera->lens()->setPerspectiveProjection(45.0f, 16.0f/9.0f, 0.1f, 5000.0f);
+
+    // Initialize with default position - will be updated by setDefaultView()
+    m_camera->setPosition(QVector3D(0, 0, 100.0f));
+    m_camera->setViewCenter(QVector3D(0, 0, 0));
+
+    // Claude Generated 2026 - 4 screen-fixed corner lights. Parented to the
+    // CAMERA (not the model), so "lamp top-left" always lights the top-left of
+    // the view, regardless of how the molecule or camera is rotated — the lit
+    // zone no longer rotates with the molecule. These QPointLights feed Qt3D's
+    // built-in Phong/PBR shader (per-atom path, below the instancing threshold);
+    // the GPU-instancing path applies the same view-space lights in its own
+    // fragment shaders (see updateInstancingCornerLights()).
+    m_lightRoot = new Qt3DCore::QEntity(m_camera);
     m_lightRoot->setObjectName(QStringLiteral("__qurcuma_light_root__"));
 
     static constexpr float kLightDistance = 1000.0f; // far → behaves directional
-    static constexpr float kKeyIntensity  = 1.0f;
     const QColor kLightColor(255, 250, 240);
-    // Index mapping matches control-panel 2×2 grid (screen corners):
+    // Camera-local corner directions (x = right, y = up, −z = forward toward scene).
+    // Index matches control-panel 2×2 grid:
     //   0 ◤ top-left, 1 ◥ top-right, 2 ◣ bottom-left, 3 ◢ bottom-right
     const QVector3D cornerPos[4] = {
-        QVector3D(-1.0f,  1.0f, 1.0f), // ◤ TL
-        QVector3D( 1.0f,  1.0f, 1.0f), // ◥ TR
-        QVector3D(-1.0f, -1.0f, 1.0f), // ◣ BL
-        QVector3D( 1.0f, -1.0f, 1.0f), // ◢ BR
+        QVector3D(-1.0f,  1.0f, -1.0f), // ◤ TL
+        QVector3D( 1.0f,  1.0f, -1.0f), // ◥ TR
+        QVector3D(-1.0f, -1.0f, -1.0f), // ◣ BL
+        QVector3D( 1.0f, -1.0f, -1.0f), // ◢ BR
     };
     for (int i = 0; i < 4; ++i) {
         auto* lightEntity = new Qt3DCore::QEntity(m_lightRoot);
         m_cornerLights[i] = new Qt3DRender::QPointLight(lightEntity);
         m_cornerLights[i]->setColor(kLightColor);
-        m_cornerLights[i]->setIntensity(m_cornerLightEnabled[i] ? kKeyIntensity : 0.0f);
+        m_cornerLights[i]->setIntensity(m_cornerLightEnabled[i] ? kCornerLightIntensity : 0.0f);
         // Zero distance attenuation — uniform intensity regardless of distance.
         m_cornerLights[i]->setConstantAttenuation(1.0f);
         m_cornerLights[i]->setLinearAttenuation(0.0f);
@@ -152,14 +157,6 @@ void MoleculeViewer::setupViewer()
         lightEntity->addComponent(m_cornerLights[i]);
         lightEntity->addComponent(lightTransform);
     }
-
-    // Kamera einrichten
-    m_camera = m_view->camera();
-    m_camera->lens()->setPerspectiveProjection(45.0f, 16.0f/9.0f, 0.1f, 5000.0f);
-
-    // Initialize with default position - will be updated by setDefaultView()
-    m_camera->setPosition(QVector3D(0, 0, 100.0f));
-    m_camera->setViewCenter(QVector3D(0, 0, 0));
 
     m_view->setRootEntity(m_rootEntity);
 
@@ -443,6 +440,9 @@ void MoleculeViewer::updateInstancingCameraPosition()
         m_atomInstancing->setCameraPosition(camPos);
     if (m_bondInstancing)
         m_bondInstancing->setCameraPosition(camPos);
+    // Re-assert the corner-light mask too: this chokepoint runs after scene
+    // rebuilds, so freshly created instancing systems pick up the current state.
+    updateInstancingCornerLights();
 }
 
 // Transform model-local position to world space (applies model rotation around pivot).
@@ -827,9 +827,29 @@ void MoleculeViewer::setCornerLightEnabled(int index, bool on)
 {
     if (index < 0 || index > 3) return;
     m_cornerLightEnabled[index] = on;
+    // Phong/PBR per-atom path: drive Qt3D's built-in shader via the QPointLight.
     if (m_cornerLights[index]) {
-        m_cornerLights[index]->setIntensity(on ? 0.9f : 0.0f);
+        m_cornerLights[index]->setIntensity(on ? kCornerLightIntensity : 0.0f);
     }
+    // GPU-instancing path: push the on/off mask into the instanced shaders.
+    updateInstancingCornerLights();
+}
+
+// Claude Generated 2026 - Push the 4 corner-light on/off mask into the instanced
+// atom/bond shaders as a vec4 (one component per screen corner). The instanced
+// fragment shaders light from view-space corner directions, so toggling a corner
+// lights the same screen region as the Phong-path QPointLights.
+void MoleculeViewer::updateInstancingCornerLights()
+{
+    const QVector4D mask(
+        m_cornerLightEnabled[0] ? 1.0f : 0.0f,
+        m_cornerLightEnabled[1] ? 1.0f : 0.0f,
+        m_cornerLightEnabled[2] ? 1.0f : 0.0f,
+        m_cornerLightEnabled[3] ? 1.0f : 0.0f);
+    if (m_atomInstancing)
+        m_atomInstancing->setCornerLightIntensities(mask);
+    if (m_bondInstancing)
+        m_bondInstancing->setCornerLightIntensities(mask);
 }
 
 bool MoleculeViewer::isCornerLightEnabled(int index) const

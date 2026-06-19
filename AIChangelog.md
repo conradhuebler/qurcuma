@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - Bildschirmfeste 4-Eck-Beleuchtung (dreht nicht mehr mit dem Molekül)
+
+- Eck-Lichter (`m_lightRoot`) von `m_modelEntity` an die **Kamera** gehängt → die beleuchtete Zone bleibt bildschirmfest; "Lampe links oben" leuchtet immer den aktuell links-oben sichtbaren Molekülteil aus, statt mit dem Molekül mitzudrehen (`view.cpp`).
+- Instancing-Shader (`atom_instanced.frag`/`bond_instanced.frag`) nutzen jetzt 4 zuschaltbare View-Space-Eck-Lichter via Uniform `cornerLightEnabled` (vec4) statt eines fest verdrahteten Einzel-Headlights; die 4 Eck-Toggles wirken damit auch im GPU-Instancing-Pfad (≥500 Atome).
+- Neuer Param/Setter `setCornerLightIntensities()` in `AtomInstancingSystem`/`BondInstancingSystem`; `updateInstancingCornerLights()` pusht die Maske nach Rebuilds und Toggles. Intensität auf gemeinsame Konstante `kCornerLightIntensity` vereinheitlicht.
+- Echte geworfene Schatten (Shadow-Mapping) bewusst offen gelassen (Phase 2: Custom-Framegraph nötig).
+
 ## Juni 2026 - Interaktiver Opt-Grab: Kraft wirkt als Potential + Keep-alive + Crash-Fix
 
 Per Print-Instrumentierung verifiziert, dass die Kraftkette vollständig ankommt (`injectForce` → Worker → `setExternalForces` → LBFGSpp-Gradient, |ext| bis ~0.6 Eh/Bohr). Drei verbleibende Probleme behoben:

@@ -141,6 +141,10 @@ void BondInstancingSystem::setBonds(const QVector<BondInstance>& instances)
     m_cameraPosParam = new Qt3DRender::QParameter("cameraPosition", QVector3D(0, 0, 100), material);
     material->addParameter(m_cameraPosParam);
 
+    // Claude Generated 2026 - 4 screen-fixed corner lights (◤ ◥ ◣ ◢), default {on,on,off,off}
+    m_cornerLightParam = new Qt3DRender::QParameter("cornerLightEnabled", QVector4D(1, 1, 0, 0), material);
+    material->addParameter(m_cornerLightParam);
+
     // Claude Generated 2026 - Phase 1 Fog parameters
     m_fogEnabledParam = new Qt3DRender::QParameter("fogEnabled", 0.0f, material);
     m_fogColorParam = new Qt3DRender::QParameter("fogColor", QVector3D(0.125f, 0.141f, 0.172f), material);
@@ -154,6 +158,13 @@ void BondInstancingSystem::setCameraPosition(const QVector3D &pos)
 {
     if (m_cameraPosParam)
         m_cameraPosParam->setValue(pos);
+}
+
+// Claude Generated 2026 - Update the 4 screen-fixed corner-light intensities.
+void BondInstancingSystem::setCornerLightIntensities(const QVector4D &intensities)
+{
+    if (m_cornerLightParam)
+        m_cornerLightParam->setValue(intensities);
 }
 
 // Claude Generated 2026 - Phase 1 Fog setters
