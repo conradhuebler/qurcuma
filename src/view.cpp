@@ -99,6 +99,7 @@ void MoleculeViewer::applyAppearanceToController()
     m_scene->setHdr(m_hdrEnabled);
     m_scene->setExposure(m_exposure);
     m_scene->setFog(m_fogEnabled, m_fogIntensity);
+    m_scene->setFogDistance(m_fogDistance);
     for (int i = 0; i < 4; ++i)
         m_scene->setCornerLight(i, m_cornerLightEnabled[i]);
 }
@@ -746,6 +747,13 @@ void MoleculeViewer::setFogIntensity(float intensity)
         m_scene->setFog(m_fogEnabled, m_fogIntensity);
 }
 
+void MoleculeViewer::setFogDistance(float distance)
+{
+    m_fogDistance = qBound(0.0f, distance, 1.0f);
+    if (m_scene)
+        m_scene->setFogDistance(m_fogDistance);
+}
+
 void MoleculeViewer::setSSAOEnabled(bool enabled)
 {
     m_ssaoEnabled = enabled;
@@ -1282,6 +1290,37 @@ void MoleculeViewer::setupControlPanel()
         }
         panelLayout->addWidget(lightsBox);
     }
+
+    // Optional distance fog (fade atoms farther from the camera) + variable density
+    QToolButton* fogBtn = new QToolButton;
+    fogBtn->setText(QStringLiteral("≋"));
+    fogBtn->setToolTip(tr("Depth fog: fade distant atoms into the background"));
+    fogBtn->setCheckable(true);
+    fogBtn->setChecked(m_fogEnabled);
+    fogBtn->setFixedSize(24, 24);
+    connect(fogBtn, &QToolButton::toggled, this, &MoleculeViewer::setFogEnabled);
+    panelLayout->addWidget(fogBtn);
+
+    QSlider* fogStrengthSlider = new QSlider(Qt::Horizontal);
+    fogStrengthSlider->setRange(0, 100);
+    fogStrengthSlider->setValue(int(m_fogIntensity * 100));
+    fogStrengthSlider->setMaximumWidth(50);
+    fogStrengthSlider->setToolTip(tr("Fog strength (density)"));
+    connect(fogStrengthSlider, &QSlider::valueChanged, this, [this](int v) {
+        setFogIntensity(v / 100.0f);
+    });
+    panelLayout->addWidget(fogStrengthSlider);
+
+    QSlider* fogDistanceSlider = new QSlider(Qt::Horizontal);
+    fogDistanceSlider->setRange(0, 100);
+    fogDistanceSlider->setValue(int(m_fogDistance * 100));
+    fogDistanceSlider->setMaximumWidth(50);
+    fogDistanceSlider->setToolTip(tr("Fog distance (how far before atoms fade)"));
+    connect(fogDistanceSlider, &QSlider::valueChanged, this, [this](int v) {
+        setFogDistance(v / 100.0f);
+    });
+    panelLayout->addWidget(fogDistanceSlider);
+    panelLayout->addWidget(createSeparator());
 
     // Background colour picker
     QPushButton* bgColorBtn = new QPushButton(tr("BG"));

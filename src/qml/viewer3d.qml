@@ -37,11 +37,20 @@ Item {
                 ? SceneEnvironment.TonemapModeFilmic
                 : SceneEnvironment.TonemapModeNone
 
+            // Optional depth fog: atoms farther from the camera fade into the
+            // background. The near/far band follows the molecule's depth range so
+            // the effect stays meaningful as you zoom. density = user-set strength.
             fog: Fog {
                 enabled: controller.fogEnabled
-                density: controller.fogDensity
                 color: controller.backgroundColor
+                density: controller.fogDensity   // strength
                 depthEnabled: true
+                // distance: fogDistance (0..1) slides where the fog starts, from the
+                // front of the molecule (0) to its back (1); the far plane sits beyond.
+                depthNear: Math.max(0.1, controller.cameraDistance - controller.sceneExtent
+                                         + controller.fogDistance * 2.0 * controller.sceneExtent)
+                depthFar: controller.cameraDistance + controller.sceneExtent * 2.0
+                depthCurve: 1.0
             }
         }
 

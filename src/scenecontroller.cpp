@@ -302,6 +302,11 @@ void SceneController::setFog(bool on, float density)
     m_fogDensity = density;
     emit effectsChanged();
 }
+void SceneController::setFogDistance(float d)
+{
+    m_fogDistance = qBound(0.0f, d, 1.0f);
+    emit effectsChanged();
+}
 void SceneController::setShadows(bool on) { m_shadows = on; emit effectsChanged(); }
 void SceneController::setCornerLight(int index, bool on)
 {

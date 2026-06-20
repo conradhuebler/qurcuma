@@ -105,8 +105,10 @@ public:
     // Claude Generated - Fog/Depth effect
     void setFogEnabled(bool enabled);
     bool getFogEnabled() const { return m_fogEnabled; }
-    void setFogIntensity(float intensity);
+    void setFogIntensity(float intensity);   // fog strength (density)
     float getFogIntensity() const { return m_fogIntensity; }
+    void setFogDistance(float distance);     // where the fog starts (0=near .. 1=far)
+    float getFogDistance() const { return m_fogDistance; }
 
     // Claude Generated - Phase 5A: SSAO post-processing
     void setSSAOEnabled(bool enabled);
@@ -322,6 +324,7 @@ private:
     float m_bondThickness = 0.15f;
     bool m_fogEnabled = false;
     float m_fogIntensity = 0.5f;
+    float m_fogDistance = 0.4f;
     bool m_ssaoEnabled = true;
     float m_ssaoIntensity = 1.0f;
     float m_ssaoRadius = 0.05f;

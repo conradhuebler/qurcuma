@@ -1,5 +1,11 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - Qt3D entfernt, Vulkan-Backend + Tiefen-Nebel (Schritt 2b)
+
+- **Qt3D vollständig entfernt** (`find_package`/Link ohne `Qt6::3D*`, orphane Qt3D-Quellen gelöscht: atom/bondinstancingsystem, force/measurementoverlay, pbrmaterial, orbittransformcontroller). Binary linkt keine `Qt6::3D*`-Lib mehr.
+- **RHI-Backend Vulkan** als Default, aber mit **Probe + Fallback**: `main.cpp` testet `QVulkanInstance::create()` und schaltet bei fehlendem Loader/ICD automatisch auf OpenGL → läuft cross-vendor (NVIDIA proprietär / AMD-RADV / Intel-ANV) und auch ohne Vulkan. Override via `QSG_RHI_BACKEND=vulkan|opengl`.
+- **Optionaler Tiefen-Nebel** (`≋`-Toggle + zwei Slider: **Stärke** und **Distanz** im Control-Panel): `ExtendedSceneEnvironment.Fog` (depth-fog); Stärke = `fogDensity`, Distanz = `fogDistance` (0..1 verschiebt den Nebel-Start von der Molekül-Vorderseite zur Rückseite). near/far-Band folgt der Molekül-Tiefe (zoom-abhängig), entfernte Atome verblassen in die Hintergrundfarbe. Über `setFogEnabled`/`setFogIntensity`/`setFogDistance`.
+
 ## Juni 2026 - Renderer-Migration Qt3D → Qt Quick 3D (WP2, Schritt 2a)
 
 - `MoleculeViewer` (`src/view.*`) intern auf **Qt Quick 3D** umgebaut (eingebetteter `QQuickView` + `SceneController` + `src/qml/viewer3d.qml`), **öffentliche API unverändert** → `mainwindow.cpp` & Konsumenten unberührt. Neue Bausteine: `scenecontroller.*` (Szene-View-Model), `atominstancing.*`/`bondinstancing.*` (`QQuick3DInstancing`), `elementdata.*` (CPK/vdW/kovalent).

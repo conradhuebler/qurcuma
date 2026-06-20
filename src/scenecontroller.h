@@ -41,6 +41,7 @@ class SceneController : public QObject
     Q_PROPERTY(bool tonemapEnabled READ tonemapEnabled NOTIFY effectsChanged)
     Q_PROPERTY(bool fogEnabled READ fogEnabled NOTIFY effectsChanged)
     Q_PROPERTY(float fogDensity READ fogDensity NOTIFY effectsChanged)
+    Q_PROPERTY(float fogDistance READ fogDistance NOTIFY effectsChanged)
     Q_PROPERTY(bool shadowsEnabled READ shadowsEnabled NOTIFY effectsChanged)
     Q_PROPERTY(bool cornerLight0 READ cornerLight0 NOTIFY effectsChanged)
     Q_PROPERTY(bool cornerLight1 READ cornerLight1 NOTIFY effectsChanged)
@@ -101,6 +102,7 @@ public:
     bool tonemapEnabled() const { return m_tonemap; }
     bool fogEnabled() const { return m_fog; }
     float fogDensity() const { return m_fogDensity; }
+    float fogDistance() const { return m_fogDistance; }
     bool shadowsEnabled() const { return m_shadows; }
     bool cornerLight0() const { return m_corner[0]; }
     bool cornerLight1() const { return m_corner[1]; }
@@ -138,6 +140,7 @@ public:
     void setExposure(float e);
     void setTonemap(bool on);
     void setFog(bool on, float density);
+    void setFogDistance(float d); // 0 = fog starts close, 1 = fog starts far
     void setShadows(bool on);
     void setCornerLight(int index, bool on);
 
@@ -202,6 +205,7 @@ private:
     bool m_tonemap = true;
     bool m_fog = false;
     float m_fogDensity = 0.5f;
+    float m_fogDistance = 0.4f; // 0..1: where the depth fog starts across the molecule
     bool m_shadows = false;
     bool m_corner[4] = { true, true, false, false };
 

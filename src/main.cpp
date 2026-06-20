@@ -7,6 +7,7 @@
 #include <QSGRendererInterface>
 #include <QSurfaceFormat>
 #include <QTimer>
+#include <QVulkanInstance>
 
 #include "mainwindow.h"
 
@@ -21,14 +22,6 @@ int main(int argc, char *argv[])
 {
     initialize_generated_registry();
 
-    // Claude Generated 2026 - Renderer migration: drive Qt Quick 3D on the Vulkan
-    // RHI backend (validated in the WP0 spike on AMD/RADV). Must be set before any
-    // QQuickWindow is created (MainWindow builds the viewer). Override at runtime
-    // with QSG_RHI_BACKEND=opengl if a driver misbehaves; antialiasing is handled
-    // by the scene's ExtendedSceneEnvironment (MSAA), not the surface format.
-    if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND"))
-        QQuickWindow::setGraphicsApi(QSGRendererInterface::Vulkan);
-
     {
         QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();
         fmt.setDepthBufferSize(24);
@@ -36,6 +29,24 @@ int main(int argc, char *argv[])
     }
 
     QApplication app(argc, argv);
+
+    // Claude Generated 2026 - Renderer migration: prefer the Vulkan RHI backend for
+    // Qt Quick 3D. Vulkan is cross-vendor (NVIDIA proprietary, AMD/RADV, Intel ANV),
+    // but we PROBE for a usable Vulkan loader/ICD first and fall back to OpenGL when
+    // it is absent (nouveau, headless, very old GPUs) so qurcuma runs everywhere.
+    // Force a choice explicitly with QSG_RHI_BACKEND=vulkan|opengl. Must happen
+    // before the first QQuickWindow (MainWindow builds the viewer). Antialiasing is
+    // handled by the scene's ExtendedSceneEnvironment (MSAA), not the surface format.
+    if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND")) {
+        QVulkanInstance vk;
+        if (vk.create()) {
+            vk.destroy(); // Qt Quick creates its own instance for the window
+            QQuickWindow::setGraphicsApi(QSGRendererInterface::Vulkan);
+        } else {
+            QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+            qInfo("qurcuma: Vulkan unavailable — using the OpenGL RHI backend.");
+        }
+    }
 
     // Claude Generated 2026 - CLI option parsing for auto-starting the
     // interactive simulation from bash (`qurcuma <file> -md` / `-opt`). This is
