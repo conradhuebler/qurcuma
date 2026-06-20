@@ -3,6 +3,8 @@
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QDir>
+#include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QSurfaceFormat>
 #include <QTimer>
 
@@ -19,12 +21,16 @@ int main(int argc, char *argv[])
 {
     initialize_generated_registry();
 
-    // Claude Generated - Request 4x MSAA + 24-bit depth for smoother atom
-    // silhouettes and better depth resolution. Must be set before QApplication
-    // so the Qt3D GL context picks it up.
+    // Claude Generated 2026 - Renderer migration: drive Qt Quick 3D on the Vulkan
+    // RHI backend (validated in the WP0 spike on AMD/RADV). Must be set before any
+    // QQuickWindow is created (MainWindow builds the viewer). Override at runtime
+    // with QSG_RHI_BACKEND=opengl if a driver misbehaves; antialiasing is handled
+    // by the scene's ExtendedSceneEnvironment (MSAA), not the surface format.
+    if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND"))
+        QQuickWindow::setGraphicsApi(QSGRendererInterface::Vulkan);
+
     {
         QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();
-        fmt.setSamples(4);
         fmt.setDepthBufferSize(24);
         QSurfaceFormat::setDefaultFormat(fmt);
     }

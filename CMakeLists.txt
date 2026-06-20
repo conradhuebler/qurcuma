@@ -10,10 +10,6 @@ find_package(Qt6 COMPONENTS
 Core
 Gui
 Widgets
-3DCore
-3DRender
-3DInput
-3DExtras
 Charts
 Qml
 Quick
@@ -106,23 +102,18 @@ set(SOURCES
     src/widgets/breadcrumbbar.cpp  # Claude Generated Phase 1
     src/workspacemanager.cpp  # Claude Generated Phase 4.2
     src/selectionmanager.cpp  # Claude Generated Phase 2A
-    src/measurementoverlay.cpp  # Claude Generated Phase 2B
     src/atomlistpanel.cpp  # Claude Generated Phase 2C
     src/performanceoptimizer.cpp  # Claude Generated Phase 3B
     src/bondeditor.cpp  # Claude Generated Phase 4B
-    src/pbrmaterial.cpp  # Claude Generated Phase 4A
     src/pdbparser.cpp  # Claude Generated Phase 5C
     src/mol2parser.cpp  # Claude Generated Phase 5C
 
     #src/dialogs/nmrstructuremodel.cpp
-    src/atominstancingsystem.cpp  # Claude Generated Phase 5D (GPU instancing implementation)
-    src/bondinstancingsystem.cpp  # Claude Generated Phase 3.2 - Interactive Sim: bond GPU instancing
     src/simulationworker.cpp  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.cpp  # Claude Generated - Interactive Simulation Integration
     src/snapshotswidget.cpp  # Claude Generated 2026 - Snapshot history foundation
     src/rmsdwidget.cpp  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/forceinjector.cpp  # Claude Generated 2026 - Topological force distribution (Phase 4)
-    src/forceoverlay.cpp  # Claude Generated 2026 - Force visualization overlay
     src/elementdata.cpp  # Claude Generated 2026 - Quick3D renderer: shared element tables
     src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.cpp  # Claude Generated 2026 - Quick3D renderer: bond instancing
@@ -146,21 +137,16 @@ set(HEADERS
     src/widgets/breadcrumbbar.h  # Claude Generated Phase 1
     src/workspacemanager.h  # Claude Generated Phase 4.2
     src/selectionmanager.h  # Claude Generated Phase 2A
-    src/measurementoverlay.h  # Claude Generated Phase 2B
     src/atomlistpanel.h  # Claude Generated Phase 2C
     src/performanceoptimizer.h  # Claude Generated Phase 3B
     src/bondeditor.h  # Claude Generated Phase 4B
-    src/pbrmaterial.h  # Claude Generated Phase 4A
     src/pdbparser.h  # Claude Generated Phase 5C
     src/mol2parser.h  # Claude Generated Phase 5C
-    src/atominstancingsystem.h  # Claude Generated Phase 5D (GPU instancing implementation)
-    src/bondinstancingsystem.h  # Claude Generated Phase 3.2 - Interactive Sim: bond GPU instancing
     src/simulationworker.h  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.h  # Claude Generated - Interactive Simulation Integration
     src/snapshotswidget.h  # Claude Generated 2026 - Snapshot history foundation
     src/rmsdwidget.h  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/forceinjector.h  # Claude Generated 2026 - Topological force distribution (Phase 4)
-    src/forceoverlay.h  # Claude Generated 2026 - Force visualization overlay
     src/elementdata.h  # Claude Generated 2026 - Quick3D renderer: shared element tables
     src/atominstancing.h  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.h  # Claude Generated 2026 - Quick3D renderer: bond instancing
@@ -207,10 +193,6 @@ target_link_libraries(qurcuma PRIVATE
 Qt6::Core
 Qt6::Gui
 Qt6::Widgets
-Qt6::3DCore
-Qt6::3DRender
-Qt6::3DInput
-Qt6::3DExtras
 Qt6::Charts
 Qt6::Qml
 Qt6::Quick
