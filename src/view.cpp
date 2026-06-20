@@ -1,1630 +1,419 @@
-// viewer.cpp
+// viewer.cpp — Qt Quick 3D backed MoleculeViewer (renderer migration from Qt3D).
+// Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
+//
+// The public API matches the former Qt3D MoleculeViewer exactly; internally the
+// scene is an embedded QQuickView (src/qml/viewer3d.qml) driven by SceneController.
+// Mouse/picking/grab are handled in C++ (eventFilter) and applied to the controller.
+// Claude Generated 2026.
 #include "view.h"
-#include "selectionmanager.h"  // Claude Generated - Phase 2A
-#include "measurementoverlay.h"  // Claude Generated - Phase 2B
-#include "bondeditor.h"  // Claude Generated - Phase 4B
-#include "pbrmaterial.h"  // Claude Generated - Phase 4A
-#include "performanceoptimizer.h"  // Claude Generated - LOD wire-up
-#include "atominstancingsystem.h"  // Claude Generated - Phase 3.1 - GPU instancing
-#include "bondinstancingsystem.h"  // Claude Generated - Phase 3.2 - GPU instancing
-#include "forceoverlay.h"  // Claude Generated 2026 - Force visualization overlay
-#include "forceinjector.h"  // Claude Generated 2026 - Topological force distribution
-#include "xyzparser.h"  // Claude Generated - Phase 4B - For auto-save XYZ writing
-#include <Eigen/Dense>  // Claude Generated 2026 - Eigen for force distribution
-#include <QElapsedTimer>  // Claude Generated - Simulation frame timing
-#include <Qt3DCore/QTransform>
-#include <Qt3DExtras/QSphereMesh>
-#include <Qt3DExtras/QCylinderMesh>
-#include <Qt3DExtras/QPhongMaterial>
-#include <Qt3DExtras/QForwardRenderer>  // Claude Generated - dark clear color
-#include <Qt3DRender/QCamera>
-#include <Qt3DRender/QPointLight>        // Claude Generated - world-fixed lights
-#include <Qt3DRender/QPickEvent>      // Claude Generated - Phase 2A
-#include <QMouseEvent>
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QFileDialog>
-#include <QFile>  // Claude Generated - Phase 4B - For auto-save backup
-#include <QMessageBox>
-#include <QInputDialog>
-#include <QPixmap>
+
+#include "bondeditor.h"
+#include "elementdata.h"
+#include "forceinjector.h"
+#include "performanceoptimizer.h"
+#include "scenecontroller.h"
+#include "selectionmanager.h"
+#include "xyzparser.h"
+
+#include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
+#include <QFileDialog>
 #include <QGridLayout>
-#include <QSlider>
-#include <QCheckBox>
-#include <QLabel>
-#include <QSpinBox>
+#include <QHBoxLayout>
+#include <QIcon>
+#include <QImage>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <QMouseEvent>
 #include <QPushButton>
-#include <QTimer>
+#include <QQmlContext>
+#include <QQuickView>
 #include <QToolButton>
-#include <QVector4D>
-#include <cmath>
+#include <QVBoxLayout>
+#include <QWheelEvent>
+#include <QtMath>
 
-MoleculeViewer::MoleculeViewer(QWidget *parent)
+MoleculeViewer::MoleculeViewer(QWidget* parent)
     : QWidget(parent)
-    , m_frameCount(1)
-    , m_currentFrame(0)
 {
-    // Claude Generated - Phase 2A: Initialize SelectionManager
     m_selectionManager = new SelectionManager(this);
-
-    // Claude Generated - Phase 4B: Initialize BondEditor
     m_bondEditor = new BondEditor(this);
-
-    // Claude Generated - LOD: PerformanceOptimizer drives sphere/cylinder tessellation
     m_perfOpt = new PerformanceOptimizer(this);
 
-    // Claude Generated - Phase 4B: Initialize auto-save system with 500ms debouncing
     m_autoSaveTimer = new QTimer(this);
     m_autoSaveTimer->setSingleShot(true);
-
-    m_autoSaveTimer->setInterval(500);  // 500ms debounce delay
+    m_autoSaveTimer->setInterval(500);
     connect(m_autoSaveTimer, &QTimer::timeout, this, &MoleculeViewer::onAutoSaveTimer);
-
-    // Connect BondEditor changes to auto-save trigger
     connect(m_bondEditor, &BondEditor::structureChanged, this, &MoleculeViewer::onStructureChanged);
 
     setupViewer();
-
-    // Claude Generated - Phase 2B: Initialize MeasurementOverlay
-    m_measurementOverlay = new MeasurementOverlay(m_rootEntity);
+    // MeasurementOverlay (Qt3D) is not constructed; the Quick3D port lands in M2.
 }
 
-MoleculeViewer::~MoleculeViewer()
-{
-}
+MoleculeViewer::~MoleculeViewer() = default;
 
 void MoleculeViewer::setupViewer()
 {
-    // 3D Window erstellen
-    m_view = new Qt3DExtras::Qt3DWindow();
-    m_container = QWidget::createWindowContainer(m_view, this);
-    m_container->setMouseTracking(true);  // Receive hover events without button press
+    m_scene = new SceneController(this);
 
-    // Claude Generated - User-configurable clear color. Default is a lifted
-    // dark slate, not pitch black, so atom silhouettes have contrast without
-    // the scene feeling like a black void. Changed via setBackgroundColor().
-    if (auto* fg = qobject_cast<Qt3DExtras::QForwardRenderer*>(m_view->defaultFrameGraph())) {
-        fg->setClearColor(m_backgroundColor);
+    m_quickView = new QQuickView();
+    m_quickView->setResizeMode(QQuickView::SizeRootObjectToView);
+    m_quickView->rootContext()->setContextProperty(QStringLiteral("controller"), m_scene);
+    m_quickView->setSource(QUrl(QStringLiteral("qrc:/qml/src/qml/viewer3d.qml")));
+    if (m_quickView->status() == QQuickView::Error) {
+        for (const QQmlError& e : m_quickView->errors())
+            qWarning() << "viewer3d.qml:" << e.toString();
     }
 
-    // Layout erstellen
-    QVBoxLayout *layout = new QVBoxLayout(this);
+    m_container = QWidget::createWindowContainer(m_quickView, this);
+    m_container->setMouseTracking(true);
+    m_container->setFocusPolicy(Qt::StrongFocus);
+
+    QVBoxLayout* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
-    // Claude Generated - Add control panel at top
     setupControlPanel();
     layout->addWidget(m_controlPanel);
-
-    // Add 3D view
     layout->addWidget(m_container);
 
-    // Root Entity erstellen
-    m_rootEntity = new Qt3DCore::QEntity();
+    applyAppearanceToController();
 
-    // Model entity: rotation pivot between root and molecule.
-    // Mouse drag rotates m_modelTransform instead of orbiting the camera.
-    m_modelEntity = new Qt3DCore::QEntity(m_rootEntity);
-    m_modelEntity->setObjectName(QStringLiteral("__qurcuma_model_root__"));
-    m_modelTransform = new Qt3DCore::QTransform(m_modelEntity);
-    m_modelEntity->addComponent(m_modelTransform);
-    m_modelRotation = QQuaternion();
-
-    // Kamera einrichten (vor den Lichtern, da diese an die Kamera gehängt werden)
-    m_camera = m_view->camera();
-    m_camera->lens()->setPerspectiveProjection(45.0f, 16.0f/9.0f, 0.1f, 5000.0f);
-
-    // Initialize with default position - will be updated by setDefaultView()
-    m_camera->setPosition(QVector3D(0, 0, 100.0f));
-    m_camera->setViewCenter(QVector3D(0, 0, 0));
-
-    // Claude Generated 2026 - 4 screen-fixed corner lights. Parented to the
-    // CAMERA (not the model), so "lamp top-left" always lights the top-left of
-    // the view, regardless of how the molecule or camera is rotated — the lit
-    // zone no longer rotates with the molecule. These QPointLights feed Qt3D's
-    // built-in Phong/PBR shader (per-atom path, below the instancing threshold);
-    // the GPU-instancing path applies the same view-space lights in its own
-    // fragment shaders (see updateInstancingCornerLights()).
-    m_lightRoot = new Qt3DCore::QEntity(m_camera);
-    m_lightRoot->setObjectName(QStringLiteral("__qurcuma_light_root__"));
-
-    static constexpr float kLightDistance = 1000.0f; // far → behaves directional
-    const QColor kLightColor(255, 250, 240);
-    // Camera-local corner directions (x = right, y = up, −z = forward toward scene).
-    // Index matches control-panel 2×2 grid:
-    //   0 ◤ top-left, 1 ◥ top-right, 2 ◣ bottom-left, 3 ◢ bottom-right
-    const QVector3D cornerPos[4] = {
-        QVector3D(-1.0f,  1.0f, -1.0f), // ◤ TL
-        QVector3D( 1.0f,  1.0f, -1.0f), // ◥ TR
-        QVector3D(-1.0f, -1.0f, -1.0f), // ◣ BL
-        QVector3D( 1.0f, -1.0f, -1.0f), // ◢ BR
-    };
-    for (int i = 0; i < 4; ++i) {
-        auto* lightEntity = new Qt3DCore::QEntity(m_lightRoot);
-        m_cornerLights[i] = new Qt3DRender::QPointLight(lightEntity);
-        m_cornerLights[i]->setColor(kLightColor);
-        m_cornerLights[i]->setIntensity(m_cornerLightEnabled[i] ? kCornerLightIntensity : 0.0f);
-        // Zero distance attenuation — uniform intensity regardless of distance.
-        m_cornerLights[i]->setConstantAttenuation(1.0f);
-        m_cornerLights[i]->setLinearAttenuation(0.0f);
-        m_cornerLights[i]->setQuadraticAttenuation(0.0f);
-
-        auto* lightTransform = new Qt3DCore::QTransform(lightEntity);
-        lightTransform->setTranslation(cornerPos[i].normalized() * kLightDistance);
-
-        lightEntity->addComponent(m_cornerLights[i]);
-        lightEntity->addComponent(lightTransform);
-    }
-
-    m_view->setRootEntity(m_rootEntity);
-
-    // Claude Generated 2026 - Force visualization overlay
-    m_forceOverlay = new ForceOverlay(m_rootEntity);
-
-    // Install event filter für custom mouse interactions
-    m_view->installEventFilter(this);
+    // Mouse events arrive on the QQuickView (a QWindow), like the former Qt3DWindow.
+    m_quickView->installEventFilter(this);
 }
 
-bool MoleculeViewer::eventFilter(QObject *watched, QEvent *event)
+void MoleculeViewer::applyAppearanceToController()
 {
-    if (watched == m_view) {
+    if (!m_scene)
+        return;
+    m_scene->setBackgroundColor(m_backgroundColor);
+    m_scene->setRenderingMode(static_cast<int>(m_renderingMode));
+    m_scene->setColorScheme(static_cast<int>(m_colorScheme));
+    m_scene->setAtomScaleFactor(m_atomScaleFactor);
+    m_scene->setBondThickness(m_bondThickness);
+    m_scene->setAtomTransparency(m_atomTransparency);
+    m_scene->setSsao(m_ssaoEnabled, m_ssaoIntensity);
+    m_scene->setBloom(m_bloomEnabled);
+    m_scene->setHdr(m_hdrEnabled);
+    m_scene->setExposure(m_exposure);
+    m_scene->setFog(m_fogEnabled, m_fogIntensity);
+    for (int i = 0; i < 4; ++i)
+        m_scene->setCornerLight(i, m_cornerLightEnabled[i]);
+}
+
+// ---------------------------------------------------------------------------
+// Mouse interaction (drives the SceneController transform / grab)
+// ---------------------------------------------------------------------------
+bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
+{
+    if (watched == m_quickView) {
         switch (event->type()) {
-            case QEvent::MouseButtonPress: {
-                QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-                if (mouseEvent->button() == Qt::LeftButton) {
-                    m_leftMousePressed = true;
-                    m_lastMousePos = mouseEvent->position().toPoint();
-                    // Claude Generated 2026 - Ray-casting picking for sim grab.
-                    // Replaces QObjectPicker so it works for instanced molecules too.
-                    if (m_simulationActive) {
-                        int picked = pickAtomAtScreenPos(m_lastMousePos);
-                        if (picked >= 0) {
-                            m_grabbedAtom = picked;
-                            if (m_view) m_view->setCursor(Qt::ClosedHandCursor);
-                            if (m_container) m_container->setCursor(Qt::ClosedHandCursor);
-                            if (m_forceOverlay) m_forceOverlay->clear();
-                        }
+        case QEvent::MouseButtonPress: {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton) {
+                m_leftMousePressed = true;
+                m_lastMousePos = me->position().toPoint();
+                m_leftPressPos = m_lastMousePos;
+                m_leftDragged = false;
+                if (m_simulationActive) {
+                    int picked = pickAtomAtScreenPos(m_lastMousePos);
+                    if (picked >= 0) {
+                        m_grabbedAtom = picked;
+                        if (m_quickView) m_quickView->setCursor(Qt::ClosedHandCursor);
+                        if (m_container) m_container->setCursor(Qt::ClosedHandCursor);
                     }
-                    return true;
-                } else if (mouseEvent->button() == Qt::RightButton) {
-                    m_rightMousePressed = true;
-                    m_lastMousePos = mouseEvent->position().toPoint();
-                    return true;
-                } else if (mouseEvent->button() == Qt::MiddleButton) {
-                    // Reset View auf Molekülzentrum
-                    resetView();
-                    return true;
                 }
-                break;
-            }
-            case QEvent::MouseButtonRelease: {
-                QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-                if (mouseEvent->button() == Qt::LeftButton) {
-                    m_leftMousePressed = false;
-                    // Claude Generated 2026 - Phase 5: end grab; tell worker to drop pending force.
-                    if (m_grabbedAtom >= 0) {
-                        m_grabbedAtom = -1;
-                        emit atomGrabReleased();
-                        // Claude Generated 2026 - Clear force overlay
-                        if (m_forceOverlay) m_forceOverlay->clear();
-                        // Reset cursor after grab release
-                        if (m_view) m_view->setCursor(m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor);
-                        if (m_container) m_container->setCursor(m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor);
-                    }
-                    return true;
-                } else if (mouseEvent->button() == Qt::RightButton) {
-                    m_rightMousePressed = false;
-                    return true;
-                }
-                break;
-            }
-            case QEvent::MouseMove: {
-                QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-                QPoint currentPos = mouseEvent->position().toPoint();
-
-                // Claude Generated 2026 - Active grab overrides camera rotation.
-                // Compute force from screen-space distance between atom projection
-                // and mouse cursor. Atom follows mouse intuitively.
-                if (m_grabbedAtom >= 0 && m_leftMousePressed && m_camera) {
-                    m_lastMousePos = currentPos;
-                    QVector3D modelLocalForce = computeGrabForce(currentPos, m_grabbedAtom);
-                    // curcuma adds force to gradient (gradient += force).
-                    // Since accel = -gradient, the effective force is opposite.
-                    // Negate so the atom moves in the direction of the arrow.
-                    emit atomForceRequested(m_grabbedAtom, -modelLocalForce,
-                        m_grabAlpha, m_grabMaxShells);
-                    // Update force visualization overlay (shows non-negated force)
-                    updateForceOverlay();
-                    return true;
-                }
-
-                if (m_leftMousePressed) {
-                    handleMouseRotation(currentPos);
-                    m_lastMousePos = currentPos;
-                    return true;
-                } else if (m_rightMousePressed) {
-                    handleMousePan(currentPos);
-                    m_lastMousePos = currentPos;
-                    return true;
-                }
-                break;
-            }
-            case QEvent::Wheel: {
-                QWheelEvent *wheelEvent = static_cast<QWheelEvent*>(event);
-                handleMouseZoom(wheelEvent->angleDelta().y());
+                return true;
+            } else if (me->button() == Qt::RightButton) {
+                m_rightMousePressed = true;
+                m_lastMousePos = me->position().toPoint();
+                return true;
+            } else if (me->button() == Qt::MiddleButton) {
+                resetView();
                 return true;
             }
-            case QEvent::Leave: {
-                // Reset cursor when mouse leaves the 3D viewport
-                if (m_grabbedAtom < 0) {
+            break;
+        }
+        case QEvent::MouseButtonRelease: {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton) {
+                m_leftMousePressed = false;
+                if (m_grabbedAtom >= 0) {
+                    m_grabbedAtom = -1;
+                    emit atomGrabReleased();
+                    if (m_scene) m_scene->setForceArrows({}); // clear arrows on release
                     Qt::CursorShape shape = m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor;
-                    if (m_view) m_view->setCursor(shape);
+                    if (m_quickView) m_quickView->setCursor(shape);
                     if (m_container) m_container->setCursor(shape);
+                } else if (!m_leftDragged) {
+                    // A click (no drag) selects the atom under the cursor.
+                    const int picked = pickAtomAtScreenPos(me->position().toPoint());
+                    const bool append = me->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier);
+                    if (picked >= 0)
+                        selectAtom(picked, append);
+                    else if (!append)
+                        clearSelection();
                 }
-                break;
+                return true;
+            } else if (me->button() == Qt::RightButton) {
+                m_rightMousePressed = false;
+                return true;
             }
-            default:
-                break;
+            break;
+        }
+        case QEvent::MouseMove: {
+            auto* me = static_cast<QMouseEvent*>(event);
+            QPoint pos = me->position().toPoint();
+            if (m_grabbedAtom >= 0 && m_leftMousePressed) {
+                m_lastMousePos = pos;
+                QVector3D modelLocalForce = computeGrabForce(pos, m_grabbedAtom);
+                // curcuma adds force to the gradient; accel = -gradient, so negate
+                // to make the atom follow the cursor.
+                emit atomForceRequested(m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
+                updateForceVectors();
+                return true;
+            }
+            if (m_leftMousePressed) {
+                if ((pos - m_leftPressPos).manhattanLength() > 3)
+                    m_leftDragged = true;
+                handleMouseRotation(pos);
+                m_lastMousePos = pos;
+                return true;
+            } else if (m_rightMousePressed) {
+                handleMousePan(pos);
+                m_lastMousePos = pos;
+                return true;
+            }
+            break;
+        }
+        case QEvent::Wheel: {
+            auto* we = static_cast<QWheelEvent*>(event);
+            handleMouseZoom(we->angleDelta().y());
+            return true;
+        }
+        case QEvent::Leave: {
+            if (m_grabbedAtom < 0) {
+                Qt::CursorShape shape = m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor;
+                if (m_quickView) m_quickView->setCursor(shape);
+                if (m_container) m_container->setCursor(shape);
+            }
+            break;
+        }
+        default:
+            break;
         }
     }
     return QWidget::eventFilter(watched, event);
 }
 
-void MoleculeViewer::resizeEvent(QResizeEvent *event)
+void MoleculeViewer::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
 }
 
 void MoleculeViewer::handleMouseRotation(const QPoint& currentPos)
 {
-    if (!m_camera) return;
-
-    QPoint delta = currentPos - m_lastMousePos;
-    const float rotationSensitivity = 0.5f;
-
-    // Use camera basis vectors as rotation reference (screen-space intuition)
-    QVector3D viewDir = m_camera->viewVector().normalized();
-    QVector3D rightVector = QVector3D::crossProduct(viewDir, m_camera->upVector()).normalized();
-    QVector3D upVector = QVector3D::crossProduct(rightVector, viewDir).normalized();
-
-    if (m_rotationMode == RotationMode::CameraOrbit) {
-        // Claude Generated 2026 - Camera orbit around molecule center (pivot).
-        QQuaternion yaw = QQuaternion::fromAxisAndAngle(upVector, -delta.x() * rotationSensitivity);
-        QQuaternion pitch = QQuaternion::fromAxisAndAngle(rightVector, delta.y() * rotationSensitivity);
-        QQuaternion combined = yaw * pitch;
-
-        QVector3D camPos = m_camera->position();
-        QVector3D offset = camPos - m_moleculeCenter;
-        offset = combined.rotatedVector(offset);
-        m_camera->setPosition(m_moleculeCenter + offset);
-        m_camera->setViewCenter(m_moleculeCenter);
-        QVector3D newUp = combined.rotatedVector(m_camera->upVector()).normalized();
-        m_camera->setUpVector(newUp);
-        updateInstancingCameraPosition();
+    if (!m_scene)
         return;
-    }
-
-    // Model-based rotation: rotate the molecule, camera stays put.
-    QQuaternion horizontalRotation = QQuaternion::fromAxisAndAngle(upVector, delta.x() * rotationSensitivity);
-    QQuaternion verticalRotation = QQuaternion::fromAxisAndAngle(rightVector, -delta.y() * rotationSensitivity);
-
-    // Pre-multiply: apply incremental in world space
-    QQuaternion deltaRotation = horizontalRotation * verticalRotation;
-    m_modelRotation = deltaRotation * m_modelRotation;
+    const QPoint delta = currentPos - m_lastMousePos;
+    const float sens = 0.5f;
+    // Camera is axis-aligned: right=+X, up=+Y. Rotate the molecule root.
+    const QQuaternion horiz = QQuaternion::fromAxisAndAngle(QVector3D(0, 1, 0), delta.x() * sens);
+    const QQuaternion vert = QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), -delta.y() * sens);
+    m_modelRotation = (horiz * vert) * m_modelRotation;
     m_modelRotation.normalize();
-
-    updateModelTransformFromRotation();
-}
-
-// Claude Generated 2026 - Rotation mode switch.
-// Model: molecule rotates, camera fixed. CameraOrbit: camera orbits, molecule identity.
-void MoleculeViewer::setRotationMode(int mode)
-{
-    RotationMode newMode = (mode == 1) ? RotationMode::CameraOrbit : RotationMode::Model;
-    if (newMode == m_rotationMode) return;
-    m_rotationMode = newMode;
-
-    if (m_rotationMode == RotationMode::CameraOrbit) {
-        // Reset model rotation so camera-orbit starts from clean state
-        m_modelRotation = QQuaternion();
-        if (m_modelTransform)
-            m_modelTransform->setMatrix(QMatrix4x4());
-    } else {
-        // Back to model mode: reset camera to default position, keep accumulated model rotation
-        setDefaultView();
-    }
-    updateInstancingCameraPosition();
-}
-
-// Claude Generated 2026 - Change instancing threshold at runtime.
-// Does not auto-rebuild current scene; next molecule load (or trajectory switch) applies it.
-void MoleculeViewer::setInstancingThreshold(int n)
-{
-    if (n < 1) n = 1;
-    m_instancingThreshold = n;
-}
-
-void MoleculeViewer::updateModelTransformFromRotation()
-{
-    // Rotate around molecule center (pivot), not the origin:
-    // translate(center) * rotate(quat) * translate(-center)
-    QMatrix4x4 mat;
-    mat.translate(m_moleculeCenter);
-    mat.rotate(m_modelRotation);
-    mat.translate(-m_moleculeCenter);
-    m_modelTransform->setMatrix(mat);
+    m_scene->setRootRotation(m_modelRotation);
 }
 
 void MoleculeViewer::handleMousePan(const QPoint& currentPos)
 {
-    // Claude Generated - Pan the view
-    if (!m_camera) return;
-
-    QPoint delta = currentPos - m_lastMousePos;
-
-    // Get current camera state
-    QVector3D viewCenter = m_camera->viewCenter();
-    QVector3D camPos = m_camera->position();
-    QVector3D upVector = m_camera->upVector();
-
-    // Calculate pan vector based on camera orientation
-    QVector3D viewDir = (viewCenter - camPos).normalized();
-    QVector3D rightVector = QVector3D::crossProduct(viewDir, upVector).normalized();
-    QVector3D actualUpVector = QVector3D::crossProduct(rightVector, viewDir).normalized();
-
-    // Pan sensitivity - proportional to distance
-    float distance = (viewCenter - camPos).length();
-    float panSensitivity = distance * 0.005f; // Adjust this value for pan speed
-
-    // Calculate pan offset
-    QVector3D panOffset = rightVector * (-delta.x() * panSensitivity) +
-                          actualUpVector * (delta.y() * panSensitivity);
-
-    // Move both view center and camera position
-    m_camera->setViewCenter(viewCenter + panOffset);
-    m_camera->setPosition(camPos + panOffset);
-
-    updateInstancingCameraPosition();
+    if (!m_scene)
+        return;
+    const QPoint delta = currentPos - m_lastMousePos;
+    const float sens = m_scene->cameraDistance() * 0.005f;
+    // right=+X, up=+Y; screen Y is down so +delta.y moves content down -> camera up.
+    const QVector3D panDelta(-delta.x() * sens, delta.y() * sens, 0.0f);
+    m_scene->setPan(m_scene->pan() + panDelta);
 }
 
 void MoleculeViewer::handleMouseZoom(int delta)
 {
-    // Claude Generated - Zoom by moving camera along view direction
-    if (!m_camera) return;
-
-    // Zoom sensitivity
-    const float zoomSensitivity = 1.1f; // Multiplication factor per wheel click
-
-    QVector3D viewCenter = m_camera->viewCenter();
-    QVector3D camPos = m_camera->position();
-
-    // Calculate zoom factor
-    float zoomFactor = (delta > 0) ? (1.0f / zoomSensitivity) : zoomSensitivity;
-
-    // Calculate distance from view center to camera
-    QVector3D radiusVector = camPos - viewCenter;
-    float distance = radiusVector.length();
-
-    // Minimum distance to prevent zooming into the structure
-    const float minDistance = 0.5f;
-
-    // New distance
-    float newDistance = distance * zoomFactor;
-
-    // Clamp to minimum distance
-    if (newDistance < minDistance) {
-        newDistance = minDistance;
-    }
-
-    // Calculate new camera position
-    if (distance > 0.01f) {
-        QVector3D direction = radiusVector.normalized();
-        QVector3D newCamPos = viewCenter + direction * newDistance;
-        m_camera->setPosition(newCamPos);
-    }
-
-    updateInstancingCameraPosition();
-}
-
-// Claude Generated - Push current camera world position into instancing shaders.
-// Qt3D automatic uniform injection for custom materials is unreliable; explicit
-// QParameter update ensures specular highlight follows camera orbit.
-void MoleculeViewer::updateInstancingCameraPosition()
-{
-    if (!m_camera)
+    if (!m_scene)
         return;
-    const QVector3D camPos = m_camera->position();
-    if (m_atomInstancing)
-        m_atomInstancing->setCameraPosition(camPos);
-    if (m_bondInstancing)
-        m_bondInstancing->setCameraPosition(camPos);
-    // Re-assert the corner-light mask too: this chokepoint runs after scene
-    // rebuilds, so freshly created instancing systems pick up the current state.
-    updateInstancingCornerLights();
+    const float factor = (delta > 0) ? 0.9f : 1.1f;
+    m_scene->setCameraDistance(m_scene->cameraDistance() * factor);
 }
 
-// Transform model-local position to world space (applies model rotation around pivot).
+int MoleculeViewer::pickAtomAtScreenPos(const QPoint& screenPos) const
+{
+    if (!m_scene || !m_quickView)
+        return -1;
+    return m_scene->pickAtom(screenPos.x(), screenPos.y(),
+        m_quickView->width(), m_quickView->height());
+}
+
+QVector3D MoleculeViewer::computeGrabForce(const QPoint& mousePos, int atomIndex) const
+{
+    if (!m_scene || !m_quickView)
+        return QVector3D();
+    return m_scene->computeGrabForce(mousePos.x(), mousePos.y(), atomIndex,
+        m_quickView->width(), m_quickView->height(), m_grabStrength);
+}
+
 QVector3D MoleculeViewer::modelToWorld(const QVector3D& localPos) const
 {
-    return m_modelRotation.rotatedVector(localPos - m_moleculeCenter) + m_moleculeCenter;
+    return m_scene ? m_scene->modelToWorld(localPos) : localPos;
 }
 
-// Claude Generated 2026 - Ray-casting atom picking for sim grab.
-// Works for both instanced and non-instanced molecules (replaces QObjectPicker).
-int MoleculeViewer::pickAtomAtScreenPos(const QPoint &screenPos) const
+// ---------------------------------------------------------------------------
+// Force-vector overlay (opt-in)
+// ---------------------------------------------------------------------------
+void MoleculeViewer::setForceVectorsVisible(bool on)
 {
-    if (!m_camera || m_trajectoryAtoms.isEmpty())
-        return -1;
-
-    int w = m_view->width();
-    int h = m_view->height();
-    if (w <= 0 || h <= 0)
-        return -1;
-
-    QMatrix4x4 proj = m_camera->lens()->projectionMatrix();
-    QMatrix4x4 view = m_camera->viewMatrix();
-    bool invertible = false;
-    QMatrix4x4 invPV = (proj * view).inverted(&invertible);
-    if (!invertible)
-        return -1;
-
-    float ndcX = (2.0f * screenPos.x() / w) - 1.0f;
-    float ndcY = 1.0f - (2.0f * screenPos.y() / h);
-
-    QVector4D nearP = invPV * QVector4D(ndcX, ndcY, -1.0f, 1.0f);
-    QVector4D farP = invPV * QVector4D(ndcX, ndcY, 1.0f, 1.0f);
-    if (qFuzzyIsNull(nearP.w()) || qFuzzyIsNull(farP.w()))
-        return -1;
-    nearP /= nearP.w();
-    farP /= farP.w();
-
-    QVector3D rayOrigin(nearP.x(), nearP.y(), nearP.z());
-    QVector3D rayDir = QVector3D(farP.x() - nearP.x(), farP.y() - nearP.y(), farP.z() - nearP.z()).normalized();
-
-    const auto &atoms = m_trajectoryAtoms[m_currentFrame];
-    int bestIdx = -1;
-    float bestT = 1e20f;
-
-    for (int i = 0; i < atoms.size(); ++i) {
-        QVector3D center = modelToWorld(atoms[i].position);
-        float radius = getAtomRadius(atoms[i].element) * 1.5f; // generous hit radius
-        QVector3D oc = rayOrigin - center;
-        float a = QVector3D::dotProduct(rayDir, rayDir);
-        float b = 2.0f * QVector3D::dotProduct(oc, rayDir);
-        float c = QVector3D::dotProduct(oc, oc) - radius * radius;
-        float discriminant = b * b - 4.0f * a * c;
-        if (discriminant < 0.0f)
-            continue;
-        float sqrtD = std::sqrt(discriminant);
-        float t = (-b - sqrtD) / (2.0f * a);
-        if (t < 0.0f)
-            t = (-b + sqrtD) / (2.0f * a);
-        if (t > 0.0f && t < bestT) {
-            bestT = t;
-            bestIdx = i;
-        }
-    }
-    return bestIdx;
+    m_forceVectorsVisible = on;
+    if (m_scene)
+        m_scene->setForceVectorsVisible(on);
+    if (on)
+        updateForceVectors();
 }
 
-// Claude Generated 2026 - Compute grab force from screen-space mouse-to-atom distance.
-// Intuitive: atom follows the mouse cursor.
-QVector3D MoleculeViewer::computeGrabForce(const QPoint &mousePos, int atomIndex) const
-{
-    if (!m_camera || atomIndex < 0)
-        return QVector3D();
-
-    const auto &atoms = m_trajectoryAtoms[m_currentFrame];
-    if (atomIndex >= atoms.size())
-        return QVector3D();
-
-    QVector3D atomWorld = modelToWorld(atoms[atomIndex].position);
-
-    // Project atom world position to screen
-    QMatrix4x4 proj = m_camera->lens()->projectionMatrix();
-    QMatrix4x4 view = m_camera->viewMatrix();
-    QVector4D clip = proj * view * QVector4D(atomWorld, 1.0f);
-    if (qFuzzyIsNull(clip.w()))
-        return QVector3D();
-    QVector3D ndc(clip.x() / clip.w(), clip.y() / clip.w(), clip.z() / clip.w());
-    int w = m_view->width();
-    int h = m_view->height();
-    if (w <= 0 || h <= 0)
-        return QVector3D();
-    float atomSx = (ndc.x() + 1.0f) * 0.5f * w;
-    float atomSy = (1.0f - ndc.y()) * 0.5f * h;
-
-    QPoint delta(mousePos.x() - static_cast<int>(atomSx),
-        mousePos.y() - static_cast<int>(atomSy));
-
-    // Camera basis vectors
-    QVector3D camView = m_camera->viewVector().normalized();
-    QVector3D camUp = m_camera->upVector().normalized();
-    // right = view × up (matches handleMouseRotation convention)
-    QVector3D camRight = QVector3D::crossProduct(camView, camUp);
-    if (camRight.lengthSquared() < 1e-6f)
-        camRight = QVector3D(1, 0, 0);
-    else
-        camRight.normalize();
-
-    // Convert screen pixels to world-space distance at the atom's depth.
-    // Viewer coordinates are in Angstrom; curcuma forces are in Eh/Bohr,
-    // so we scale by the Angstrom-to-Bohr factor.
-    float dist = (atomWorld - m_camera->position()).length();
-    float fovY = m_camera->lens()->fieldOfView(); // degrees
-    static constexpr float Angstrom2Bohr = 1.8897259886f;
-    float worldPerPixelAngstrom = dist * std::tan(fovY * M_PI / 360.0f) / (h * 0.5f);
-    float worldPerPixelBohr = worldPerPixelAngstrom * Angstrom2Bohr;
-
-    // Screen Y is down; world Y (camUp) is up -> negate delta.y
-    QVector3D worldForce = (static_cast<float>(delta.x()) * camRight
-                           - static_cast<float>(delta.y()) * camUp)
-        * static_cast<float>(worldPerPixelBohr * m_grabStrength);
-
-    // Transform to model-local coordinates
-    return m_modelRotation.inverted().rotatedVector(worldForce);
-}
-
-// Claude Generated 2026 - Build adjacency list for force distribution.
 void MoleculeViewer::buildForceAdjacency()
 {
-    if (m_trajectoryBonds.isEmpty() || m_trajectoryAtoms.isEmpty())
+    if (m_trajectoryAtoms.isEmpty() || m_trajectoryBonds.isEmpty()) {
+        m_forceAdjacency.clear();
         return;
+    }
     m_forceAdjacency = forceinjector::buildAdjacency(
         m_trajectoryAtoms[0].size(), m_trajectoryBonds[0]);
 }
 
-// Claude Generated 2026 - Update force overlay with main and distributed arrows.
-void MoleculeViewer::updateForceOverlay()
+void MoleculeViewer::updateForceVectors()
 {
-    if (!m_forceOverlay || m_grabbedAtom < 0 || m_trajectoryAtoms.isEmpty())
+    if (!m_scene)
         return;
-
-    const auto &atoms = m_trajectoryAtoms[m_currentFrame];
-    if (m_grabbedAtom >= atoms.size())
+    if (!m_forceVectorsVisible || m_grabbedAtom < 0 || m_trajectoryAtoms.isEmpty()) {
+        m_scene->setForceArrows({});
         return;
+    }
+    const int frame = (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) ? m_currentFrame : 0;
+    const QVector<Atom>& atoms = m_trajectoryAtoms[frame];
+    if (m_grabbedAtom >= atoms.size()) {
+        m_scene->setForceArrows({});
+        return;
+    }
 
-    QVector<QVector3D> worldPositions;
-    worldPositions.reserve(atoms.size());
-    for (const auto &atom : atoms)
-        worldPositions.append(modelToWorld(atom.position));
+    // Non-negated force = the direction the atom actually moves (toward the cursor).
+    const QVector3D modelForce = computeGrabForce(m_lastMousePos, m_grabbedAtom);
+    if (modelForce.lengthSquared() < 1e-10f) {
+        m_scene->setForceArrows({});
+        return;
+    }
 
-    QVector3D modelForce = computeGrabForce(m_lastMousePos, m_grabbedAtom);
-    // Overlay arrows are positioned in world space; rotate force to world coords
-    QVector3D worldForce = m_modelRotation.rotatedVector(modelForce);
+    QVector<SceneController::Arrow> arrows;
+    const float kScale = 8.0f;
+    const float kMin = 0.6f;
+    const float kMax = qMax(3.0f, m_scene->sceneExtent());
 
-    // Main arrow
-    m_forceOverlay->updateMainArrow(m_grabbedAtom, worldForce, worldPositions);
+    auto pushArrow = [&](int i, const QVector3D& modelF, bool seed) {
+        if (modelF.lengthSquared() < 1e-12f)
+            return;
+        const QVector3D worldF = m_modelRotation.rotatedVector(modelF);
+        SceneController::Arrow a;
+        a.origin = modelToWorld(atoms[i].position);
+        a.dir = worldF.normalized();
+        a.length = qBound(kMin, worldF.length() * kScale, kMax);
+        a.color = seed ? QColor(255, 230, 60) : QColor(255, 140, 0);
+        arrows.append(a);
+    };
 
-    // Distributed forces on neighbours
+    // Mirror exactly what the integrator applies: the same shell distribution.
     if (!m_forceAdjacency.isEmpty()) {
         Eigen::Vector3d f(modelForce.x(), modelForce.y(), modelForce.z());
-        Eigen::MatrixXd distributed = forceinjector::distributeForce(
+        Eigen::MatrixXd dist = forceinjector::distributeForce(
             m_grabbedAtom, f, m_forceAdjacency, m_grabAlpha, m_grabMaxShells, atoms.size());
-
-        QVector<int> indices;
-        QVector<QVector3D> forces;
         for (int i = 0; i < atoms.size(); ++i) {
-            Eigen::Vector3d row = distributed.row(i);
-            if (row.squaredNorm() > 1e-14) {
-                QVector3D df(row.x(), row.y(), row.z());
-                forces.append(m_modelRotation.rotatedVector(df));
-                indices.append(i);
-            }
+            Eigen::Vector3d row = dist.row(i);
+            if (row.squaredNorm() > 1e-14)
+                pushArrow(i, QVector3D(float(row.x()), float(row.y()), float(row.z())), i == m_grabbedAtom);
         }
-        m_forceOverlay->updateDistributedArrows(indices, forces, worldPositions);
+    } else {
+        pushArrow(m_grabbedAtom, modelForce, true);
     }
+    m_scene->setForceArrows(arrows);
 }
 
-// Claude Generated - Bulk-toggle all per-atom/per-bond QObjectPickers.
-// Qt3D's object-picker service traverses the scene for each mouse event; at ~5000 atoms
-// this shows up in profiles. Simulation rarely needs picking, so disable while running.
-// Claude Generated - Enable/disable simulation mode and cleanup grab state
-void MoleculeViewer::setSimulationActive(bool on)
+// ---------------------------------------------------------------------------
+// Scene population
+// ---------------------------------------------------------------------------
+void MoleculeViewer::syncSceneToController(int frameIndex, bool resetCamera, bool fullRebuild)
 {
-    m_simulationActive = on;
-    m_grabbedAtom = -1;
-    if (m_forceOverlay) m_forceOverlay->clear();
-    // Default cursor: rotation indicator when idle, arrow when no simulation.
-    if (m_view) m_view->setCursor(on ? Qt::SizeAllCursor : Qt::ArrowCursor);
-    if (m_container) m_container->setCursor(on ? Qt::SizeAllCursor : Qt::ArrowCursor);
-}
-
-void MoleculeViewer::setPickingActive(bool active)
-{
-    for (auto it = m_atomPickerToIndex.constBegin(); it != m_atomPickerToIndex.constEnd(); ++it) {
-        if (it.key())
-            it.key()->setEnabled(active);
-    }
-    for (auto it = m_bondPickerToIndex.constBegin(); it != m_bondPickerToIndex.constEnd(); ++it) {
-        if (it.key())
-            it.key()->setEnabled(active);
-    }
-}
-
-// Claude Generated - Fix: Create pickers for grab if they don't exist (e.g., large molecules with instancing)
-// NOTE: This only works for non-instanced molecules. For instanced molecules (>= 500 atoms),
-// grab is not available because individual pickers cannot be created efficiently.
-void MoleculeViewer::ensurePickersForGrab()
-{
-    // If we already have pickers, nothing to do
-    if (!m_atomPickerToIndex.isEmpty())
+    if (!m_scene || frameIndex < 0 || frameIndex >= m_trajectoryAtoms.size())
         return;
+    const QVector<Atom>& atoms = m_trajectoryAtoms[frameIndex];
 
-    // Cannot create pickers for instanced molecules - they use GPU instancing without individual entities
-    if (m_atomEntities.isEmpty() || m_atomInstancing) {
-#ifdef DEBUG_ON
-        qDebug() << "ensurePickersForGrab: Cannot create pickers for instanced molecule or no entities";
-#endif
-        return;
+    if (fullRebuild) {
+        QVector<SceneController::AtomDatum> sa;
+        sa.reserve(atoms.size());
+        for (const Atom& a : atoms)
+            sa.append({ a.position, a.element, a.charge });
+        QVector<SceneController::BondDatum> sb;
+        if (frameIndex < m_trajectoryBonds.size()) {
+            const QVector<Bond>& bonds = m_trajectoryBonds[frameIndex];
+            sb.reserve(bonds.size());
+            for (const Bond& b : bonds)
+                sb.append({ b.atom1, b.atom2, b.bondOrder });
+        }
+        m_scene->setStructure(sa, sb); // recomputes bounds + frames the camera
+        m_scene->setSelection(m_selectedAtoms);
+        if (!resetCamera) {
+            // Keep the user's current orientation/zoom across a refresh.
+            m_scene->setRootRotation(m_modelRotation);
+        } else {
+            m_modelRotation = QQuaternion();
+        }
+    } else {
+        QVector<QVector3D> pos;
+        pos.reserve(atoms.size());
+        for (const Atom& a : atoms)
+            pos.append(a.position);
+        m_scene->updatePositions(pos);
     }
-
-    // Create pickers for all atom entities
-    for (int i = 0; i < m_atomEntities.size(); ++i) {
-        Qt3DCore::QEntity *atomEntity = m_atomEntities[i];
-        if (!atomEntity)
-            continue;
-
-        // Skip if entity has no mesh (can't be picked without geometry)
-        bool hasMesh = false;
-        auto comps = atomEntity->components();
-        for (auto *comp : comps) {
-            if (qobject_cast<Qt3DRender::QGeometryRenderer*>(comp) ||
-                qobject_cast<Qt3DExtras::QSphereMesh*>(comp)) {
-                hasMesh = true;
-                break;
-            }
-        }
-        if (!hasMesh)
-            continue;
-
-        // Check if entity already has a picker
-        bool hasPicker = false;
-        auto components = atomEntity->components();
-        for (auto *comp : components) {
-            if (qobject_cast<Qt3DRender::QObjectPicker*>(comp)) {
-                hasPicker = true;
-                break;
-            }
-        }
-
-        if (!hasPicker) {
-            Qt3DRender::QObjectPicker *picker = new Qt3DRender::QObjectPicker(atomEntity);
-            picker->setHoverEnabled(true);
-            atomEntity->addComponent(picker);
-            m_atomPickerToIndex[picker] = i;
-            connect(picker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onAtomPicked);
-            connect(picker, &Qt3DRender::QObjectPicker::pressed, this, &MoleculeViewer::onAtomPressedForGrab);
-            connect(picker, &Qt3DRender::QObjectPicker::entered, this, &MoleculeViewer::onAtomHoverEntered);
-            connect(picker, &Qt3DRender::QObjectPicker::exited, this, &MoleculeViewer::onAtomHoverExited);
-        }
-    }
-
-    #ifdef DEBUG_ON
-    qDebug() << "ensurePickersForGrab: Created" << m_atomPickerToIndex.size() << "pickers";
-    #endif
 }
 
 void MoleculeViewer::clearScene()
 {
-    // Claude Generated - Phase 2A: Clear picker mappings
-    m_atomPickerToIndex.clear();
-    m_bondPickerToIndex.clear();
-
-    // Claude Generated - Clear cached transform pointers before deleting entities.
-    // Qt3D deletes QTransform components when their parent entity is deleted.
-    // Keeping stale pointers in m_atomTransforms/m_bondTransforms causes dangling
-    // pointer crashes when updateFramePositions() is called after clearScene().
-    m_atomTransforms.clear();
-    m_bondTransforms.clear();
-
-    // Claude Generated - Phase 3.1/3.2: Drop instancing systems; their QEntities are
-    // parented to a molecule entity that is about to be deleted below.
-    if (m_atomInstancing) {
-        delete m_atomInstancing;
-        m_atomInstancing = nullptr;
-    }
-    if (m_bondInstancing) {
-        delete m_bondInstancing;
-        m_bondInstancing = nullptr;
-    }
-
-    // Alle Entities löschen
-    // Delete children of m_modelEntity (molecule geometry),
-    // but skip m_modelTransform (component) and m_lightRoot (persistent lights).
-    for (Qt3DCore::QNode *node : m_modelEntity->childNodes()) {
-        if (node == m_modelTransform) continue;
-        if (node == m_lightRoot) continue;
-        delete node;
-    }
-
-    // Reset model rotation
+    if (m_scene)
+        m_scene->clear();
     m_modelRotation = QQuaternion();
-    m_modelTransform->setRotation(QQuaternion());
-    m_modelTransform->setTranslation(QVector3D(0, 0, 0));
-    m_modelTransform->setScale(1.0f);
-
-    // Claude Generated 2026 - Clear force overlay
-    if (m_forceOverlay) m_forceOverlay->clear();
 }
 
-
-// Claude Generated - Visual settings setters
-void MoleculeViewer::setRenderingMode(RenderingMode mode)
+void MoleculeViewer::clearScenePublic()
 {
-    if (m_renderingMode != mode) {
-        m_renderingMode = mode;
-        // Refresh display if we have trajectory data (without camera reset)
-        if (!m_trajectoryAtoms.isEmpty()) {
-            refreshVisualization();  // Claude Generated - use refresh instead of showFrame
-        }
-    }
-}
-
-// Claude Generated - Phase 4A: Material mode switching (Phong vs PBR)
-void MoleculeViewer::setMaterialMode(MaterialMode mode)
-{
-    if (m_materialMode != mode) {
-        m_materialMode = mode;
-        const char* modeNames[] = {"Phong", "PBR (Cook-Torrance)"};
-        #ifdef DEBUG_ON
-        qDebug() << "Material mode changed to:" << modeNames[static_cast<int>(mode)];
-        #endif
-
-        // Rebuild entire scene with new material mode
-        if (!m_trajectoryAtoms.isEmpty()) {
-            refreshVisualization();
-        }
-    }
-}
-
-// Claude Generated - Phase 4 Final: Glow intensity for selection highlighting
-void MoleculeViewer::setGlowIntensity(float intensity)
-{
-    float newIntensity = qBound(1.0f, intensity, 2.0f);  // Clamp to 1.0-2.0
-    if (!qFuzzyCompare(m_glowIntensity, newIntensity)) {
-        m_glowIntensity = newIntensity;
-        #ifdef DEBUG_ON
-        qDebug() << "Glow intensity set to:" << m_glowIntensity;
-        #endif
-
-        // Update materials to reflect new glow intensity
-        if (!m_trajectoryAtoms.isEmpty()) {
-            updateMaterials();
-        }
-    }
-}
-
-void MoleculeViewer::setColorScheme(ColorScheme scheme)
-{
-    if (m_colorScheme != scheme) {
-        m_colorScheme = scheme;
-        // Claude Generated - Fix 2: Only update materials, not entire scene
-        if (!m_trajectoryAtoms.isEmpty()) {
-            updateMaterials();
-        }
-    }
-}
-
-// Claude Generated - Background color applied directly to the default
-// forward renderer clear color. Safe to call before or after the scene is built.
-void MoleculeViewer::setBackgroundColor(const QColor& color)
-{
-    if (!color.isValid() || m_backgroundColor == color) return;
-    m_backgroundColor = color;
-    if (m_view) {
-        if (auto* fg = qobject_cast<Qt3DExtras::QForwardRenderer*>(m_view->defaultFrameGraph())) {
-            fg->setClearColor(m_backgroundColor);
-        }
-    }
-}
-
-// Claude Generated - Toggle one of the 4 corner lights by setting intensity.
-// Index 0..3 maps to top-front-left / top-front-right / top-back-left / top-back-right.
-void MoleculeViewer::setCornerLightEnabled(int index, bool on)
-{
-    if (index < 0 || index > 3) return;
-    m_cornerLightEnabled[index] = on;
-    // Phong/PBR per-atom path: drive Qt3D's built-in shader via the QPointLight.
-    if (m_cornerLights[index]) {
-        m_cornerLights[index]->setIntensity(on ? kCornerLightIntensity : 0.0f);
-    }
-    // GPU-instancing path: push the on/off mask into the instanced shaders.
-    updateInstancingCornerLights();
-}
-
-// Claude Generated 2026 - Push the 4 corner-light on/off mask into the instanced
-// atom/bond shaders as a vec4 (one component per screen corner). The instanced
-// fragment shaders light from view-space corner directions, so toggling a corner
-// lights the same screen region as the Phong-path QPointLights.
-void MoleculeViewer::updateInstancingCornerLights()
-{
-    const QVector4D mask(
-        m_cornerLightEnabled[0] ? 1.0f : 0.0f,
-        m_cornerLightEnabled[1] ? 1.0f : 0.0f,
-        m_cornerLightEnabled[2] ? 1.0f : 0.0f,
-        m_cornerLightEnabled[3] ? 1.0f : 0.0f);
-    if (m_atomInstancing)
-        m_atomInstancing->setCornerLightIntensities(mask);
-    if (m_bondInstancing)
-        m_bondInstancing->setCornerLightIntensities(mask);
-}
-
-bool MoleculeViewer::isCornerLightEnabled(int index) const
-{
-    if (index < 0 || index > 3) return false;
-    return m_cornerLightEnabled[index];
-}
-
-void MoleculeViewer::setAtomTransparency(float alpha)
-{
-    float newAlpha = qBound(0.0f, alpha, 1.0f);
-    if (m_atomTransparency != newAlpha) {
-        m_atomTransparency = newAlpha;
-        // Claude Generated - Fix 2: Only update materials, not entire scene
-        if (!m_trajectoryAtoms.isEmpty()) {
-            updateMaterials();
-        }
-    }
-}
-
-void MoleculeViewer::setAtomShininess(float shininess)
-{
-    float newShininess = qMax(0.0f, shininess);
-    if (m_atomShininess != newShininess) {
-        m_atomShininess = newShininess;
-        // Claude Generated - Fix 2: Only update materials, not entire scene
-        if (!m_trajectoryAtoms.isEmpty()) {
-            updateMaterials();
-        }
-    }
-}
-
-void MoleculeViewer::setAtomScaleFactor(float scale)
-{
-    float newScale = qMax(0.1f, scale);  // Min 0.1x scaling
-    if (m_atomScaleFactor != newScale) {
-        m_atomScaleFactor = newScale;
-        // Claude Generated - Fix 2: Only update atom geometry, not entire scene
-        if (!m_trajectoryAtoms.isEmpty()) {
-            updateAtomGeometry();
-        }
-    }
-}
-
-void MoleculeViewer::setBondThickness(float thickness)
-{
-    float newThickness = qMax(0.01f, thickness);  // Min 0.01 radius
-    if (m_bondThickness != newThickness) {
-        m_bondThickness = newThickness;
-        // Claude Generated - Fix 2: Only update bond geometry, not entire scene
-        if (!m_trajectoryAtoms.isEmpty()) {
-            updateBondGeometry();
-        }
-    }
-}
-
-// Claude Generated - Fix 2 & Phase 4 Final: Incremental update methods for smooth rendering
-void MoleculeViewer::updateMaterials()
-{
-    // Claude Generated 2026 - Instancing path has no per-atom QMaterial objects.
-    // Fall back to full rebuild so colors/transparency/shininess actually change.
-    if (m_atomInstancing || m_atomMaterials.isEmpty()) {
-        if (!m_trajectoryAtoms.isEmpty())
-            refreshVisualization();
-        return;
-    }
-
-    // Update only the material properties of existing atoms (colors, transparency, shininess)
-    // This is much faster than full scene rebuild
-    for (int i = 0; i < m_atomMaterials.size(); ++i) {
-        Qt3DRender::QMaterial *baseMaterial = m_atomMaterials[i];
-        if (!baseMaterial) continue;
-
-        // Get atom for color calculation
-        if (m_currentFrame >= m_trajectoryAtoms.size() || i >= m_trajectoryAtoms[m_currentFrame].size()) {
-            continue;
-        }
-        const Atom& atom = m_trajectoryAtoms[m_currentFrame][i];
-
-        // Update color based on current color scheme
-        QColor atomColor = getAtomColor(atom.element, atom.charge);
-
-        // Apply transparency
-        if (m_atomTransparency < 1.0f) {
-            atomColor.setAlphaF(m_atomTransparency);
-        }
-
-        // Claude Generated - Phase 2A: Apply selection highlighting with bright colors
-        bool isSelected = m_selectionManager && m_selectionManager->isSelected(i);
-        QColor updateColor = isSelected ? QColor(255, 200, 50) : atomColor;  // Bright orange-yellow for selection
-
-        // Update material based on type
-        if (m_materialMode == MaterialMode::PBR) {
-            // Update PBR Material
-            PBRMaterial *pbrMat = qobject_cast<PBRMaterial*>(baseMaterial);
-            if (pbrMat) {
-                pbrMat->setBaseColor(updateColor);
-                if (isSelected) {
-                    // Claude Generated - Phase 4 Final: Apply glow intensity to PBR material
-                    float metallic = 0.2f + (0.3f * (m_glowIntensity - 1.0f));  // 0.2-0.5 range
-                    float roughness = 0.3f / m_glowIntensity;  // Smoother with higher glow
-                    pbrMat->setMetallic(qBound(0.0f, metallic, 1.0f));
-                    pbrMat->setRoughness(qBound(0.0f, roughness, 1.0f));
-                }
-            }
-        } else {
-            // Update Phong Material
-            Qt3DExtras::QPhongMaterial *phongMat = qobject_cast<Qt3DExtras::QPhongMaterial*>(baseMaterial);
-            if (phongMat) {
-                phongMat->setAmbient(updateColor.darker());
-                phongMat->setDiffuse(updateColor);
-                if (isSelected) {
-                    // Claude Generated - Phase 4 Final: Apply glow intensity to Phong material
-                    float shininess = m_atomShininess + (20.0f * m_glowIntensity);  // Base + glow
-                    phongMat->setShininess(qBound(0.0f, shininess, 128.0f));  // Clamp to valid range
-                } else {
-                    phongMat->setShininess(m_atomShininess);
-                }
-            }
-        }
-
-    }
-}
-
-void MoleculeViewer::updateAtomGeometry()
-{
-    // Claude Generated 2026 - Instancing uses per-instance scale buffer, not per-entity meshes.
-    // Rebuild via refreshVisualization so AtomScaleFactor actually shows up.
-    if (m_atomInstancing || m_atomEntities.isEmpty()) {
-        if (!m_trajectoryAtoms.isEmpty())
-            refreshVisualization();
-        return;
-    }
-
-    // Update only atom scales (transforms) - used when changing atom size
-    for (int i = 0; i < m_atomEntities.size(); ++i) {
-        Qt3DCore::QEntity *atomEntity = m_atomEntities[i];
-        if (!atomEntity) continue;
-
-        // Find transform component
-        auto transforms = atomEntity->componentsOfType<Qt3DCore::QTransform>();
-        for (auto transform : transforms) {
-            // Get current position from atom
-            if (m_currentFrame >= m_trajectoryAtoms.size() || i >= m_trajectoryAtoms[m_currentFrame].size()) {
-                continue;
-            }
-            const Atom& atom = m_trajectoryAtoms[m_currentFrame][i];
-
-            // Update mesh scale
-            auto meshes = atomEntity->componentsOfType<Qt3DExtras::QSphereMesh>();
-            for (auto mesh : meshes) {
-                float radius = getAtomRadius(atom.element);
-                mesh->setRadius(radius);
-            }
-
-            // Keep transform position (don't change translation)
-            transform->setTranslation(atom.position);
-        }
-    }
-}
-
-void MoleculeViewer::updateBondGeometry()
-{
-    // Claude Generated 2026 - Instanced bonds don't have per-entity transforms.
-    // Full rebuild is the reliable path for BondThickness changes.
-    if (m_bondInstancing || m_bondEntities.isEmpty()) {
-        if (!m_trajectoryAtoms.isEmpty())
-            refreshVisualization();
-        return;
-    }
-
-    // Update only bond thickness (transforms) - used when changing bond thickness
-    for (int i = 0; i < m_bondEntities.size(); ++i) {
-        Qt3DCore::QEntity *bondEntity = m_bondEntities[i];
-        if (!bondEntity) continue;
-
-        // Find transform component
-        auto transforms = bondEntity->componentsOfType<Qt3DCore::QTransform>();
-        for (auto transform : transforms) {
-            // Update mesh radius
-            auto meshes = bondEntity->componentsOfType<Qt3DExtras::QCylinderMesh>();
-            for (auto mesh : meshes) {
-                float bondRadius = m_bondThickness;
-                if (m_renderingMode == RenderingMode::Wireframe) {
-                    bondRadius *= 0.5f;
-                } else if (m_renderingMode == RenderingMode::SticksOnly) {
-                    bondRadius *= 1.5f;
-                }
-                mesh->setRadius(bondRadius);
-            }
-        }
-    }
-}
-
-// Claude Generated - getAtomColor now supports multiple color schemes
-QColor MoleculeViewer::getAtomColor(const QString& element, float charge)
-{
-    switch (m_colorScheme) {
-        case ColorScheme::CPK: {
-            // CPK-Farbschema (häufig verwendete Farben in der Moleküldarstellung)
-            static const QMap<QString, QColor> colors = {
-                {"H", QColor(255, 255, 255)},   // Weiß
-                {"C", QColor(128, 128, 128)},   // Grau
-                {"N", QColor(0, 0, 255)},       // Blau
-                {"O", QColor(255, 0, 0)},       // Rot
-                {"P", QColor(255, 165, 0)},     // Orange
-                {"S", QColor(255, 255, 0)},     // Gelb
-                {"Cl", QColor(0, 255, 0)},      // Grün
-                {"Br", QColor(165, 42, 42)},    // Braun
-                {"I", QColor(148, 0, 211)},     // Violett
-                {"F", QColor(218, 165, 32)},    // Goldgelb
-                {"Na", QColor(0, 0, 170)},      // Dunkelblau
-                {"K", QColor(143, 124, 195)},   // Violett
-                {"Mg", QColor(0, 255, 0)},      // Grün
-                {"Ca", QColor(128, 128, 144)},  // Grau
-                {"Fe", QColor(255, 165, 0)},    // Orange
-                {"Zn", QColor(165, 165, 165)}   // Grau
-            };
-            return colors.value(element, QColor(200, 200, 200));
-        }
-
-        case ColorScheme::Monochrome:
-            return QColor(180, 180, 180);  // Uniform gray
-
-        case ColorScheme::ByCharge: {
-            // Red for positive, blue for negative, white for neutral
-            if (charge > 0.5f) {
-                return QColor(255, 0, 0);  // Red (positive)
-            } else if (charge < -0.5f) {
-                return QColor(0, 0, 255);  // Blue (negative)
-            } else if (charge > 0.1f) {
-                return QColor(255, 128, 128);  // Light red
-            } else if (charge < -0.1f) {
-                return QColor(128, 128, 255);  // Light blue
-            } else {
-                return QColor(220, 220, 220);  // Nearly white (neutral)
-            }
-        }
-
-        case ColorScheme::Custom:
-            // For now, return CPK colors (can be extended later with custom mapping)
-            return QColor(200, 200, 200);
-
-        default:
-            return QColor(200, 200, 200);
-    }
-}
-
-// Claude Generated - getAtomRadius now applies scale factor
-float MoleculeViewer::getAtomRadius(const QString& element) const
-{
-    // Van der Waals Radien in Ångström (base values)
-    static const QMap<QString, float> radii = {
-        {"H", 0.5f},
-        {"C", 0.7f},
-        {"N", 0.65f},
-        {"O", 0.6f},
-        {"P", 1.0f},
-        {"S", 1.0f},
-        {"Cl", 1.0f},
-        {"Br", 1.15f},
-        {"I", 1.4f},
-        {"F", 0.5f},
-        {"Na", 1.8f},
-        {"K", 2.2f},
-        {"Mg", 1.7f},
-        {"Ca", 2.0f},
-        {"Fe", 1.4f},
-        {"Zn", 1.35f}
-    };
-
-    float baseRadius = radii.value(element, 0.7f);
-
-    // Apply rendering mode adjustments
-    switch (m_renderingMode) {
-        case RenderingMode::SpaceFilling:
-            // Use full Van der Waals radius for space-filling
-            return baseRadius * 2.0f * m_atomScaleFactor;
-        case RenderingMode::BallAndStick:
-        case RenderingMode::Wireframe:
-        case RenderingMode::SticksOnly:
-        default:
-            // Use standard scaled radius
-            return baseRadius * m_atomScaleFactor;
-    }
-}
-
-float MoleculeViewer::getCovalentRadius(const QString& element)
-{
-    // Claude Generated - Covalent radii in Ångström for bond detection
-    // Source: CRC Handbook of Chemistry and Physics
-    static const QMap<QString, float> covalentRadii = {
-        {"H", 0.31f},
-        {"C", 0.76f},
-        {"N", 0.71f},
-        {"O", 0.66f},
-        {"F", 0.64f},
-        {"P", 1.07f},
-        {"S", 1.05f},
-        {"Cl", 1.02f},
-        {"Br", 1.20f},
-        {"I", 1.39f},
-        {"Na", 1.54f},
-        {"K", 1.96f},
-        {"Mg", 1.30f},
-        {"Ca", 1.76f},
-        {"Fe", 1.32f},
-        {"Zn", 1.22f}
-    };
-
-    return covalentRadii.value(element, 0.76f);  // Default to carbon if unknown
-}
-
-Qt3DCore::QEntity* MoleculeViewer::createMoleculeEntity(const QVector<Atom>& atoms, const QVector<Bond>& bonds,
-    const QColor* uniformColor, float uniformAlpha, bool trackForUpdates)
-{
-    Qt3DCore::QEntity *moleculeEntity = new Qt3DCore::QEntity();
-
-    // Claude Generated - Fix 2: Clear entity/material references for incremental updates.
-    // Skipped for the overlay target (trackForUpdates=false) so the primary molecule's
-    // bookkeeping (built by the preceding tracked call) survives.
-    if (trackForUpdates) {
-        m_atomEntities.clear();
-        m_bondEntities.clear();
-        m_atomMaterials.clear();
-        m_atomTransforms.clear();  // Claude Generated - cached transform pointers
-        m_bondTransforms.clear();
-    }
-
-    // Claude Generated - Render atoms based on rendering mode
-    bool renderAtoms = (m_renderingMode == RenderingMode::BallAndStick ||
-                        m_renderingMode == RenderingMode::SpaceFilling);
-
-    // Claude Generated - LOD: pull tessellation from PerformanceOptimizer (Fast=8, Balanced=16, HighQuality=32)
-    const int sphereRings = m_perfOpt ? m_perfOpt->getSphereRings() : 16;
-    const int sphereSlices = m_perfOpt ? m_perfOpt->getSphereSlices() : 16;
-    const int cylinderSlices = m_perfOpt ? m_perfOpt->getBondSlices() : 16;
-
-    // Claude Generated - Phase 3.1: GPU instancing path for large atom counts.
-    // Auto-enabled when atom count exceeds threshold for performance.
-    // Forced off for the overlay target: instancing singletons are shared and a
-    // second build would delete the primary molecule's instanced renderer.
-    const bool useInstancing = trackForUpdates && renderAtoms && atoms.size() >= m_instancingThreshold;
-
-    if (useInstancing) {
-        if (m_atomInstancing) {
-            delete m_atomInstancing;
-            m_atomInstancing = nullptr;
-        }
-        m_atomInstancing = new AtomInstancingSystem(moleculeEntity, this);
-
-        QVector<QVector3D> positions;
-        QVector<QString> elements;
-        QVector<QColor> colors;
-        QVector<float> scales;
-        positions.reserve(atoms.size());
-        elements.reserve(atoms.size());
-        colors.reserve(atoms.size());
-        scales.reserve(atoms.size());
-        for (const Atom& atom : atoms) {
-            positions.append(atom.position);
-            elements.append(atom.element);
-            QColor c = getAtomColor(atom.element, atom.charge);
-            if (m_atomTransparency < 1.0f)
-                c.setAlphaF(m_atomTransparency);
-            colors.append(c);
-            scales.append(getAtomRadius(atom.element));
-        }
-        m_atomInstancing->setAtoms(positions, colors, scales);
-    }
-
-    // Claude Generated - Perf: skip per-atom/per-bond QObjectPicker for large scenes.
-    // Even disabled pickers add scene-graph traversal cost per mouse event. Picking for
-    // large molecules should be handled by a single ray-cast, not N pickers.
-    const bool usePickers = trackForUpdates && atoms.size() < m_instancingThreshold;
-
-    if (renderAtoms && !useInstancing) {
-        for (int atomIndex = 0; atomIndex < atoms.size(); ++atomIndex) {
-            const Atom& atom = atoms[atomIndex];
-            Qt3DCore::QEntity *atomEntity = new Qt3DCore::QEntity(moleculeEntity);
-
-            // Mesh
-            Qt3DExtras::QSphereMesh *sphereMesh = new Qt3DExtras::QSphereMesh();
-            sphereMesh->setRadius(getAtomRadius(atom.element));
-            sphereMesh->setRings(sphereRings);
-            sphereMesh->setSlices(sphereSlices);
-
-            // Claude Generated - Phase 4 Final: Conditional material (PBR vs Phong)
-            // Claude Generated 2026 - uniformColor overrides the element colour (overlay target).
-            QColor atomColor = uniformColor ? *uniformColor : getAtomColor(atom.element, atom.charge);
-
-            // Apply transparency
-            if (uniformColor) {
-                atomColor.setAlphaF(uniformAlpha);
-            } else if (m_atomTransparency < 1.0f) {
-                atomColor.setAlphaF(m_atomTransparency);
-            }
-
-            Qt3DRender::QMaterial *material = nullptr;
-
-            if (m_materialMode == MaterialMode::PBR) {
-                // PBR Material (Cook-Torrance BRDF)
-                PBRMaterial *pbrMat = new PBRMaterial(atomEntity);
-                pbrMat->setBaseColor(atomColor);
-                pbrMat->setMetallic(0.1f);      // Non-metallic atoms
-                pbrMat->setRoughness(0.5f);     // Medium roughness
-                pbrMat->setAmbientOcclusion(1.0f);
-                material = pbrMat;
-            } else {
-                // Phong Material (traditional lighting)
-                Qt3DExtras::QPhongMaterial *phongMat = new Qt3DExtras::QPhongMaterial(atomEntity);
-                phongMat->setAmbient(atomColor.darker());
-                phongMat->setDiffuse(atomColor);
-                phongMat->setShininess(m_atomShininess);
-                material = phongMat;
-            }
-
-            // Transform
-            Qt3DCore::QTransform *transform = new Qt3DCore::QTransform();
-            transform->setTranslation(atom.position);
-
-            atomEntity->addComponent(sphereMesh);
-            atomEntity->addComponent(transform);
-            atomEntity->addComponent(material);
-
-            // Claude Generated - Phase 2A: Add ObjectPicker for 3D atom selection.
-            // Skipped for large scenes (>= m_instancingThreshold) to keep scene graph lean.
-            if (usePickers) {
-                Qt3DRender::QObjectPicker *picker = new Qt3DRender::QObjectPicker(atomEntity);
-                picker->setHoverEnabled(true);
-                atomEntity->addComponent(picker);
-                m_atomPickerToIndex[picker] = atomIndex;
-                connect(picker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onAtomPicked);
-                // Claude Generated 2026 - Phase 5: press initiates sim-mode grab (no-op otherwise)
-                connect(picker, &Qt3DRender::QObjectPicker::pressed, this, &MoleculeViewer::onAtomPressedForGrab);
-                // Claude Generated - Visual feedback for interactive grab
-                connect(picker, &Qt3DRender::QObjectPicker::entered, this, &MoleculeViewer::onAtomHoverEntered);
-                connect(picker, &Qt3DRender::QObjectPicker::exited, this, &MoleculeViewer::onAtomHoverExited);
-            }
-
-            // Claude Generated - Fix 2: Store references for incremental updates
-            // (overlay target is static — skip to keep the primary molecule's arrays intact)
-            if (trackForUpdates) {
-                m_atomEntities.append(atomEntity);
-                m_atomMaterials.append(material);
-                m_atomTransforms.append(transform);  // cache for O(1) access in updateFramePositions
-            }
-        }
-    }
-
-    // Claude Generated - Render bonds based on rendering mode
-    bool renderBonds = (m_renderingMode != RenderingMode::SpaceFilling);
-
-    // Claude Generated - Phase 3.2: Bond instancing disabled by default pending diagnosis
-    // of rendering failure when combined with atom instancing. Set env var
-    // QURCUMA_BOND_INSTANCING=1 to enable. Atom instancing (Phase 3.1) remains active.
-    const bool useBondInstancing = useInstancing && renderBonds
-        && qEnvironmentVariableIsSet("QURCUMA_BOND_INSTANCING");
-
-    if (useBondInstancing) {
-        float bondRadius = m_bondThickness;
-        if (m_renderingMode == RenderingMode::Wireframe)
-            bondRadius *= 0.5f;
-        else if (m_renderingMode == RenderingMode::SticksOnly)
-            bondRadius *= 1.5f;
-
-        if (m_bondInstancing) {
-            delete m_bondInstancing;
-            m_bondInstancing = nullptr;
-        }
-        m_bondInstancing = new BondInstancingSystem(moleculeEntity, this);
-
-        // Claude Generated - Per-half bond coloring in instanced path.
-        // Each bond emits 2 instances (halves colored by adjacent atoms); multi
-        // bonds emit 2 halves per replica. Instance stride per bond = bondOrder * 2.
-        QVector<BondInstancingSystem::BondInstance> instances;
-        instances.reserve(bonds.size() * 2);
-
-        const QVector3D localUp(0, 1, 0);
-        for (const Bond& bond : bonds) {
-            if (bond.atom1 < 0 || bond.atom1 >= atoms.size()
-                || bond.atom2 < 0 || bond.atom2 >= atoms.size())
-                continue;
-
-            const QVector3D posA = atoms[bond.atom1].position;
-            const QVector3D posB = atoms[bond.atom2].position;
-            const QVector3D direction = posB - posA;
-            const float length = direction.length();
-            if (length < 1e-4f)
-                continue;
-            const QVector3D normDir = direction / length;
-
-            QQuaternion rotation;
-            const QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
-            if (rotAxis.length() < 0.001f) {
-                rotation = normDir.y() > 0 ? QQuaternion()
-                                           : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f);
-            } else {
-                const float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
-                rotation = QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle);
-            }
-
-            QVector3D offsetDir(0, 0, 0);
-            if (bond.bondOrder > 1) {
-                offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
-                if (offsetDir.length() < 0.001f)
-                    offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
-            }
-            const float multiBondOffset = 0.2f;
-
-            const QColor colorA = getAtomColor(atoms[bond.atom1].element, atoms[bond.atom1].charge);
-            const QColor colorB = getAtomColor(atoms[bond.atom2].element, atoms[bond.atom2].charge);
-
-            for (int r = 0; r < bond.bondOrder; ++r) {
-                QVector3D repOffset(0, 0, 0);
-                if (r > 0) {
-                    const float currentOffset = (r % 2 == 0 ? 1 : -1) * multiBondOffset * ((r + 1) / 2);
-                    repOffset = offsetDir * currentOffset;
-                }
-                const QVector3D a = posA + repOffset;
-                const QVector3D b = posB + repOffset;
-                const QVector3D mid = 0.5f * (a + b);
-
-                BondInstancingSystem::BondInstance halfA;
-                halfA.center = 0.5f * (a + mid);
-                halfA.halfLength = length * 0.25f;
-                halfA.rotation = rotation;
-                halfA.color = colorA;
-                halfA.radius = bondRadius;
-                instances.append(halfA);
-
-                BondInstancingSystem::BondInstance halfB = halfA;
-                halfB.center = 0.5f * (mid + b);
-                halfB.color = colorB;
-                instances.append(halfB);
-            }
-        }
-        m_bondInstancing->setBonds(instances);
-    }
-
-    if (renderBonds && !useBondInstancing) {
-        // Determine bond thickness based on mode
-        float bondRadius = m_bondThickness;
-        if (m_renderingMode == RenderingMode::Wireframe) {
-            bondRadius *= 0.5f;  // Thinner for wireframe
-        } else if (m_renderingMode == RenderingMode::SticksOnly) {
-            bondRadius *= 1.5f;  // Thicker for sticks-only
-        }
-
-        // Claude Generated - Per-half bond coloring.
-        // Each bond becomes two half-cylinders, each colored from its adjacent
-        // atom's CPK color. Multi-bond replicas (double/triple) still offset
-        // perpendicular to the bond; each replica produces its own pair of
-        // halves. Per-bond stride in m_bondTransforms is (bondOrder * 2).
-        const float multiBondOffset = 0.2f;
-
-        for (const Bond& bond : bonds) {
-            if (bond.atom1 < 0 || bond.atom1 >= atoms.size() ||
-                bond.atom2 < 0 || bond.atom2 >= atoms.size())
-                continue;
-
-            const QVector3D posA = atoms[bond.atom1].position;
-            const QVector3D posB = atoms[bond.atom2].position;
-            const QVector3D direction = posB - posA;
-            const float length = direction.length();
-            if (length < 1e-4f) continue;
-            const QVector3D normDir = direction / length;
-
-            QQuaternion rotation;
-            {
-                QVector3D localUp(0, 1, 0);
-                QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
-                if (rotAxis.length() < 0.001f) {
-                    rotation = normDir.y() > 0
-                        ? QQuaternion()
-                        : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f);
-                } else {
-                    float rotAngle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
-                    rotation = QQuaternion::fromAxisAndAngle(rotAxis.normalized(), rotAngle);
-                }
-            }
-
-            QVector3D offsetDir(0, 0, 0);
-            if (bond.bondOrder > 1) {
-                offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
-                if (offsetDir.length() < 0.001f)
-                    offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
-            }
-
-            // Claude Generated 2026 - uniformColor overrides per-element bond colour (overlay target).
-            const QColor colorA = uniformColor ? *uniformColor : getAtomColor(atoms[bond.atom1].element, atoms[bond.atom1].charge);
-            const QColor colorB = uniformColor ? *uniformColor : getAtomColor(atoms[bond.atom2].element, atoms[bond.atom2].charge);
-
-            auto makeHalf = [&](const QVector3D& center, const QColor& colIn, bool attachPicker) {
-                Qt3DCore::QEntity* halfEntity = new Qt3DCore::QEntity(moleculeEntity);
-
-                QColor col = colIn;
-                if (uniformColor)
-                    col.setAlphaF(uniformAlpha);
-
-                Qt3DExtras::QCylinderMesh* mesh = new Qt3DExtras::QCylinderMesh();
-                mesh->setRadius(bondRadius);
-                mesh->setRings(cylinderSlices);
-                mesh->setSlices(cylinderSlices);
-
-                Qt3DExtras::QPhongMaterial* material = new Qt3DExtras::QPhongMaterial();
-                material->setAmbient(col.darker(180));
-                material->setDiffuse(col);
-                material->setShininess(m_atomShininess);
-
-                Qt3DCore::QTransform* transform = new Qt3DCore::QTransform();
-                transform->setTranslation(center);
-                transform->setScale3D(QVector3D(1.0f, length * 0.5f, 1.0f));
-                transform->setRotation(rotation);
-
-                halfEntity->addComponent(mesh);
-                halfEntity->addComponent(transform);
-                halfEntity->addComponent(material);
-
-                if (attachPicker && usePickers) {
-                    int bondIndex = m_bondEntities.size();
-                    Qt3DRender::QObjectPicker* picker = new Qt3DRender::QObjectPicker(halfEntity);
-                    picker->setHoverEnabled(true);
-                    halfEntity->addComponent(picker);
-                    m_bondPickerToIndex[picker] = bondIndex;
-                    connect(picker, &Qt3DRender::QObjectPicker::clicked, this, &MoleculeViewer::onBondPicked);
-                }
-
-                // Static overlay target: skip bookkeeping so frame/sim updates ignore it.
-                if (trackForUpdates) {
-                    m_bondEntities.append(halfEntity);
-                    m_bondTransforms.append(transform);
-                }
-            };
-
-            for (int r = 0; r < bond.bondOrder; ++r) {
-                QVector3D repOffset(0, 0, 0);
-                if (r > 0) {
-                    const float currentOffset = (r % 2 == 0 ? 1 : -1) * multiBondOffset * ((r + 1) / 2);
-                    repOffset = offsetDir * currentOffset;
-                }
-                const QVector3D a = posA + repOffset;
-                const QVector3D b = posB + repOffset;
-                const QVector3D mid = 0.5f * (a + b);
-                makeHalf(0.5f * (a + mid), colorA, r == 0);
-                makeHalf(0.5f * (mid + b), colorB, false);
-            }
-        }
-    }
-    return moleculeEntity;
-}
-
-void MoleculeViewer::setDefaultView()
-{
-    if (!m_camera) return;
-
-    // Reset model rotation
-    m_modelRotation = QQuaternion();
-    m_modelTransform->setRotation(QQuaternion());
-    m_modelTransform->setTranslation(QVector3D(0, 0, 0));
-    m_modelTransform->setScale(1.0f);
-
-    // Berechne optimale Kamera-Distanz basierend auf Molekülgröße
-    float effectiveRadius = m_moleculeRadius;
-    if (effectiveRadius < 1.0f) {
-        effectiveRadius = 10.0f; // Mindestradius für kleine Moleküle
-    }
-
-    // Distanz für gute Übersicht - adaptiv zur Molekülgröße
-    float distance = effectiveRadius * 3.0f;
-
-    // Position Kamera auf Z-Achse vom Molekülzentrum aus
-    QVector3D cameraPos = m_moleculeCenter + QVector3D(0.0f, 0.0f, distance);
-
-    m_camera->setPosition(cameraPos);
-    m_camera->setViewCenter(m_moleculeCenter);
-    m_camera->setUpVector(QVector3D(0.0f, 1.0f, 0.0f));
-
-    // Kamera-Lens erweitern für große Moleküle
-    float maxDistance = distance + effectiveRadius * 2.0f;
-    m_camera->lens()->setNearPlane(qMax(0.1f, effectiveRadius * 0.1f));
-    m_camera->lens()->setFarPlane(qMax(1000.0f, maxDistance));
-
-    updateInstancingCameraPosition();
-}
-
-void MoleculeViewer::resetView()
-{
-    setDefaultView();
-}
-
-void MoleculeViewer::resetViewToMolecule()
-{
-    // Reset auf gespeichertes Molekülzentrum und optimierte Kamera-Position
-    if (m_moleculeCenter != QVector3D(0, 0, 0) || m_moleculeRadius > 0) {
-        setDefaultView();
-    } else {
-        // Fallback für Fall wenn noch kein Molekül geladen wurde
-        m_camera->setPosition(QVector3D(0, 0, 100.0f));
-        m_camera->setViewCenter(QVector3D(0, 0, 0));
-    }
-}
-
-QVector<MoleculeViewer::Bond> MoleculeViewer::detectBonds(const QVector<Atom>& atoms)
-{
-    QVector<Bond> detectedBonds;
-
-    // Claude Generated - Improved bond detection using covalent radii and tolerance
-    // Berechne Bindungen basierend auf Atomabständen
-
-    // Bond detection tolerance - aim for max ~2.0-2.1Å for typical bonds
-    const float BOND_TOLERANCE = 1.25f;  // Allow 25% extra distance for bond detection
-
-    for (int i = 0; i < atoms.size(); ++i) {
-        for (int j = i + 1; j < atoms.size(); ++j) {
-            QVector3D diff = atoms[i].position - atoms[j].position;
-            float distance = diff.length();
-
-            // Use covalent radii for bond detection
-            float covalentRadiusSum = getCovalentRadius(atoms[i].element) + getCovalentRadius(atoms[j].element);
-            float bondThreshold = covalentRadiusSum * BOND_TOLERANCE;
-
-            // Prüfe ob Atome nah genug für eine Bindung sind
-            if (distance <= bondThreshold) {
-                Bond bond;
-                bond.atom1 = i;
-                bond.atom2 = j;
-                bond.bondOrder = 1; // Standard: Einfachbindung
-                detectedBonds.append(bond);
-            }
-        }
-    }
-
-    return detectedBonds;
+    clearScene();
 }
 
 void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>& bonds)
 {
-    clearScene();
-
-    // Berechne Molekülzentrum und Radius für die aktuellen Atome
     if (atoms.isEmpty()) {
         qWarning() << "Empty atom list - cannot calculate molecule center";
         return;
     }
-    
-    QVector3D min = atoms[0].position;
-    QVector3D max = atoms[0].position;
-    
+
+    QVector3D mn = atoms[0].position;
+    QVector3D mx = atoms[0].position;
     for (const Atom& atom : atoms) {
-        min = QVector3D(
-            qMin(min.x(), atom.position.x()),
-            qMin(min.y(), atom.position.y()),
-            qMin(min.z(), atom.position.z())
-        );
-        max = QVector3D(
-            qMax(max.x(), atom.position.x()),
-            qMax(max.y(), atom.position.y()),
-            qMax(max.z(), atom.position.z())
-        );
+        mn = QVector3D(qMin(mn.x(), atom.position.x()), qMin(mn.y(), atom.position.y()), qMin(mn.z(), atom.position.z()));
+        mx = QVector3D(qMax(mx.x(), atom.position.x()), qMax(mx.y(), atom.position.y()), qMax(mx.z(), atom.position.z()));
     }
-    
-    m_moleculeCenter = (min + max) * 0.5f;
-    m_moleculeRadius = (max - min).length() * 0.5f;
-    
-    // Stelle sicher, dass der Radius nicht zu klein ist
-    if (m_moleculeRadius < 1.0f) {
-        m_moleculeRadius = 10.0f; // Mindestradius für kleine Moleküle
-    }
+    m_moleculeCenter = (mn + mx) * 0.5f;
+    m_moleculeRadius = (mx - mn).length() * 0.5f;
+    if (m_moleculeRadius < 1.0f)
+        m_moleculeRadius = 10.0f;
 
-    // Verwende die übergebenen Bindungen oder erkenne sie automatisch
-    QVector<Bond> actualBonds = bonds.isEmpty() ? detectBonds(atoms) : bonds;
+    const QVector<Bond> actualBonds = bonds.isEmpty() ? detectBonds(atoms) : bonds;
 
-    // Claude Generated - Store molecule in trajectory arrays (even single molecules)
-    // This allows the settings (transparency, rendering mode, etc.) to work correctly
     m_trajectoryAtoms.clear();
     m_trajectoryBonds.clear();
     m_trajectoryAtoms.append(atoms);
@@ -1632,44 +421,18 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
     m_frameCount = 1;
     m_currentFrame = 0;
 
-    // Claude Generated - Phase 4B: Initialize BondEditor with current molecule
-    if (m_bondEditor) {
+    if (m_bondEditor)
         m_bondEditor->setAtoms(atoms);
-        // Note: Bonds will be added via setBond methods during editing
-        // or populated from loaded trajectory data
-    }
-
-    // Claude Generated - LOD: adapt tessellation BEFORE entity creation.
-    // setAtomCount triggers updateAdaptiveQuality which picks Fast/Balanced/HighQuality
-    // from recommendQualityMode thresholds (>5000 Fast, >1000 Balanced, else HighQuality).
     if (m_perfOpt)
         m_perfOpt->setAtomCount(atoms.size());
 
-    // Render the molecule using trajectory data
-    Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
-    moleculeEntity->setParent(m_modelEntity);
-
-    // Claude Generated 2026 - Fresh load: clear the sim-dirty flag so a follow-up
-    // simulation run is allowed to emit moleculeUpdated again (once per run).
-    m_moleculeDirty = false;
-
-    // Claude Generated 2026 - Phase 6: notify listeners (sim dock) of the new molecule.
-    emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
-
-    // Claude Generated 2026 - Orbit controller no longer force-activated on trajectory load.
-    // Rotation mode is set via setRotationMode() (Settings dialog / init path).
-
-    // Claude Generated 2026 - Phase 1 Fog: apply current fog state to freshly built materials
-    propagateFogToMaterials();
-
-    // Setze die Standardansicht auf das Molekülzentrum
-    setDefaultView();
-
-    // Claude Generated 2026 - Build adjacency for force distribution
+    syncSceneToController(0, /*resetCamera=*/true, /*fullRebuild=*/true);
     buildForceAdjacency();
+
+    m_moleculeDirty = false;
+    emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
 }
 
-// Claude Generated 2026 - Overlay two structures for RMSD/align comparison.
 void MoleculeViewer::showOverlay(const QVector<Atom>& refAtoms, const QVector<Bond>& refBonds,
     const QVector<Atom>& targetAtoms, const QVector<Bond>& targetBonds)
 {
@@ -1677,430 +440,123 @@ void MoleculeViewer::showOverlay(const QVector<Atom>& refAtoms, const QVector<Bo
         qWarning() << "showOverlay: empty reference structure";
         return;
     }
+    // M1: render both structures combined so the alignment is visible. Distinct
+    // tinting of the target lands with the measurement/overlay port (M2).
+    QVector<Atom> combined = refAtoms;
+    QVector<Bond> combinedBonds = refBonds.isEmpty() ? detectBonds(refAtoms) : refBonds;
+    if (!targetAtoms.isEmpty()) {
+        const int offset = refAtoms.size();
+        const QVector<Bond> tBonds = targetBonds.isEmpty() ? detectBonds(targetAtoms) : targetBonds;
+        combined += targetAtoms;
+        for (const Bond& b : tBonds)
+            combinedBonds.append({ b.atom1 + offset, b.atom2 + offset, b.bondOrder });
+    }
+    addMolecule(combined, combinedBonds);
+}
 
-    // Build the reference exactly like a normal single-molecule load: this sets
-    // up trajectory/sim state, the incremental-update bookkeeping, BondEditor,
-    // force adjacency, and centres the camera. The reference keeps the normal
-    // colour scheme.
-    addMolecule(refAtoms, refBonds);
+void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, const QVector<QVector<Bond>>& bonds)
+{
+    m_trajectoryAtoms = atoms;
+    m_frameCount = atoms.size();
+    m_currentFrame = 0;
+    m_moleculeDirty = false;
 
-    if (targetAtoms.isEmpty())
-        return;
+    m_trajectoryBonds.clear();
+    if (bonds.isEmpty() || (bonds.size() == atoms.size() && bonds[0].isEmpty())) {
+        for (int i = 0; i < atoms.size(); ++i)
+            m_trajectoryBonds.append(detectBonds(atoms[i]));
+    } else {
+        m_trajectoryBonds = bonds;
+    }
 
-    // Add the (already aligned) target as a static, distinctly coloured overlay.
-    // trackForUpdates=false keeps the reference's bookkeeping/instancing intact.
-    const QVector<Bond> tgtBonds = targetBonds.isEmpty() ? detectBonds(targetAtoms) : targetBonds;
-    QColor overlayColor(255, 200, 40);  // gold — clearly distinct from CPK colours
-    Qt3DCore::QEntity* targetEntity = createMoleculeEntity(targetAtoms, tgtBonds,
-        &overlayColor, 0.6f, /*trackForUpdates=*/false);
-    targetEntity->setParent(m_modelEntity);
+    if (m_frameSlider && m_frameLabel && m_frameJumpBox && m_frameControlWidget) {
+        m_frameSlider->setMaximum(m_frameCount - 1);
+        m_frameJumpBox->setMaximum(m_frameCount - 1);
+        m_frameLabel->setText(QString("1/%1").arg(m_frameCount));
+        m_frameControlWidget->setVisible(m_frameCount > 1);
+    }
 
-    // Re-fit the camera to the combined bounds of both structures.
-    QVector3D mn = refAtoms[0].position;
-    QVector3D mx = refAtoms[0].position;
-    auto expand = [&](const QVector<Atom>& as) {
-        for (const Atom& a : as) {
-            mn = QVector3D(qMin(mn.x(), a.position.x()), qMin(mn.y(), a.position.y()), qMin(mn.z(), a.position.z()));
-            mx = QVector3D(qMax(mx.x(), a.position.x()), qMax(mx.y(), a.position.y()), qMax(mx.z(), a.position.z()));
-        }
-    };
-    expand(refAtoms);
-    expand(targetAtoms);
-    m_moleculeCenter = (mn + mx) * 0.5f;
-    m_moleculeRadius = (mx - mn).length() * 0.5f;
-    if (m_moleculeRadius < 1.0f)
-        m_moleculeRadius = 10.0f;
+    if (m_frameCount > 0)
+        showFrame(0);
 
-    setDefaultView();
+    buildForceAdjacency();
+    emit trajectoryLoaded(m_frameCount);
+    if (m_frameCount > 0)
+        emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
 }
 
 void MoleculeViewer::showFrame(int frameIndex)
 {
-    if (frameIndex >= 0 && frameIndex < m_trajectoryAtoms.size()) {
-        m_currentFrame = frameIndex;
-
-        // Berechne Molekülzentrum für diese Frame
-        const auto& atoms = m_trajectoryAtoms[frameIndex];
-        if (!atoms.isEmpty()) {
-            QVector3D min = atoms[0].position;
-            QVector3D max = atoms[0].position;
-
-            for (const Atom& atom : atoms) {
-                min = QVector3D(
-                    qMin(min.x(), atom.position.x()),
-                    qMin(min.y(), atom.position.y()),
-                    qMin(min.z(), atom.position.z())
-                );
-                max = QVector3D(
-                    qMax(max.x(), atom.position.x()),
-                    qMax(max.y(), atom.position.y()),
-                    qMax(max.z(), atom.position.z())
-                );
-            }
-
-            m_moleculeCenter = (min + max) * 0.5f;
-            m_moleculeRadius = (max - min).length() * 0.5f;
-        }
-
-        clearScene();
-        Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(m_trajectoryAtoms[frameIndex], m_trajectoryBonds[frameIndex]);
-        moleculeEntity->setParent(m_modelEntity);
-
-        // Setze Kamera für diese Frame
-        setDefaultView();
-
-        // Claude Generated - Synchronize frame controls when frame changes
-        if (m_frameSlider && m_frameLabel && m_frameJumpBox) {
-            m_frameSlider->blockSignals(true);
-            m_frameSlider->setValue(m_currentFrame);
-            m_frameSlider->blockSignals(false);
-
-            m_frameJumpBox->blockSignals(true);
-            m_frameJumpBox->setValue(m_currentFrame);
-            m_frameJumpBox->blockSignals(false);
-
-            m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
-        }
-
-        // Claude Generated - Phase 2B: Update measurement visualization for new frame
-        if (m_measurementOverlay && m_measurementMode != 0) {
-            // Convert atom positions to world space for measurement overlay
-            QVector<QVector3D> positions;
-            for (const Atom& atom : m_trajectoryAtoms[frameIndex]) {
-                positions.append(modelToWorld(atom.position));
-            }
-            m_measurementOverlay->updateMeasurement(positions);
-        }
-
-        emit frameChanged(m_currentFrame);
-    }
-}
-
-// Claude Generated - Fast position-only update for animation (no scene rebuild)
-void MoleculeViewer::updateFramePositions(int frameIndex)
-{
-    if (frameIndex < 0 || frameIndex >= m_trajectoryAtoms.size()) {
+    if (frameIndex < 0 || frameIndex >= m_trajectoryAtoms.size())
         return;
-    }
-
     m_currentFrame = frameIndex;
-    const auto& atoms = m_trajectoryAtoms[frameIndex];
 
-    // Claude Generated - Use cached transform pointers: avoids componentsOfType<QTransform>() scan per atom/bond
-    for (int i = 0; i < m_atomTransforms.size() && i < atoms.size(); ++i) {
-        if (m_atomTransforms[i])
-            m_atomTransforms[i]->setTranslation(atoms[i].position);
+    const QVector<Atom>& atoms = m_trajectoryAtoms[frameIndex];
+    if (!atoms.isEmpty()) {
+        QVector3D mn = atoms[0].position;
+        QVector3D mx = atoms[0].position;
+        for (const Atom& atom : atoms) {
+            mn = QVector3D(qMin(mn.x(), atom.position.x()), qMin(mn.y(), atom.position.y()), qMin(mn.z(), atom.position.z()));
+            mx = QVector3D(qMax(mx.x(), atom.position.x()), qMax(mx.y(), atom.position.y()), qMax(mx.z(), atom.position.z()));
+        }
+        m_moleculeCenter = (mn + mx) * 0.5f;
+        m_moleculeRadius = (mx - mn).length() * 0.5f;
     }
 
-    // Update bond transforms using cached pointers
-    const QVector<Bond>& bonds = m_trajectoryBonds[frameIndex];
-    // Claude Generated - Per-half bond layout: stride per bond = bondOrder * 2.
-    int bondIndex = 0;
-    for (int i = 0; i < bonds.size(); ++i) {
-        if (bondIndex >= m_bondTransforms.size()) break;
-        const Bond& bond = bonds[i];
-        if (bond.atom1 < 0 || bond.atom1 >= atoms.size() ||
-            bond.atom2 < 0 || bond.atom2 >= atoms.size()) {
-            bondIndex += bond.bondOrder * 2;
-            continue;
-        }
+    syncSceneToController(frameIndex, /*resetCamera=*/true, /*fullRebuild=*/true);
 
-        const QVector3D posA = atoms[bond.atom1].position;
-        const QVector3D posB = atoms[bond.atom2].position;
-        const QVector3D direction = posB - posA;
-        const float length = direction.length();
-        if (length < 1e-4f) {
-            bondIndex += bond.bondOrder * 2;
-            continue;
-        }
-        const QVector3D normDir = direction / length;
-
-        QQuaternion rotation;
-        {
-            QVector3D localUp(0, 1, 0);
-            QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
-            if (rotAxis.length() < 0.001f) {
-                rotation = normDir.y() > 0 ? QQuaternion()
-                    : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f);
-            } else {
-                float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
-                rotation = QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle);
-            }
-        }
-
-        QVector3D offsetDir(0, 0, 0);
-        if (bond.bondOrder > 1) {
-            offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
-            if (offsetDir.length() < 0.001f)
-                offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
-        }
-        const float multiBondOffset = 0.2f;
-
-        auto writeHalf = [&](const QVector3D& center) {
-            if (bondIndex >= m_bondTransforms.size()) return;
-            if (auto* t = m_bondTransforms[bondIndex]) {
-                t->setTranslation(center);
-                t->setScale3D(QVector3D(1.0f, length * 0.5f, 1.0f));
-                t->setRotation(rotation);
-            }
-            ++bondIndex;
-        };
-
-        for (int r = 0; r < bond.bondOrder; ++r) {
-            QVector3D repOffset(0, 0, 0);
-            if (r > 0) {
-                float currentOffset = (r % 2 == 0 ? 1 : -1) * multiBondOffset * ((r + 1) / 2);
-                repOffset = offsetDir * currentOffset;
-            }
-            const QVector3D a = posA + repOffset;
-            const QVector3D b = posB + repOffset;
-            const QVector3D mid = 0.5f * (a + b);
-            writeHalf(0.5f * (a + mid));
-            writeHalf(0.5f * (mid + b));
-        }
-    }
-
-    // Synchronize UI controls
     if (m_frameSlider && m_frameLabel && m_frameJumpBox) {
         m_frameSlider->blockSignals(true);
         m_frameSlider->setValue(m_currentFrame);
         m_frameSlider->blockSignals(false);
-
         m_frameJumpBox->blockSignals(true);
         m_frameJumpBox->setValue(m_currentFrame);
         m_frameJumpBox->blockSignals(false);
-
         m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
-    }
-
-    // Claude Generated - Phase 2B: Update measurement visualization for new frame (animation)
-    if (m_measurementOverlay && m_measurementMode != 0) {
-        QVector<QVector3D> positions;
-        for (const Atom& atom : atoms) {
-            positions.append(modelToWorld(atom.position));
-        }
-        m_measurementOverlay->updateMeasurement(positions);
     }
 
     emit frameChanged(m_currentFrame);
 }
 
-// Claude Generated - Fast atoms-only update for simulation: O(n) translate only, skip bond recalculation
-// Bond transforms stay constant during MD (topology doesn't change), so we skip rotation math
-void MoleculeViewer::updateAtomPositionsOnly(int frameIndex)
-{
-    if (frameIndex < 0 || frameIndex >= m_trajectoryAtoms.size()) {
-        return;
-    }
-
-    m_currentFrame = frameIndex;
-    const auto& atoms = m_trajectoryAtoms[frameIndex];
-
-    // Claude Generated - Phase 3.1: Instancing path — upload position buffer in one call.
-    if (m_atomInstancing && m_atomInstancing->getAtomCount() == atoms.size()) {
-        QVector<QVector3D> positions;
-        positions.reserve(atoms.size());
-        for (const Atom& a : atoms)
-            positions.append(a.position);
-        m_atomInstancing->updateAtomPositions(positions);
-        return;
-    }
-
-    // Atoms only: simple translate. No bond rotation, no quaternion math.
-    for (int i = 0; i < m_atomTransforms.size() && i < atoms.size(); ++i) {
-        if (m_atomTransforms[i])
-            m_atomTransforms[i]->setTranslation(atoms[i].position);
-    }
-}
-
-// Claude Generated - Precompute bond rotations once before simulation
-// Call this once when simulation starts. Caches quaternion for each bond direction.
-void MoleculeViewer::prepareSimulationBonds()
-{
-    m_bondRotations.clear();
-    if (m_trajectoryAtoms.isEmpty() || m_trajectoryBonds.isEmpty())
-        return;
-
-    const auto& atoms = m_trajectoryAtoms[0];
-    const QVector<Bond>& bonds = m_trajectoryBonds[0];
-
-    for (const Bond& bond : bonds) {
-        if (bond.atom1 >= atoms.size() || bond.atom2 >= atoms.size())
-            continue;
-
-        QVector3D direction = atoms[bond.atom2].position - atoms[bond.atom1].position;
-        QVector3D normDir = direction.normalized();
-        QVector3D localUp(0, 1, 0);
-        QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
-
-        QQuaternion q;
-        if (rotAxis.length() < 0.001f) {
-            q = normDir.y() > 0 ? QQuaternion() : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f);
-        } else {
-            float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
-            q = QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle);
-        }
-        m_bondRotations.append(q);
-
-        // Double/triple bonds: same rotation for offset bonds
-        for (int j = 1; j < bond.bondOrder; ++j) {
-            m_bondRotations.append(q);
-        }
-    }
-    #ifdef DEBUG_ON
-    qDebug() << "Prepared" << m_bondRotations.size() << "bond rotations for simulation";
-    #endif
-}
-
-// Claude Generated - Hybrid bond update: rotation cached, update center+length only
-// Called every simulation frame. Rotation pre-computed once at simulation start.
-void MoleculeViewer::updateBondsHybrid(int frameIndex)
+void MoleculeViewer::updateFramePositions(int frameIndex)
 {
     if (frameIndex < 0 || frameIndex >= m_trajectoryAtoms.size())
         return;
+    m_currentFrame = frameIndex;
+    syncSceneToController(frameIndex, /*resetCamera=*/false, /*fullRebuild=*/false);
 
-    const auto& atoms = m_trajectoryAtoms[frameIndex];
-    const QVector<Bond>& bonds = m_trajectoryBonds[frameIndex];
-
-    // Claude Generated - Phase 3.2: Instanced bond path.
-    // Recompute centers + halfLengths (rotations stay cached from scene build).
-    // Multi-bond offsets approximated using cached rotations — visual parity with hybrid path.
-    if (m_bondInstancing && m_bondInstancing->bondCount() > 0) {
-        // Claude Generated - Per-half instanced bond layout: 2 instances per bond
-        // replica. Emit centers/halfLengths in the same order as setBonds.
-        QVector<QVector3D> centers;
-        QVector<float> halfLengths;
-        const int expected = m_bondInstancing->bondCount();
-        centers.reserve(expected);
-        halfLengths.reserve(expected);
-
-        const float multiBondOffset = 0.2f;
-        for (const Bond& bond : bonds) {
-            if (bond.atom1 < 0 || bond.atom1 >= atoms.size()
-                || bond.atom2 < 0 || bond.atom2 >= atoms.size())
-                continue;
-            const QVector3D posA = atoms[bond.atom1].position;
-            const QVector3D posB = atoms[bond.atom2].position;
-            const QVector3D direction = posB - posA;
-            const float length = direction.length();
-            if (length < 1e-4f)
-                continue;
-            const QVector3D normDir = direction / length;
-            const float quarterLen = length * 0.25f;
-
-            QVector3D offsetDir(0, 0, 0);
-            if (bond.bondOrder > 1) {
-                offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
-                if (offsetDir.length() < 0.001f)
-                    offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
-            }
-
-            for (int r = 0; r < bond.bondOrder; ++r) {
-                QVector3D repOffset(0, 0, 0);
-                if (r > 0) {
-                    const float currentOffset = (r % 2 == 0 ? 1 : -1) * multiBondOffset * ((r + 1) / 2);
-                    repOffset = offsetDir * currentOffset;
-                }
-                const QVector3D a = posA + repOffset;
-                const QVector3D b = posB + repOffset;
-                const QVector3D mid = 0.5f * (a + b);
-                centers.append(0.5f * (a + mid));
-                halfLengths.append(quarterLen);
-                centers.append(0.5f * (mid + b));
-                halfLengths.append(quarterLen);
-            }
-            if (centers.size() >= expected)
-                break;
-        }
-        // Truncate in case of mismatch (shouldn't happen but guards buffer upload).
-        if (centers.size() > expected) {
-            centers.resize(expected);
-            halfLengths.resize(expected);
-        }
-        if (centers.size() == expected)
-            m_bondInstancing->updateTransforms(centers, halfLengths);
-        return;
+    if (m_frameSlider && m_frameLabel && m_frameJumpBox) {
+        m_frameSlider->blockSignals(true);
+        m_frameSlider->setValue(m_currentFrame);
+        m_frameSlider->blockSignals(false);
+        m_frameJumpBox->blockSignals(true);
+        m_frameJumpBox->setValue(m_currentFrame);
+        m_frameJumpBox->blockSignals(false);
+        m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
     }
-
-    // Claude Generated - Per-half bond layout: stride per bond = bondOrder * 2.
-    int bondIndex = 0;
-    for (int i = 0; i < bonds.size() && bondIndex < m_bondTransforms.size(); ++i) {
-        const Bond& bond = bonds[i];
-        if (bond.atom1 < 0 || bond.atom1 >= atoms.size() ||
-            bond.atom2 < 0 || bond.atom2 >= atoms.size()) {
-            bondIndex += bond.bondOrder * 2;
-            continue;
-        }
-
-        const QVector3D posA = atoms[bond.atom1].position;
-        const QVector3D posB = atoms[bond.atom2].position;
-        const QVector3D direction = posB - posA;
-        const float length = direction.length();
-        if (length < 1e-4f) {
-            bondIndex += bond.bondOrder * 2;
-            continue;
-        }
-        const QVector3D normDir = direction / length;
-
-        QQuaternion rotation;
-        {
-            QVector3D localUp(0, 1, 0);
-            QVector3D rotAxis = QVector3D::crossProduct(localUp, normDir);
-            if (rotAxis.length() < 0.001f) {
-                rotation = normDir.y() > 0 ? QQuaternion()
-                    : QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), 180.0f);
-            } else {
-                float angle = qAcos(QVector3D::dotProduct(localUp, normDir)) * 180.0f / float(M_PI);
-                rotation = QQuaternion::fromAxisAndAngle(rotAxis.normalized(), angle);
-            }
-        }
-
-        QVector3D offsetDir(0, 0, 0);
-        if (bond.bondOrder > 1) {
-            offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 0, 1)).normalized();
-            if (offsetDir.length() < 0.001f)
-                offsetDir = QVector3D::crossProduct(normDir, QVector3D(0, 1, 0)).normalized();
-        }
-        const float multiBondOffset = 0.2f;
-
-        auto writeHalf = [&](const QVector3D& center) {
-            if (bondIndex >= m_bondTransforms.size()) return;
-            if (auto* t = m_bondTransforms[bondIndex]) {
-                t->setTranslation(center);
-                t->setScale3D(QVector3D(1.0f, length * 0.5f, 1.0f));
-                t->setRotation(rotation);
-            }
-            ++bondIndex;
-        };
-
-        for (int r = 0; r < bond.bondOrder; ++r) {
-            QVector3D repOffset(0, 0, 0);
-            if (r > 0) {
-                float currentOffset = (r % 2 == 0 ? 1 : -1) * multiBondOffset * ((r + 1) / 2);
-                repOffset = offsetDir * currentOffset;
-            }
-            const QVector3D a = posA + repOffset;
-            const QVector3D b = posB + repOffset;
-            const QVector3D mid = 0.5f * (a + b);
-            writeHalf(0.5f * (a + mid));
-            writeHalf(0.5f * (mid + b));
-        }
-    }
+    emit frameChanged(m_currentFrame);
 }
 
-// Apply a simulation frame to the scene. Worker emits are already throttled to the
-// target fps in SimulationWorker::runMD/runOptimization, so Qt3D receives events in a
-// deterministic cadence — no backpressure or ack needed.
+void MoleculeViewer::nextFrame()
+{
+    if (m_currentFrame < m_trajectoryAtoms.size() - 1)
+        showFrame(m_currentFrame + 1);
+}
+
+void MoleculeViewer::previousFrame()
+{
+    if (m_currentFrame > 0)
+        showFrame(m_currentFrame - 1);
+}
+
 void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
 {
     if (!frame)
         return;
-
     const auto& positions = frame->positions;
     const int n = static_cast<int>(positions.size());
 
-    // Topology-change fallback: rebuild the scene with cached element/charge where possible,
-    // else synthesize placeholder atoms (carbon) so at least count matches.
+    // Topology change -> rebuild (carry element/charge where possible).
     if (m_trajectoryAtoms.isEmpty() || m_trajectoryAtoms[0].size() != n) {
         QVector<Atom> atoms;
         atoms.reserve(n);
@@ -2120,314 +576,448 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
         return;
     }
 
-    // First frame: pre-compute bond rotations once (if not already done)
-    if (m_bondRotations.isEmpty())
-        prepareSimulationBonds();
-
-    // In-place position update: keep element/charge untouched (no per-frame copy of those).
+    // In-place position update (keep element/charge/bonds).
     auto& refAtoms = m_trajectoryAtoms[0];
     for (int i = 0; i < n; ++i)
         refAtoms[i].position = positions[i];
+    syncSceneToController(0, /*resetCamera=*/false, /*fullRebuild=*/false);
 
-#ifdef DEBUG_ON
-    // Claude Generated - Per-frame timing: rolling avg every 60 frames to quantify render cost.
-    QElapsedTimer frameTimer;
-    frameTimer.start();
-
-    QElapsedTimer sub;
-    sub.start();
-    updateAtomPositionsOnly(0);
-    const qint64 atomNs = sub.nsecsElapsed();
-
-    sub.restart();
-    updateBondsHybrid(0);
-    const qint64 bondNs = sub.nsecsElapsed();
-
-    const qint64 totalNs = frameTimer.nsecsElapsed();
-
-    static qint64 s_accAtom = 0, s_accBond = 0, s_accTotal = 0;
-    static int s_samples = 0;
-    s_accAtom += atomNs;
-    s_accBond += bondNs;
-    s_accTotal += totalNs;
-    if (++s_samples >= 60) {
-        qDebug().nospace()
-            << "[sim-render] N=" << n
-            << " instancing=" << (m_atomInstancing ? "on" : "off")
-            << " avg total=" << (s_accTotal / s_samples / 1000) << "us"
-            << " atoms=" << (s_accAtom / s_samples / 1000) << "us"
-            << " bonds=" << (s_accBond / s_samples / 1000) << "us";
-        s_accAtom = s_accBond = s_accTotal = 0;
-        s_samples = 0;
-    }
-#else
-    updateAtomPositionsOnly(0);
-    updateBondsHybrid(0);
-#endif
-
-    // Claude Generated 2026 - Throttled emit: signal the cache downstream
-    // (SimulationControlWidget::m_atoms) exactly once per worker run, so a
-    // second "Start" continues from the latest positions instead of the
-    // original file-load geometry. m_moleculeDirty is cleared in
-    // setTrajectoryData() / addMolecule() so the next sim run re-emits.
+    // Throttled cache notify (once per worker run).
     if (!m_moleculeDirty) {
         m_moleculeDirty = true;
         emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
     }
 
-    // Claude Generated 2026 - Re-send force + update overlay while grabbing.
-    // Called at sim-FPS cadence — natural coupling to simulation update rate.
-    if (m_grabbedAtom >= 0 && m_camera) {
+    // Re-send the grab force at sim cadence while a grab is active.
+    if (m_grabbedAtom >= 0) {
         QVector3D modelLocalForce = computeGrabForce(m_lastMousePos, m_grabbedAtom);
-        // curcuma adds force to gradient (gradient += force).
-        // Since accel = -gradient, negate so atom moves with the arrow.
-        emit atomForceRequested(m_grabbedAtom, -modelLocalForce,
-            m_grabAlpha, m_grabMaxShells);
-        updateForceOverlay();
+        emit atomForceRequested(m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
+        updateForceVectors();
     }
 }
 
-void MoleculeViewer::nextFrame()
+// ---------------------------------------------------------------------------
+// Camera / view commands
+// ---------------------------------------------------------------------------
+void MoleculeViewer::setDefaultView()
 {
-    if (m_currentFrame < m_trajectoryAtoms.size() - 1) {
-        showFrame(m_currentFrame + 1);
+    m_modelRotation = QQuaternion();
+    if (m_scene) {
+        m_scene->setRootRotation(m_modelRotation);
+        m_scene->resetView();
     }
 }
 
-void MoleculeViewer::previousFrame()
+void MoleculeViewer::resetView() { setDefaultView(); }
+
+void MoleculeViewer::resetViewToMolecule() { setDefaultView(); }
+
+void MoleculeViewer::getSelectedBounds(QVector3D& center, float& radius)
 {
-    if (m_currentFrame > 0) {
-        showFrame(m_currentFrame - 1);
-    }
-}
-
-void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, const QVector<QVector<Bond>>& bonds)
-{
-    m_trajectoryAtoms = atoms;
-    m_frameCount = atoms.size();
-    m_currentFrame = 0;
-
-    // Claude Generated 2026 - Fresh trajectory load: reset sim-dirty so the next
-    // MD/Opt run re-emits moleculeUpdated exactly once.
-    m_moleculeDirty = false;
-
-    // Claude Generated - Auto-detect bonds if empty (for XYZ files)
-    m_trajectoryBonds.clear();
-    if (bonds.isEmpty() || (bonds.size() == atoms.size() && bonds[0].isEmpty())) {
-        // Detect bonds for each frame
-        for (int i = 0; i < atoms.size(); ++i) {
-            QVector<Bond> detectedBonds = detectBonds(atoms[i]);
-            m_trajectoryBonds.append(detectedBonds);
-        }
-    } else {
-        // Use provided bonds
-        m_trajectoryBonds = bonds;
-    }
-
-    // Claude Generated - Update frame controls based on frame count
-    if (m_frameSlider && m_frameLabel && m_frameJumpBox && m_frameControlWidget) {
-        m_frameSlider->setMaximum(m_frameCount - 1);
-        m_frameJumpBox->setMaximum(m_frameCount - 1);
-        m_frameLabel->setText(QString("1/%1").arg(m_frameCount));
-
-        // Show/hide frame controls based on whether we have multiple frames
-        bool hasMultipleFrames = m_frameCount > 1;
-        m_frameControlWidget->setVisible(hasMultipleFrames);
-    }
-
-    // Load and display the first frame
-    if (m_frameCount > 0) {
-        showFrame(0);
-    }
-
-    // Emit signals for UI updates
-    emit trajectoryLoaded(m_frameCount);
-
-    // Claude Generated 2026 - Phase 6: advertise first frame to the sim dock.
-    if (m_frameCount > 0)
-        emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
-
-    // Claude Generated 2026 - Build adjacency for force distribution
-    buildForceAdjacency();
-}
-
-void MoleculeViewer::clearScenePublic()
-{
-    clearScene();
-}
-
-// Claude Generated - Screenshot/Export functionality
-void MoleculeViewer::saveScreenshot(const QString& filename, int scaleFactor)
-{
-    if (!m_container) {
-        qWarning() << "Cannot save screenshot: Container not initialized";
+    if (m_trajectoryAtoms.isEmpty() || m_currentFrame >= m_trajectoryAtoms.size()) {
+        center = m_moleculeCenter;
+        radius = m_moleculeRadius;
         return;
     }
-
-    // Get current widget size
-    QSize originalSize = m_container->size();
-    QSize captureSize = originalSize * scaleFactor;
-
-    // Grab the container widget (which contains the 3D view) as a pixmap
-    QPixmap screenshot = m_container->grab();
-
-    // Scale if needed
-    if (scaleFactor > 1) {
-        // For higher resolution, we scale up the grabbed image
-        // Note: This is upscaling after capture; for true high-res rendering,
-        // Qt3D would need offscreen rendering at higher resolution
-        screenshot = screenshot.scaled(captureSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    const auto& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (atoms.isEmpty() || m_selectedAtoms.isEmpty()) {
+        center = m_moleculeCenter;
+        radius = m_moleculeRadius;
+        return;
     }
-
-    // Save to file
-    if (screenshot.save(filename)) {
-        #ifdef DEBUG_ON
-        qDebug() << "Screenshot saved to:" << filename;
-        #endif
-    } else {
-        qWarning() << "Failed to save screenshot to:" << filename;
-    }
+    QVector3D sum(0, 0, 0);
+    for (int idx : m_selectedAtoms)
+        if (idx >= 0 && idx < atoms.size())
+            sum += atoms[idx].position;
+    center = sum / m_selectedAtoms.size();
+    radius = 0.0f;
+    for (int idx : m_selectedAtoms)
+        if (idx >= 0 && idx < atoms.size())
+            radius = qMax(radius, (atoms[idx].position - center).length());
+    radius += 2.0f;
 }
 
-void MoleculeViewer::saveScreenshotDialog()
+void MoleculeViewer::centerOnAtom(int atomIndex)
 {
-    // Create file dialog
-    QString filter = tr("PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;All Files (*)");
-    QString filename = QFileDialog::getSaveFileName(this, tr("Save Screenshot"), QString(), filter);
-
-    if (filename.isEmpty()) {
-        return;  // User cancelled
-    }
-
-    // Ask for scale factor
-    bool ok;
-    int scaleFactor = QInputDialog::getInt(this, tr("Screenshot Resolution"),
-                                           tr("Resolution multiplier (1x = current size):"),
-                                           1, 1, 4, 1, &ok);
-
-    if (!ok) {
-        return;  // User cancelled
-    }
-
-    // Save screenshot
-    saveScreenshot(filename, scaleFactor);
-
-    // Show confirmation
-    QMessageBox::information(this, tr("Screenshot Saved"),
-                            tr("Screenshot saved to:\n%1").arg(filename));
+    if (!m_scene || m_trajectoryAtoms.isEmpty() || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    const auto& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (atomIndex < 0 || atomIndex >= atoms.size())
+        return;
+    m_scene->fitToBounds(modelToWorld(atoms[atomIndex].position), 3.0f);
 }
 
-// Claude Generated 2026 - Phase 1 Fog: propagate fog parameters to all active materials.
-// intensity [0..1] maps to density [0..kFogDensityMax]. Fog color follows background color.
-static constexpr float kFogDensityMax = 0.05f;
-
-void MoleculeViewer::propagateFogToMaterials()
+void MoleculeViewer::zoomToSelection(const QVector<int>& atomIndices)
 {
-    const float density = m_fogIntensity * kFogDensityMax;
-    const QColor fogCol = m_backgroundColor;
+    if (atomIndices.isEmpty()) {
+        fitAllInView();
+        return;
+    }
+    m_selectedAtoms = atomIndices;
+    QVector3D center;
+    float radius = 0.0f;
+    getSelectedBounds(center, radius);
+    if (m_scene)
+        m_scene->fitToBounds(modelToWorld(center), radius);
+}
 
-    // Non-instanced PBR materials (one per atom in PBR mode)
-    for (Qt3DRender::QMaterial* mat : m_atomMaterials) {
-        if (auto* pbr = qobject_cast<PBRMaterial*>(mat)) {
-            pbr->setFogEnabled(m_fogEnabled);
-            pbr->setFogColor(fogCol);
-            pbr->setFogDensity(density);
-        }
-    }
+void MoleculeViewer::fitAllInView()
+{
+    if (m_scene)
+        m_scene->fitToBounds(m_scene->sceneCenter(), m_scene->sceneExtent());
+}
 
-    // Instanced atom/bond materials
-    if (m_atomInstancing) {
-        m_atomInstancing->setFogEnabled(m_fogEnabled);
-        m_atomInstancing->setFogColor(fogCol);
-        m_atomInstancing->setFogDensity(density);
-    }
-    if (m_bondInstancing) {
-        m_bondInstancing->setFogEnabled(m_fogEnabled);
-        m_bondInstancing->setFogColor(fogCol);
-        m_bondInstancing->setFogDensity(density);
-    }
+// ---------------------------------------------------------------------------
+// Appearance / effects (now actually wired, vs the former Qt3D stubs)
+// ---------------------------------------------------------------------------
+void MoleculeViewer::setRenderingMode(RenderingMode mode)
+{
+    m_renderingMode = mode;
+    if (m_scene)
+        m_scene->setRenderingMode(static_cast<int>(mode));
+}
+
+void MoleculeViewer::setMaterialMode(MaterialMode mode) { m_materialMode = mode; }
+
+void MoleculeViewer::setGlowIntensity(float intensity) { m_glowIntensity = qBound(1.0f, intensity, 2.0f); }
+
+void MoleculeViewer::setColorScheme(ColorScheme scheme)
+{
+    m_colorScheme = scheme;
+    if (m_scene)
+        m_scene->setColorScheme(static_cast<int>(scheme));
+}
+
+void MoleculeViewer::setBackgroundColor(const QColor& color)
+{
+    m_backgroundColor = color;
+    if (m_scene)
+        m_scene->setBackgroundColor(color);
+}
+
+void MoleculeViewer::setCornerLightEnabled(int index, bool on)
+{
+    if (index < 0 || index > 3)
+        return;
+    m_cornerLightEnabled[index] = on;
+    if (m_scene)
+        m_scene->setCornerLight(index, on);
+}
+
+bool MoleculeViewer::isCornerLightEnabled(int index) const
+{
+    return (index >= 0 && index < 4) ? m_cornerLightEnabled[index] : false;
+}
+
+void MoleculeViewer::setAtomTransparency(float alpha)
+{
+    m_atomTransparency = qBound(0.0f, alpha, 1.0f);
+    if (m_scene)
+        m_scene->setAtomTransparency(m_atomTransparency);
+}
+
+void MoleculeViewer::setAtomShininess(float shininess) { m_atomShininess = shininess; }
+
+void MoleculeViewer::setAtomScaleFactor(float scale)
+{
+    m_atomScaleFactor = scale;
+    if (m_scene)
+        m_scene->setAtomScaleFactor(scale);
+}
+
+void MoleculeViewer::setBondThickness(float thickness)
+{
+    m_bondThickness = thickness;
+    if (m_scene)
+        m_scene->setBondThickness(thickness);
 }
 
 void MoleculeViewer::setFogEnabled(bool enabled)
 {
     m_fogEnabled = enabled;
-    propagateFogToMaterials();
+    if (m_scene)
+        m_scene->setFog(enabled, m_fogIntensity);
 }
 
 void MoleculeViewer::setFogIntensity(float intensity)
 {
     m_fogIntensity = qBound(0.0f, intensity, 1.0f);
-    propagateFogToMaterials();
+    if (m_scene)
+        m_scene->setFog(m_fogEnabled, m_fogIntensity);
 }
 
-// Claude Generated 2026 - Post-processing (SSAO/Bloom/HDR/Exposure) setters store values only.
-// No render effect until Phase 2 framegraph rewrite wires a real multi-pass pipeline.
-void MoleculeViewer::setSSAOEnabled(bool enabled)     { m_ssaoEnabled = enabled; }
-void MoleculeViewer::setSSAOIntensity(float intensity){ m_ssaoIntensity = qBound(0.0f, intensity, 2.0f); }
-void MoleculeViewer::setSSAORadius(float radius)     { m_ssaoRadius = qBound(0.01f, radius, 0.2f); }
-void MoleculeViewer::setSSAOBias(float bias)         { m_ssaoBias = qBound(0.0f, bias, 0.1f); }
+void MoleculeViewer::setSSAOEnabled(bool enabled)
+{
+    m_ssaoEnabled = enabled;
+    if (m_scene)
+        m_scene->setSsao(enabled, m_ssaoIntensity);
+}
+void MoleculeViewer::setSSAOIntensity(float intensity)
+{
+    m_ssaoIntensity = qBound(0.0f, intensity, 2.0f);
+    if (m_scene)
+        m_scene->setSsao(m_ssaoEnabled, m_ssaoIntensity);
+}
+void MoleculeViewer::setSSAORadius(float radius) { m_ssaoRadius = qBound(0.01f, radius, 0.2f); }
+void MoleculeViewer::setSSAOBias(float bias) { m_ssaoBias = qBound(0.0f, bias, 0.1f); }
 
-void MoleculeViewer::setBloomEnabled(bool enabled)     { m_bloomEnabled = enabled; }
-void MoleculeViewer::setBloomThreshold(float threshold){ m_bloomThreshold = qBound(0.5f, threshold, 1.5f); }
-void MoleculeViewer::setBloomIntensity(float intensity){ m_bloomIntensity = qBound(0.0f, intensity, 2.0f); }
-void MoleculeViewer::setHDREnabled(bool enabled)       { m_hdrEnabled = enabled; }
-void MoleculeViewer::setExposure(float exposure)       { m_exposure = qBound(0.5f, exposure, 3.0f); }
+void MoleculeViewer::setBloomEnabled(bool enabled)
+{
+    m_bloomEnabled = enabled;
+    if (m_scene)
+        m_scene->setBloom(enabled);
+}
+void MoleculeViewer::setBloomThreshold(float threshold) { m_bloomThreshold = qBound(0.5f, threshold, 1.5f); }
+void MoleculeViewer::setBloomIntensity(float intensity) { m_bloomIntensity = qBound(0.0f, intensity, 2.0f); }
+void MoleculeViewer::setHDREnabled(bool enabled)
+{
+    m_hdrEnabled = enabled;
+    if (m_scene)
+        m_scene->setHdr(enabled);
+}
+void MoleculeViewer::setExposure(float exposure)
+{
+    m_exposure = qBound(0.5f, exposure, 3.0f);
+    if (m_scene)
+        m_scene->setExposure(m_exposure);
+}
 
-// Claude Generated - Trajectory animation functions
+void MoleculeViewer::setRotationMode(int mode)
+{
+    m_rotationMode = (mode == 1) ? RotationMode::CameraOrbit : RotationMode::Model;
+}
+
+void MoleculeViewer::setInstancingThreshold(int n)
+{
+    m_instancingThreshold = qMax(1, n);
+}
+
+void MoleculeViewer::refreshVisualization()
+{
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size())
+        syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/true);
+}
+
+// ---------------------------------------------------------------------------
+// Simulation / picking compatibility hooks
+// ---------------------------------------------------------------------------
+void MoleculeViewer::setSimulationActive(bool on)
+{
+    m_simulationActive = on;
+    m_grabbedAtom = -1;
+    if (m_scene) m_scene->setForceArrows({});
+    Qt::CursorShape shape = on ? Qt::SizeAllCursor : Qt::ArrowCursor;
+    if (m_quickView) m_quickView->setCursor(shape);
+    if (m_container) m_container->setCursor(shape);
+}
+
+void MoleculeViewer::setPickingActive(bool /*active*/)
+{
+    // No-op: Quick3D picking is ray-based and always available.
+}
+
+void MoleculeViewer::ensurePickersForGrab()
+{
+    // No-op: ray picking works for instanced geometry of any size.
+}
+
+// ---------------------------------------------------------------------------
+// Selection
+// ---------------------------------------------------------------------------
+void MoleculeViewer::selectAtom(int index, bool append)
+{
+    if (!append && !m_selectedAtoms.isEmpty())
+        clearSelection();
+
+    if (!m_selectedAtoms.contains(index)) {
+        m_selectedAtoms.append(index);
+        if (m_selectionManager)
+            m_selectionManager->selectAtom(index, append);
+        if (m_scene)
+            m_scene->setSelection(m_selectedAtoms);
+        emit selectionChanged(m_selectedAtoms);
+    }
+}
+
+void MoleculeViewer::clearSelection()
+{
+    m_selectedAtoms.clear();
+    m_measurementMode = 0;
+    if (m_selectionManager)
+        m_selectionManager->clearSelection();
+    if (m_scene)
+        m_scene->setSelection(m_selectedAtoms);
+}
+
+void MoleculeViewer::setMeasurementMode(int mode)
+{
+    m_measurementMode = qBound(0, mode, 3);
+    // MeasurementOverlay rendering lands in M2; logic-only for now.
+}
+
+void MoleculeViewer::setBondEditMode(int mode)
+{
+    m_bondEditMode = qBound(0, mode, 3);
+    if (m_bondEditor) {
+        BondEditor::EditMode editorMode;
+        switch (m_bondEditMode) {
+        case 1: editorMode = BondEditor::EditMode::AddBondMode; break;
+        case 2: editorMode = BondEditor::EditMode::DeleteBondMode; break;
+        case 3: editorMode = BondEditor::EditMode::ChangeBondMode; break;
+        default: editorMode = BondEditor::EditMode::None;
+        }
+        m_bondEditor->setEditMode(editorMode);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Atom data accessors
+// ---------------------------------------------------------------------------
+QVector<QVector3D> MoleculeViewer::getAtomPositions() const
+{
+    QVector<QVector3D> positions;
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size())
+        for (const Atom& atom : m_trajectoryAtoms[m_currentFrame])
+            positions.append(atom.position);
+    return positions;
+}
+
+QVector<QString> MoleculeViewer::getAtomElements() const
+{
+    QVector<QString> elements;
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size())
+        for (const Atom& atom : m_trajectoryAtoms[m_currentFrame])
+            elements.append(atom.element);
+    return elements;
+}
+
+QVector<float> MoleculeViewer::getAtomCharges() const
+{
+    QVector<float> charges;
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size())
+        for (const Atom& atom : m_trajectoryAtoms[m_currentFrame])
+            charges.append(atom.charge);
+    return charges;
+}
+
+QVector<MoleculeViewer::Atom> MoleculeViewer::getCurrentFrameAtoms() const
+{
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size())
+        return m_trajectoryAtoms[m_currentFrame];
+    return {};
+}
+
+// ---------------------------------------------------------------------------
+// Element data + bond detection (logic preserved from the Qt3D version)
+// ---------------------------------------------------------------------------
+QColor MoleculeViewer::getAtomColor(const QString& element, float charge)
+{
+    switch (m_colorScheme) {
+    case ColorScheme::Monochrome:
+        return QColor(180, 180, 180);
+    case ColorScheme::ByCharge:
+        if (charge > 0.5f) return QColor(255, 0, 0);
+        if (charge < -0.5f) return QColor(0, 0, 255);
+        if (charge > 0.1f) return QColor(255, 128, 128);
+        if (charge < -0.1f) return QColor(128, 128, 255);
+        return QColor(220, 220, 220);
+    case ColorScheme::CPK:
+    case ColorScheme::Custom:
+    default:
+        return elem::cpkColor(element);
+    }
+}
+
+float MoleculeViewer::getAtomRadius(const QString& element) const
+{
+    const float base = elem::vdwRadius(element);
+    if (m_renderingMode == RenderingMode::SpaceFilling)
+        return base * 2.0f * m_atomScaleFactor;
+    return base * m_atomScaleFactor;
+}
+
+float MoleculeViewer::getCovalentRadius(const QString& element)
+{
+    return elem::covalentRadius(element);
+}
+
+QVector<MoleculeViewer::Bond> MoleculeViewer::detectBonds(const QVector<Atom>& atoms)
+{
+    QVector<Bond> detectedBonds;
+    const float BOND_TOLERANCE = 1.25f;
+    for (int i = 0; i < atoms.size(); ++i) {
+        for (int j = i + 1; j < atoms.size(); ++j) {
+            const float distance = (atoms[i].position - atoms[j].position).length();
+            const float threshold = (getCovalentRadius(atoms[i].element) + getCovalentRadius(atoms[j].element)) * BOND_TOLERANCE;
+            if (distance <= threshold)
+                detectedBonds.append({ i, j, 1 });
+        }
+    }
+    return detectedBonds;
+}
+
+// ---------------------------------------------------------------------------
+// Screenshot
+// ---------------------------------------------------------------------------
+void MoleculeViewer::saveScreenshot(const QString& filename, int scaleFactor)
+{
+    if (!m_quickView) {
+        qWarning() << "Cannot save screenshot: view not initialized";
+        return;
+    }
+    QImage shot = m_quickView->grabWindow();
+    if (scaleFactor > 1)
+        shot = shot.scaled(shot.size() * scaleFactor, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    if (!shot.save(filename))
+        qWarning() << "Failed to save screenshot to:" << filename;
+}
+
+void MoleculeViewer::saveScreenshotDialog()
+{
+    QString filter = tr("PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;All Files (*)");
+    QString filename = QFileDialog::getSaveFileName(this, tr("Save Screenshot"), QString(), filter);
+    if (filename.isEmpty())
+        return;
+    bool ok = false;
+    int scaleFactor = QInputDialog::getInt(this, tr("Screenshot Resolution"),
+        tr("Resolution multiplier (1x = current size):"), 1, 1, 4, 1, &ok);
+    if (!ok)
+        return;
+    saveScreenshot(filename, scaleFactor);
+    QMessageBox::information(this, tr("Screenshot Saved"), tr("Screenshot saved to:\n%1").arg(filename));
+}
+
+// ---------------------------------------------------------------------------
+// Animation
+// ---------------------------------------------------------------------------
 void MoleculeViewer::startAnimation()
 {
-    #ifdef DEBUG_ON
-    qDebug() << "▶ startAnimation() called - trajectorySize:" << m_trajectoryAtoms.size()
-             << "currentFrame:" << m_currentFrame << "isAnimating:" << m_isAnimating;
-    #endif
-
     if (m_trajectoryAtoms.size() <= 1) {
         qWarning() << "Cannot start animation: no trajectory data";
         return;
     }
-
-    if (m_isAnimating) {
-        #ifdef DEBUG_ON
-        qDebug() << "Already animating, returning";
-        #endif
-        return;  // Already animating
-    }
-
+    if (m_isAnimating)
+        return;
     m_isAnimating = true;
-
     if (!m_animationTimer) {
         m_animationTimer = new QTimer(this);
         connect(m_animationTimer, &QTimer::timeout, this, &MoleculeViewer::onAnimationTick);
-        #ifdef DEBUG_ON
-        qDebug() << "Created new animation timer";
-        #endif
     }
-
-    // Set interval based on FPS (1000ms / FPS = interval in ms)
-    int intervalMs = qMax(1, 1000 / m_animationFPS);
-    m_animationTimer->start(intervalMs);
-    #ifdef DEBUG_ON
-    qDebug() << "Timer started with interval:" << intervalMs << "ms (FPS:" << m_animationFPS << ")";
-    #endif
+    m_animationTimer->start(qMax(1, 1000 / m_animationFPS));
 }
 
 void MoleculeViewer::stopAnimation()
 {
-    if (m_animationTimer) {
+    if (m_animationTimer)
         m_animationTimer->stop();
-    }
     m_isAnimating = false;
 }
 
 void MoleculeViewer::setAnimationFPS(int fps)
 {
-    m_animationFPS = qBound(1, fps, 60);  // Clamp between 1-60 FPS
-
-    // If animating, update timer interval
-    if (m_isAnimating && m_animationTimer) {
-        int intervalMs = qMax(1, 1000 / m_animationFPS);
-        m_animationTimer->setInterval(intervalMs);
-    }
+    m_animationFPS = qBound(1, fps, 60);
+    if (m_isAnimating && m_animationTimer)
+        m_animationTimer->setInterval(qMax(1, 1000 / m_animationFPS));
 }
 
 void MoleculeViewer::onAnimationTick()
@@ -2436,92 +1026,110 @@ void MoleculeViewer::onAnimationTick()
         stopAnimation();
         return;
     }
-
-    int nextFrame = m_currentFrame + 1;
-
-    if (nextFrame >= m_trajectoryAtoms.size()) {
-        if (m_animationLoop) {
-            nextFrame = 0;  // Loop back to beginning
-        } else {
-            stopAnimation();  // Stop at end
+    int next = m_currentFrame + 1;
+    if (next >= m_trajectoryAtoms.size()) {
+        if (m_animationLoop)
+            next = 0;
+        else {
+            stopAnimation();
             return;
         }
     }
-
-    // Claude Generated - Use fast position-only update for smooth animation (no scene rebuild)
-    updateFramePositions(nextFrame);
+    updateFramePositions(next);
 }
 
-// Claude Generated - Create a separator widget
+// ---------------------------------------------------------------------------
+// Bond-edit auto-save
+// ---------------------------------------------------------------------------
+void MoleculeViewer::onStructureChanged()
+{
+    if (m_autoSaveEnabled && !m_currentFilePath.isEmpty()) {
+        m_hasUnsavedChanges = true;
+        m_autoSaveTimer->stop();
+        m_autoSaveTimer->start();
+    }
+}
+
+void MoleculeViewer::onAutoSaveTimer()
+{
+    if (!m_autoSaveEnabled || m_currentFilePath.isEmpty() || m_trajectoryAtoms.isEmpty())
+        return;
+    if (!m_hasUnsavedChanges)
+        return;
+    if (!QFile::exists(m_currentFilePath + ".backup"))
+        QFile::copy(m_currentFilePath, m_currentFilePath + ".backup");
+
+    XYZParser::XYZFrame xyzFrame;
+    if (XYZParser::convertFromMoleculeViewer(m_trajectoryAtoms[m_currentFrame],
+            QString("Auto-saved frame %1").arg(m_currentFrame + 1), xyzFrame)) {
+        if (XYZParser::writeFile(m_currentFilePath, xyzFrame))
+            m_hasUnsavedChanges = false;
+        else
+            qWarning() << "Auto-save failed for:" << m_currentFilePath;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Control panel (top bar) — preserved verbatim from the Qt3D version
+// ---------------------------------------------------------------------------
 QFrame* MoleculeViewer::createSeparator()
 {
-    QFrame *separator = new QFrame;
+    QFrame* separator = new QFrame;
     separator->setFrameShape(QFrame::VLine);
     separator->setFrameShadow(QFrame::Sunken);
     separator->setMaximumWidth(2);
     return separator;
 }
 
-// Claude Generated - Setup integrated control panel (refactored for frame navigation)
 void MoleculeViewer::setupControlPanel()
 {
     m_controlPanel = new QWidget;
     m_controlPanel->setMaximumHeight(50);
-
-    // Claude Generated - Adaptive styling for light/dark mode
     m_controlPanel->setAutoFillBackground(true);
     QPalette pal = m_controlPanel->palette();
-    // Use system palette for background - automatically adapts to theme
     pal.setColor(QPalette::Window, pal.color(QPalette::Base).lighter(105));
     m_controlPanel->setPalette(pal);
-    // Border style - automatically uses appropriate color
     m_controlPanel->setStyleSheet("QWidget { border-bottom: 1px solid palette(mid); }");
 
-    QHBoxLayout *panelLayout = new QHBoxLayout(m_controlPanel);
+    QHBoxLayout* panelLayout = new QHBoxLayout(m_controlPanel);
     panelLayout->setContentsMargins(5, 3, 5, 3);
     panelLayout->setSpacing(5);
 
-    // Claude Generated - FRAME NAVIGATION SECTION (hidden when frameCount == 1)
+    // Frame navigation (hidden when frameCount == 1)
     m_frameControlWidget = new QWidget;
-    QHBoxLayout *frameLayout = new QHBoxLayout(m_frameControlWidget);
+    QHBoxLayout* frameLayout = new QHBoxLayout(m_frameControlWidget);
     frameLayout->setContentsMargins(0, 0, 0, 0);
     frameLayout->setSpacing(3);
 
-    // Previous frame button
-    QPushButton *prevButton = new QPushButton("◀");
+    QPushButton* prevButton = new QPushButton("◀");
     prevButton->setMaximumWidth(30);
     prevButton->setToolTip(tr("Previous Frame"));
     connect(prevButton, &QPushButton::clicked, this, &MoleculeViewer::previousFrame);
     frameLayout->addWidget(prevButton);
 
-    // Next frame button
-    QPushButton *nextButton = new QPushButton("▶");
+    QPushButton* nextButton = new QPushButton("▶");
     nextButton->setMaximumWidth(30);
     nextButton->setToolTip(tr("Next Frame"));
     connect(nextButton, &QPushButton::clicked, this, &MoleculeViewer::nextFrame);
     frameLayout->addWidget(nextButton);
 
-    // Frame slider
     m_frameSlider = new QSlider(Qt::Horizontal);
     m_frameSlider->setMinimum(0);
     m_frameSlider->setMaximum(0);
     m_frameSlider->setToolTip(tr("Navigate through trajectory frames"));
     connect(m_frameSlider, &QSlider::valueChanged, this, &MoleculeViewer::showFrame);
-    frameLayout->addWidget(m_frameSlider, 1);  // Stretch to fill available space
+    frameLayout->addWidget(m_frameSlider, 1);
 
-    // Frame label
     m_frameLabel = new QLabel("0/0");
     m_frameLabel->setMinimumWidth(50);
     m_frameLabel->setAlignment(Qt::AlignCenter);
     frameLayout->addWidget(m_frameLabel);
 
-    // Frame jump spinbox
     m_frameJumpBox = new QSpinBox;
     m_frameJumpBox->setMinimum(0);
     m_frameJumpBox->setMaximum(0);
     m_frameJumpBox->setMaximumWidth(60);
     m_frameJumpBox->setToolTip(tr("Jump to frame number"));
-    // Bidirectional sync: spinbox → slider
     connect(m_frameJumpBox, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
         if (value != m_frameSlider->value()) {
             m_frameSlider->blockSignals(true);
@@ -2531,31 +1139,26 @@ void MoleculeViewer::setupControlPanel()
     });
     frameLayout->addWidget(m_frameJumpBox);
 
-    m_frameControlWidget->setVisible(false);  // Hidden by default (shown when frameCount > 1)
+    m_frameControlWidget->setVisible(false);
     panelLayout->addWidget(m_frameControlWidget, 1);
-
-    // Separator
     panelLayout->addWidget(createSeparator());
 
-    // Claude Generated - PLAYBACK SECTION
-    // Play button
-    QPushButton *playButton = new QPushButton;
+    // Playback
+    QPushButton* playButton = new QPushButton;
     playButton->setIcon(QIcon::fromTheme("media-playback-start"));
     playButton->setToolTip(tr("Play Animation"));
     playButton->setMaximumWidth(30);
     connect(playButton, &QPushButton::clicked, this, &MoleculeViewer::startAnimation);
     panelLayout->addWidget(playButton);
 
-    // Pause button
-    QPushButton *pauseButton = new QPushButton;
+    QPushButton* pauseButton = new QPushButton;
     pauseButton->setIcon(QIcon::fromTheme("media-playback-pause"));
     pauseButton->setToolTip(tr("Pause Animation"));
     pauseButton->setMaximumWidth(30);
     connect(pauseButton, &QPushButton::clicked, this, &MoleculeViewer::stopAnimation);
     panelLayout->addWidget(pauseButton);
 
-    // FPS spinner
-    QSpinBox *fpsSpinBox = new QSpinBox;
+    QSpinBox* fpsSpinBox = new QSpinBox;
     fpsSpinBox->setRange(1, 60);
     fpsSpinBox->setValue(m_animationFPS);
     fpsSpinBox->setMaximumWidth(50);
@@ -2565,103 +1168,94 @@ void MoleculeViewer::setupControlPanel()
     });
     panelLayout->addWidget(fpsSpinBox);
 
-    // Loop checkbox
-    QCheckBox *loopCheckbox = new QCheckBox(tr("Loop"));
+    QCheckBox* loopCheckbox = new QCheckBox(tr("Loop"));
     loopCheckbox->setChecked(true);
     connect(loopCheckbox, &QCheckBox::toggled, this, &MoleculeViewer::setAnimationLoop);
     panelLayout->addWidget(loopCheckbox);
-
-    // Separator
     panelLayout->addWidget(createSeparator());
 
-    // Claude Generated - RENDERING SECTION
-    // Mode selector
-    QComboBox *modeCombo = new QComboBox;
+    // Rendering
+    QComboBox* modeCombo = new QComboBox;
     modeCombo->addItem(tr("Ball & Stick"), static_cast<int>(RenderingMode::BallAndStick));
     modeCombo->addItem(tr("Space-Filling"), static_cast<int>(RenderingMode::SpaceFilling));
     modeCombo->addItem(tr("Wireframe"), static_cast<int>(RenderingMode::Wireframe));
     modeCombo->addItem(tr("Sticks"), static_cast<int>(RenderingMode::SticksOnly));
     modeCombo->setMaximumWidth(110);
-    connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            [this, modeCombo](int index) {
+    connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, modeCombo](int index) {
         setRenderingMode(static_cast<RenderingMode>(modeCombo->itemData(index).toInt()));
     });
     panelLayout->addWidget(modeCombo);
 
-    // Color scheme selector
-    QComboBox *colorCombo = new QComboBox;
+    QComboBox* colorCombo = new QComboBox;
     colorCombo->addItem(tr("CPK"), static_cast<int>(ColorScheme::CPK));
     colorCombo->addItem(tr("Monochrome"), static_cast<int>(ColorScheme::Monochrome));
     colorCombo->addItem(tr("By Charge"), static_cast<int>(ColorScheme::ByCharge));
     colorCombo->setMaximumWidth(100);
-    connect(colorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            [this, colorCombo](int index) {
+    connect(colorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, colorCombo](int index) {
         setColorScheme(static_cast<ColorScheme>(colorCombo->itemData(index).toInt()));
     });
     panelLayout->addWidget(colorCombo);
 
-    // Claude Generated - Phase 4 Final: Material mode selector (Phong vs PBR)
-    QComboBox *materialCombo = new QComboBox;
+    QComboBox* materialCombo = new QComboBox;
     materialCombo->addItem(tr("Phong"), static_cast<int>(MaterialMode::Phong));
     materialCombo->addItem(tr("PBR"), static_cast<int>(MaterialMode::PBR));
     materialCombo->setMaximumWidth(80);
     materialCombo->setToolTip(tr("Phong: Traditional lighting\nPBR: Physically-based rendering"));
-    connect(materialCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            [this, materialCombo](int index) {
+    connect(materialCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, materialCombo](int index) {
         setMaterialMode(static_cast<MaterialMode>(materialCombo->itemData(index).toInt()));
     });
     panelLayout->addWidget(materialCombo);
 
-    // Claude Generated - Phase 4 Final: Glow intensity slider for selection highlighting
-    QSlider *glowSlider = new QSlider(Qt::Horizontal);
-    glowSlider->setMinimum(10);  // 1.0x
-    glowSlider->setMaximum(20);  // 2.0x
+    QSlider* glowSlider = new QSlider(Qt::Horizontal);
+    glowSlider->setMinimum(10);
+    glowSlider->setMaximum(20);
     glowSlider->setValue(10);
     glowSlider->setMaximumWidth(60);
     glowSlider->setToolTip(tr("Selection glow intensity (1.0-2.0x)"));
-    connect(glowSlider, &QSlider::valueChanged, [this, glowSlider](int value) {
-        setGlowIntensity(value / 10.0f);  // Convert slider value to 1.0-2.0 range
+    connect(glowSlider, &QSlider::valueChanged, [this](int value) {
+        setGlowIntensity(value / 10.0f);
     });
     panelLayout->addWidget(glowSlider);
-
-    // Separator
     panelLayout->addWidget(createSeparator());
 
-    // Measurement selector - Claude Generated Phase 2B: Added Dihedral measurement
-    QComboBox *measureCombo = new QComboBox;
+    // Measurement
+    QComboBox* measureCombo = new QComboBox;
     measureCombo->addItem(tr("No Measurement"), 0);
     measureCombo->addItem(tr("Distance (2 atoms)"), 1);
     measureCombo->addItem(tr("Angle (3 atoms)"), 2);
     measureCombo->addItem(tr("Dihedral (4 atoms)"), 3);
     measureCombo->setMaximumWidth(150);
-    connect(measureCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            [this, measureCombo](int index) {
+    connect(measureCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, measureCombo](int index) {
         setMeasurementMode(measureCombo->itemData(index).toInt());
     });
     panelLayout->addWidget(measureCombo);
-
-    // Separator
     panelLayout->addWidget(createSeparator());
 
-    // Claude Generated - Phase 4B: BOND EDITING SECTION
-    QComboBox *bondEditCombo = new QComboBox;
+    // Bond editing
+    QComboBox* bondEditCombo = new QComboBox;
     bondEditCombo->addItem(tr("No Bond Edit"), 0);
     bondEditCombo->addItem(tr("Add Bond (B)"), 1);
     bondEditCombo->addItem(tr("Delete Bond (D)"), 2);
     bondEditCombo->addItem(tr("Cycle Order (O)"), 3);
     bondEditCombo->setMaximumWidth(130);
-    connect(bondEditCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            [this, bondEditCombo](int index) {
+    connect(bondEditCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, bondEditCombo](int index) {
         setBondEditMode(bondEditCombo->itemData(index).toInt());
     });
     panelLayout->addWidget(bondEditCombo);
-
-    // Separator
     panelLayout->addWidget(createSeparator());
 
-    // Claude Generated - 4 corner light toggles. Compact 2×2 grid of
-    // QToolButton switches labeled by corner (TL=top-left, TR, BL=back-left,
-    // BR=back-right relative to +Z front). Hover tooltip clarifies each.
+    // Force-vector overlay toggle (opt-in; shows the injected grab force as arrows)
+    QToolButton* forceBtn = new QToolButton;
+    forceBtn->setText(QStringLiteral("↯"));
+    forceBtn->setToolTip(tr("Show force vectors while grabbing (interactive simulation)"));
+    forceBtn->setCheckable(true);
+    forceBtn->setChecked(false);
+    forceBtn->setFixedSize(24, 24);
+    connect(forceBtn, &QToolButton::toggled, this, &MoleculeViewer::setForceVectorsVisible);
+    panelLayout->addWidget(forceBtn);
+    panelLayout->addWidget(createSeparator());
+
+    // 4 corner light toggles (2×2)
     {
         QWidget* lightsBox = new QWidget;
         QGridLayout* g = new QGridLayout(lightsBox);
@@ -2669,10 +1263,10 @@ void MoleculeViewer::setupControlPanel()
         g->setSpacing(1);
         struct CornerSpec { const char* label; const char* tip; int row; int col; };
         const CornerSpec specs[4] = {
-            {"◤", "Top-front-left light",  0, 0},
-            {"◥", "Top-front-right light", 0, 1},
-            {"◣", "Top-back-left light",   1, 0},
-            {"◢", "Top-back-right light",  1, 1},
+            { "◤", "Top-front-left light", 0, 0 },
+            { "◥", "Top-front-right light", 0, 1 },
+            { "◣", "Top-back-left light", 1, 0 },
+            { "◢", "Top-back-right light", 1, 1 },
         };
         for (int i = 0; i < 4; ++i) {
             QToolButton* btn = new QToolButton;
@@ -2689,7 +1283,7 @@ void MoleculeViewer::setupControlPanel()
         panelLayout->addWidget(lightsBox);
     }
 
-    // Claude Generated - Background color picker.
+    // Background colour picker
     QPushButton* bgColorBtn = new QPushButton(tr("BG"));
     bgColorBtn->setToolTip(tr("Change 3D view background color"));
     bgColorBtn->setMaximumWidth(40);
@@ -2707,494 +1301,4 @@ void MoleculeViewer::setupControlPanel()
     panelLayout->addWidget(bgColorBtn);
 
     panelLayout->addStretch();
-}
-
-
-// Claude Generated - Selection and measurement functions
-void MoleculeViewer::clearSelection()
-{
-    m_selectedAtoms.clear();
-    m_measurementMode = 0;
-
-    // Claude Generated - Phase 2A: Also clear SelectionManager and update visuals
-    if (m_selectionManager) {
-        m_selectionManager->clearSelection();
-    }
-    updateMaterials();
-}
-
-void MoleculeViewer::setMeasurementMode(int mode)
-{
-    m_measurementMode = qBound(0, mode, 3);  // Claude Generated - Phase 2B: Clamp 0-3 (None, Distance, Angle, Dihedral)
-
-    // Handle measurement mode changes
-    if (m_measurementMode == 0) {
-        // No measurement - clear visualization
-        if (m_measurementOverlay) {
-            m_measurementOverlay->clearMeasurement();
-        }
-    } else {
-        // Active measurement mode - will be updated when atoms are selected
-        // Type is determined by number of selected atoms:
-        // 2 atoms = Distance (mode 1)
-        // 3 atoms = Angle (mode 2)
-        // 4+ atoms = Dihedral (mode 3)
-    }
-}
-
-// Claude Generated - Phase 4B: Bond edit mode management
-void MoleculeViewer::setBondEditMode(int mode)
-{
-    m_bondEditMode = qBound(0, mode, 3);  // Clamp 0-3 (None, AddBond, DeleteBond, ChangeBondOrder)
-
-    if (m_bondEditor) {
-        // Convert MoleculeViewer mode to BondEditor mode
-        BondEditor::EditMode editorMode;
-        switch (m_bondEditMode) {
-            case 0: editorMode = BondEditor::EditMode::None; break;
-            case 1: editorMode = BondEditor::EditMode::AddBondMode; break;
-            case 2: editorMode = BondEditor::EditMode::DeleteBondMode; break;
-            case 3: editorMode = BondEditor::EditMode::ChangeBondMode; break;
-            default: editorMode = BondEditor::EditMode::None;
-        }
-        m_bondEditor->setEditMode(editorMode);
-
-        // Log mode change for debugging
-        const char* modeNames[] = {"None", "AddBond", "DeleteBond", "ChangeBondOrder"};
-        #ifdef DEBUG_ON
-        qDebug() << "Bond edit mode:" << modeNames[m_bondEditMode];
-        #endif
-    }
-}
-
-// Claude Generated - Refresh visualization without camera reset
-void MoleculeViewer::refreshVisualization()
-{
-    if (m_trajectoryAtoms.isEmpty() || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size()) {
-        return;
-    }
-
-    // Clear and re-render the scene WITHOUT changing camera
-    clearScene();
-    Qt3DCore::QEntity* moleculeEntity = createMoleculeEntity(
-        m_trajectoryAtoms[m_currentFrame],
-        m_trajectoryBonds[m_currentFrame]
-    );
-    moleculeEntity->setParent(m_modelEntity);
-
-    // NOTE: Intentionally NO setDefaultView() call - preserve camera position!
-}
-
-// Claude Generated - Focus & Zoom Commands
-void MoleculeViewer::getSelectedBounds(QVector3D& center, float& radius)
-{
-    if (m_trajectoryAtoms.isEmpty() || m_currentFrame >= m_trajectoryAtoms.size()) {
-        center = m_moleculeCenter;
-        radius = m_moleculeRadius;
-        return;
-    }
-
-    const auto& atoms = m_trajectoryAtoms[m_currentFrame];
-    if (atoms.isEmpty()) {
-        center = m_moleculeCenter;
-        radius = m_moleculeRadius;
-        return;
-    }
-
-    // Calculate bounding sphere for selected atoms
-    if (m_selectedAtoms.isEmpty()) {
-        // Use all atoms if nothing selected
-        center = m_moleculeCenter;
-        radius = m_moleculeRadius;
-    } else {
-        // Calculate center of selected atoms
-        QVector3D sum(0, 0, 0);
-        for (int idx : m_selectedAtoms) {
-            if (idx < atoms.size()) {
-                sum += atoms[idx].position;
-            }
-        }
-        center = sum / m_selectedAtoms.size();
-
-        // Calculate radius as max distance from center
-        radius = 0.0f;
-        for (int idx : m_selectedAtoms) {
-            if (idx < atoms.size()) {
-                float dist = (atoms[idx].position - center).length();
-                if (dist > radius) radius = dist;
-            }
-        }
-        radius += 2.0f;  // Add padding
-    }
-}
-
-void MoleculeViewer::centerOnAtom(int atomIndex)
-{
-    if (m_trajectoryAtoms.isEmpty() || m_currentFrame >= m_trajectoryAtoms.size()) return;
-    const auto& atoms = m_trajectoryAtoms[m_currentFrame];
-    if (atomIndex < 0 || atomIndex >= atoms.size()) return;
-
-    // Move camera to look at selected atom
-    const auto& atom = atoms[atomIndex];
-    // Transform model-local position to world space for camera targeting
-    QVector3D worldPos = m_modelRotation.rotatedVector(atom.position - m_moleculeCenter) + m_moleculeCenter;
-    QVector3D direction = m_camera->position() - worldPos;
-    if (direction.length() < 0.001f) {
-        direction = QVector3D(0, 0, 1);  // Default if too close
-    }
-    direction.normalize();
-
-    float distance = 5.0f;  // Default viewing distance
-    m_camera->setPosition(worldPos + direction * distance);
-    m_camera->setViewCenter(worldPos);
-
-    updateInstancingCameraPosition();
-}
-
-void MoleculeViewer::zoomToSelection(const QVector<int>& atomIndices)
-{
-    if (atomIndices.isEmpty()) {
-        fitAllInView();
-        return;
-    }
-
-    m_selectedAtoms = atomIndices;
-    QVector3D center;
-    float radius;
-    getSelectedBounds(center, radius);
-
-    // Transform model-local center to world space
-    QVector3D worldCenter = m_modelRotation.rotatedVector(center - m_moleculeCenter) + m_moleculeCenter;
-
-    // Position camera to view selection
-    QVector3D direction = m_camera->position() - worldCenter;
-    if (direction.length() < 0.001f) {
-        direction = QVector3D(0, 0, 1);
-    }
-    direction.normalize();
-
-    // Calculate distance to frame the sphere in view
-    // For 45 degree FOV, distance = radius / tan(22.5 degrees)
-    float distance = radius / 0.4142f;  // ~tan(22.5°)
-    if (distance < 1.0f) distance = 1.0f;
-
-    m_camera->setPosition(worldCenter + direction * distance);
-    m_camera->setViewCenter(worldCenter);
-
-    updateInstancingCameraPosition();
-}
-
-void MoleculeViewer::fitAllInView()
-{
-    if (m_trajectoryAtoms.isEmpty() || m_currentFrame >= m_trajectoryAtoms.size()) return;
-
-    // Molecule center in world space (may be offset by model rotation)
-    QVector3D worldCenter = m_modelRotation.rotatedVector(m_moleculeCenter - m_moleculeCenter) + m_moleculeCenter;
-    float radius = m_moleculeRadius;
-
-    // Position camera to view entire molecule
-    QVector3D direction = m_camera->position() - worldCenter;
-    if (direction.length() < 0.001f) {
-        direction = QVector3D(0, 0, 1);
-    }
-    direction.normalize();
-
-    // Calculate distance to frame the entire molecule
-    float distance = radius / 0.4142f;  // ~tan(22.5°) for 45 degree FOV
-    if (distance < 1.0f) distance = 5.0f;
-
-    m_camera->setPosition(worldCenter + direction * distance);
-    m_camera->setViewCenter(worldCenter);
-
-    updateInstancingCameraPosition();
-}
-
-// Claude Generated - Phase 2A: Handle ObjectPicker click events
-void MoleculeViewer::onAtomPicked(Qt3DRender::QPickEvent *pickEvent)
-{
-    // Find which atom was picked
-    Qt3DRender::QObjectPicker *picker = qobject_cast<Qt3DRender::QObjectPicker*>(sender());
-    if (!picker || !m_atomPickerToIndex.contains(picker)) {
-        return;
-    }
-
-    int atomIndex = m_atomPickerToIndex[picker];
-
-    // Check modifier keys for selection mode
-    bool appendSelection = (pickEvent->modifiers() & Qt::ControlModifier) != 0;
-    bool toggleSelection = (pickEvent->modifiers() & Qt::ShiftModifier) != 0;
-
-    if (toggleSelection) {
-        m_selectionManager->toggleAtom(atomIndex);
-    } else {
-        m_selectionManager->selectAtom(atomIndex, appendSelection);
-    }
-
-    // Update materials to show selection highlighting
-    updateMaterials();
-
-    // Claude Generated - Phase 2B: Update measurement if in measurement mode
-    if (m_measurementMode != 0 && m_measurementOverlay) {
-        const auto& selectedAtoms = m_selectionManager->selectedAtoms();
-        int numSelected = selectedAtoms.size();
-
-        // Determine measurement type based on selection count
-        MeasurementOverlay::MeasurementType measurementType = MeasurementOverlay::NoMeasurement;
-        if (numSelected == 2 && m_measurementMode >= 1) {
-            measurementType = MeasurementOverlay::Distance;
-        } else if (numSelected == 3 && m_measurementMode >= 2) {
-            measurementType = MeasurementOverlay::Angle;
-        } else if (numSelected >= 4 && m_measurementMode >= 3) {
-            measurementType = MeasurementOverlay::Dihedral;
-        }
-
-        // Set measurement and update visualization
-        if (measurementType != MeasurementOverlay::NoMeasurement) {
-            m_measurementOverlay->setMeasurement(measurementType, QVector<int>(selectedAtoms));
-
-            // Update with current frame positions (world space)
-            if (m_currentFrame < m_trajectoryAtoms.size()) {
-                QVector<QVector3D> positions;
-                for (const Atom& atom : m_trajectoryAtoms[m_currentFrame]) {
-                    positions.append(modelToWorld(atom.position));
-                }
-                m_measurementOverlay->updateMeasurement(positions);
-            }
-        }
-    }
-
-    // Emit signal for downstream UI updates
-    emit selectionChanged(m_selectionManager->selectedAtoms());
-}
-
-// Claude Generated 2026 - Phase 5: In sim-mode, a press on an atom enters
-// grab mode — subsequent mouse-move deltas generate atomForceRequested() until
-// release. Outside sim-mode we ignore the press entirely so the existing
-// clicked→onAtomPicked selection path is unaffected.
-void MoleculeViewer::onAtomPressedForGrab(Qt3DRender::QPickEvent *pickEvent)
-{
-    Q_UNUSED(pickEvent);
-    if (!m_simulationActive)
-        return;
-    Qt3DRender::QObjectPicker *picker = qobject_cast<Qt3DRender::QObjectPicker*>(sender());
-    if (!picker || !m_atomPickerToIndex.contains(picker))
-        return;
-    m_grabbedAtom = m_atomPickerToIndex[picker];
-    // Change cursor to indicate active grabbing
-    if (m_view) m_view->setCursor(Qt::ClosedHandCursor);
-    if (m_container) m_container->setCursor(Qt::ClosedHandCursor);
-}
-
-// Claude Generated - Visual feedback when hovering over grab-capable atoms
-// Changes cursor to indicate that the atom can be grabbed during simulation
-void MoleculeViewer::onAtomHoverEntered()
-{
-    if (!m_simulationActive)
-        return;
-
-    Qt3DRender::QObjectPicker *picker = qobject_cast<Qt3DRender::QObjectPicker*>(sender());
-    if (!picker || !m_atomPickerToIndex.contains(picker))
-        return;
-
-    int atomIndex = m_atomPickerToIndex[picker];
-
-    // Safety check: ensure trajectory data is valid
-    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()
-        && atomIndex >= 0 && atomIndex < m_trajectoryAtoms[m_currentFrame].size()) {
-        const Atom& atom = m_trajectoryAtoms[m_currentFrame][atomIndex];
-        // Emit status message with element and index for potential display
-        emit grabStatusChanged(tr("Grab atom %1 (%2) - click and drag to apply force")
-            .arg(atomIndex + 1).arg(atom.element));
-    }
-
-    // Change cursor to OpenHand to indicate grab-ability
-    if (m_view) m_view->setCursor(Qt::OpenHandCursor);
-    if (m_container) m_container->setCursor(Qt::OpenHandCursor);
-}
-
-// Claude Generated - Clear visual feedback when leaving atom
-void MoleculeViewer::onAtomHoverExited()
-{
-    if (!m_simulationActive)
-        return;
-
-    // Reset to rotation cursor (simulation active, not over atom)
-    if (m_grabbedAtom < 0) {
-        if (m_view) m_view->setCursor(Qt::SizeAllCursor);
-        if (m_container) m_container->setCursor(Qt::SizeAllCursor);
-    }
-}
-
-// Claude Generated - Phase 4B: Bond picking and editing
-void MoleculeViewer::onBondPicked(Qt3DRender::QPickEvent *pickEvent)
-{
-    // Find which bond was picked
-    Qt3DRender::QObjectPicker *picker = qobject_cast<Qt3DRender::QObjectPicker*>(sender());
-    if (!picker || !m_bondPickerToIndex.contains(picker)) {
-        return;
-    }
-
-    int bondIndex = m_bondPickerToIndex[picker];
-    if (!m_bondEditor) {
-        return;
-    }
-
-    // Handle based on current edit mode
-    switch (m_bondEditMode) {
-        case 0:  // None - just select/deselect
-            m_bondEditor->selectBond(bondIndex);
-            break;
-
-        case 1: {  // AddBond mode - click 2 atoms
-            // Get bond atoms from pickEvent or selectionManager
-            const auto& selectedAtoms = m_selectionManager->selectedAtoms();
-            if (selectedAtoms.size() >= 2) {
-                int atom1 = selectedAtoms[selectedAtoms.size() - 2];
-                int atom2 = selectedAtoms[selectedAtoms.size() - 1];
-
-                if (m_bondEditor->addBond(atom1, atom2, 1)) {
-                    refreshVisualization();  // Rebuild geometry with new bond
-                } else {
-                    qWarning() << "Failed to add bond";
-                }
-            }
-            break;
-        }
-
-        case 2:  // DeleteBond mode - click bond to delete
-            if (m_bondEditor->removeBond(bondIndex)) {
-                refreshVisualization();  // Rebuild geometry without bond
-            } else {
-                qWarning() << "Failed to delete bond";
-            }
-            break;
-
-        case 3:  // ChangeBondOrder mode - click to cycle 1->2->3->1
-            {
-                const auto& bonds = m_bondEditor->getAllBonds();
-                if (bondIndex < bonds.size()) {
-                    int currentOrder = bonds[bondIndex].bondOrder;
-                    int newOrder = (currentOrder % 3) + 1;  // Cycle: 1->2, 2->3, 3->1
-
-                    if (m_bondEditor->changeBondOrder(bondIndex, newOrder)) {
-                        refreshVisualization();  // Rebuild geometry with new bond order
-                    } else {
-                        qWarning() << "Failed to change bond order";
-                    }
-                }
-            }
-            break;
-
-        default:
-            break;
-    }
-}
-
-// Claude Generated - Phase 4B: Auto-save structure changes
-void MoleculeViewer::onStructureChanged()
-{
-    // Signal from BondEditor when structure changes
-    if (m_autoSaveEnabled && !m_currentFilePath.isEmpty()) {
-        m_hasUnsavedChanges = true;
-        #ifdef DEBUG_ON
-        qDebug() << "Structure changed - marking for auto-save";
-        #endif
-
-        // Restart debouncing timer
-        m_autoSaveTimer->stop();
-        m_autoSaveTimer->start();
-    }
-}
-
-// Claude Generated - Phase 4B: Auto-save timer trigger - write XYZ file
-void MoleculeViewer::onAutoSaveTimer()
-{
-    if (!m_autoSaveEnabled || m_currentFilePath.isEmpty() || m_trajectoryAtoms.isEmpty()) {
-        return;
-    }
-
-    if (!m_hasUnsavedChanges) {
-        return;  // Nothing to save
-    }
-
-    // Create backup on first edit
-    if (!QFile::exists(m_currentFilePath + ".backup")) {
-        QFile::copy(m_currentFilePath, m_currentFilePath + ".backup");
-        #ifdef DEBUG_ON
-        qDebug() << "Created backup:" << m_currentFilePath + ".backup";
-        #endif
-    }
-
-    // Convert current frame to XYZ and write
-    XYZParser::XYZFrame xyzFrame;
-    if (XYZParser::convertFromMoleculeViewer(m_trajectoryAtoms[m_currentFrame],
-                                             QString("Auto-saved frame %1").arg(m_currentFrame + 1),
-                                             xyzFrame)) {
-        if (XYZParser::writeFile(m_currentFilePath, xyzFrame)) {
-            m_hasUnsavedChanges = false;
-            #ifdef DEBUG_ON
-            qDebug() << "Auto-saved to:" << m_currentFilePath;
-            #endif
-        } else {
-            qWarning() << "Auto-save failed for:" << m_currentFilePath;
-        }
-    }
-}
-
-// Claude Generated - Phase 2A: Direct selection from internal calls
-void MoleculeViewer::selectAtom(int index, bool append)
-{
-    if (!append && !m_selectedAtoms.isEmpty()) {
-        clearSelection();
-    }
-
-    if (!m_selectedAtoms.contains(index)) {
-        m_selectedAtoms.append(index);
-        m_selectionManager->selectAtom(index, append);
-        updateMaterials();
-        emit selectionChanged(m_selectedAtoms);
-    }
-}
-
-// Claude Generated - Phase 2C: Atom data accessors for AtomListPanel
-QVector<QVector3D> MoleculeViewer::getAtomPositions() const
-{
-    QVector<QVector3D> positions;
-    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
-        for (const Atom& atom : m_trajectoryAtoms[m_currentFrame]) {
-            positions.append(atom.position);
-        }
-    }
-    return positions;
-}
-
-QVector<QString> MoleculeViewer::getAtomElements() const
-{
-    QVector<QString> elements;
-    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
-        for (const Atom& atom : m_trajectoryAtoms[m_currentFrame]) {
-            elements.append(atom.element);
-        }
-    }
-    return elements;
-}
-
-QVector<float> MoleculeViewer::getAtomCharges() const
-{
-    QVector<float> charges;
-    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
-        for (const Atom& atom : m_trajectoryAtoms[m_currentFrame]) {
-            charges.append(atom.charge);
-        }
-    }
-    return charges;
-}
-
-// Claude Generated - Interactive Simulation Integration
-QVector<MoleculeViewer::Atom> MoleculeViewer::getCurrentFrameAtoms() const
-{
-    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
-        return m_trajectoryAtoms[m_currentFrame];
-    }
-    return QVector<Atom>();
 }

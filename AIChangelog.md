@@ -1,5 +1,19 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - Renderer-Migration Qt3D → Qt Quick 3D (WP2, Schritt 2a)
+
+- `MoleculeViewer` (`src/view.*`) intern auf **Qt Quick 3D** umgebaut (eingebetteter `QQuickView` + `SceneController` + `src/qml/viewer3d.qml`), **öffentliche API unverändert** → `mainwindow.cpp` & Konsumenten unberührt. Neue Bausteine: `scenecontroller.*` (Szene-View-Model), `atominstancing.*`/`bondinstancing.*` (`QQuick3DInstancing`), `elementdata.*` (CPK/vdW/kovalent).
+- Instanziertes Rendering (Atome/Bindungen), eingebaute Effekte via `ExtendedSceneEnvironment` (**SSAO/Bloom/HDR/Tonemap wirken jetzt echt** statt der alten Stubs), Schatten, Fog. Maus (Rotate/Pan/Zoom/Reset) + **Ray-Picking → Selektion** (Klick vs. Drag) in C++; Materialien opak (Blend nur bei Transparenz<1, sonst sah man Zylinder-Kanten).
+- **Interaktiver Grab** portiert: `computeGrabForce` rechnet Screen→World über die selbst-replizierte Kamera-Projektion (Quick3D-Viewport/Camera sind privat in dieser Qt-Installation), FoV auf 45° wie der alte Viewer; Vorzeichen geprüft (Atom folgt Cursor, da curcuma `gradient += F`).
+- **Opt-in Kraftvektoren** (`↯`-Toggle): gelber Pfeil am gegriffenen Atom + orange Schalen-Pfeile via identischem `forceinjector::distributeForce` wie der Integrator (Pfeile = exakt injizierte Kräfte). Noch offen (M2): Mess-/Bond-Edit-Overlays, RMSD-Tönung. Vulkan-Backend + Qt3D-Entfernung = Schritt 2b.
+
+## Juni 2026 - WP0: Qt Quick 3D + Vulkan Spike (standalone)
+
+- `spikes/quick3d/` als **eigenständige** Mini-App (eigene `CMakeLists.txt`, qurcuma-Build unberührt) zur De-Risk-Entscheidung Qt3D → Qt Quick 3D. Self-contained Datenschicht (`moleculedata.*`: Grid-Generator 1k/5k/10k + XYZ-Loader + lokale CPK-Farben/Radien/Bond-Detection), **keine** qurcuma/Qt3D-Header.
+- T3-Instancing in **einer** Klasse je Geometrie: `AtomInstancing`/`BondInstancing` (`QQuick3DInstancing`), per-Instanz via `calculateTableEntry`/`calculateTableEntryFromQuaternion`; Bond-Quaternion (Y→Bindungsrichtung) 1:1 aus `view.cpp:1345`, zwei Halbzylinder je Bindung. #Sphere/#Cylinder-100-Unit-Skalierung berücksichtigt.
+- T4 `ExtendedSceneEnvironment` (SSAO/Bloom/Tonemap) + `DirectionalLight castsShadow` mit Boden-Plane; T5 Vulkan-RHI Default + `--gl`-Fallback, Backend im Log/HUD bestätigt; T6 beide Einbettungsrouten (`--embed=quickwidget|container`, gleiches `Main.qml`); T7 Picking via `View3D.pick`→`instanceIndex` (Model braucht `pickable: true`!); T8 FPS-Meter (`frameSwapped`) + MD-Proxy-Animation. UX-Extras: In-Szene-HUD, Screenshot- + Reset-View-Button. Build warnungsfrei (Qt 6.11.1).
+- **Operator-validiert (AMD Radeon 890M / RADV, Vulkan 1.4.348):** läuft flüssig, 1k statisch >60 FPS, 10k statisch ~30 FPS (synthetisches Grid bond-lastig: ~58k Zylinder-Instanzen), Instanced-Picking liefert korrekten `instanceIndex`. FPS-Readout nur in der nativen `createWindowContainer`-Route (QQuickWidget rendert via `QQuickRenderControl`, kein `frameSwapped`) — die native Route ist ohnehin qurcumas heutiges Muster. 10k animiert (MD-Proxy) 40–50 FPS ohne / 20–30 mit dem synthetischen Bond-Overkill (~58k Zylinder, ~3× eines echten Moleküls). **Operator-Verdikt: GO** für Qt-Quick-3D-Migration (Report: `spikes/quick3d/REPORT.md`). Offene Punkte für WP2: Schatten nicht weltfest, echte-Molekül-FPS. `QQuickWidget` emittiert kein `frameSwapped` (Render-Control) → FPS nur in nativer Route. T9-VR weiter offen.
+
 ## Juni 2026 - RMSD-MTD-Bias im interaktiven Simulation-Widget
 
 - `rmsd_mtd` (curcuma `SimpleMD`-Bias-Modus, kein eigener Treiber) als Option ins Simulation-Widget gebaut: neue QGroupBox "RMSD Metadynamics" (nur im MD-Modus sichtbar, Enable-Checkbox → Details). Alle relevanten Parameter exponiert: k, α, RMSD-atoms, ref-file (mit Browse), max-gaussians, max-height, econv (Bias-Ablagerungs-Schwelle, default 1e8), pace, well-tempered (wtmtd) + ΔT, freeze-inherited.

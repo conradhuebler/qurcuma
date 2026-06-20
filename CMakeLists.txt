@@ -15,6 +15,9 @@ Widgets
 3DInput
 3DExtras
 Charts
+Qml
+Quick
+Quick3D
 REQUIRED
 )
 
@@ -120,6 +123,10 @@ set(SOURCES
     src/rmsdwidget.cpp  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/forceinjector.cpp  # Claude Generated 2026 - Topological force distribution (Phase 4)
     src/forceoverlay.cpp  # Claude Generated 2026 - Force visualization overlay
+    src/elementdata.cpp  # Claude Generated 2026 - Quick3D renderer: shared element tables
+    src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing
+    src/bondinstancing.cpp  # Claude Generated 2026 - Quick3D renderer: bond instancing
+    src/scenecontroller.cpp  # Claude Generated 2026 - Quick3D renderer: scene view-model
 )
 
 # Header-Dateien
@@ -154,6 +161,10 @@ set(HEADERS
     src/rmsdwidget.h  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/forceinjector.h  # Claude Generated 2026 - Topological force distribution (Phase 4)
     src/forceoverlay.h  # Claude Generated 2026 - Force visualization overlay
+    src/elementdata.h  # Claude Generated 2026 - Quick3D renderer: shared element tables
+    src/atominstancing.h  # Claude Generated 2026 - Quick3D renderer: atom instancing
+    src/bondinstancing.h  # Claude Generated 2026 - Quick3D renderer: bond instancing
+    src/scenecontroller.h  # Claude Generated 2026 - Quick3D renderer: scene view-model
     #src/dialogs/nmrstructuremodel.h
 
 )
@@ -201,6 +212,9 @@ Qt6::3DRender
 Qt6::3DInput
 Qt6::3DExtras
 Qt6::Charts
+Qt6::Qml
+Qt6::Quick
+Qt6::Quick3D
 cutechart
 ${LIBSSH_LIBRARIES}  # Claude Generated - SFTP support
 curcuma_core  # Claude Generated - Curcuma simulation backend

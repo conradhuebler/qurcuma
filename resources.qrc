@@ -6,6 +6,11 @@
         <file>stylesheets/light.qss</file>
     </qresource>
 
+    <!-- Claude Generated - Qt Quick 3D viewer scene (renderer migration) -->
+    <qresource prefix="/qml">
+        <file>src/qml/viewer3d.qml</file>
+    </qresource>
+
     <!-- Claude Generated - Phase 3B & 4A: Shader resources for advanced rendering -->
     <qresource prefix="/shaders">
         <!-- SSAO Shaders (Phase 3B - Foundation) -->
