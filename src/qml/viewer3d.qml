@@ -137,6 +137,22 @@ Item {
                                                        : PrincipledMaterial.Opaque
                 }
             }
+
+            // RMSD overlay: second structure, opaque, with HSV-shifted element
+            // colours (set per-instance) so it reads as the "other" molecule while
+            // staying element-coded. Shares the molecule's rotation.
+            Model {
+                source: "#Sphere"
+                visible: controller.overlayVisible
+                instancing: controller.overlayAtomInstancing
+                materials: PrincipledMaterial { baseColor: "white"; roughness: 0.4 }
+            }
+            Model {
+                source: "#Cylinder"
+                visible: controller.overlayVisible
+                instancing: controller.overlayBondInstancing
+                materials: PrincipledMaterial { baseColor: "white"; roughness: 0.55 }
+            }
         }
 
         // Force-vector arrows (opt-in). C++ computes them in WORLD space (post model
@@ -159,6 +175,36 @@ Item {
                 baseColor: "white"
                 lighting: PrincipledMaterial.NoLighting
             }
+        }
+
+        // Measurement lines (distance/angle/dihedral) — world space, unlit cyan.
+        Model {
+            source: "#Cylinder"
+            visible: controller.measurementActive
+            instancing: controller.measureLineInstancing
+            materials: PrincipledMaterial {
+                baseColor: "white"
+                lighting: PrincipledMaterial.NoLighting
+            }
+        }
+    }
+
+    // Measurement result label (2D overlay).
+    Rectangle {
+        visible: controller.measurementActive
+        anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 8 }
+        width: measureText.implicitWidth + 18
+        height: measureText.implicitHeight + 10
+        radius: 6
+        color: "#cc101418"
+        border.color: "#5a90e0ff"
+        Text {
+            id: measureText
+            anchors.centerIn: parent
+            color: "#aef0ff"
+            font.pixelSize: 15
+            font.bold: true
+            text: controller.measurementText
         }
     }
 }

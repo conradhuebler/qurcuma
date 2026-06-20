@@ -6,6 +6,7 @@
 #include "bondinstancing.h"
 #include "elementdata.h"
 
+#include <QPair>
 #include <QtMath>
 #include <limits>
 
@@ -13,6 +14,21 @@ namespace {
 constexpr float kSphereBaseRadius = 50.0f; // #Sphere base radius
 constexpr float kCylBaseHalfHeight = 50.0f; // #Cylinder half height (100 tall)
 constexpr float kCylBaseRadius = 50.0f; // #Cylinder base radius
+
+/// "Shift" a CPK element colour for the RMSD overlay: rotate the hue and add a
+/// tint + slight darkening, so the second structure is clearly distinct yet still
+/// element-coloured. Works on greys/whites too (they get a base hue + saturation).
+QColor shiftOverlayColor(const QColor& base)
+{
+    int h, s, v, a;
+    base.getHsv(&h, &s, &v, &a);
+    if (h < 0)
+        h = 30;                       // achromatic (C grey, H white) -> warm base hue
+    h = (h + 30) % 360;               // rotate hue
+    s = qBound(70, s + 60, 255);      // ensure a visible tint, even on near-greys
+    v = int(v * 0.88f);               // slightly darker -> reads as the secondary set
+    return QColor::fromHsv(h, s, v);
+}
 
 /// Quaternion rotating local +Y onto a unit bond direction (== view.cpp:1345).
 QQuaternion bondRotation(const QVector3D& normDir)
@@ -39,6 +55,94 @@ SceneController::SceneController(QObject* parent)
     m_arrowShaft->setParent(this);
     m_arrowTip = new BondInstancing(nullptr);
     m_arrowTip->setParent(this);
+    m_measureLines = new BondInstancing(nullptr);
+    m_measureLines->setParent(this);
+    m_overlayAtoms = new AtomInstancing(nullptr);
+    m_overlayAtoms->setParent(this);
+    m_overlayBonds = new BondInstancing(nullptr);
+    m_overlayBonds->setParent(this);
+}
+
+QQuick3DInstancing* SceneController::measureLineInstancing() const { return m_measureLines; }
+QQuick3DInstancing* SceneController::overlayAtomInstancing() const { return m_overlayAtoms; }
+QQuick3DInstancing* SceneController::overlayBondInstancing() const { return m_overlayBonds; }
+
+void SceneController::setMeasurement(const QVector<QPair<QVector3D, QVector3D>>& lines, const QString& text)
+{
+    QVector<BondInstancing::Segment> segs;
+    segs.reserve(lines.size());
+    const float r = 0.06f; // thin measurement line
+    const QColor color(90, 220, 255); // bright cyan, distinct from CPK
+    for (const auto& ln : lines) {
+        const QVector3D dir = ln.second - ln.first;
+        const float length = dir.length();
+        if (length < 1e-4f)
+            continue;
+        BondInstancing::Segment s;
+        s.center = 0.5f * (ln.first + ln.second);
+        s.scale = QVector3D(r / 50.0f, length / 100.0f, r / 50.0f);
+        s.rotation = bondRotation(dir / length);
+        s.color = color;
+        segs.append(s);
+    }
+    m_measureLines->setSegments(segs);
+    m_measurementText = text;
+    emit measurementChanged();
+}
+
+void SceneController::setOverlayStructure(const QVector<AtomDatum>& atoms,
+    const QVector<BondDatum>& bonds)
+{
+    // Second structure (RMSD target) under moleculeRoot: opaque, with HSV-shifted
+    // element colours so it is clearly the "other" molecule yet element-coded.
+    // Slightly smaller spheres so it nests inside the solid reference atoms.
+    auto tinted = [&](const QString& element) {
+        return shiftOverlayColor(elem::cpkColor(element));
+    };
+
+    QVector<AtomInstancing::Item> items;
+    items.reserve(atoms.size());
+    for (const AtomDatum& a : atoms) {
+        AtomInstancing::Item it;
+        it.position = a.position;
+        it.scale = 0.27f * m_atomScaleFactor * elem::vdwRadius(a.element);
+        it.color = tinted(a.element);
+        items.append(it);
+    }
+    m_overlayAtoms->setItems(items);
+
+    QVector<BondInstancing::Segment> segs;
+    const float sxz = m_bondRadius / kCylBaseRadius;
+    for (const BondDatum& b : bonds) {
+        if (b.a < 0 || b.b < 0 || b.a >= atoms.size() || b.b >= atoms.size())
+            continue;
+        const QVector3D posA = atoms[b.a].position;
+        const QVector3D posB = atoms[b.b].position;
+        const QVector3D dir = posB - posA;
+        const float length = dir.length();
+        if (length < 1e-4f)
+            continue;
+        const QQuaternion rot = bondRotation(dir / length);
+        const QVector3D mid = 0.5f * (posA + posB);
+        const float halfLength = length * 0.25f;
+        const QVector3D scale(sxz, halfLength / kCylBaseHalfHeight, sxz);
+        segs.append({ 0.5f * (posA + mid), scale, rot, tinted(atoms[b.a].element) });
+        segs.append({ 0.5f * (mid + posB), scale, rot, tinted(atoms[b.b].element) });
+    }
+    m_overlayBonds->setSegments(segs);
+
+    m_overlayVisible = !atoms.isEmpty();
+    emit overlayChanged();
+}
+
+void SceneController::clearOverlay()
+{
+    if (!m_overlayVisible)
+        return;
+    m_overlayAtoms->setItems({});
+    m_overlayBonds->setSegments({});
+    m_overlayVisible = false;
+    emit overlayChanged();
 }
 
 QQuick3DInstancing* SceneController::atomInstancing() const { return m_atomInstancing; }
@@ -97,6 +201,7 @@ void SceneController::setStructure(const QVector<AtomDatum>& atoms, const QVecto
     m_atoms = atoms;
     m_bonds = bonds;
     m_selection.clear();
+    clearOverlay();             // a fresh primary structure drops any RMSD overlay
     recomputeBounds();
     rebuildGeometry();
     resetView();

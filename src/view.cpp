@@ -149,13 +149,31 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     if (m_quickView) m_quickView->setCursor(shape);
                     if (m_container) m_container->setCursor(shape);
                 } else if (!m_leftDragged) {
-                    // A click (no drag) selects the atom under the cursor.
+                    // A click (no drag): select / measure / bond-edit by mode.
                     const int picked = pickAtomAtScreenPos(me->position().toPoint());
                     const bool append = me->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier);
-                    if (picked >= 0)
+                    if (picked < 0) {
+                        if (!append)
+                            clearSelection();
+                    } else if (m_bondEditMode != 0) {
+                        // Accumulate an atom pair, then apply the edit.
+                        selectAtom(picked, /*append=*/true);
+                        if (m_selectedAtoms.size() >= 2) {
+                            performBondEdit(m_selectedAtoms[0], m_selectedAtoms[1]);
+                            clearSelection();
+                        }
+                    } else if (m_measurementMode != 0) {
+                        const int need = m_measurementMode + 1;
+                        if (m_selectedAtoms.size() >= need) {
+                            m_selectedAtoms.clear(); // start a fresh measurement (keep mode)
+                            if (m_selectionManager)
+                                m_selectionManager->clearSelection();
+                        }
+                        selectAtom(picked, /*append=*/true);
+                        updateMeasurement();
+                    } else {
                         selectAtom(picked, append);
-                    else if (!append)
-                        clearSelection();
+                    }
                 }
                 return true;
             } else if (me->button() == Qt::RightButton) {
@@ -346,6 +364,100 @@ void MoleculeViewer::updateForceVectors()
 }
 
 // ---------------------------------------------------------------------------
+// Measurement overlay (M2): distance (2), angle (3), dihedral (4)
+// ---------------------------------------------------------------------------
+void MoleculeViewer::updateMeasurement()
+{
+    if (!m_scene)
+        return;
+    const int frame = (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) ? m_currentFrame : -1;
+    const int need = m_measurementMode + 1; // 1->2, 2->3, 3->4
+    if (m_measurementMode == 0 || frame < 0 || m_selectedAtoms.size() < need) {
+        m_scene->setMeasurement({}, QString());
+        return;
+    }
+    const QVector<Atom>& atoms = m_trajectoryAtoms[frame];
+    const QVector<int> idx = m_selectedAtoms.mid(m_selectedAtoms.size() - need, need);
+    for (int i : idx)
+        if (i < 0 || i >= atoms.size()) {
+            m_scene->setMeasurement({}, QString());
+            return;
+        }
+
+    QVector<QVector3D> wp; // world positions for the on-screen lines
+    for (int i : idx)
+        wp.append(modelToWorld(atoms[i].position));
+    QVector<QPair<QVector3D, QVector3D>> lines;
+    for (int i = 0; i + 1 < wp.size(); ++i)
+        lines.append({ wp[i], wp[i + 1] });
+
+    // Values from intrinsic positions (rigid → identical to world; clearer intent).
+    const QVector3D p0 = atoms[idx[0]].position;
+    const QVector3D p1 = atoms[idx[1]].position;
+    QString text;
+    if (m_measurementMode == 1) {
+        text = QStringLiteral("d(%1%2–%3%4) = %5 Å")
+                   .arg(atoms[idx[0]].element).arg(idx[0])
+                   .arg(atoms[idx[1]].element).arg(idx[1])
+                   .arg((p1 - p0).length(), 0, 'f', 3);
+    } else if (m_measurementMode == 2) {
+        const QVector3D p2 = atoms[idx[2]].position;
+        const QVector3D v1 = (p0 - p1).normalized();
+        const QVector3D v2 = (p2 - p1).normalized();
+        const float ang = qRadiansToDegrees(qAcos(qBound(-1.0f, QVector3D::dotProduct(v1, v2), 1.0f)));
+        text = QStringLiteral("∠(%1%2-%3%4-%5%6) = %7°")
+                   .arg(atoms[idx[0]].element).arg(idx[0]).arg(atoms[idx[1]].element).arg(idx[1])
+                   .arg(atoms[idx[2]].element).arg(idx[2]).arg(ang, 0, 'f', 1);
+    } else { // dihedral
+        const QVector3D p2 = atoms[idx[2]].position;
+        const QVector3D p3 = atoms[idx[3]].position;
+        const QVector3D b1 = p1 - p0, b2 = p2 - p1, b3 = p3 - p2;
+        const QVector3D n1 = QVector3D::crossProduct(b1, b2);
+        const QVector3D n2 = QVector3D::crossProduct(b2, b3);
+        const QVector3D m1 = QVector3D::crossProduct(n1, b2.normalized());
+        const float dih = qRadiansToDegrees(qAtan2(QVector3D::dotProduct(m1, n2),
+            QVector3D::dotProduct(n1, n2)));
+        text = QStringLiteral("φ = %1°").arg(dih, 0, 'f', 1);
+    }
+    m_scene->setMeasurement(lines, text);
+}
+
+// ---------------------------------------------------------------------------
+// Bond editing via an atom pair (M2)
+// ---------------------------------------------------------------------------
+void MoleculeViewer::performBondEdit(int a, int b)
+{
+    if (a == b || m_currentFrame < 0 || m_currentFrame >= m_trajectoryBonds.size())
+        return;
+    QVector<Bond>& bonds = m_trajectoryBonds[m_currentFrame];
+    int found = -1;
+    for (int i = 0; i < bonds.size(); ++i)
+        if ((bonds[i].atom1 == a && bonds[i].atom2 == b) || (bonds[i].atom1 == b && bonds[i].atom2 == a)) {
+            found = i;
+            break;
+        }
+    switch (m_bondEditMode) {
+    case 1: // add
+        if (found < 0)
+            bonds.append({ a, b, 1 });
+        break;
+    case 2: // delete
+        if (found >= 0)
+            bonds.remove(found);
+        break;
+    case 3: // cycle order 1->2->3->1
+        if (found >= 0)
+            bonds[found].bondOrder = (bonds[found].bondOrder % 3) + 1;
+        break;
+    default:
+        return;
+    }
+    refreshVisualization(); // rebuild geometry, keep the camera
+    buildForceAdjacency();
+    onStructureChanged();   // trigger XYZ auto-save (if a file is loaded)
+}
+
+// ---------------------------------------------------------------------------
 // Scene population
 // ---------------------------------------------------------------------------
 void MoleculeViewer::syncSceneToController(int frameIndex, bool resetCamera, bool fullRebuild)
@@ -441,18 +553,22 @@ void MoleculeViewer::showOverlay(const QVector<Atom>& refAtoms, const QVector<Bo
         qWarning() << "showOverlay: empty reference structure";
         return;
     }
-    // M1: render both structures combined so the alignment is visible. Distinct
-    // tinting of the target lands with the measurement/overlay port (M2).
-    QVector<Atom> combined = refAtoms;
-    QVector<Bond> combinedBonds = refBonds.isEmpty() ? detectBonds(refAtoms) : refBonds;
-    if (!targetAtoms.isEmpty()) {
-        const int offset = refAtoms.size();
-        const QVector<Bond> tBonds = targetBonds.isEmpty() ? detectBonds(targetAtoms) : targetBonds;
-        combined += targetAtoms;
-        for (const Bond& b : tBonds)
-            combinedBonds.append({ b.atom1 + offset, b.atom2 + offset, b.bondOrder });
-    }
-    addMolecule(combined, combinedBonds);
+    // Reference = normal solid structure (CPK). Target = translucent CPK ghost on
+    // top, so both keep correct element colours yet stay tellable apart.
+    addMolecule(refAtoms, refBonds);
+    if (targetAtoms.isEmpty() || !m_scene)
+        return;
+
+    const QVector<Bond> tBonds = targetBonds.isEmpty() ? detectBonds(targetAtoms) : targetBonds;
+    QVector<SceneController::AtomDatum> ta;
+    ta.reserve(targetAtoms.size());
+    for (const Atom& a : targetAtoms)
+        ta.append({ a.position, a.element, a.charge });
+    QVector<SceneController::BondDatum> tb;
+    tb.reserve(tBonds.size());
+    for (const Bond& b : tBonds)
+        tb.append({ b.atom1, b.atom2, b.bondOrder });
+    m_scene->setOverlayStructure(ta, tb);
 }
 
 void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, const QVector<QVector<Bond>>& bonds)
@@ -516,6 +632,7 @@ void MoleculeViewer::showFrame(int frameIndex)
         m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
     }
 
+    updateMeasurement(); // keep measurement lines/values on the new frame
     emit frameChanged(m_currentFrame);
 }
 
@@ -850,17 +967,17 @@ void MoleculeViewer::selectAtom(int index, bool append)
 void MoleculeViewer::clearSelection()
 {
     m_selectedAtoms.clear();
-    m_measurementMode = 0;
     if (m_selectionManager)
         m_selectionManager->clearSelection();
     if (m_scene)
         m_scene->setSelection(m_selectedAtoms);
+    updateMeasurement(); // selection now empty -> clears the measurement display
 }
 
 void MoleculeViewer::setMeasurementMode(int mode)
 {
     m_measurementMode = qBound(0, mode, 3);
-    // MeasurementOverlay rendering lands in M2; logic-only for now.
+    updateMeasurement(); // refresh/clear the on-screen measurement for the new mode
 }
 
 void MoleculeViewer::setBondEditMode(int mode)

@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - Quick3D-Overlays portiert (M2: Messen, Bond-Edit, RMSD)
+
+- **Messen** (Distanz/Winkel/Dieder): Mode-Combo + Klicks sammeln 2/3/4 Atome → cyanfarbene Linien (instanzierte Zylinder, Weltraum) + Ergebnis-Label (2D-HUD); Werte folgen Trajektorien-Frames. `updateMeasurement()` in `view.cpp`, `SceneController::setMeasurement()`.
+- **Bond-Editing** über Atompaar (kein Bond-Picking nötig): in Add/Delete/Cycle-Mode zwei Atome klicken → Bindung hinzufügen/löschen/Ordnung 1→2→3 zyklen; Live-Rebuild + XYZ-Auto-Save (`performBondEdit()`).
+- **RMSD-Overlay** (`showOverlay`): zweite Struktur als eigener Instanz-Satz unter `moleculeRoot` (rotiert mit). Statt „doofem Gelb" jetzt **HSV-verschobene CPK-Farben** (Hue +30°, leicht dunkler, Sättigungs-Floor → auch C/H getönt) + leicht kleinere Kugeln → element-erkennbar und klar als „andere" Struktur unterscheidbar (`SceneController::setOverlayStructure` + `shiftOverlayColor`).
+- Klick-Logik in `eventFilter` jetzt modusabhängig (Selektion / Messen / Bond-Edit); `clearSelection`/`setMeasurementMode` aktualisieren das Mess-Overlay.
+
 ## Juni 2026 - Qt3D entfernt, Vulkan-Backend + Tiefen-Nebel (Schritt 2b)
 
 - **Qt3D vollständig entfernt** (`find_package`/Link ohne `Qt6::3D*`, orphane Qt3D-Quellen gelöscht: atom/bondinstancingsystem, force/measurementoverlay, pbrmaterial, orbittransformcontroller). Binary linkt keine `Qt6::3D*`-Lib mehr.

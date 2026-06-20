@@ -25,6 +25,13 @@ class SceneController : public QObject
     Q_PROPERTY(QQuick3DInstancing* arrowShaftInstancing READ arrowShaftInstancing CONSTANT)
     Q_PROPERTY(QQuick3DInstancing* arrowTipInstancing READ arrowTipInstancing CONSTANT)
     Q_PROPERTY(bool forceVectorsVisible READ forceVectorsVisible NOTIFY forceVectorsChanged)
+    // Measurement overlay (distance/angle/dihedral) + RMSD overlay structure (M2)
+    Q_PROPERTY(QQuick3DInstancing* measureLineInstancing READ measureLineInstancing CONSTANT)
+    Q_PROPERTY(QString measurementText READ measurementText NOTIFY measurementChanged)
+    Q_PROPERTY(bool measurementActive READ measurementActive NOTIFY measurementChanged)
+    Q_PROPERTY(QQuick3DInstancing* overlayAtomInstancing READ overlayAtomInstancing CONSTANT)
+    Q_PROPERTY(QQuick3DInstancing* overlayBondInstancing READ overlayBondInstancing CONSTANT)
+    Q_PROPERTY(bool overlayVisible READ overlayVisible NOTIFY overlayChanged)
 
     // Visibility per rendering mode.
     Q_PROPERTY(bool atomsVisible READ atomsVisible NOTIFY appearanceChanged)
@@ -89,6 +96,22 @@ public:
     };
     void setForceArrows(const QVector<Arrow>& arrows);
     void setForceVectorsVisible(bool on);
+
+    // Measurement overlay
+    QQuick3DInstancing* measureLineInstancing() const;
+    QString measurementText() const { return m_measurementText; }
+    bool measurementActive() const { return !m_measurementText.isEmpty(); }
+    /// World-space measurement lines (consecutive selected atoms) + result label.
+    void setMeasurement(const QVector<QPair<QVector3D, QVector3D>>& lines, const QString& text);
+
+    // RMSD overlay structure (second structure under moleculeRoot). Opaque, but its
+    // element colours are HSV-shifted (hue rotate + tint/darken) so it reads as the
+    // "other" molecule while staying element-identifiable.
+    QQuick3DInstancing* overlayAtomInstancing() const;
+    QQuick3DInstancing* overlayBondInstancing() const;
+    bool overlayVisible() const { return m_overlayVisible; }
+    void setOverlayStructure(const QVector<AtomDatum>& atoms, const QVector<BondDatum>& bonds);
+    void clearOverlay();
 
     bool atomsVisible() const { return m_atomsVisible; }
     bool bondsVisible() const { return m_bondsVisible; }
@@ -169,6 +192,8 @@ signals:
     void transformChanged();
     void structureChanged();
     void forceVectorsChanged();
+    void measurementChanged();
+    void overlayChanged();
 
 private:
     void rebuildGeometry();        // recompute atom items + bond segments
@@ -180,6 +205,11 @@ private:
     BondInstancing* m_arrowShaft = nullptr; // force-vector shafts (#Cylinder)
     BondInstancing* m_arrowTip = nullptr;   // force-vector tips (#Cone)
     bool m_forceVectorsVisible = false;
+    BondInstancing* m_measureLines = nullptr; // measurement lines (#Cylinder)
+    QString m_measurementText;
+    AtomInstancing* m_overlayAtoms = nullptr; // RMSD overlay structure spheres
+    BondInstancing* m_overlayBonds = nullptr; // RMSD overlay structure cylinders
+    bool m_overlayVisible = false;
 
     QVector<AtomDatum> m_atoms;
     QVector<BondDatum> m_bonds;

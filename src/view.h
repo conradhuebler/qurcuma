@@ -281,6 +281,11 @@ private:
     void buildForceAdjacency();
     void updateForceVectors();  // recompute arrows from the current grab force
 
+    // Measurement overlay (M2): recompute lines + value from the selected atoms.
+    void updateMeasurement();
+    // Bond editing via an atom pair (M2): add/delete/cycle the bond between a and b.
+    void performBondEdit(int a, int b);
+
     // Mouse interaction (drives the SceneController transform).
     int pickAtomAtScreenPos(const QPoint &screenPos) const;
     QVector3D computeGrabForce(const QPoint &mousePos, int atomIndex) const;
