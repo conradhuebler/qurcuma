@@ -54,7 +54,7 @@
 #include <QString>
 #include "view.h"
 #include "frequencydialog.h"
-#include "visualizationsettingsdialog.h"
+#include "displaypanel.h"
 
 #include "dialogs/nmrspectrumdialog.h"
 #include "rmsdwidget.h"  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
@@ -2767,29 +2767,16 @@ void MainWindow::copyCurrentPath()
 }
 
 // Claude Generated - Visualization Settings Dialog
+// Claude Generated 2026 - Display options now live in the docked DisplayPanel
+// (the former modal dialog was retired). This just surfaces the dock.
 void MainWindow::openVisualizationSettings()
 {
-    if (!m_moleculeView) {
-        QMessageBox::warning(this, tr("No Viewer"), tr("Molecule viewer is not available."));
+    if (!m_displayDock)
         return;
-    }
-
-    // Claude Generated - Pass Settings object for persistence
-    // Store dialog pointer for shortcut synchronization (Fix: Shortcuts sync with dialog)
-    m_visualizationDialog = new VisualizationSettingsDialog(m_moleculeView, &m_settings, this);
-    m_visualizationDialog->setAttribute(Qt::WA_DeleteOnClose);
-
-    // Claude Generated 2026 - "Use Invocation Directory" live toggle from the dialog.
-    // Routes the dialog checkbox's toggled signal through the same helper as the
-    // menu action, so the menu and dialog stay in sync and the same validation
-    // / restoration logic applies to both entry points.
-    connect(m_visualizationDialog,
-            &VisualizationSettingsDialog::useInvocationDirectoryToggled,
-            this, [this](bool enabled) {
-        applyUseInvocationDirectoryState(enabled);
-    });
-
-    m_visualizationDialog->show();
+    if (m_displayPanel)
+        m_displayPanel->loadCurrentSettings();
+    m_displayDock->show();
+    m_displayDock->raise();
 }
 
 // Claude Generated 2026 - RMSD / align / reorder tool (curcuma RMSDDriver),
@@ -3161,11 +3148,9 @@ void MainWindow::decreaseBondThickness()
 // Claude Generated - Helper: Update visualization dialog when settings change via shortcuts
 void MainWindow::syncVisualizationDialog()
 {
-    // Synchronize dialog widgets with current viewer state when shortcut is used
-    // This ensures dialog shows correct values even if shortcuts were used while dialog open
-    if (m_visualizationDialog && m_visualizationDialog->isVisible()) {
-        m_visualizationDialog->loadCurrentSettings();
-    }
+    // Keep the Display dock in sync when settings change via shortcuts.
+    if (m_displayPanel)
+        m_displayPanel->loadCurrentSettings();
 }
 
 // Claude Generated - Focus & Centering Commands
@@ -4142,6 +4127,18 @@ void MainWindow::createDockWidgets()
 
     m_atomsSimulationDock->setWidget(m_atomsSimulationTabs);
 
+    // ==================== DISPLAY DOCK (right) ====================
+    // Single home for all 3D-viewer display options (style/effects/lighting/tools),
+    // replacing the former modal VisualizationSettingsDialog. Claude Generated 2026.
+    m_displayDock = new QDockWidget(tr("Display"), this);
+    m_displayDock->setObjectName("DisplayDock");
+    m_displayPanel = new DisplayPanel(m_moleculeView, &m_settings, this);
+    m_displayDock->setWidget(m_displayPanel);
+    // The viewer's slim "Display ⚙" bar button surfaces this dock.
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::displayOptionsRequested,
+            this, &MainWindow::openVisualizationSettings);
+
     // Claude Generated - Worker is wired to view + status slot directly (skips widget mid-hop).
     // Claude Generated 2026 - Phase 6: every molecule load path emits MoleculeViewer::moleculeUpdated;
     // centralising the sim-dock sync here replaces a dozen ad-hoc setMolecule callsites.
@@ -4262,6 +4259,10 @@ void MainWindow::createDockWidgets()
     addDockWidget(Qt::RightDockWidgetArea, m_editorsDock);
     addDockWidget(Qt::RightDockWidgetArea, m_atomsSimulationDock);
     splitDockWidget(m_editorsDock, m_atomsSimulationDock, Qt::Vertical);
+
+    // Display dock shares the top-right area, tabified with the Editors dock.
+    addDockWidget(Qt::RightDockWidgetArea, m_displayDock);
+    tabifyDockWidget(m_editorsDock, m_displayDock);
 
     addDockWidget(Qt::BottomDockWidgetArea, m_outputViewDock);
 }

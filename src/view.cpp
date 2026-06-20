@@ -793,6 +793,7 @@ void MoleculeViewer::setRenderingMode(RenderingMode mode)
     m_renderingMode = mode;
     if (m_scene)
         m_scene->setRenderingMode(static_cast<int>(mode));
+    emit renderingModeChanged(mode);
 }
 
 void MoleculeViewer::setMaterialMode(MaterialMode mode) { m_materialMode = mode; }
@@ -804,6 +805,7 @@ void MoleculeViewer::setColorScheme(ColorScheme scheme)
     m_colorScheme = scheme;
     if (m_scene)
         m_scene->setColorScheme(static_cast<int>(scheme));
+    emit colorSchemeChanged(scheme);
 }
 
 void MoleculeViewer::setBackgroundColor(const QColor& color)
@@ -1309,6 +1311,15 @@ void MoleculeViewer::setupControlPanel()
     connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, modeCombo](int index) {
         setRenderingMode(static_cast<RenderingMode>(modeCombo->itemData(index).toInt()));
     });
+    // Stay in sync with the Display dock / shortcuts.
+    connect(this, &MoleculeViewer::renderingModeChanged, modeCombo, [modeCombo](RenderingMode m) {
+        const int i = modeCombo->findData(static_cast<int>(m));
+        if (i >= 0 && i != modeCombo->currentIndex()) {
+            modeCombo->blockSignals(true);
+            modeCombo->setCurrentIndex(i);
+            modeCombo->blockSignals(false);
+        }
+    });
     panelLayout->addWidget(modeCombo);
 
     QComboBox* colorCombo = new QComboBox;
@@ -1319,148 +1330,22 @@ void MoleculeViewer::setupControlPanel()
     connect(colorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, colorCombo](int index) {
         setColorScheme(static_cast<ColorScheme>(colorCombo->itemData(index).toInt()));
     });
+    connect(this, &MoleculeViewer::colorSchemeChanged, colorCombo, [colorCombo](ColorScheme s) {
+        const int i = colorCombo->findData(static_cast<int>(s));
+        if (i >= 0 && i != colorCombo->currentIndex()) {
+            colorCombo->blockSignals(true);
+            colorCombo->setCurrentIndex(i);
+            colorCombo->blockSignals(false);
+        }
+    });
     panelLayout->addWidget(colorCombo);
 
-    QComboBox* materialCombo = new QComboBox;
-    materialCombo->addItem(tr("Phong"), static_cast<int>(MaterialMode::Phong));
-    materialCombo->addItem(tr("PBR"), static_cast<int>(MaterialMode::PBR));
-    materialCombo->setMaximumWidth(80);
-    materialCombo->setToolTip(tr("Phong: Traditional lighting\nPBR: Physically-based rendering"));
-    connect(materialCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, materialCombo](int index) {
-        setMaterialMode(static_cast<MaterialMode>(materialCombo->itemData(index).toInt()));
-    });
-    panelLayout->addWidget(materialCombo);
-
-    QSlider* glowSlider = new QSlider(Qt::Horizontal);
-    glowSlider->setMinimum(10);
-    glowSlider->setMaximum(20);
-    glowSlider->setValue(10);
-    glowSlider->setMaximumWidth(60);
-    glowSlider->setToolTip(tr("Selection glow intensity (1.0-2.0x)"));
-    connect(glowSlider, &QSlider::valueChanged, [this](int value) {
-        setGlowIntensity(value / 10.0f);
-    });
-    panelLayout->addWidget(glowSlider);
-    panelLayout->addWidget(createSeparator());
-
-    // Measurement
-    QComboBox* measureCombo = new QComboBox;
-    measureCombo->addItem(tr("No Measurement"), 0);
-    measureCombo->addItem(tr("Distance (2 atoms)"), 1);
-    measureCombo->addItem(tr("Angle (3 atoms)"), 2);
-    measureCombo->addItem(tr("Dihedral (4 atoms)"), 3);
-    measureCombo->setMaximumWidth(150);
-    connect(measureCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, measureCombo](int index) {
-        setMeasurementMode(measureCombo->itemData(index).toInt());
-    });
-    panelLayout->addWidget(measureCombo);
-    panelLayout->addWidget(createSeparator());
-
-    // Bond editing
-    QComboBox* bondEditCombo = new QComboBox;
-    bondEditCombo->addItem(tr("No Bond Edit"), 0);
-    bondEditCombo->addItem(tr("Add Bond (B)"), 1);
-    bondEditCombo->addItem(tr("Delete Bond (D)"), 2);
-    bondEditCombo->addItem(tr("Cycle Order (O)"), 3);
-    bondEditCombo->setMaximumWidth(130);
-    connect(bondEditCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, bondEditCombo](int index) {
-        setBondEditMode(bondEditCombo->itemData(index).toInt());
-    });
-    panelLayout->addWidget(bondEditCombo);
-    panelLayout->addWidget(createSeparator());
-
-    // Force-vector overlay toggle (opt-in; shows the injected grab force as arrows)
-    QToolButton* forceBtn = new QToolButton;
-    forceBtn->setText(QStringLiteral("↯"));
-    forceBtn->setToolTip(tr("Show force vectors while grabbing (interactive simulation)"));
-    forceBtn->setCheckable(true);
-    forceBtn->setChecked(false);
-    forceBtn->setFixedSize(24, 24);
-    connect(forceBtn, &QToolButton::toggled, this, &MoleculeViewer::setForceVectorsVisible);
-    panelLayout->addWidget(forceBtn);
-    panelLayout->addWidget(createSeparator());
-
-    // 4 corner light toggles (2×2)
-    {
-        QWidget* lightsBox = new QWidget;
-        QGridLayout* g = new QGridLayout(lightsBox);
-        g->setContentsMargins(0, 0, 0, 0);
-        g->setSpacing(1);
-        struct CornerSpec { const char* label; const char* tip; int row; int col; };
-        const CornerSpec specs[4] = {
-            { "◤", "Top-front-left light", 0, 0 },
-            { "◥", "Top-front-right light", 0, 1 },
-            { "◣", "Top-back-left light", 1, 0 },
-            { "◢", "Top-back-right light", 1, 1 },
-        };
-        for (int i = 0; i < 4; ++i) {
-            QToolButton* btn = new QToolButton;
-            btn->setText(tr(specs[i].label));
-            btn->setToolTip(tr(specs[i].tip));
-            btn->setCheckable(true);
-            btn->setChecked(m_cornerLightEnabled[i]);
-            btn->setFixedSize(22, 22);
-            connect(btn, &QToolButton::toggled, this, [this, i](bool on) {
-                setCornerLightEnabled(i, on);
-            });
-            g->addWidget(btn, specs[i].row, specs[i].col);
-        }
-        panelLayout->addWidget(lightsBox);
-    }
-
-    // Optional distance fog (fade atoms farther from the camera) + variable density
-    QToolButton* fogBtn = new QToolButton;
-    fogBtn->setText(QStringLiteral("≋"));
-    fogBtn->setToolTip(tr("Depth fog: fade distant atoms into the background"));
-    fogBtn->setCheckable(true);
-    fogBtn->setChecked(m_fogEnabled);
-    fogBtn->setFixedSize(24, 24);
-    connect(fogBtn, &QToolButton::toggled, this, &MoleculeViewer::setFogEnabled);
-    panelLayout->addWidget(fogBtn);
-
-    QSlider* fogStrengthSlider = new QSlider(Qt::Horizontal);
-    fogStrengthSlider->setRange(0, 100);
-    fogStrengthSlider->setValue(int(m_fogIntensity * 100));
-    fogStrengthSlider->setMaximumWidth(50);
-    fogStrengthSlider->setToolTip(tr("Fog strength (density) — moving this also turns fog on"));
-    // Moving the strength slider auto-enables/disables fog (0 = off), so adjusting
-    // the fog settings always has a visible effect without the separate toggle.
-    connect(fogStrengthSlider, &QSlider::valueChanged, this, [this, fogBtn](int v) {
-        setFogIntensity(v / 100.0f);
-        if ((v > 0) != m_fogEnabled)
-            fogBtn->setChecked(v > 0); // toggled() -> setFogEnabled keeps state in sync
-    });
-    panelLayout->addWidget(fogStrengthSlider);
-
-    QSlider* fogDistanceSlider = new QSlider(Qt::Horizontal);
-    fogDistanceSlider->setRange(0, 100);
-    fogDistanceSlider->setValue(int(m_fogDistance * 100));
-    fogDistanceSlider->setMaximumWidth(50);
-    fogDistanceSlider->setToolTip(tr("Fog distance (how far before atoms fade)"));
-    connect(fogDistanceSlider, &QSlider::valueChanged, this, [this, fogBtn](int v) {
-        setFogDistance(v / 100.0f);
-        if (!m_fogEnabled)
-            fogBtn->setChecked(true); // adjusting distance also turns fog on
-    });
-    panelLayout->addWidget(fogDistanceSlider);
-    panelLayout->addWidget(createSeparator());
-
-    // Background colour picker
-    QPushButton* bgColorBtn = new QPushButton(tr("BG"));
-    bgColorBtn->setToolTip(tr("Change 3D view background color"));
-    bgColorBtn->setMaximumWidth(40);
-    auto applyBgSwatch = [this, bgColorBtn]() {
-        bgColorBtn->setStyleSheet(QString("background-color: %1;").arg(m_backgroundColor.name()));
-    };
-    applyBgSwatch();
-    connect(bgColorBtn, &QPushButton::clicked, this, [this, applyBgSwatch]() {
-        QColor c = QColorDialog::getColor(m_backgroundColor, this, tr("Background Color"));
-        if (c.isValid()) {
-            setBackgroundColor(c);
-            applyBgSwatch();
-        }
-    });
-    panelLayout->addWidget(bgColorBtn);
-
     panelLayout->addStretch();
+
+    // Everything else (material, glow, measure, bond-edit, force, fog, lights,
+    // background, …) now lives in the "Display" dock — opened by this button.
+    QPushButton* displayBtn = new QPushButton(tr("Display ⚙"));
+    displayBtn->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
+    connect(displayBtn, &QPushButton::clicked, this, &MoleculeViewer::displayOptionsRequested);
+    panelLayout->addWidget(displayBtn);
 }

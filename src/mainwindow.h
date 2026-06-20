@@ -46,7 +46,7 @@
 #include "snapshotswidget.h"  // Claude Generated 2026 - global MoleculeSnapshot + SnapshotsWidget
 #include "simulationworker.h"  // Claude Generated - for SimulationConfig
 class MoleculeViewer;
-class VisualizationSettingsDialog;  // Claude Generated - For shortcut synchronization
+class DisplayPanel;  // Claude Generated 2026 - docked viewer display options (replaces the modal dialog)
 class RMSDWidget;  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
@@ -330,8 +330,9 @@ private:
     Settings m_settings;
     QMap<QString, QStringList> m_programCommands;
 
-    // Claude Generated - For shortcut dialog synchronization
-    QPointer<VisualizationSettingsDialog> m_visualizationDialog;
+    // Claude Generated 2026 - Docked viewer display options (replaces the modal dialog)
+    DisplayPanel* m_displayPanel = nullptr;
+    QDockWidget* m_displayDock = nullptr;
     QCompleter* m_commandCompleter;
     QToolButton* m_bookmarkButton;
     BreadcrumbBar* m_breadcrumbBar;  // Claude Generated Phase 1 - Clickable path navigation

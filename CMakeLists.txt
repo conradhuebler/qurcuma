@@ -91,7 +91,8 @@ set(SOURCES
     src/vtfparser.cpp
     src/xyzparser.cpp
     src/modifiabletextedit.cpp
-    src/visualizationsettingsdialog.cpp
+    src/displaypanel.cpp  # Claude Generated 2026 - docked viewer display options
+    src/widgets/collapsiblesection.cpp  # Claude Generated 2026 - accordion section
     src/dialogs/nmrspectrumdialog.cpp
     src/dialogs/nmrcontroller.cpp
     src/dialogs/nmrdatastore.cpp
@@ -128,7 +129,8 @@ set(HEADERS
     src/vtfparser.h
     src/xyzparser.h
     src/modifiabletextedit.h
-    src/visualizationsettingsdialog.h
+    src/displaypanel.h  # Claude Generated 2026 - docked viewer display options
+    src/widgets/collapsiblesection.h  # Claude Generated 2026 - accordion section
     src/dialogs/nmrspectrumdialog.h
     src/dialogs/sftpdialog.h  # Claude Generated - SFTP remote file access
     src/sftpmodel.hpp  # Claude Generated - SFTP model (header-only with Q_OBJECT)

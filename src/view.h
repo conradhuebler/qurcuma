@@ -226,6 +226,13 @@ signals:
     void atomGrabReleased();
     void grabStatusChanged(QString message);
 
+    // Claude Generated 2026 - Display-dock sync: emitted when these change via any
+    // path (bar combo, dock, shortcut) so the other UI follows. + a request to
+    // surface the Display dock (the bar's "Display" button).
+    void renderingModeChanged(MoleculeViewer::RenderingMode mode);
+    void colorSchemeChanged(MoleculeViewer::ColorScheme scheme);
+    void displayOptionsRequested();
+
 public slots:
     void setSimulationActive(bool on);
     void setGrabStrength(double s) { m_grabStrength = s; }

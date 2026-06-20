@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - UI P1: "Display"-Dock (Viewer-Leiste entrümpelt, Dialog konsolidiert)
+
+- Neues **Display-Dock** (`src/displaypanel.*`, rechts, tabifiziert mit Editors) mit einklappbaren Sektionen (`src/widgets/collapsiblesection.*`): **Style / Effects / Lighting / Tools / Presets** — die EINE Heimat aller 3D-Anzeige-Optionen, live an die `MoleculeViewer`-Setter gebunden.
+- **Viewer-Leiste (`setupControlPanel`) entrümpelt**: nur noch Frame-Nav + Playback + Quick-Combos (Render-Mode/Color) + „Display ⚙"-Button. Material/Glow/Measure/Bond-Edit/Force/Fog/Eck-Lichter/BG sind ins Dock gewandert (~20 → ~6 Controls).
+- **Modaler `VisualizationSettingsDialog` entfernt** (Logik/Persistenz/Presets ins Dock portiert); Menü „Visualization Settings" + Button raisen jetzt das Dock; `syncVisualizationDialog`→`DisplayPanel::loadCurrentSettings`.
+- Bar↔Dock-Sync via neue Signals `MoleculeViewer::renderingModeChanged/colorSchemeChanged` (+ `displayOptionsRequested`); Shortcuts 1–4 halten beide aktuell. Nächste UI-Schritte: P2 (Mode-Switch Explore/Compute), P3 (Command-Palette).
+
 ## Juni 2026 - Quick3D-Overlays portiert (M2: Messen, Bond-Edit, RMSD)
 
 - **Messen** (Distanz/Winkel/Dieder): Mode-Combo + Klicks sammeln 2/3/4 Atome → cyanfarbene Linien (instanzierte Zylinder, Weltraum) + Ergebnis-Label (2D-HUD); Werte folgen Trajektorien-Frames. `updateMeasurement()` in `view.cpp`, `SceneController::setMeasurement()`.
