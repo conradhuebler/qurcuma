@@ -60,6 +60,23 @@ struct SimulationConfig {
 
     // Hydrogen mass scaling (MD only) - increases H mass to allow larger time steps
     double hmass = 1.0; // 1.0 = normal mass, 2.0 or 3.0 = scaled (common values)
+
+    // RMSD metadynamics (MD only) - curcuma SimpleMD bias mode (rmsd_mtd=true).
+    // Adds a bias potential in RMSD-to-reference space during the MD run, driving
+    // exploration away from already-sampled geometries. Defaults mirror curcuma's
+    // PARAM block (external/curcuma/src/capabilities/simplemd.h, "RMSD-MTD" category).
+    bool   rmsdMtd              = false;   // rmsd_mtd: enable the RMSD-MTD bias
+    double rmsdMtdK             = 0.01;    // rmsd_mtd_k: hill height W_i = k*counter (Eh)
+    double rmsdMtdAlpha         = 10.0;    // rmsd_mtd_alpha: Gaussian width
+    QString rmsdMtdAtoms        = "-1";   // rmsd_mtd_atoms: atom indices for RMSD ("-1"=all)
+    QString rmsdMtdRefFile      = "none"; // rmsd_mtd_ref_file: reference structures file
+    int    rmsdMtdMaxGaussians  = -1;     // rmsd_mtd_max_gaussians: cap stored bias structs (-1=unlimited)
+    int    rmsdMtdMaxHeight     = 0;      // rmsd_mtd_max_height: cap per-struct counter (0=unbounded)
+    double rmsdMtdEconv        = 1e8;    // rmsd_econv: bias-deposition convergence threshold (gates when a region is considered biased enough)
+    int    rmsdMtdPace          = 1;      // rmsd_mtd_pace: unused in counter scheme (kept for compat)
+    bool   rmsdMtdWtmtd         = false;  // wtmtd: well-tempered reporting (gates rmsdMtdDt)
+    double rmsdMtdDt            = 2000.0; // rmsd_mtd_dt: well-tempered bias temp ΔT (K)
+    bool   rmsdMtdFreezeInherited = false;// rmsd_mtd_freeze_inherited: freeze inherited hill heights
 };
 
 /**

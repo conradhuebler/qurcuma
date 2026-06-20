@@ -12,6 +12,7 @@
 #include <QElapsedTimer>
 #include <QGroupBox>
 #include <QLabel>
+#include <QLineEdit>
 #include <QObject>
 #include <QSpinBox>
 #include <QThread>
@@ -138,6 +139,22 @@ private:
     QDoubleSpinBox* m_rattleTol12Spin = nullptr;
     QDoubleSpinBox* m_rattleTol13Spin = nullptr;
     QSpinBox*       m_rattleMaxIterSpin = nullptr;
+
+    // --- RMSD metadynamics (MD bias, curcuma SimpleMD rmsd_mtd) ---
+    QGroupBox*      m_rmsdMtdGroup = nullptr;
+    QCheckBox*      m_rmsdMtdEnableCheck = nullptr;
+    QWidget*        m_rmsdMtdDetails = nullptr;
+    QDoubleSpinBox* m_rmsdMtdKSpin = nullptr;
+    QDoubleSpinBox* m_rmsdMtdAlphaSpin = nullptr;
+    QLineEdit*      m_rmsdMtdAtomsEdit = nullptr;
+    QLineEdit*      m_rmsdMtdRefFileEdit = nullptr;
+    QSpinBox*       m_rmsdMtdMaxGaussiansSpin = nullptr;
+    QSpinBox*       m_rmsdMtdMaxHeightSpin = nullptr;
+    QDoubleSpinBox* m_rmsdMtdEconvSpin = nullptr;
+    QSpinBox*       m_rmsdMtdPaceSpin = nullptr;
+    QCheckBox*      m_rmsdMtdWtmtdCheck = nullptr;
+    QDoubleSpinBox* m_rmsdMtdDtSpin = nullptr;
+    QCheckBox*      m_rmsdMtdFreezeCheck = nullptr;
 
     // --- Interactive grab ---
     QDoubleSpinBox* m_grabStrengthSpin = nullptr;

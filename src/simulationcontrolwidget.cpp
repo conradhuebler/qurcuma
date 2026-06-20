@@ -4,9 +4,11 @@
 
 #include "simulationcontrolwidget.h"
 
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QVBoxLayout>
 
@@ -302,6 +304,128 @@ void SimulationControlWidget::setupUI()
     m_rattleDetails->setVisible(false);  // hidden until mode != off
     innerLayout->addWidget(m_rattleGroup);
 
+    // ---- RMSD Metadynamics (MD bias, curcuma SimpleMD rmsd_mtd) ----
+    // Claude Generated 2026 - exposes curcuma's RMSD-MTD bias option with all
+    // relevant parameters (see external/curcuma/src/capabilities/simplemd.h,
+    // "RMSD-MTD" PARAM category). Shown only in MD mode; details reveal on enable.
+    m_rmsdMtdGroup = new QGroupBox(tr("RMSD Metadynamics"), this);
+    auto* rmsdOuterLayout = new QVBoxLayout(m_rmsdMtdGroup);
+    rmsdOuterLayout->setSpacing(4);
+    rmsdOuterLayout->setContentsMargins(4, 4, 4, 4);
+
+    m_rmsdMtdEnableCheck = new QCheckBox(tr("Enable RMSD-MTD bias"), this);
+    m_rmsdMtdEnableCheck->setToolTip(tr("Add a bias potential in RMSD-to-reference space "
+        "during the MD run, driving exploration away from already-sampled geometries "
+        "(curcuma SimpleMD rmsd_mtd)."));
+    rmsdOuterLayout->addWidget(m_rmsdMtdEnableCheck);
+
+    m_rmsdMtdDetails = new QWidget(m_rmsdMtdGroup);
+    auto* rmsdForm = new QFormLayout(m_rmsdMtdDetails);
+    rmsdForm->setContentsMargins(0, 0, 0, 0);
+
+    m_rmsdMtdKSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdKSpin->setRange(0.0, 1000.0);
+    m_rmsdMtdKSpin->setDecimals(4);
+    m_rmsdMtdKSpin->setSingleStep(0.01);
+    m_rmsdMtdKSpin->setValue(0.01);
+    m_rmsdMtdKSpin->setSuffix(" Eh");
+    m_rmsdMtdKSpin->setToolTip(tr("Hill height constant: W_i = k * counter_i (Eh). "
+        "Force is the exact gradient of the bias, so k is ~100x smaller than the "
+        "pre-2026 value."));
+    rmsdForm->addRow(tr("k (height):"), m_rmsdMtdKSpin);
+
+    m_rmsdMtdAlphaSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdAlphaSpin->setRange(0.0, 1e6);
+    m_rmsdMtdAlphaSpin->setDecimals(2);
+    m_rmsdMtdAlphaSpin->setSingleStep(1.0);
+    m_rmsdMtdAlphaSpin->setValue(10.0);
+    m_rmsdMtdAlphaSpin->setToolTip(tr("Width parameter for the RMSD Gaussians."));
+    rmsdForm->addRow(tr("α (width):"), m_rmsdMtdAlphaSpin);
+
+    m_rmsdMtdAtomsEdit = new QLineEdit(QStringLiteral("-1"), this);
+    m_rmsdMtdAtomsEdit->setToolTip(tr("Atom indices used for the RMSD calculation, "
+        "e.g. \"1-50\". \"-1\" = all atoms."));
+    rmsdForm->addRow(tr("RMSD atoms:"), m_rmsdMtdAtomsEdit);
+
+    // Reference structures file: line edit + browse button in a row.
+    auto* refRow = new QWidget(this);
+    auto* refRowLayout = new QHBoxLayout(refRow);
+    refRowLayout->setContentsMargins(0, 0, 0, 0);
+    m_rmsdMtdRefFileEdit = new QLineEdit(QStringLiteral("none"), refRow);
+    m_rmsdMtdRefFileEdit->setToolTip(tr("File with reference structures for RMSD-MTD. "
+        "\"none\" = derive bias structures from the running geometry."));
+    auto* refBrowseBtn = new QPushButton(tr("…"), refRow);
+    refBrowseBtn->setMaximumWidth(30);
+    refBrowseBtn->setToolTip(tr("Browse for a reference structures file"));
+    refRowLayout->addWidget(m_rmsdMtdRefFileEdit, 1);
+    refRowLayout->addWidget(refBrowseBtn);
+    rmsdForm->addRow(tr("Ref. file:"), refRow);
+    connect(refBrowseBtn, &QPushButton::clicked, this, [this]() {
+        const QString path = QFileDialog::getOpenFileName(this,
+            tr("RMSD-MTD reference structures"),
+            QString(), tr("Molecular structures (*.xyz *.pdb *.mol2 *.vtf);;All files (*)"));
+        if (!path.isEmpty())
+            m_rmsdMtdRefFileEdit->setText(path);
+    });
+
+    m_rmsdMtdMaxGaussiansSpin = new QSpinBox(this);
+    m_rmsdMtdMaxGaussiansSpin->setRange(-1, 1000000);
+    m_rmsdMtdMaxGaussiansSpin->setValue(-1);
+    m_rmsdMtdMaxGaussiansSpin->setToolTip(tr("Maximum number of stored bias structures. "
+        "-1 = unlimited."));
+    rmsdForm->addRow(tr("Max Gaussians:"), m_rmsdMtdMaxGaussiansSpin);
+
+    m_rmsdMtdMaxHeightSpin = new QSpinBox(this);
+    m_rmsdMtdMaxHeightSpin->setRange(0, 1000000);
+    m_rmsdMtdMaxHeightSpin->setValue(0);
+    m_rmsdMtdMaxHeightSpin->setToolTip(tr("Cap on per-structure hill counter: "
+        "W_i = k * min(counter_i, cap). 0 = unbounded (legacy)."));
+    rmsdForm->addRow(tr("Max height cap:"), m_rmsdMtdMaxHeightSpin);
+
+    m_rmsdMtdEconvSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdEconvSpin->setRange(0.0, 1e12);
+    m_rmsdMtdEconvSpin->setDecimals(0);
+    m_rmsdMtdEconvSpin->setSingleStep(1e7);
+    m_rmsdMtdEconvSpin->setValue(1e8);
+    m_rmsdMtdEconvSpin->setToolTip(tr("Bias-deposition convergence threshold (rmsd_econv). "
+        "Gates when a region is considered biased enough to stop depositing hills; "
+        "passed to curcuma via setEnergyConv()."));
+    rmsdForm->addRow(tr("Conv. threshold:"), m_rmsdMtdEconvSpin);
+
+    m_rmsdMtdPaceSpin = new QSpinBox(this);
+    m_rmsdMtdPaceSpin->setRange(1, 1000000);
+    m_rmsdMtdPaceSpin->setValue(1);
+    m_rmsdMtdPaceSpin->setToolTip(tr("Deposition pace. UNUSED in the counter-based "
+        "scheme (kept for compatibility) — deposition is gated by bias level."));
+    rmsdForm->addRow(tr("Pace (unused):"), m_rmsdMtdPaceSpin);
+
+    m_rmsdMtdWtmtdCheck = new QCheckBox(tr("Well-tempered reporting"), this);
+    m_rmsdMtdWtmtdCheck->setToolTip(tr("Switch on well-tempered reporting. Only then "
+        "does ΔT below take effect (it only affects the reported well-tempered "
+        "energy, not the force or exploration)."));
+    rmsdForm->addRow(QString(), m_rmsdMtdWtmtdCheck);
+
+    m_rmsdMtdDtSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdDtSpin->setRange(0.0, 1e9);
+    m_rmsdMtdDtSpin->setDecimals(1);
+    m_rmsdMtdDtSpin->setSingleStep(100.0);
+    m_rmsdMtdDtSpin->setValue(2000.0);
+    m_rmsdMtdDtSpin->setSuffix(" K");
+    m_rmsdMtdDtSpin->setEnabled(false);
+    m_rmsdMtdDtSpin->setToolTip(tr("Well-tempered bias temperature ΔT (K). "
+        "Only used when well-tempered reporting is on."));
+    rmsdForm->addRow(tr("ΔT (wtmtd):"), m_rmsdMtdDtSpin);
+
+    m_rmsdMtdFreezeCheck = new QCheckBox(tr("Freeze inherited hills"), this);
+    m_rmsdMtdFreezeCheck->setToolTip(tr("Freeze hill heights of bias structures present "
+        "at MD run start; only structures deposited during this run gain height. "
+        "Bounds cumulative bias force across successive shared-pool runs."));
+    rmsdForm->addRow(QString(), m_rmsdMtdFreezeCheck);
+
+    rmsdOuterLayout->addWidget(m_rmsdMtdDetails);
+    m_rmsdMtdDetails->setVisible(false);  // hidden until enabled
+    innerLayout->addWidget(m_rmsdMtdGroup);
+
     // ---- Optimization Parameters ----
     m_optGroup = new QGroupBox(tr("Optimization"), this);
     auto* optForm = new QFormLayout(m_optGroup);
@@ -442,9 +566,29 @@ void SimulationControlWidget::setupUI()
     connect(m_rattleTol13Spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_rattleMaxIterSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
 
+    // Claude Generated 2026 - RMSD-MTD: notify on every parameter change.
+    connect(m_rmsdMtdEnableCheck, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_rmsdMtdKSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rmsdMtdAlphaSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rmsdMtdAtomsEdit, &QLineEdit::textChanged, this, notifyConfig);
+    connect(m_rmsdMtdRefFileEdit, &QLineEdit::textChanged, this, notifyConfig);
+    connect(m_rmsdMtdMaxGaussiansSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rmsdMtdMaxHeightSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rmsdMtdEconvSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rmsdMtdPaceSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rmsdMtdWtmtdCheck, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_rmsdMtdDtSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rmsdMtdFreezeCheck, &QCheckBox::toggled, this, notifyConfig);
+
     // Show/hide groups based on mode and RATTLE selection
     connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
         [this](int index) { m_rattleDetails->setVisible(index > 0); });
+
+    // Claude Generated 2026 - RMSD-MTD: reveal details on enable; gate ΔT by wtmtd.
+    connect(m_rmsdMtdEnableCheck, &QCheckBox::toggled, this,
+        [this](bool on) { m_rmsdMtdDetails->setVisible(on); });
+    connect(m_rmsdMtdWtmtdCheck, &QCheckBox::toggled, this,
+        [this](bool on) { m_rmsdMtdDtSpin->setEnabled(on); });
 
     auto notifyGrab = [this]() {
         emit grabSettingsChanged(m_grabStrengthSpin->value(),
@@ -526,6 +670,20 @@ SimulationConfig SimulationControlWidget::buildConfig() const
 
     // GFN-FF topology mode
     cfg.topologyMode = m_topologyModeCombo->currentData().toString();
+
+    // Claude Generated 2026 - RMSD metadynamics (MD bias, curcuma SimpleMD rmsd_mtd).
+    cfg.rmsdMtd              = m_rmsdMtdEnableCheck->isChecked();
+    cfg.rmsdMtdK             = m_rmsdMtdKSpin->value();
+    cfg.rmsdMtdAlpha         = m_rmsdMtdAlphaSpin->value();
+    cfg.rmsdMtdAtoms         = m_rmsdMtdAtomsEdit->text().trimmed();
+    cfg.rmsdMtdRefFile       = m_rmsdMtdRefFileEdit->text().trimmed();
+    cfg.rmsdMtdMaxGaussians  = m_rmsdMtdMaxGaussiansSpin->value();
+    cfg.rmsdMtdMaxHeight     = m_rmsdMtdMaxHeightSpin->value();
+    cfg.rmsdMtdEconv         = m_rmsdMtdEconvSpin->value();
+    cfg.rmsdMtdPace          = m_rmsdMtdPaceSpin->value();
+    cfg.rmsdMtdWtmtd         = m_rmsdMtdWtmtdCheck->isChecked();
+    cfg.rmsdMtdDt            = m_rmsdMtdDtSpin->value();
+    cfg.rmsdMtdFreezeInherited = m_rmsdMtdFreezeCheck->isChecked();
 
     return cfg;
 }
@@ -751,6 +909,7 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
     // Show/hide mode-specific groups
     m_mdGroup->setVisible(isMD);
     m_rattleGroup->setVisible(isMD);
+    m_rmsdMtdGroup->setVisible(isMD);
     m_optGroup->setVisible(!isMD);
 
     // Speed is visible in both modes (single-step optimisation uses it as a
@@ -807,6 +966,21 @@ void SimulationControlWidget::setRunning(bool running)
     m_rattleTol12Spin->setEnabled(!running);
     m_rattleTol13Spin->setEnabled(!running);
     m_rattleMaxIterSpin->setEnabled(!running);
+
+    // Claude Generated 2026 - RMSD-MTD controls lock during a run.
+    m_rmsdMtdEnableCheck->setEnabled(!running);
+    m_rmsdMtdKSpin->setEnabled(!running);
+    m_rmsdMtdAlphaSpin->setEnabled(!running);
+    m_rmsdMtdAtomsEdit->setEnabled(!running);
+    m_rmsdMtdRefFileEdit->setEnabled(!running);
+    m_rmsdMtdMaxGaussiansSpin->setEnabled(!running);
+    m_rmsdMtdMaxHeightSpin->setEnabled(!running);
+    m_rmsdMtdEconvSpin->setEnabled(!running);
+    m_rmsdMtdPaceSpin->setEnabled(!running);
+    m_rmsdMtdWtmtdCheck->setEnabled(!running);
+    m_rmsdMtdFreezeCheck->setEnabled(!running);
+    // ΔT stays gated by wtmtd; re-apply that constraint after the run-state pass.
+    m_rmsdMtdDtSpin->setEnabled(!running && m_rmsdMtdWtmtdCheck->isChecked());
 
     emit simulationRunningChanged(running);
 }

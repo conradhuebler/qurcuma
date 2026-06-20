@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - RMSD-MTD-Bias im interaktiven Simulation-Widget
+
+- `rmsd_mtd` (curcuma `SimpleMD`-Bias-Modus, kein eigener Treiber) als Option ins Simulation-Widget gebaut: neue QGroupBox "RMSD Metadynamics" (nur im MD-Modus sichtbar, Enable-Checkbox → Details). Alle relevanten Parameter exponiert: k, α, RMSD-atoms, ref-file (mit Browse), max-gaussians, max-height, econv (Bias-Ablagerungs-Schwelle, default 1e8), pace, well-tempered (wtmtd) + ΔT, freeze-inherited.
+- `SimulationConfig` (`simulationworker.h`) um die Felder erweitert (Defaults aus `external/curcuma/src/capabilities/simplemd.h` "RMSD-MTD"-PARAM-Kategorie). `buildConfig()`/`notifyConfig`/`setRunning`/`onModeChanged` im Widget bedacht; `SimulationWorker` schreibt die Keys nur bei `rmsdMtd=true` via file-local `applyRmsdMtdParams()` in den `simplemd`-Controller (startMD + single-step MD).
+
 ## Juni 2026 - RMSD-Tool vom Dialog in Editors-Dock-Tab umgewandelt
 
 - `RMSDDialog` (modaler Fremdkörper) → `RMSDWidget : public QWidget`, eingebettet als **dritter Tab im Editors-Dock** (`m_editorsTabs`: Structure/Input/RMSD) statt eigenem Dock — rechte Seite bleibt bei der 5-Dock-Architektur (Project/Navigation/Editors/Atoms&Simulation/Output).

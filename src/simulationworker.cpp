@@ -23,6 +23,33 @@ using json = nlohmann::json;
 #include <algorithm>
 #include <limits>
 
+// Claude Generated 2026 - Write curcuma's RMSD-MTD bias parameters into the
+// simplemd controller block. Only emitted when RMSD-MTD is enabled, so the
+// defaults stay curcuma-side otherwise. Mirrors the "RMSD-MTD" PARAM category
+// in external/curcuma/src/capabilities/simplemd.h.
+namespace {
+void applyRmsdMtdParams(const SimulationConfig& cfg, json& simplemd_params)
+{
+    if (!cfg.rmsdMtd)
+        return;
+    simplemd_params["rmsd_mtd"] = true;
+    simplemd_params["rmsd_mtd_k"] = cfg.rmsdMtdK;
+    simplemd_params["rmsd_mtd_alpha"] = cfg.rmsdMtdAlpha;
+    simplemd_params["rmsd_mtd_atoms"] = cfg.rmsdMtdAtoms.toStdString();
+    simplemd_params["rmsd_mtd_ref_file"] = cfg.rmsdMtdRefFile.toStdString();
+    simplemd_params["rmsd_mtd_max_gaussians"] = cfg.rmsdMtdMaxGaussians;
+    simplemd_params["rmsd_mtd_max_height"] = cfg.rmsdMtdMaxHeight;
+    simplemd_params["rmsd_econv"] = cfg.rmsdMtdEconv;  // bias-deposition convergence threshold (setEnergyConv)
+    simplemd_params["rmsd_mtd_pace"] = cfg.rmsdMtdPace;  // unused in counter scheme (compat)
+    if (cfg.rmsdMtdWtmtd) {
+        simplemd_params["wtmtd"] = true;
+        simplemd_params["rmsd_mtd_dt"] = cfg.rmsdMtdDt;  // only used when wtmtd
+    }
+    if (cfg.rmsdMtdFreezeInherited)
+        simplemd_params["rmsd_mtd_freeze_inherited"] = true;
+}
+}  // namespace
+
 SimulationWorker::SimulationWorker(QObject* parent)
     : QObject(parent)
 {
@@ -120,6 +147,7 @@ void SimulationWorker::stepOnce()
         simplemd_params["no_restart"] = true;
         simplemd_params["no_center"] = true;
         simplemd_params["hmass"] = m_config.hmass;
+        applyRmsdMtdParams(m_config, simplemd_params);
 
         json controller;
         controller["simplemd"] = simplemd_params;
@@ -330,6 +358,7 @@ void SimulationWorker::startMD()
     simplemd_params["rattle_tol_13"] = m_config.rattleTol13;
     simplemd_params["rattle_max_iterations"] = m_config.rattleMaxIter;
     simplemd_params["hmass"] = m_config.hmass;
+    applyRmsdMtdParams(m_config, simplemd_params);
 
     json controller;
     controller["simplemd"] = simplemd_params;
