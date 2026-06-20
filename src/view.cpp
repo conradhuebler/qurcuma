@@ -1305,9 +1305,13 @@ void MoleculeViewer::setupControlPanel()
     fogStrengthSlider->setRange(0, 100);
     fogStrengthSlider->setValue(int(m_fogIntensity * 100));
     fogStrengthSlider->setMaximumWidth(50);
-    fogStrengthSlider->setToolTip(tr("Fog strength (density)"));
-    connect(fogStrengthSlider, &QSlider::valueChanged, this, [this](int v) {
+    fogStrengthSlider->setToolTip(tr("Fog strength (density) — moving this also turns fog on"));
+    // Moving the strength slider auto-enables/disables fog (0 = off), so adjusting
+    // the fog settings always has a visible effect without the separate toggle.
+    connect(fogStrengthSlider, &QSlider::valueChanged, this, [this, fogBtn](int v) {
         setFogIntensity(v / 100.0f);
+        if ((v > 0) != m_fogEnabled)
+            fogBtn->setChecked(v > 0); // toggled() -> setFogEnabled keeps state in sync
     });
     panelLayout->addWidget(fogStrengthSlider);
 
@@ -1316,8 +1320,10 @@ void MoleculeViewer::setupControlPanel()
     fogDistanceSlider->setValue(int(m_fogDistance * 100));
     fogDistanceSlider->setMaximumWidth(50);
     fogDistanceSlider->setToolTip(tr("Fog distance (how far before atoms fade)"));
-    connect(fogDistanceSlider, &QSlider::valueChanged, this, [this](int v) {
+    connect(fogDistanceSlider, &QSlider::valueChanged, this, [this, fogBtn](int v) {
         setFogDistance(v / 100.0f);
+        if (!m_fogEnabled)
+            fogBtn->setChecked(true); // adjusting distance also turns fog on
     });
     panelLayout->addWidget(fogDistanceSlider);
     panelLayout->addWidget(createSeparator());

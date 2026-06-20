@@ -47,9 +47,12 @@ Item {
                 depthEnabled: true
                 // distance: fogDistance (0..1) slides where the fog starts, from the
                 // front of the molecule (0) to its back (1); the far plane sits beyond.
+                // distance slides the fog START from the molecule front (0) toward
+                // its back (1); the band is kept tight (~0.8 extent) so everything
+                // past it sits at full density -> the fade is strong, not washed out.
                 depthNear: Math.max(0.1, controller.cameraDistance - controller.sceneExtent
-                                         + controller.fogDistance * 2.0 * controller.sceneExtent)
-                depthFar: controller.cameraDistance + controller.sceneExtent * 2.0
+                                         + controller.fogDistance * 1.5 * controller.sceneExtent)
+                depthFar: depthNear + Math.max(0.5, controller.sceneExtent * 0.8)
                 depthCurve: 1.0
             }
         }

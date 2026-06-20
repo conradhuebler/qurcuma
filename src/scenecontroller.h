@@ -204,8 +204,8 @@ private:
     float m_exposure = 1.0f;
     bool m_tonemap = true;
     bool m_fog = false;
-    float m_fogDensity = 0.5f;
-    float m_fogDistance = 0.4f; // 0..1: where the depth fog starts across the molecule
+    float m_fogDensity = 0.7f;
+    float m_fogDistance = 0.2f; // 0..1: where the depth fog starts across the molecule
     bool m_shadows = false;
     bool m_corner[4] = { true, true, false, false };
 

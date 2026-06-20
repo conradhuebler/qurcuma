@@ -323,8 +323,8 @@ private:
     float m_atomScaleFactor = 1.0f;
     float m_bondThickness = 0.15f;
     bool m_fogEnabled = false;
-    float m_fogIntensity = 0.5f;
-    float m_fogDistance = 0.4f;
+    float m_fogIntensity = 0.7f;
+    float m_fogDistance = 0.2f;
     bool m_ssaoEnabled = true;
     float m_ssaoIntensity = 1.0f;
     float m_ssaoRadius = 0.05f;
