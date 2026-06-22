@@ -340,15 +340,23 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
     QGroupBox* g = new QGroupBox(tr("Tools"), this);
     QFormLayout* f = new QFormLayout(g);
 
-    m_measureCombo = new QComboBox(this);
-    m_measureCombo->addItem(tr("No Measurement"), 0);
-    m_measureCombo->addItem(tr("Distance (2 atoms)"), 1);
-    m_measureCombo->addItem(tr("Angle (3 atoms)"), 2);
-    m_measureCombo->addItem(tr("Dihedral (4 atoms)"), 3);
-    connect(m_measureCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int i) {
-        if (m_viewer) m_viewer->setMeasurementMode(m_measureCombo->itemData(i).toInt());
+    m_measureCheck = new QCheckBox(tr("on — click atoms (2=dist, 3=angle, 4=dihedral)"), this);
+    m_measureCheck->setToolTip(tr("Type is auto-detected from the number of picked atoms. "
+                                  "Click a marked atom again to deselect; Esc clears."));
+    connect(m_measureCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_viewer) m_viewer->setMeasurementMode(on ? 1 : 0);
     });
-    f->addRow(tr("Measure:"), m_measureCombo);
+    // Stay in sync with the viewer-bar measurement toggle.
+    if (m_viewer)
+        connect(m_viewer, &MoleculeViewer::measurementModeChanged, m_measureCheck, [this](int mode) {
+            const bool on = (mode != 0);
+            if (m_measureCheck->isChecked() != on) {
+                m_measureCheck->blockSignals(true);
+                m_measureCheck->setChecked(on);
+                m_measureCheck->blockSignals(false);
+            }
+        });
+    f->addRow(tr("Measure:"), m_measureCheck);
 
     m_bondEditCombo = new QComboBox(this);
     m_bondEditCombo->addItem(tr("No Bond Edit"), 0);
@@ -365,6 +373,38 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
         if (m_viewer) m_viewer->setForceVectorsVisible(on);
     });
     f->addRow(QString(), m_forceVectorsCheck);
+
+    // Claude Generated 2026 - Confinement-wall wireframe toggle. The wall geometry
+    // itself is driven by the Simulation config (auto-show when walls are enabled);
+    // this checkbox is an independent show/hide override for the wireframe.
+    m_wallCheck = new QCheckBox(tr("Show confinement walls"), this);
+    m_wallCheck->setToolTip(tr("Show/hide the harmonic confinement-wall wireframe. "
+        "The wall geometry and activation come from the Simulation dock; this only "
+        "toggles whether the box/sphere is drawn."));
+    connect(m_wallCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_viewer) m_viewer->setWallVisibleOverride(on);
+    });
+    f->addRow(QString(), m_wallCheck);
+
+    // Claude Generated 2026 - Variable wall-wireframe transparency. The RGB
+    // (grey/red on violations) comes from the instance colour; this slider sets
+    // the material alpha via MoleculeViewer::setWallOpacity.
+    QHBoxLayout* wol = new QHBoxLayout;
+    m_wallOpacitySlider = new QSlider(Qt::Horizontal, this);
+    m_wallOpacitySlider->setRange(0, 100);
+    m_wallOpacitySlider->setValue(60);
+    m_wallOpacitySlider->setToolTip(tr("Transparency of the confinement-wall wireframe"));
+    m_wallOpacityLabel = new QLabel("60%", this);
+    m_wallOpacityLabel->setMinimumWidth(40);
+    wol->addWidget(m_wallOpacitySlider);
+    wol->addWidget(m_wallOpacityLabel);
+    connect(m_wallOpacitySlider, &QSlider::valueChanged, this, [this](int v) {
+        if (m_wallOpacityLabel)
+            m_wallOpacityLabel->setText(QString("%1%").arg(v));
+        if (m_viewer)
+            m_viewer->setWallOpacity(v / 100.0);
+    });
+    f->addRow(tr("Wall opacity:"), wol);
 
     f->addRow(new QLabel(""));
 
@@ -432,7 +472,7 @@ void DisplayPanel::loadCurrentSettings()
         m_fogIntensitySlider, m_fogDistanceSlider, m_ssaoEnabledCheckBox, m_ssaoIntensitySlider,
         m_ssaoRadiusSpinBox, m_ssaoBiasSpinBox, m_bloomEnabledCheckBox, m_bloomThresholdSpinBox,
         m_bloomIntensitySlider, m_hdrEnabledCheckBox, m_exposureSpinBox, m_rotationModeCombo,
-        m_instancingThresholdSpin, m_forceVectorsCheck, m_measureCombo, m_bondEditCombo,
+        m_instancingThresholdSpin, m_forceVectorsCheck, m_wallCheck, m_wallOpacitySlider, m_measureCheck, m_bondEditCombo,
         m_cornerLightButtons[0], m_cornerLightButtons[1], m_cornerLightButtons[2], m_cornerLightButtons[3] };
     for (const QWidget* w : all)
         if (w) const_cast<QWidget*>(w)->blockSignals(true);
@@ -464,6 +504,11 @@ void DisplayPanel::loadCurrentSettings()
         m_exposureSpinBox->setValue(s.exposure);
         setComboData(m_rotationModeCombo, s.rotationMode);
         m_instancingThresholdSpin->setValue(s.instancingThreshold);
+        m_wallCheck->setChecked(s.wallVisible);
+        m_viewer->setWallVisibleOverride(s.wallVisible);  // apply persisted override
+        m_wallOpacitySlider->setValue(int(s.wallOpacity * 100));
+        m_wallOpacityLabel->setText(QString("%1%").arg(int(s.wallOpacity * 100)));
+        m_viewer->setWallOpacity(s.wallOpacity);
     } else {
         setComboData(m_renderingModeCombo, int(m_viewer->getRenderingMode()));
         setComboData(m_colorSchemeCombo, int(m_viewer->getColorScheme()));
@@ -475,10 +520,15 @@ void DisplayPanel::loadCurrentSettings()
         m_fogIntensitySlider->setValue(int(m_viewer->getFogIntensity() * 100.0f));
         setComboData(m_rotationModeCombo, m_viewer->getRotationMode());
         m_instancingThresholdSpin->setValue(m_viewer->getInstancingThreshold());
+        m_wallCheck->setChecked(m_viewer->getWallVisibleOverride());
+        const qreal curOpacity = m_viewer->getWallOpacity();
+        m_wallOpacitySlider->setValue(int(curOpacity * 100));
+        m_wallOpacityLabel->setText(QString("%1%").arg(int(curOpacity * 100)));
     }
     m_fogIntensitySlider->setEnabled(m_fogEnabledCheckBox->isChecked());
     m_fogDistanceSlider->setValue(int(m_viewer->getFogDistance() * 100.0f));
     m_forceVectorsCheck->setChecked(m_viewer->getForceVectorsVisible());
+    m_measureCheck->setChecked(m_viewer->getMeasurementMode() != 0);
     for (int i = 0; i < 4; ++i)
         m_cornerLightButtons[i]->setChecked(m_viewer->isCornerLightEnabled(i));
 
@@ -601,6 +651,8 @@ void DisplayPanel::onSaveAsDefault()
     c.exposure = m_viewer->getExposure();
     c.rotationMode = m_viewer->getRotationMode();
     c.instancingThreshold = m_viewer->getInstancingThreshold();
+    c.wallVisible = m_wallCheck->isChecked();
+    c.wallOpacity = (m_wallOpacitySlider ? m_wallOpacitySlider->value() / 100.0 : 0.6);
     m_settings->setVisualizationSettings(c);
 }
 

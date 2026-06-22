@@ -1,5 +1,18 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - Harmonische Confinement-Wände (aktivieren + visualisieren)
+
+- Curcuma `SimpleMD` kennt harmonische Wände (`wall_type` none/spheric/rect, `wall_potential` harmonic/logfermi, `wall_x|y|z_min/max`, `wall_radius`), aber qurcuma stellte sie nie ein, aktivierte sie nicht und zeichnete sie nicht. Jetzt: QGroupBox „Confinement Walls" im Simulation-Dock (MD-only, Enable→Details: Geometry/Potential-Combo + 6 rect bounds + sphere radius, manuell einstellbar) → `SimulationConfig`-Felder → `SimulationWorker::applyWallParams()` schreibt sie bei `wallEnabled` in den curcuma-Controller (Muster wie `applyRmsdMtdParams`).
+- **Live-Visualisierung**: `SceneController::setWallBox`/`setWallSphere` bauen 12 Kanten bzw. Lat/Long-Ringe als `BondInstancing`-Segmente (Muster wie `setMeasurement`), `#Cylinder`-Model unter `moleculeRoot` (rotiert mit dem Molekül, intrinsische Koordinaten). `MainWindow::onSimulationConfigChanged` → `MoleculeViewer::setConfinementBox` zeichnet die Box schon beim Tippen der Bounds (auto-show when enabled); Display-Panel „Show confinement walls" (`setWallVisibleOverride`, `wallVisible` in `VisualizationSettings`) blendet sie unabhängig aus. Auto-Size (Bounds/Radius = 0) nicht vorab zeichenbar — nur explizite Werte werden gezeichnet.
+- **Grenzverletzungs-Feedback**: `MoleculeViewer::computeWallViolations()` zählt pro Frame/Live-MD die Atome außerhalb der Wand, rekolloriert das Wireframe **rot** bei Verletzung (`SceneController::setWallColor`+`rebuildWall`, Material baseColor→white damit die Per-Segment-Farbe voll zeigt), emit `wallViolationChanged` → Status-Label im Sim-Dock („⚠ N atoms outside / ✓ all atoms inside").
+
+## Juni 2026 - UI P2 + Viewer-UX (Mode-Switch, Messen-Rework, Hover)
+
+- **P2 Mode-Switch Explore/Compute** (`MainWindow::createModeBar`/`setAppMode`): segmentierte Top-Leiste [🔬 Explore | ⚙ Compute]. Explore = Viewer groß, Display/Atoms-Docks, **Rechen-Toolbar aus**; Compute = Rechen-Toolbar an + Project/Output/Editors. Setzt Dock-/Toolbar-Sichtbarkeit explizit (deterministisch), persistiert `ui/appMode` (Default Explore). Die 4 Layout-Presets bleiben unverändert.
+- **Messen neu**: Bar-`QToolButton` „Measure" (Icon, checkable) statt Combo; Typ wird aus der **Atomanzahl** erkannt (2=Distanz, 3=Winkel, 4=Dieder). Klick markiert, Klick auf markiertes Atom **demarkiert**, Esc/Leerklick löscht. HUD zeigt Live-Fortschritt UND **alle** Größen: alle paarweisen Abstände + Ketten-Winkel + Dieder (mehrzeilig, monospace, wrap). Sync Bar↔Dock via `measurementModeChanged`; Dock-Combo → Checkbox.
+- **Hover-Feedback**: Maus über Atom hellt es auf (`SceneController::setHoverAtom`, günstiger Atoms-only-Rebuild via `rebuildAtoms`, nur bei Wechsel) + Pointing-Hand-Cursor; löscht beim Verlassen.
+- **Player nur bei Trajektorien**: Playback (Play/Pause/FPS/Loop) in `m_playbackWidget` gruppiert, ausgeblendet bei Einzelstruktur (sichtbar ab >1 Frame, wie der Frame-Slider).
+
 ## Juni 2026 - UI P1: "Display"-Dock (Viewer-Leiste entrümpelt, Dialog konsolidiert)
 
 - Neues **Display-Dock** (`src/displaypanel.*`, rechts, tabifiziert mit Editors) mit einklappbaren Sektionen (`src/widgets/collapsiblesection.*`): **Style / Effects / Lighting / Tools / Presets** — die EINE Heimat aller 3D-Anzeige-Optionen, live an die `MoleculeViewer`-Setter gebunden.

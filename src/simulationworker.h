@@ -77,6 +77,17 @@ struct SimulationConfig {
     bool   rmsdMtdWtmtd         = false;  // wtmtd: well-tempered reporting (gates rmsdMtdDt)
     double rmsdMtdDt            = 2000.0; // rmsd_mtd_dt: well-tempered bias temp ΔT (K)
     bool   rmsdMtdFreezeInherited = false;// rmsd_mtd_freeze_inherited: freeze inherited hill heights
+
+    // Harmonic confinement walls (MD only) - curcuma SimpleMD wall_* params
+    // (external/curcuma/src/capabilities/simplemd.h "Walls" category). Manually
+    // configured in the Simulation dock; visualized live in the 3D viewer.
+    bool   wallEnabled  = false; // master switch (writes wall_* to the curcuma config)
+    int    wallType      = 0;    // 0=none, 1=spheric, 2=rect (curcuma m_wall_type)
+    bool   wallHarmonic  = true; // true=harmonic, false=logfermi (wall_potential)
+    double wallXmin = 0.0, wallXmax = 0.0; // Å, rectangular bounds (curcuma auto-sizes when 0/0)
+    double wallYmin = 0.0, wallYmax = 0.0;
+    double wallZmin = 0.0, wallZmax = 0.0;
+    double wallRadius = 0.0; // Å, spheric wall radius (origin-centred; 0 = auto-size)
 };
 
 /**

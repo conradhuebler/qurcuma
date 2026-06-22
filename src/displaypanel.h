@@ -107,9 +107,12 @@ private:
     QPushButton* m_bgColorButton = nullptr;
 
     // Tools / interaction
-    QComboBox* m_measureCombo = nullptr;
+    QCheckBox* m_measureCheck = nullptr;  // measurement on/off (type auto-detected by atom count)
     QComboBox* m_bondEditCombo = nullptr;
     QCheckBox* m_forceVectorsCheck = nullptr;
+    QCheckBox* m_wallCheck = nullptr;          // confinement-wall wireframe show/hide
+    QSlider* m_wallOpacitySlider = nullptr;    // confinement-wall wireframe transparency
+    QLabel* m_wallOpacityLabel = nullptr;
     QComboBox* m_rotationModeCombo = nullptr;
     QSpinBox* m_instancingThresholdSpin = nullptr;
 

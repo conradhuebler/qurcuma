@@ -95,6 +95,11 @@ public slots:
     // of the modified flag.
     void setResetEnabled(bool enabled);
 
+    // Claude Generated 2026 - Live boundary-violation feedback from the viewer:
+    // updates the "N atoms outside / all inside" label in the Confinement Walls
+    // group. count == 0 means the current structure is fully inside the wall.
+    void setWallViolationCount(int count);
+
 private:
     void setupUI();
     void setRunning(bool running);
@@ -155,6 +160,21 @@ private:
     QCheckBox*      m_rmsdMtdWtmtdCheck = nullptr;
     QDoubleSpinBox* m_rmsdMtdDtSpin = nullptr;
     QCheckBox*      m_rmsdMtdFreezeCheck = nullptr;
+
+    // --- Confinement walls (curcuma SimpleMD wall_* params) ---
+    QGroupBox*       m_wallGroup = nullptr;
+    QCheckBox*       m_wallEnableCheck = nullptr;
+    QWidget*         m_wallDetails = nullptr;
+    QComboBox*       m_wallTypeCombo = nullptr;   // 0=None, 1=Spheric, 2=Rectangular
+    QComboBox*       m_wallPotentialCombo = nullptr; // 0=Harmonic, 1=LogFermi
+    QDoubleSpinBox*  m_wallRadiusSpin = nullptr;
+    QDoubleSpinBox*  m_wallXminSpin = nullptr;
+    QDoubleSpinBox*  m_wallXmaxSpin = nullptr;
+    QDoubleSpinBox*  m_wallYminSpin = nullptr;
+    QDoubleSpinBox*  m_wallYmaxSpin = nullptr;
+    QDoubleSpinBox*  m_wallZminSpin = nullptr;
+    QDoubleSpinBox*  m_wallZmaxSpin = nullptr;
+    QLabel*          m_wallStatusLabel = nullptr;  // live boundary-violation feedback
 
     // --- Interactive grab ---
     QDoubleSpinBox* m_grabStrengthSpin = nullptr;

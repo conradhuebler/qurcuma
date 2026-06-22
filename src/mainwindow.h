@@ -34,6 +34,7 @@
 #include <QStringList>
 #include <QTabWidget>
 #include <QTextEdit>
+#include <QToolBar>
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -87,6 +88,10 @@ public:
         Calculation,    // Output view and calculation workflow
         Analysis        // All panels visible, balanced layout
     };
+
+    // Claude Generated 2026 - P2: top-level app mode. Explore = molecule viewer focus
+    // (calculation toolbar hidden); Compute = calculation workflow (toolbar shown).
+    enum class AppMode { Explore, Compute };
 
     // Claude Generated 2026 - "Use Invocation Directory" preference
     // invocationDir is captured from QDir::currentPath() in main.cpp BEFORE
@@ -231,6 +236,8 @@ private slots:
 private:
     void setupUI();
     void createToolbars();
+    void createModeBar();                       // Claude Generated 2026 - P2 Explore/Compute switch
+    void setAppMode(AppMode mode, bool reflow = true);  // apply mode (toolbar + dock visibility)
     void createMenus();
     void seedRMSDReference();  // Claude Generated 2026 - re-seed RMSD reference from viewer
     void setupProjectViewContextMenu();
@@ -439,6 +446,13 @@ private:
     QTabWidget* m_navigationTabs = nullptr;         // Internal tabs inside m_navigationDock
     QByteArray m_defaultDockState;                  // Baseline after createDockWidgets
     QHash<int, QByteArray> m_presetStates;          // keyed by LayoutPreset enum
+
+    // Claude Generated 2026 - P2: Explore/Compute mode switch
+    AppMode m_appMode = AppMode::Explore;
+    QToolBar* m_modeToolbar = nullptr;          // top row: [Explore | Compute]
+    QToolBar* m_calculationToolbar = nullptr;   // 2nd row: program/command/threads (Compute only)
+    QToolButton* m_exploreButton = nullptr;
+    QToolButton* m_computeButton = nullptr;
     SimulationControlWidget* m_simulationControlWidget = nullptr;  // Claude Generated
     SimulationConfig m_simulationConfig;             // Claude Generated - Shared config, edited from dock
 

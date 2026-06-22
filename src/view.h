@@ -176,6 +176,7 @@ public slots:
     void clearSelection();
     const QVector<int>& getSelectedAtoms() const { return m_selectedAtoms; }
     void setMeasurementMode(int mode);  // 0=None, 1=Distance, 2=Angle, 3=Dihedral
+    int getMeasurementMode() const { return m_measurementMode; }
     void selectAtom(int index, bool append = false);
     SelectionManager* getSelectionManager() const { return m_selectionManager; }
     MeasurementOverlay* getMeasurementOverlay() const { return m_measurementOverlay; }
@@ -231,7 +232,11 @@ signals:
     // surface the Display dock (the bar's "Display" button).
     void renderingModeChanged(MoleculeViewer::RenderingMode mode);
     void colorSchemeChanged(MoleculeViewer::ColorScheme scheme);
+    void measurementModeChanged(int mode);  // 0=off,1=distance,2=angle,3=dihedral
     void displayOptionsRequested();
+    // Claude Generated 2026 - confinement-wall boundary violations for the
+    // current frame. Emitted when the count changes; 0 = all atoms inside.
+    void wallViolationChanged(int count);
 
 public slots:
     void setSimulationActive(bool on);
@@ -252,6 +257,22 @@ public slots:
      *  shell-distributed neighbour forces the integrator actually applies). */
     void setForceVectorsVisible(bool on);
     bool getForceVectorsVisible() const { return m_forceVectorsVisible; }
+
+    /** Confinement-wall overlay driven by the Simulation config (curcuma harmonic
+     *  walls). @p on enables it; @p type is 0=none,1=spheric,2=rect. The box is
+     *  drawn in intrinsic atom coordinates and rotates with the molecule. The
+     *  Display-panel toggle (setWallVisibleOverride) can hide it independently. */
+    void setConfinementBox(bool on, int type, const QVector3D& min,
+                           const QVector3D& max, float radius);
+    /** Independent show/hide for the wall wireframe (Display panel checkbox). */
+    void setWallVisibleOverride(bool on);
+    /** Wireframe transparency 0..1 (Display panel slider). */
+    void setWallOpacity(qreal opacity);
+    bool isWallVisible() const { return m_wallEnabled && m_wallVisibleOverride; }
+    bool getWallVisibleOverride() const { return m_wallVisibleOverride; }
+    qreal getWallOpacity() const;
+    /** Count of current-frame atoms outside the configured wall region. */
+    int getWallViolationCount() const { return m_wallViolationCount; }
 
 public:
     void clearScenePublic();  // Public wrapper for file loading
@@ -308,6 +329,7 @@ private:
 
     // Claude Generated - Frame control widgets (shown/hidden based on frame count)
     QWidget *m_frameControlWidget = nullptr;
+    QWidget *m_playbackWidget = nullptr;  // play/pause/fps/loop — only for multi-frame files
     QSlider *m_frameSlider = nullptr;
     QLabel *m_frameLabel = nullptr;
     QSpinBox *m_frameJumpBox = nullptr;
@@ -396,6 +418,20 @@ private:
     // Force-vector overlay (opt-in)
     bool m_forceVectorsVisible = false;
     QVector<QVector<int>> m_forceAdjacency;
+
+    // Confinement-wall overlay (driven by Simulation config; hideable via the
+    // Display panel). m_wallEnabled reflects the config; m_wallVisibleOverride is
+    // the Display-panel checkbox. The wireframe is shown only when both are true.
+    bool m_wallEnabled = false;
+    int m_wallType = 0;
+    QVector3D m_wallMin, m_wallMax;
+    float m_wallRadius = 0.0f;
+    bool m_wallVisibleOverride = true;
+    int m_wallViolationCount = 0;       // atoms currently outside the wall region
+    void applyWallVisibility();  // rebuild/hide geometry from current state
+    /// Recompute out-of-bounds atom count from the current frame; recolours the
+    /// wall wireframe (red on violations) and emits wallViolationChanged.
+    void computeWallViolations();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

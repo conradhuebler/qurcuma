@@ -153,6 +153,27 @@ Item {
                 instancing: controller.overlayBondInstancing
                 materials: PrincipledMaterial { baseColor: "white"; roughness: 0.55 }
             }
+
+            // Confinement-wall wireframe (harmonic walls from the interactive MD
+            // config). Edges are in intrinsic atom coordinates, so this sits under
+            // moleculeRoot and rotates with the structure. Unlit flat overlay.
+            // The per-segment instance colour carries the grey/red RGB AND the
+            // alpha (baked from wallOpacity in SceneController::rebuildWall); the
+            // material baseColor stays opaque white and only flips to Blend mode
+            // when opacity < 1, otherwise PrincipledMaterial defaults to Opaque and
+            // silently discards the alpha (the "immer überdeckend" bug).
+            Model {
+                source: "#Cylinder"
+                visible: controller.wallVisible
+                instancing: controller.wallInstancing
+                materials: PrincipledMaterial {
+                    baseColor: "white"
+                    lighting: PrincipledMaterial.NoLighting
+                    alphaMode: controller.wallOpacity < 0.999
+                               ? PrincipledMaterial.Blend
+                               : PrincipledMaterial.Opaque
+                }
+            }
         }
 
         // Force-vector arrows (opt-in). C++ computes them in WORLD space (post model
@@ -193,17 +214,21 @@ Item {
     Rectangle {
         visible: controller.measurementActive
         anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 8 }
-        width: measureText.implicitWidth + 18
-        height: measureText.implicitHeight + 10
+        width: measureText.width + 18
+        height: measureText.height + 10
         radius: 6
         color: "#cc101418"
         border.color: "#5a90e0ff"
         Text {
             id: measureText
             anchors.centerIn: parent
+            width: Math.min(implicitWidth, root.width - 40)
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
             color: "#aef0ff"
-            font.pixelSize: 15
+            font.pixelSize: 14
             font.bold: true
+            font.family: "monospace"
             text: controller.measurementText
         }
     }

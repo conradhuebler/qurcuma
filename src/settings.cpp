@@ -196,6 +196,8 @@ Settings::VisualizationSettings Settings::getVisualizationSettings() const
     // Claude Generated 2026 - Interaction / Performance
     settings.rotationMode = m_settings.value(VIZ_SETTINGS_PREFIX + "rotationMode", 0).toInt();
     settings.instancingThreshold = m_settings.value(VIZ_SETTINGS_PREFIX + "instancingThreshold", 500).toInt();
+    settings.wallVisible = m_settings.value(VIZ_SETTINGS_PREFIX + "wallVisible", true).toBool();
+    settings.wallOpacity = m_settings.value(VIZ_SETTINGS_PREFIX + "wallOpacity", 0.6).toDouble();
 
     return settings;
 }
@@ -224,6 +226,8 @@ void Settings::setVisualizationSettings(const VisualizationSettings& settings)
     // Claude Generated 2026 - Interaction / Performance
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "rotationMode", settings.rotationMode);
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "instancingThreshold", settings.instancingThreshold);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "wallVisible", settings.wallVisible);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "wallOpacity", settings.wallOpacity);
     m_settings.sync();
 }
 

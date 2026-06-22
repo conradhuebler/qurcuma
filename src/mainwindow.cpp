@@ -36,6 +36,7 @@
 #include <QRegularExpression>
 #include <QCloseEvent>
 #include <QScrollBar>
+#include <QButtonGroup>
 #include <QSettings>
 #include <QShortcut>
 #include <QStandardPaths>
@@ -84,6 +85,7 @@ MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     setWindowTitle("Qurcuma 1.0 - Molecular Visualization");
 
     setupUI();
+    createModeBar();   // Claude Generated 2026 - P2: top mode row (before the calc toolbar)
     createToolbars();
     createMenus();
     setupConnections();
@@ -229,6 +231,11 @@ void MainWindow::setupUI()
         } else {
             applyAnalysisLayout();
         }
+        // Claude Generated 2026 - P2: enforce the saved Explore/Compute mode last so the
+        // calculation toolbar + dock visibility match the mode (default Explore on first run).
+        const auto savedMode = static_cast<AppMode>(
+            uiSettings.value("ui/appMode", static_cast<int>(AppMode::Explore)).toInt());
+        setAppMode(savedMode, /*reflow=*/false);
     });
 }
 
@@ -237,6 +244,7 @@ void MainWindow::createToolbars()
     // Claude Generated (2026-04) - Dock rewrite: program controls moved from Top dock
     // into a proper toolbar. Main toolbar carries the full calculation command line.
     QToolBar* toolbar = new QToolBar(tr("Calculation"), this);
+    m_calculationToolbar = toolbar; // Claude Generated 2026 - P2: hidden in Explore mode
     toolbar->setObjectName("CalculationToolbar");
     toolbar->setMovable(true);
     toolbar->setIconSize(QSize(18, 18));
@@ -535,6 +543,90 @@ void MainWindow::initializeProgramCommands()
         "--uhf"
         // Weitere Befehle hier ergänzen
     };
+}
+
+// Claude Generated 2026 - P2: prominent Explore/Compute mode switch (top row).
+void MainWindow::createModeBar()
+{
+    m_modeToolbar = new QToolBar(tr("Mode"), this);
+    m_modeToolbar->setObjectName("ModeToolbar");
+    m_modeToolbar->setMovable(false);
+    m_modeToolbar->setFloatable(false);
+
+    auto* group = new QButtonGroup(this);
+    group->setExclusive(true);
+
+    auto makeBtn = [&](const QString& text, const QString& tip) {
+        auto* b = new QToolButton(this);
+        b->setText(text);
+        b->setToolTip(tip);
+        b->setCheckable(true);
+        b->setMinimumWidth(110);
+        group->addButton(b);
+        m_modeToolbar->addWidget(b);
+        return b;
+    };
+    m_exploreButton = makeBtn(tr("🔬  Explore"),
+        tr("Molecule viewing & interactive simulation (hides the calculation toolbar)"));
+    m_computeButton = makeBtn(tr("⚙  Compute"),
+        tr("Run calculations: program / command / threads, with project & output panels"));
+
+    m_modeToolbar->setStyleSheet(QStringLiteral(
+        "QToolButton { padding: 4px 16px; border: 1px solid palette(mid); }"
+        "QToolButton:checked { background: palette(highlight); color: palette(highlighted-text);"
+        " font-weight: bold; }"));
+
+    connect(m_exploreButton, &QToolButton::clicked, this, [this]() { setAppMode(AppMode::Explore); });
+    connect(m_computeButton, &QToolButton::clicked, this, [this]() { setAppMode(AppMode::Compute); });
+
+    addToolBar(Qt::TopToolBarArea, m_modeToolbar);
+    addToolBarBreak(Qt::TopToolBarArea); // calculation toolbar lands on the 2nd row
+}
+
+// Claude Generated 2026 - P2: apply a top-level mode. Sets the calculation toolbar +
+// dock visibility explicitly (deterministic); reflow=false keeps restored sizes on startup.
+void MainWindow::setAppMode(AppMode mode, bool reflow)
+{
+    m_appMode = mode;
+    const bool explore = (mode == AppMode::Explore);
+
+    for (QToolButton* b : { m_exploreButton, m_computeButton }) {
+        if (!b)
+            continue;
+        b->blockSignals(true);
+        b->setChecked((b == m_exploreButton) == explore);
+        b->blockSignals(false);
+    }
+    QSettings().setValue("ui/appMode", static_cast<int>(mode));
+
+    if (m_calculationToolbar)
+        m_calculationToolbar->setVisible(!explore);
+
+    auto vis = [](QDockWidget* d, bool on) { if (d) d->setVisible(on); };
+    vis(m_projectDock, true);
+    vis(m_navigationDock, false);
+    vis(m_editorsDock, !explore);
+    vis(m_displayDock, explore);
+    vis(m_atomsSimulationDock, explore);
+    vis(m_outputViewDock, !explore);
+    if (explore && m_displayDock)
+        m_displayDock->raise();
+
+    if (reflow) {
+        if (explore) {
+            if (width() > 0)
+                resizeDocks({ m_projectDock, m_atomsSimulationDock },
+                    { int(width() * 0.16), int(width() * 0.22) }, Qt::Horizontal);
+        } else {
+            if (width() > 0)
+                resizeDocks({ m_projectDock, m_editorsDock },
+                    { int(width() * 0.20), int(width() * 0.30) }, Qt::Horizontal);
+            if (height() > 0)
+                resizeDocks({ m_outputViewDock }, { int(height() * 0.32) }, Qt::Vertical);
+        }
+    }
+
+    statusBar()->showMessage(explore ? tr("Mode: Explore") : tr("Mode: Compute"), 2000);
 }
 
 void MainWindow::createMenus()
@@ -4174,6 +4266,12 @@ void MainWindow::createDockWidgets()
             resetToOriginalSnapshot();
         });
 
+    // Claude Generated 2026 - Live wall-boundary feedback: viewer counts atoms
+    // outside the configured wall region (per frame / live MD) and the dock shows
+    // a "N atoms outside" status; the 3D wireframe also turns red.
+    connect(m_moleculeView, &MoleculeViewer::wallViolationChanged,
+        m_simulationControlWidget, &SimulationControlWidget::setWallViolationCount);
+
     // Claude Generated 2026 - Snapshot widget controls.
     connect(m_snapshotsWidget, &SnapshotsWidget::takeSnapshotRequested,
         this, [this]() {
@@ -4392,6 +4490,18 @@ void MainWindow::closeEvent(QCloseEvent* event)
 void MainWindow::onSimulationConfigChanged(SimulationConfig cfg)
 {
     m_simulationConfig = cfg;
+
+    // Claude Generated 2026 - Forward the confinement-wall config to the viewer
+    // so the box wireframe is drawn live (auto-show when enabled) as the operator
+    // types the bounds — preview before the MD run even starts. notifyConfig
+    // emits on every field edit, so this updates in real time.
+    if (m_moleculeView) {
+        m_moleculeView->setConfinementBox(
+            cfg.wallEnabled, cfg.wallType,
+            QVector3D(cfg.wallXmin, cfg.wallYmin, cfg.wallZmin),
+            QVector3D(cfg.wallXmax, cfg.wallYmax, cfg.wallZmax),
+            float(cfg.wallRadius));
+    }
 }
 
 // Claude Generated - Connect a freshly-created worker to the viewer + status bar directly.

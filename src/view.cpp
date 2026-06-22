@@ -163,13 +163,23 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                             clearSelection();
                         }
                     } else if (m_measurementMode != 0) {
-                        const int need = m_measurementMode + 1;
-                        if (m_selectedAtoms.size() >= need) {
-                            m_selectedAtoms.clear(); // start a fresh measurement (keep mode)
-                            if (m_selectionManager)
-                                m_selectionManager->clearSelection();
+                        // Click marks an atom; clicking a marked atom de-marks it. Type is
+                        // auto-detected from the count (2/3/4); a 5th new pick restarts.
+                        if (m_selectedAtoms.contains(picked)) {
+                            m_selectedAtoms.removeAll(picked);
+                        } else {
+                            if (m_selectedAtoms.size() >= 4)
+                                m_selectedAtoms.clear();
+                            m_selectedAtoms.append(picked);
                         }
-                        selectAtom(picked, /*append=*/true);
+                        if (m_selectionManager) {
+                            m_selectionManager->clearSelection();
+                            for (int a : m_selectedAtoms)
+                                m_selectionManager->selectAtom(a, true);
+                        }
+                        if (m_scene)
+                            m_scene->setSelection(m_selectedAtoms);
+                        emit selectionChanged(m_selectedAtoms);
                         updateMeasurement();
                     } else {
                         selectAtom(picked, append);
@@ -205,6 +215,17 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 m_lastMousePos = pos;
                 return true;
             }
+            // No button: hover feedback — highlight the atom under the cursor.
+            {
+                const int hov = pickAtomAtScreenPos(pos);
+                if (m_scene)
+                    m_scene->setHoverAtom(hov);
+                const Qt::CursorShape shape = (hov >= 0)
+                    ? Qt::PointingHandCursor
+                    : (m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor);
+                if (m_quickView) m_quickView->setCursor(shape);
+                if (m_container) m_container->setCursor(shape);
+            }
             break;
         }
         case QEvent::Wheel: {
@@ -213,6 +234,8 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
             return true;
         }
         case QEvent::Leave: {
+            if (m_scene)
+                m_scene->setHoverAtom(-1); // drop hover highlight when leaving the view
             if (m_grabbedAtom < 0) {
                 Qt::CursorShape shape = m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor;
                 if (m_quickView) m_quickView->setCursor(shape);
@@ -298,6 +321,124 @@ void MoleculeViewer::setForceVectorsVisible(bool on)
         updateForceVectors();
 }
 
+// ---------------------------------------------------------------------------
+// Confinement-wall overlay (curcuma harmonic walls, driven by Simulation config)
+// ---------------------------------------------------------------------------
+// Claude Generated 2026 - The wireframe is shown only when both the config has
+// walls enabled AND the Display-panel override is on. Geometry is built in
+// intrinsic atom coordinates and lives under moleculeRoot (rotates with the
+// molecule). curcuma auto-sizes walls when rect bounds or radius are 0; those
+// auto-sized values are not exposed back, so we only draw explicit (non-zero)
+// bounds/radius — silent otherwise, never wrong geometry.
+void MoleculeViewer::setConfinementBox(bool on, int type,
+    const QVector3D& min, const QVector3D& max, float radius)
+{
+    m_wallEnabled = on;
+    m_wallType = type;
+    m_wallMin = min;
+    m_wallMax = max;
+    m_wallRadius = radius;
+    applyWallVisibility();
+}
+
+void MoleculeViewer::setWallVisibleOverride(bool on)
+{
+    m_wallVisibleOverride = on;
+    applyWallVisibility();
+}
+
+// Claude Generated 2026 - Forward the Display-panel opacity slider to the
+// scene controller (the QML material binds to controller.wallOpacity).
+void MoleculeViewer::setWallOpacity(qreal opacity)
+{
+    if (m_scene)
+        m_scene->setWallOpacity(opacity);
+}
+
+qreal MoleculeViewer::getWallOpacity() const
+{
+    return m_scene ? m_scene->wallOpacity() : 1.0;
+}
+
+void MoleculeViewer::applyWallVisibility()
+{
+    if (!m_scene)
+        return;
+    if (!m_wallEnabled || !m_wallVisibleOverride) {
+        m_scene->setWallVisible(false);
+        return;
+    }
+    if (m_wallType == 2) {
+        // Rectangular: needs explicit, ordered bounds to draw a real cuboid.
+        const bool valid = m_wallMax.x() > m_wallMin.x()
+            && m_wallMax.y() > m_wallMin.y()
+            && m_wallMax.z() > m_wallMin.z();
+        if (valid)
+            m_scene->setWallBox(m_wallMin, m_wallMax);
+        else
+            m_scene->setWallVisible(false);
+    } else if (m_wallType == 1) {
+        if (m_wallRadius > 0.0f)
+            m_scene->setWallSphere(m_wallRadius);
+        else
+            m_scene->setWallVisible(false);
+    } else {
+        m_scene->setWallVisible(false);
+    }
+    computeWallViolations();  // recolour box + emit count for the current frame
+}
+
+// Claude Generated 2026 - Count atoms of the current frame outside the
+// configured wall region (rect: any axis outside [min,max]; spheric: |r| >
+// radius), recolour the wireframe red on violations, and emit the count so the
+// Simulation widget can show a live "N atoms outside" status. No-op when walls
+// are disabled/hidden or no molecule is loaded.
+void MoleculeViewer::computeWallViolations()
+{
+    if (!m_wallEnabled || !m_wallVisibleOverride || !m_scene) {
+        if (m_wallViolationCount != 0) {
+            m_wallViolationCount = 0;
+            emit wallViolationChanged(0);
+        }
+        return;
+    }
+    const int frame = (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size())
+        ? m_currentFrame : (m_trajectoryAtoms.isEmpty() ? -1 : 0);
+    if (frame < 0) {
+        if (m_wallViolationCount != 0) {
+            m_wallViolationCount = 0;
+            emit wallViolationChanged(0);
+            m_scene->setWallColor(QColor(200, 200, 205));
+        }
+        return;
+    }
+    const QVector<Atom>& atoms = m_trajectoryAtoms[frame];
+    int count = 0;
+    if (m_wallType == 2) {
+        for (const auto& a : atoms) {
+            const QVector3D& p = a.position;
+            if (p.x() < m_wallMin.x() || p.x() > m_wallMax.x()
+                || p.y() < m_wallMin.y() || p.y() > m_wallMax.y()
+                || p.z() < m_wallMin.z() || p.z() > m_wallMax.z())
+                ++count;
+        }
+    } else if (m_wallType == 1) {
+        for (const auto& a : atoms) {
+            if (a.position.length() > m_wallRadius)
+                ++count;
+        }
+    }
+    if (count != m_wallViolationCount) {
+        m_wallViolationCount = count;
+        emit wallViolationChanged(count);
+#ifdef DEBUG_ON
+        qDebug() << "Wall violations:" << count;
+#endif
+    }
+    // Red when any atom is outside, grey when all inside.
+    m_scene->setWallColor(count > 0 ? QColor(230, 70, 70) : QColor(200, 200, 205));
+}
+
 void MoleculeViewer::buildForceAdjacency()
 {
     if (m_trajectoryAtoms.isEmpty() || m_trajectoryBonds.isEmpty()) {
@@ -371,53 +512,75 @@ void MoleculeViewer::updateMeasurement()
     if (!m_scene)
         return;
     const int frame = (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) ? m_currentFrame : -1;
-    const int need = m_measurementMode + 1; // 1->2, 2->3, 3->4
-    if (m_measurementMode == 0 || frame < 0 || m_selectedAtoms.size() < need) {
+    if (m_measurementMode == 0 || frame < 0) {
         m_scene->setMeasurement({}, QString());
         return;
     }
     const QVector<Atom>& atoms = m_trajectoryAtoms[frame];
-    const QVector<int> idx = m_selectedAtoms.mid(m_selectedAtoms.size() - need, need);
-    for (int i : idx)
-        if (i < 0 || i >= atoms.size()) {
-            m_scene->setMeasurement({}, QString());
-            return;
-        }
 
-    QVector<QVector3D> wp; // world positions for the on-screen lines
-    for (int i : idx)
-        wp.append(modelToWorld(atoms[i].position));
+    // Auto-detect the measurement TYPE from how many atoms are picked:
+    // 2 = distance, 3 = angle, 4 = dihedral. Capped at 4; a 5th new pick restarts.
+    QVector<int> idx;
+    for (int a : m_selectedAtoms)
+        if (a >= 0 && a < atoms.size())
+            idx.append(a);
+    if (idx.size() > 4)
+        idx = idx.mid(idx.size() - 4, 4);
+
+    // Lines between consecutive picks (drawn even while incomplete).
     QVector<QPair<QVector3D, QVector3D>> lines;
-    for (int i = 0; i + 1 < wp.size(); ++i)
-        lines.append({ wp[i], wp[i + 1] });
+    for (int i = 0; i + 1 < idx.size(); ++i)
+        lines.append({ modelToWorld(atoms[idx[i]].position), modelToWorld(atoms[idx[i + 1]].position) });
 
-    // Values from intrinsic positions (rigid → identical to world; clearer intent).
-    const QVector3D p0 = atoms[idx[0]].position;
-    const QVector3D p1 = atoms[idx[1]].position;
+    QStringList names;
+    for (int a : idx)
+        names << QStringLiteral("%1%2").arg(atoms[a].element).arg(a);
+    const int n = idx.size();
+
     QString text;
-    if (m_measurementMode == 1) {
-        text = QStringLiteral("d(%1%2–%3%4) = %5 Å")
-                   .arg(atoms[idx[0]].element).arg(idx[0])
-                   .arg(atoms[idx[1]].element).arg(idx[1])
-                   .arg((p1 - p0).length(), 0, 'f', 3);
-    } else if (m_measurementMode == 2) {
-        const QVector3D p2 = atoms[idx[2]].position;
-        const QVector3D v1 = (p0 - p1).normalized();
-        const QVector3D v2 = (p2 - p1).normalized();
-        const float ang = qRadiansToDegrees(qAcos(qBound(-1.0f, QVector3D::dotProduct(v1, v2), 1.0f)));
-        text = QStringLiteral("∠(%1%2-%3%4-%5%6) = %7°")
-                   .arg(atoms[idx[0]].element).arg(idx[0]).arg(atoms[idx[1]].element).arg(idx[1])
-                   .arg(atoms[idx[2]].element).arg(idx[2]).arg(ang, 0, 'f', 1);
-    } else { // dihedral
-        const QVector3D p2 = atoms[idx[2]].position;
-        const QVector3D p3 = atoms[idx[3]].position;
-        const QVector3D b1 = p1 - p0, b2 = p2 - p1, b3 = p3 - p2;
-        const QVector3D n1 = QVector3D::crossProduct(b1, b2);
-        const QVector3D n2 = QVector3D::crossProduct(b2, b3);
-        const QVector3D m1 = QVector3D::crossProduct(n1, b2.normalized());
-        const float dih = qRadiansToDegrees(qAtan2(QVector3D::dotProduct(m1, n2),
-            QVector3D::dotProduct(n1, n2)));
-        text = QStringLiteral("φ = %1°").arg(dih, 0, 'f', 1);
+    if (n == 0) {
+        text = tr("Measure — click atoms: 2 = distance, 3 = angle, 4 = dihedral");
+    } else if (n == 1) {
+        text = tr("Measure: %1 — pick another atom (click an atom again to deselect)").arg(names[0]);
+    } else {
+        // Show ALL geometric quantities for the picked set, not just the single
+        // "auto-detected" one: every pairwise distance, the chain angles, and the
+        // dihedral(s). Claude Generated.
+        auto pos = [&](int k) { return atoms[idx[k]].position; };
+        auto angleAt = [&](int a, int b, int c) {
+            return qRadiansToDegrees(qAcos(qBound(-1.0f,
+                QVector3D::dotProduct((pos(a) - pos(b)).normalized(), (pos(c) - pos(b)).normalized()), 1.0f)));
+        };
+        QStringList parts;
+
+        QStringList dists;
+        for (int i = 0; i < n; ++i)
+            for (int j = i + 1; j < n; ++j)
+                dists << QStringLiteral("%1–%2 %3").arg(names[i], names[j])
+                             .arg((pos(j) - pos(i)).length(), 0, 'f', 3);
+        parts << tr("d[Å]:  ") + dists.join(QStringLiteral("   "));
+
+        if (n >= 3) {
+            QStringList angs;
+            for (int i = 0; i + 2 < n; ++i)
+                angs << QStringLiteral("%1-%2-%3 %4°").arg(names[i], names[i + 1], names[i + 2])
+                            .arg(angleAt(i, i + 1, i + 2), 0, 'f', 1);
+            parts << tr("∠[°]:  ") + angs.join(QStringLiteral("   "));
+        }
+        if (n >= 4) {
+            QStringList dihs;
+            for (int i = 0; i + 3 < n; ++i) {
+                const QVector3D b1 = pos(i + 1) - pos(i), b2 = pos(i + 2) - pos(i + 1), b3 = pos(i + 3) - pos(i + 2);
+                const QVector3D nn1 = QVector3D::crossProduct(b1, b2), nn2 = QVector3D::crossProduct(b2, b3);
+                const QVector3D mm = QVector3D::crossProduct(nn1, b2.normalized());
+                const float dih = qRadiansToDegrees(qAtan2(QVector3D::dotProduct(mm, nn2),
+                    QVector3D::dotProduct(nn1, nn2)));
+                dihs << QStringLiteral("%1-%2-%3-%4 %5°")
+                            .arg(names[i], names[i + 1], names[i + 2], names[i + 3]).arg(dih, 0, 'f', 1);
+            }
+            parts << tr("φ[°]:  ") + dihs.join(QStringLiteral("   "));
+        }
+        text = parts.join(QStringLiteral("\n"));
     }
     m_scene->setMeasurement(lines, text);
 }
@@ -534,6 +697,12 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
     m_frameCount = 1;
     m_currentFrame = 0;
 
+    // Single structure: no frame nav / playback.
+    if (m_frameControlWidget)
+        m_frameControlWidget->setVisible(false);
+    if (m_playbackWidget)
+        m_playbackWidget->setVisible(false);
+
     if (m_bondEditor)
         m_bondEditor->setAtoms(atoms);
     if (m_perfOpt)
@@ -592,6 +761,8 @@ void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, cons
         m_frameLabel->setText(QString("1/%1").arg(m_frameCount));
         m_frameControlWidget->setVisible(m_frameCount > 1);
     }
+    if (m_playbackWidget)
+        m_playbackWidget->setVisible(m_frameCount > 1);
 
     if (m_frameCount > 0)
         showFrame(0);
@@ -633,6 +804,7 @@ void MoleculeViewer::showFrame(int frameIndex)
     }
 
     updateMeasurement(); // keep measurement lines/values on the new frame
+    computeWallViolations();  // recolour box + status for the new frame
     emit frameChanged(m_currentFrame);
 }
 
@@ -699,6 +871,7 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
     for (int i = 0; i < n; ++i)
         refAtoms[i].position = positions[i];
     syncSceneToController(0, /*resetCamera=*/false, /*fullRebuild=*/false);
+    computeWallViolations();  // live MD: recolour box + status as atoms cross walls
 
     // Throttled cache notify (once per worker run).
     if (!m_moleculeDirty) {
@@ -980,6 +1153,7 @@ void MoleculeViewer::setMeasurementMode(int mode)
 {
     m_measurementMode = qBound(0, mode, 3);
     updateMeasurement(); // refresh/clear the on-screen measurement for the new mode
+    emit measurementModeChanged(m_measurementMode);
 }
 
 void MoleculeViewer::setBondEditMode(int mode)
@@ -1270,20 +1444,25 @@ void MoleculeViewer::setupControlPanel()
     panelLayout->addWidget(m_frameControlWidget, 1);
     panelLayout->addWidget(createSeparator());
 
-    // Playback
+    // Playback — only shown for multi-frame files (hidden for a single structure).
+    m_playbackWidget = new QWidget;
+    QHBoxLayout* playbackLayout = new QHBoxLayout(m_playbackWidget);
+    playbackLayout->setContentsMargins(0, 0, 0, 0);
+    playbackLayout->setSpacing(3);
+
     QPushButton* playButton = new QPushButton;
     playButton->setIcon(QIcon::fromTheme("media-playback-start"));
     playButton->setToolTip(tr("Play Animation"));
     playButton->setMaximumWidth(30);
     connect(playButton, &QPushButton::clicked, this, &MoleculeViewer::startAnimation);
-    panelLayout->addWidget(playButton);
+    playbackLayout->addWidget(playButton);
 
     QPushButton* pauseButton = new QPushButton;
     pauseButton->setIcon(QIcon::fromTheme("media-playback-pause"));
     pauseButton->setToolTip(tr("Pause Animation"));
     pauseButton->setMaximumWidth(30);
     connect(pauseButton, &QPushButton::clicked, this, &MoleculeViewer::stopAnimation);
-    panelLayout->addWidget(pauseButton);
+    playbackLayout->addWidget(pauseButton);
 
     QSpinBox* fpsSpinBox = new QSpinBox;
     fpsSpinBox->setRange(1, 60);
@@ -1293,34 +1472,44 @@ void MoleculeViewer::setupControlPanel()
     connect(fpsSpinBox, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
         setAnimationFPS(value);
     });
-    panelLayout->addWidget(fpsSpinBox);
+    playbackLayout->addWidget(fpsSpinBox);
 
     QCheckBox* loopCheckbox = new QCheckBox(tr("Loop"));
     loopCheckbox->setChecked(true);
     connect(loopCheckbox, &QCheckBox::toggled, this, &MoleculeViewer::setAnimationLoop);
-    panelLayout->addWidget(loopCheckbox);
+    playbackLayout->addWidget(loopCheckbox);
+
+    m_playbackWidget->setVisible(false);
+    panelLayout->addWidget(m_playbackWidget);
     panelLayout->addWidget(createSeparator());
 
-    // Rendering
-    QComboBox* modeCombo = new QComboBox;
-    modeCombo->addItem(tr("Ball & Stick"), static_cast<int>(RenderingMode::BallAndStick));
-    modeCombo->addItem(tr("Space-Filling"), static_cast<int>(RenderingMode::SpaceFilling));
-    modeCombo->addItem(tr("Wireframe"), static_cast<int>(RenderingMode::Wireframe));
-    modeCombo->addItem(tr("Sticks"), static_cast<int>(RenderingMode::SticksOnly));
-    modeCombo->setMaximumWidth(110);
-    connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, modeCombo](int index) {
-        setRenderingMode(static_cast<RenderingMode>(modeCombo->itemData(index).toInt()));
-    });
-    // Stay in sync with the Display dock / shortcuts.
-    connect(this, &MoleculeViewer::renderingModeChanged, modeCombo, [modeCombo](RenderingMode m) {
-        const int i = modeCombo->findData(static_cast<int>(m));
-        if (i >= 0 && i != modeCombo->currentIndex()) {
-            modeCombo->blockSignals(true);
-            modeCombo->setCurrentIndex(i);
-            modeCombo->blockSignals(false);
+    // Measurement toggle — type is auto-detected from the number of picked atoms
+    // (2 = distance, 3 = angle, 4 = dihedral). Quick access; rendering style lives in the dock.
+    QToolButton* measureBtn = new QToolButton;
+    measureBtn->setText(tr("Measure"));
+    measureBtn->setCheckable(true);
+    measureBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    {
+        QIcon ico = QIcon::fromTheme(QStringLiteral("measure"));
+        if (ico.isNull())
+            ico = QIcon::fromTheme(QStringLiteral("applications-engineering"));
+        if (ico.isNull())
+            ico = QIcon::fromTheme(QStringLiteral("draw-line"));
+        if (!ico.isNull())
+            measureBtn->setIcon(ico);
+    }
+    measureBtn->setToolTip(tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral. "
+                              "Click a marked atom again to deselect; Esc clears."));
+    connect(measureBtn, &QToolButton::toggled, this, [this](bool on) { setMeasurementMode(on ? 1 : 0); });
+    connect(this, &MoleculeViewer::measurementModeChanged, measureBtn, [measureBtn](int mode) {
+        const bool on = (mode != 0);
+        if (measureBtn->isChecked() != on) {
+            measureBtn->blockSignals(true);
+            measureBtn->setChecked(on);
+            measureBtn->blockSignals(false);
         }
     });
-    panelLayout->addWidget(modeCombo);
+    panelLayout->addWidget(measureBtn);
 
     QComboBox* colorCombo = new QComboBox;
     colorCombo->addItem(tr("CPK"), static_cast<int>(ColorScheme::CPK));

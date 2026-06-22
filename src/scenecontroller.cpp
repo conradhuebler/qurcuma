@@ -57,6 +57,8 @@ SceneController::SceneController(QObject* parent)
     m_arrowTip->setParent(this);
     m_measureLines = new BondInstancing(nullptr);
     m_measureLines->setParent(this);
+    m_wallLines = new BondInstancing(nullptr);
+    m_wallLines->setParent(this);
     m_overlayAtoms = new AtomInstancing(nullptr);
     m_overlayAtoms->setParent(this);
     m_overlayBonds = new BondInstancing(nullptr);
@@ -66,6 +68,7 @@ SceneController::SceneController(QObject* parent)
 QQuick3DInstancing* SceneController::measureLineInstancing() const { return m_measureLines; }
 QQuick3DInstancing* SceneController::overlayAtomInstancing() const { return m_overlayAtoms; }
 QQuick3DInstancing* SceneController::overlayBondInstancing() const { return m_overlayBonds; }
+QQuick3DInstancing* SceneController::wallInstancing() const { return m_wallLines; }
 
 void SceneController::setMeasurement(const QVector<QPair<QVector3D, QVector3D>>& lines, const QString& text)
 {
@@ -143,6 +146,158 @@ void SceneController::clearOverlay()
     m_overlayBonds->setSegments({});
     m_overlayVisible = false;
     emit overlayChanged();
+}
+
+// Claude Generated 2026 - Confinement-wall wireframe. Same #Cylinder-segment
+// pattern as setMeasurement(): a line is a thin cylinder oriented along its
+// direction. Edges are in intrinsic atom coordinates (the molecule's own frame),
+// and the Model lives under moleculeRoot so the box rotates with the structure.
+namespace {
+// Append one cylinder segment along (a -> b) to @p segs with radius @p r.
+void appendWallEdge(QVector<BondInstancing::Segment>& segs,
+    const QVector3D& a, const QVector3D& b, float r, const QColor& color)
+{
+    const QVector3D dir = b - a;
+    const float length = dir.length();
+    if (length < 1e-4f)
+        return;
+    BondInstancing::Segment s;
+    s.center = 0.5f * (a + b);
+    s.scale = QVector3D(r / kCylBaseRadius, length / (2.0f * kCylBaseHalfHeight), r / kCylBaseRadius);
+    s.rotation = bondRotation(dir / length);
+    s.color = color;
+    segs.append(s);
+}
+}
+
+void SceneController::setWallBox(const QVector3D& min, const QVector3D& max)
+{
+    m_wallGeom = 2;  // rect
+    m_wallMin = min;
+    m_wallMax = max;
+    rebuildWall();
+    m_wallVisible = true;
+    emit wallChanged();
+}
+
+void SceneController::setWallSphere(float radius)
+{
+    m_wallGeom = 1;  // sphere
+    m_wallRadius = radius;
+    rebuildWall();
+    m_wallVisible = true;
+    emit wallChanged();
+}
+
+// Claude Generated 2026 - Recolour the wall wireframe (e.g. red on boundary
+// violations). Rebuilds the segment buffer from the stored geometry with the
+// new colour so the instancing buffer reflects it immediately.
+void SceneController::setWallColor(const QColor& color)
+{
+    if (m_wallColor == color)
+        return;
+    m_wallColor = color;
+    if (m_wallVisible && m_wallGeom != 0)
+        rebuildWall();
+}
+
+// Claude Generated 2026 - Wireframe transparency. The alpha is baked into
+// the per-segment colour (mirrors atom transparency: SceneController bakes
+// m_transparency into the instance colour, the material runs in Blend mode).
+// So changing opacity MUST rebuild the segment buffer — the QML material
+// baseColor is opaque white and only carries the alphaMode toggle.
+void SceneController::setWallOpacity(qreal opacity)
+{
+    const qreal clamped = qBound(0.0, opacity, 1.0);
+    if (qFuzzyCompare(m_wallOpacity, clamped))
+        return;
+    m_wallOpacity = clamped;
+    if (m_wallVisible && m_wallGeom != 0)
+        rebuildWall();
+    emit wallChanged();
+}
+
+void SceneController::setWallVisible(bool on)
+{
+    if (m_wallVisible == on)
+        return;
+    if (!on)
+        m_wallLines->setSegments({});
+    m_wallVisible = on;
+    emit wallChanged();
+}
+
+void SceneController::rebuildWall()
+{
+    const float r = 0.08f;       // slightly thicker than measurement lines
+    // Alpha is baked into the per-segment colour (mirrors atom transparency:
+    // SceneController bakes m_transparency into the instance colour and the
+    // material runs in Blend mode). RGB = m_wallColor (grey/red), alpha =
+    // m_wallOpacity. The QML material binds alphaMode to Blend when opacity<1.
+    const QColor color(m_wallColor.red(), m_wallColor.green(), m_wallColor.blue(),
+                       int(m_wallOpacity * 255));
+    if (m_wallGeom == 2) {
+        // 12 edges of the cuboid [m_wallMin .. m_wallMax].
+        QVector<BondInstancing::Segment> segs;
+        segs.reserve(12);
+        const QVector3D& mn = m_wallMin;
+        const QVector3D& mx = m_wallMax;
+        const QVector3D c000(mn.x(), mn.y(), mn.z());
+        const QVector3D c100(mx.x(), mn.y(), mn.z());
+        const QVector3D c010(mn.x(), mx.y(), mn.z());
+        const QVector3D c110(mx.x(), mx.y(), mn.z());
+        const QVector3D c001(mn.x(), mn.y(), mx.z());
+        const QVector3D c101(mx.x(), mn.y(), mx.z());
+        const QVector3D c011(mn.x(), mx.y(), mx.z());
+        const QVector3D c111(mx.x(), mx.y(), mx.z());
+        appendWallEdge(segs, c000, c100, r, color);
+        appendWallEdge(segs, c010, c110, r, color);
+        appendWallEdge(segs, c001, c101, r, color);
+        appendWallEdge(segs, c011, c111, r, color);
+        appendWallEdge(segs, c000, c010, r, color);
+        appendWallEdge(segs, c100, c110, r, color);
+        appendWallEdge(segs, c001, c011, r, color);
+        appendWallEdge(segs, c101, c111, r, color);
+        appendWallEdge(segs, c000, c001, r, color);
+        appendWallEdge(segs, c100, c101, r, color);
+        appendWallEdge(segs, c010, c011, r, color);
+        appendWallEdge(segs, c110, c111, r, color);
+        m_wallLines->setSegments(segs);
+    } else if (m_wallGeom == 1) {
+        // Lat/long wireframe, origin-centred, radius m_wallRadius.
+        QVector<BondInstancing::Segment> segs;
+        const int nLat = 7;   // latitude rings (excluding poles)
+        const int nLng = 12;  // longitude half-rings through both poles
+        for (int i = 1; i <= nLat; ++i) {
+            const float frac = float(i) / float(nLat + 1);
+            const float z = m_wallRadius * std::cos(frac * float(M_PI));
+            const float ringR = m_wallRadius * std::sin(frac * float(M_PI));
+            if (ringR < 1e-3f)
+                continue;
+            const int seg = 48;
+            QVector3D prev(QVector3D(ringR, 0.0f, z));
+            for (int k = 1; k <= seg; ++k) {
+                const float ang = 2.0f * float(M_PI) * float(k) / float(seg);
+                const QVector3D cur(ringR * std::cos(ang), ringR * std::sin(ang), z);
+                appendWallEdge(segs, prev, cur, r, color);
+                prev = cur;
+            }
+        }
+        for (int m = 0; m < nLng; ++m) {
+            const float phi = 2.0f * float(M_PI) * float(m) / float(nLng);
+            const int seg = 48;
+            QVector3D prev(0.0f, 0.0f, m_wallRadius);
+            for (int k = 1; k <= seg; ++k) {
+                const float theta = float(M_PI) * float(k) / float(seg);
+                const QVector3D cur(m_wallRadius * std::sin(theta) * std::cos(phi),
+                                     m_wallRadius * std::sin(theta) * std::sin(phi),
+                                     m_wallRadius * std::cos(theta));
+                appendWallEdge(segs, prev, cur, r, color);
+                prev = cur;
+            }
+        }
+        m_wallLines->setSegments(segs);
+    }
 }
 
 QQuick3DInstancing* SceneController::atomInstancing() const { return m_atomInstancing; }
@@ -258,6 +413,13 @@ QColor SceneController::atomColor(int index) const
     }
     QColor c;
     const AtomDatum& a = m_atoms[index];
+    // Hover feedback: brighten the atom under the cursor (below selection).
+    if (index == m_hoverAtom) {
+        QColor base = (m_colorScheme == Monochrome) ? m_monochrome : elem::cpkColor(a.element);
+        QColor hl = base.lighter(170);
+        hl.setAlphaF(m_transparency);
+        return hl;
+    }
     switch (m_colorScheme) {
     case Monochrome:
         c = m_monochrome;
@@ -280,9 +442,9 @@ QColor SceneController::atomColor(int index) const
     return c;
 }
 
-void SceneController::rebuildGeometry()
+// Atoms only — cheap path for selection/hover changes (skips the bonds rebuild).
+void SceneController::rebuildAtoms()
 {
-    // --- atoms ---
     QVector<AtomInstancing::Item> items;
     if (m_atomsVisible) {
         // Ball-and-stick shrinks spheres; space-filling uses full vdW radius.
@@ -297,6 +459,21 @@ void SceneController::rebuildGeometry()
         }
     }
     m_atomInstancing->setItems(items);
+}
+
+void SceneController::setHoverAtom(int index)
+{
+    if (index >= m_atoms.size())
+        index = -1;
+    if (index == m_hoverAtom)
+        return;
+    m_hoverAtom = index;
+    rebuildAtoms();
+}
+
+void SceneController::rebuildGeometry()
+{
+    rebuildAtoms();
 
     // --- bonds (two half-cylinders, coloured per atom) ---
     QVector<BondInstancing::Segment> segs;
@@ -387,7 +564,7 @@ void SceneController::setBackgroundColor(const QColor& c)
 void SceneController::setSelection(const QVector<int>& indices)
 {
     m_selection = indices;
-    rebuildGeometry();
+    rebuildAtoms(); // only atom colours change
 }
 
 // ---- effects setters ----

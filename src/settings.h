@@ -93,6 +93,10 @@ public:
         // Claude Generated 2026 - Interaction / Performance
         int rotationMode = 0;          // 0 = Model, 1 = CameraOrbit
         int instancingThreshold = 500; // Atom count >= threshold switches to GPU instancing (picking disabled)
+        // Claude Generated 2026 - Confinement-wall wireframe show/hide override
+        // (the wall geometry itself comes from the Simulation config).
+        bool wallVisible = true;
+        qreal wallOpacity = 0.6;  // wireframe alpha 0..1
     };
 
     VisualizationSettings getVisualizationSettings() const;

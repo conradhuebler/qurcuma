@@ -32,6 +32,15 @@ class SceneController : public QObject
     Q_PROPERTY(QQuick3DInstancing* overlayAtomInstancing READ overlayAtomInstancing CONSTANT)
     Q_PROPERTY(QQuick3DInstancing* overlayBondInstancing READ overlayBondInstancing CONSTANT)
     Q_PROPERTY(bool overlayVisible READ overlayVisible NOTIFY overlayChanged)
+    // Confinement-wall wireframe (harmonic walls from the interactive MD config).
+    // Lives under moleculeRoot so it rotates with the structure; the wall bounds
+    // are in intrinsic atom coordinates (the molecule's own frame).
+    Q_PROPERTY(QQuick3DInstancing* wallInstancing READ wallInstancing CONSTANT)
+    Q_PROPERTY(bool wallVisible READ wallVisible NOTIFY wallChanged)
+    // Wall wireframe transparency (0=invisible .. 1=opaque). The per-segment
+    // colour carries the grey/red RGB; the material baseColor alpha binds to
+    // this so opacity is adjustable without rebuilding the geometry.
+    Q_PROPERTY(qreal wallOpacity READ wallOpacity WRITE setWallOpacity NOTIFY wallChanged)
 
     // Visibility per rendering mode.
     Q_PROPERTY(bool atomsVisible READ atomsVisible NOTIFY appearanceChanged)
@@ -113,6 +122,21 @@ public:
     void setOverlayStructure(const QVector<AtomDatum>& atoms, const QVector<BondDatum>& bonds);
     void clearOverlay();
 
+    // Confinement-wall wireframe. Geometry is supplied in intrinsic atom
+    // coordinates; the Model lives under moleculeRoot so it rotates with the
+    // molecule. setWallVisible(false) clears the geometry.
+    QQuick3DInstancing* wallInstancing() const;
+    bool wallVisible() const { return m_wallVisible; }
+    qreal wallOpacity() const { return m_wallOpacity; }
+    void setWallOpacity(qreal opacity);
+    /// Rectangular wall: 12 edges of the cuboid [min, max].
+    void setWallBox(const QVector3D& min, const QVector3D& max);
+    /// Spheric wall (origin-centred): lat/long wireframe of the given radius.
+    void setWallSphere(float radius);
+    /// Recolour the current wall wireframe (e.g. red on boundary violations).
+    void setWallColor(const QColor& color);
+    void setWallVisible(bool on);
+
     bool atomsVisible() const { return m_atomsVisible; }
     bool bondsVisible() const { return m_bondsVisible; }
     bool blendEnabled() const { return m_transparency < 0.999f; }
@@ -155,6 +179,7 @@ public:
     void setAtomTransparency(float a);
     void setBackgroundColor(const QColor& c);
     void setSelection(const QVector<int>& indices);
+    void setHoverAtom(int index);  // mouse-over highlight (-1 = none)
 
     // --- effects ---
     void setSsao(bool on, float strength);
@@ -194,9 +219,11 @@ signals:
     void forceVectorsChanged();
     void measurementChanged();
     void overlayChanged();
+    void wallChanged();
 
 private:
     void rebuildGeometry();        // recompute atom items + bond segments
+    void rebuildAtoms();           // recompute only atom items (selection/hover)
     void recomputeBounds();
     QColor atomColor(int index) const;
 
@@ -207,6 +234,14 @@ private:
     bool m_forceVectorsVisible = false;
     BondInstancing* m_measureLines = nullptr; // measurement lines (#Cylinder)
     QString m_measurementText;
+    BondInstancing* m_wallLines = nullptr; // confinement-wall wireframe (#Cylinder)
+    bool m_wallVisible = false;
+    qreal m_wallOpacity = 0.6;     // wireframe alpha (0=invisible .. 1=opaque)
+    int m_wallGeom = 0;            // 0=none, 1=sphere, 2=rect (rebuild source)
+    QVector3D m_wallMin, m_wallMax;
+    float m_wallRadius = 0.0f;
+    QColor m_wallColor{ 200, 200, 205 };  // grey; recoloured red on violations
+    void rebuildWall();            // regenerate segments from m_wallGeom + m_wallColor
     AtomInstancing* m_overlayAtoms = nullptr; // RMSD overlay structure spheres
     BondInstancing* m_overlayBonds = nullptr; // RMSD overlay structure cylinders
     bool m_overlayVisible = false;
@@ -214,6 +249,7 @@ private:
     QVector<AtomDatum> m_atoms;
     QVector<BondDatum> m_bonds;
     QVector<int> m_selection;
+    int m_hoverAtom = -1;
 
     // appearance state
     int m_colorScheme = CPK;

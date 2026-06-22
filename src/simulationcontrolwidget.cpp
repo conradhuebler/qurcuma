@@ -426,6 +426,99 @@ void SimulationControlWidget::setupUI()
     m_rmsdMtdDetails->setVisible(false);  // hidden until enabled
     innerLayout->addWidget(m_rmsdMtdGroup);
 
+    // ---- Confinement Walls (curcuma SimpleMD wall_* params) ----
+    // Claude Generated 2026 - exposes curcuma's harmonic confinement walls
+    // (wall_type/wall_potential/wall_x|y|z_min|max/wall_radius, "Walls" PARAM
+    // category in external/curcuma/src/capabilities/simplemd.h). MD only; details
+    // reveal on enable. The box wireframe is drawn live in the 3D viewer as the
+    // bounds are typed (auto-show when enabled) — see MainWindow forwarding
+    // configChanged to MoleculeViewer::setConfinementBox.
+    m_wallGroup = new QGroupBox(tr("Confinement Walls"), this);
+    auto* wallOuterLayout = new QVBoxLayout(m_wallGroup);
+    wallOuterLayout->setSpacing(4);
+    wallOuterLayout->setContentsMargins(4, 4, 4, 4);
+
+    m_wallEnableCheck = new QCheckBox(tr("Enable confinement walls"), this);
+    m_wallEnableCheck->setToolTip(tr("Add a harmonic/logfermi confinement potential "
+        "that pushes atoms back inside the defined region during MD. The wall "
+        "geometry is drawn live in the 3D viewer; explicit bounds are required for "
+        "the preview (zeros = curcuma auto-size, not previewable)."));
+    wallOuterLayout->addWidget(m_wallEnableCheck);
+
+    m_wallDetails = new QWidget(m_wallGroup);
+    auto* wallForm = new QFormLayout(m_wallDetails);
+
+    m_wallTypeCombo = new QComboBox(this);
+    m_wallTypeCombo->addItem(tr("None"), 0);
+    m_wallTypeCombo->addItem(tr("Spherical"), 1);
+    m_wallTypeCombo->addItem(tr("Rectangular"), 2);
+    m_wallTypeCombo->setToolTip(tr("Wall geometry. Spherical is origin-centred; "
+        "rectangular is the axis-aligned cuboid [x/y/z min .. max]."));
+    wallForm->addRow(tr("Geometry:"), m_wallTypeCombo);
+
+    m_wallPotentialCombo = new QComboBox(this);
+    m_wallPotentialCombo->addItem(tr("Harmonic"), 0);
+    m_wallPotentialCombo->addItem(tr("LogFermi"), 1);
+    m_wallPotentialCombo->setToolTip(tr("Wall potential function. Harmonic: "
+        "V = ½k·d² (unbounded force); LogFermi: soft, temperature-dependent wall."));
+    wallForm->addRow(tr("Potential:"), m_wallPotentialCombo);
+
+    auto makeBoundSpin = [this](const QString& suffix) {
+        auto* s = new QDoubleSpinBox(this);
+        s->setRange(-1e5, 1e5);
+        s->setDecimals(3);
+        s->setSingleStep(0.1);
+        s->setSuffix(suffix);
+        s->setValue(0.0);
+        return s;
+    };
+    // Pack two spin boxes side by side into a single QWidget for a QFormLayout row.
+    auto makeRowPair = [](QWidget* a, QWidget* b) {
+        auto* row = new QWidget;
+        auto* h = new QHBoxLayout(row);
+        h->setContentsMargins(0, 0, 0, 0);
+        h->addWidget(a);
+        h->addWidget(b);
+        return row;
+    };
+    const QString angstrom = QStringLiteral(" Å");
+    m_wallXminSpin = makeBoundSpin(angstrom);
+    m_wallXmaxSpin = makeBoundSpin(angstrom);
+    m_wallYminSpin = makeBoundSpin(angstrom);
+    m_wallYmaxSpin = makeBoundSpin(angstrom);
+    m_wallZminSpin = makeBoundSpin(angstrom);
+    m_wallZmaxSpin = makeBoundSpin(angstrom);
+    // Sane symmetric ±10 Å default so the rectangular preview is visible immediately.
+    m_wallXminSpin->setValue(-10.0);  m_wallXmaxSpin->setValue(10.0);
+    m_wallYminSpin->setValue(-10.0);  m_wallYmaxSpin->setValue(10.0);
+    m_wallZminSpin->setValue(-10.0);  m_wallZmaxSpin->setValue(10.0);
+    wallForm->addRow(tr("x min / max:"), makeRowPair(m_wallXminSpin, m_wallXmaxSpin));
+    wallForm->addRow(tr("y min / max:"), makeRowPair(m_wallYminSpin, m_wallYmaxSpin));
+    wallForm->addRow(tr("z min / max:"), makeRowPair(m_wallZminSpin, m_wallZmaxSpin));
+
+    m_wallRadiusSpin = new QDoubleSpinBox(this);
+    m_wallRadiusSpin->setRange(0.0, 1e5);
+    m_wallRadiusSpin->setDecimals(3);
+    m_wallRadiusSpin->setSingleStep(0.1);
+    m_wallRadiusSpin->setSuffix(angstrom);
+    m_wallRadiusSpin->setValue(8.0);
+    m_wallRadiusSpin->setToolTip(tr("Spherical wall radius (origin-centred). "
+        "0 = curcuma auto-size from molecule geometry (not previewable)."));
+    wallForm->addRow(tr("Sphere radius:"), m_wallRadiusSpin);
+
+    wallOuterLayout->addWidget(m_wallDetails);
+    m_wallDetails->setVisible(false);  // hidden until enabled
+
+    // Claude Generated 2026 - Live boundary-violation feedback: shown when walls
+    // are enabled; updated from MoleculeViewer::wallViolationChanged via
+    // MainWindow. The 3D wireframe also turns red when any atom is outside.
+    m_wallStatusLabel = new QLabel(m_wallGroup);
+    m_wallStatusLabel->setWordWrap(true);
+    m_wallStatusLabel->setVisible(false);
+    wallOuterLayout->addWidget(m_wallStatusLabel);
+
+    innerLayout->addWidget(m_wallGroup);
+
     // ---- Optimization Parameters ----
     m_optGroup = new QGroupBox(tr("Optimization"), this);
     auto* optForm = new QFormLayout(m_optGroup);
@@ -580,6 +673,19 @@ void SimulationControlWidget::setupUI()
     connect(m_rmsdMtdDtSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_rmsdMtdFreezeCheck, &QCheckBox::toggled, this, notifyConfig);
 
+    // Claude Generated 2026 - Confinement walls: notify on every parameter change.
+    connect(m_wallEnableCheck, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_wallTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_wallPotentialCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_wallRadiusSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_wallXminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_wallXmaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_wallYminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_wallYminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_wallYmaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_wallZminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_wallZmaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+
     // Show/hide groups based on mode and RATTLE selection
     connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
         [this](int index) { m_rattleDetails->setVisible(index > 0); });
@@ -589,6 +695,17 @@ void SimulationControlWidget::setupUI()
         [this](bool on) { m_rmsdMtdDetails->setVisible(on); });
     connect(m_rmsdMtdWtmtdCheck, &QCheckBox::toggled, this,
         [this](bool on) { m_rmsdMtdDtSpin->setEnabled(on); });
+
+    // Claude Generated 2026 - Confinement walls: reveal details on enable.
+    // All rows stay visible regardless of geometry — the geometry combo decides
+    // which curcuma actually uses (rect bounds vs spheric radius) and which the
+    // 3D viewer draws; greying/visibility swaps here would leave half-empty rows.
+    connect(m_wallEnableCheck, &QCheckBox::toggled, this,
+        [this](bool on) {
+            m_wallDetails->setVisible(on);
+            m_wallStatusLabel->setVisible(on);
+            if (!on) m_wallStatusLabel->clear();
+        });
 
     auto notifyGrab = [this]() {
         emit grabSettingsChanged(m_grabStrengthSpin->value(),
@@ -684,6 +801,15 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.rmsdMtdWtmtd         = m_rmsdMtdWtmtdCheck->isChecked();
     cfg.rmsdMtdDt            = m_rmsdMtdDtSpin->value();
     cfg.rmsdMtdFreezeInherited = m_rmsdMtdFreezeCheck->isChecked();
+
+    // Claude Generated 2026 - Confinement walls (curcuma SimpleMD wall_* params).
+    cfg.wallEnabled  = m_wallEnableCheck->isChecked();
+    cfg.wallType      = m_wallTypeCombo->currentData().toInt();
+    cfg.wallHarmonic  = (m_wallPotentialCombo->currentData().toInt() == 0);
+    cfg.wallXmin = m_wallXminSpin->value();  cfg.wallXmax = m_wallXmaxSpin->value();
+    cfg.wallYmin = m_wallYminSpin->value();  cfg.wallYmax = m_wallYmaxSpin->value();
+    cfg.wallZmin = m_wallZminSpin->value();  cfg.wallZmax = m_wallZmaxSpin->value();
+    cfg.wallRadius   = m_wallRadiusSpin->value();
 
     return cfg;
 }
@@ -910,11 +1036,28 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
     m_mdGroup->setVisible(isMD);
     m_rattleGroup->setVisible(isMD);
     m_rmsdMtdGroup->setVisible(isMD);
+    m_wallGroup->setVisible(isMD);  // walls are MD-only (curcuma SimpleMD)
     m_optGroup->setVisible(!isMD);
 
     // Speed is visible in both modes (single-step optimisation uses it as a
     // click-rate cap; MD uses it as the auto-run emit cadence cap).
     // m_fpsLimitSpin is already a top-level control — no per-mode visibility needed.
+}
+
+// Claude Generated 2026 - Live confinement-wall boundary feedback. count == 0
+// => all atoms inside (green check); count > 0 => N atoms outside the wall
+// (warning). The 3D wireframe is recoloured red independently by the viewer.
+void SimulationControlWidget::setWallViolationCount(int count)
+{
+    if (!m_wallStatusLabel)
+        return;
+    if (count <= 0) {
+        m_wallStatusLabel->setText(tr("✓ all atoms inside the wall"));
+        m_wallStatusLabel->setStyleSheet(QStringLiteral("color: #4caf50;"));
+    } else {
+        m_wallStatusLabel->setText(tr("⚠ %1 atom(s) outside the wall").arg(count));
+        m_wallStatusLabel->setStyleSheet(QStringLiteral("color: #e05757; font-weight: bold;"));
+    }
 }
 
 // Claude Generated 2026 - Programmatic mode setter for the CLI auto-start

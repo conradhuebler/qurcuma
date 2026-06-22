@@ -15,6 +15,8 @@ using json = nlohmann::json;
 #include <src/core/elements.h>
 
 #include <QCoreApplication>
+#include <QFile>
+#include <QDir>
 #include <QMutexLocker>
 #include <QThread>
 #include <QTimer>
@@ -47,6 +49,29 @@ void applyRmsdMtdParams(const SimulationConfig& cfg, json& simplemd_params)
     }
     if (cfg.rmsdMtdFreezeInherited)
         simplemd_params["rmsd_mtd_freeze_inherited"] = true;
+}
+
+// Claude Generated 2026 - Write curcuma's harmonic confinement-wall parameters
+// into the simplemd controller block. Only emitted when walls are enabled, so
+// curcuma's defaults (wall_type=none) stay intact otherwise. Mirrors the "Walls"
+// PARAM category in external/curcuma/src/capabilities/simplemd.h. Rectangular
+// bounds are always forwarded (curcuma auto-sizes when min==max==0); radius is
+// spheric-only but harmless to set in the rect case (curcuma reads wall_radius
+// only when wall_type=spheric).
+void applyWallParams(const SimulationConfig& cfg, json& simplemd_params)
+{
+    if (!cfg.wallEnabled)
+        return;
+    simplemd_params["wall_type"] = cfg.wallType == 2 ? "rect"
+                              : cfg.wallType == 1 ? "spheric" : "none";
+    simplemd_params["wall_potential"] = cfg.wallHarmonic ? "harmonic" : "logfermi";
+    simplemd_params["wall_x_min"] = cfg.wallXmin;
+    simplemd_params["wall_x_max"] = cfg.wallXmax;
+    simplemd_params["wall_y_min"] = cfg.wallYmin;
+    simplemd_params["wall_y_max"] = cfg.wallYmax;
+    simplemd_params["wall_z_min"] = cfg.wallZmin;
+    simplemd_params["wall_z_max"] = cfg.wallZmax;
+    simplemd_params["wall_radius"] = cfg.wallRadius;
 }
 }  // namespace
 
@@ -282,6 +307,21 @@ void SimulationWorker::run()
 
     m_stopRequested.storeRelaxed(0);
     m_pauseRequested.storeRelaxed(0);
+
+    // Claude Generated 2026 - Remove a stale curcuma "stop" file from the
+    // working directory before starting. curcuma's SimpleMD::step() aborts the
+    // run immediately when CheckStop() sees a file named "stop" in the CWD
+    // (CurcumaMethod::CheckStop, curcumamethod.cpp). That file is the CLI
+    // interrupt mechanism for standalone curcuma; it is NOT used by qurcuma's
+    // interactive driver, which terminates via requestStop() instead. A "stop"
+    // file left over from a prior curcuma CLI run in the same directory would
+    // otherwise abort every interactive MD/Opt at step 0 (step() returns false
+    // on its first call, m_run_prepared stays true, so finalizeRun prints the
+    // initial frame + "Exchange with heat bath" with zero integration steps —
+    // the "MD doesn't start" symptom). Deleting it here gives each interactive
+    // run a clean stop-file state. A "stop" file created DURING the run is still
+    // honoured by curcuma (we only clear a pre-existing one).
+    QFile::remove(QDir::currentPath() + QStringLiteral("/stop"));
     m_lastEmitTimer.start();
 
     switch (m_config.mode) {
@@ -359,6 +399,7 @@ void SimulationWorker::startMD()
     simplemd_params["rattle_max_iterations"] = m_config.rattleMaxIter;
     simplemd_params["hmass"] = m_config.hmass;
     applyRmsdMtdParams(m_config, simplemd_params);
+    applyWallParams(m_config, simplemd_params);
 
     json controller;
     controller["simplemd"] = simplemd_params;
