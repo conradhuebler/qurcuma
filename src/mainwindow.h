@@ -48,6 +48,7 @@
 #include "simulationworker.h"  // Claude Generated - for SimulationConfig
 class MoleculeViewer;
 class DisplayPanel;  // Claude Generated 2026 - docked viewer display options (replaces the modal dialog)
+class CommandPalette;  // Claude Generated 2026 - P3 Ctrl+K command palette
 class RMSDWidget;  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
@@ -238,6 +239,7 @@ private:
     void createToolbars();
     void createModeBar();                       // Claude Generated 2026 - P2 Explore/Compute switch
     void setAppMode(AppMode mode, bool reflow = true);  // apply mode (toolbar + dock visibility)
+    void showCommandPalette();                  // Claude Generated 2026 - P3 Ctrl+K palette
     void createMenus();
     void seedRMSDReference();  // Claude Generated 2026 - re-seed RMSD reference from viewer
     void setupProjectViewContextMenu();
@@ -340,6 +342,7 @@ private:
     // Claude Generated 2026 - Docked viewer display options (replaces the modal dialog)
     DisplayPanel* m_displayPanel = nullptr;
     QDockWidget* m_displayDock = nullptr;
+    CommandPalette* m_commandPalette = nullptr;  // Claude Generated 2026 - P3 Ctrl+K
     QCompleter* m_commandCompleter;
     QToolButton* m_bookmarkButton;
     BreadcrumbBar* m_breadcrumbBar;  // Claude Generated Phase 1 - Clickable path navigation

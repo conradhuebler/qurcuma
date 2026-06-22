@@ -56,6 +56,7 @@
 #include "view.h"
 #include "frequencydialog.h"
 #include "displaypanel.h"
+#include "widgets/commandpalette.h"
 
 #include "dialogs/nmrspectrumdialog.h"
 #include "rmsdwidget.h"  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
@@ -208,6 +209,12 @@ void MainWindow::setupUI()
     // Claude Generated - Phase 2A: Selection shortcuts
     new QShortcut(Qt::CTRL | Qt::Key_A, this, SLOT(selectAllAtoms()));       // Ctrl+A for select all
     new QShortcut(Qt::Key_Escape, this, SLOT(clearAtomSelection()));          // Escape for clear selection
+
+    // Claude Generated 2026 - P3: Ctrl+K command palette
+    {
+        auto* paletteSc = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_K), this);
+        connect(paletteSc, &QShortcut::activated, this, &MainWindow::showCommandPalette);
+    }
 
     // Initial updates
     updatePathLabel(m_workingDirectory);
@@ -627,6 +634,69 @@ void MainWindow::setAppMode(AppMode mode, bool reflow)
     }
 
     statusBar()->showMessage(explore ? tr("Mode: Explore") : tr("Mode: Compute"), 2000);
+}
+
+// Claude Generated 2026 - P3: recursively collect leaf menu actions as palette commands.
+static void collectMenuCommands(QMenu* menu, const QString& path, QVector<CommandPalette::Command>& out)
+{
+    if (!menu)
+        return;
+    for (QAction* a : menu->actions()) {
+        if (a->isSeparator())
+            continue;
+        QString text = a->text();
+        text.remove('&');
+        if (a->menu()) {
+            const QString sub = path.isEmpty() ? text : (path + QStringLiteral(" ▸ ") + text);
+            collectMenuCommands(a->menu(), sub, out);
+        } else if (!text.isEmpty()) {
+            CommandPalette::Command c;
+            c.title = text;
+            c.context = path;
+            c.shortcut = a->shortcut().toString(QKeySequence::NativeText);
+            c.enabled = a->isEnabled();
+            QPointer<QAction> ap(a);
+            c.run = [ap]() { if (ap) ap->trigger(); };
+            out.append(c);
+        }
+    }
+}
+
+void MainWindow::showCommandPalette()
+{
+    if (!m_commandPalette)
+        m_commandPalette = new CommandPalette(this);
+
+    QVector<CommandPalette::Command> cmds;
+    if (menuBar()) {
+        for (QAction* topAct : menuBar()->actions()) {
+            if (!topAct->menu())
+                continue;
+            QString top = topAct->text();
+            top.remove('&');
+            collectMenuCommands(topAct->menu(), top, cmds);
+        }
+    }
+    // Curated viewer/mode commands that are shortcut-only (not in any menu).
+    auto add = [&](const QString& title, const QString& ctx, std::function<void()> run) {
+        CommandPalette::Command c;
+        c.title = title;
+        c.context = ctx;
+        c.run = std::move(run);
+        cmds.append(c);
+    };
+    add(tr("Explore Mode"), tr("Mode"), [this]() { setAppMode(AppMode::Explore); });
+    add(tr("Compute Mode"), tr("Mode"), [this]() { setAppMode(AppMode::Compute); });
+    add(tr("Ball and Stick"), tr("Render"), [this]() { setRenderingModeBallAndStick(); });
+    add(tr("Space Filling"), tr("Render"), [this]() { setRenderingModeSpaceFilling(); });
+    add(tr("Wireframe"), tr("Render"), [this]() { setRenderingModeWireframe(); });
+    add(tr("Sticks"), tr("Render"), [this]() { setRenderingModeSticks(); });
+    add(tr("Fit Molecule in View"), tr("View"), [this]() { fitMoleculeInView(); });
+    add(tr("Select All Atoms"), tr("Selection"), [this]() { selectAllAtoms(); });
+    add(tr("Clear Selection"), tr("Selection"), [this]() { clearAtomSelection(); });
+
+    m_commandPalette->setCommands(cmds);
+    m_commandPalette->popUp();
 }
 
 void MainWindow::createMenus()

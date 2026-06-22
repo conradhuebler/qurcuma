@@ -93,6 +93,7 @@ set(SOURCES
     src/modifiabletextedit.cpp
     src/displaypanel.cpp  # Claude Generated 2026 - docked viewer display options
     src/widgets/collapsiblesection.cpp  # Claude Generated 2026 - accordion section
+    src/widgets/commandpalette.cpp  # Claude Generated 2026 - P3 Ctrl+K command palette
     src/dialogs/nmrspectrumdialog.cpp
     src/dialogs/nmrcontroller.cpp
     src/dialogs/nmrdatastore.cpp
@@ -131,6 +132,7 @@ set(HEADERS
     src/modifiabletextedit.h
     src/displaypanel.h  # Claude Generated 2026 - docked viewer display options
     src/widgets/collapsiblesection.h  # Claude Generated 2026 - accordion section
+    src/widgets/commandpalette.h  # Claude Generated 2026 - P3 Ctrl+K command palette
     src/dialogs/nmrspectrumdialog.h
     src/dialogs/sftpdialog.h  # Claude Generated - SFTP remote file access
     src/sftpmodel.hpp  # Claude Generated - SFTP model (header-only with Q_OBJECT)
