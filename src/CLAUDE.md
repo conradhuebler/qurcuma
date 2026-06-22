@@ -5,11 +5,11 @@
 - XYZ format reads atomic coordinates and optional velocities
 - Both formats handle large files efficiently
 
-## 3D Viewer
-- OpenGL-based rendering with shader support
-- Interactive rotation, zoom, and pan controls
-- Multiple rendering styles: ball-and-stick, space-filling, wireframe
-- ✅ **Screen-fixed corner lights** - 4 toggleable lights (◤◥◣◢). Phong path: `QPointLight`s parented to the camera; instancing path: view-space lights via `cornerLightEnabled` vec4 uniform. Lit zone stays fixed to the view, does NOT rotate with the molecule. (Real cast shadows = future shadow-mapping work.)
+## 3D Viewer (Qt Quick 3D / Vulkan)
+- ✅ **Renderer = Qt Quick 3D on the Vulkan RHI** (migrated off Qt3D, which is fully removed). `MoleculeViewer` (`view.*`) stays a `QWidget` with its public API unchanged, but internally wraps a `QQuickView` (`createWindowContainer`) + `SceneController` view-model (`scenecontroller.*`) + `src/qml/viewer3d.qml`. Atoms/bonds = `QQuick3DInstancing` (`atominstancing.*`/`bondinstancing.*`); effects via `ExtendedSceneEnvironment` (SSAO/Bloom/HDR/Tonemap/Fog) + world-fixed cast shadows.
+- Vulkan chosen in `main.cpp` via a probe (`QVulkanInstance::create()`) with OpenGL fallback; override `QSG_RHI_BACKEND`. In this Qt build `QQuick3DViewport`/`Camera` are PRIVATE headers → the camera is axis-aligned and C++ replicates its projection for picking/grab (no private headers). The molecule rotates under `moleculeRoot`; the camera stays fixed. [[quick3d-private-headers]]
+- Rendering modes (ball-stick/space-filling/wireframe/sticks), color schemes (CPK/mono/by-charge), transparency, atom/bond size — all in `SceneController`. RMSD overlay = second instanced structure in HSV-shifted CPK colours (`setOverlayStructure`/`shiftOverlayColor`).
+- ✅ **Screen-fixed corner lights** (◤◥◣◢): `DirectionalLight`s parented to the QML camera (lit zone stays view-fixed); a separate world-fixed key light casts shadows. Toggled via `SceneController` cornerLight properties.
 
 ## Editors Dock (RMSD-Tab)
 - ✅ **RMSD / Align** (`src/rmsdwidget.*`, `RMSDWidget : QWidget`) — dritter Tab im Editors-Dock (`m_editorsTabs`: Structure/Input/RMSD), statt eigenem Dock. Backed by curcuma `RMSDDriver`; reference = Viewer-Struktur, target = Datei. Referenz-Saat per Auto (`showRMSDTool` → Tab-Index 2) + Button (`seedReferenceRequested` → `MainWindow::seedRMSDReference`); Overlay via `overlayRequested` → `MoleculeViewer::showOverlay`.
@@ -28,8 +28,15 @@
 - CLI `qurcuma <file> -md|-opt` loads the file and auto-starts the interactive simulation from bash
 - Release/AVX-512 start crash fixed: `CMakeLists.txt` matches curcuma's `-march=native` on the qurcuma target so both share Eigen's `EIGEN_MAX_ALIGN_BYTES` (mismatch caused `double free` in `moleculeToFrame`)
 
-## Mouse Interactions
-- Left-click: rotate view
-- Right-click: context menu for atom selection
-- Scroll wheel: zoom in/out
-- Middle-click: pan view
+## Mouse Interactions (C++ `eventFilter` on the `QQuickView`)
+- Left-drag = rotate (model rotation); right-drag = pan; wheel = zoom; middle-click = reset view.
+- Left-**click** (no drag) = ray-pick an atom → select (Ctrl/Shift = add to selection).
+- ✅ **Hover feedback**: moving over an atom brightens it (`SceneController::setHoverAtom`, cheap atoms-only `rebuildAtoms`, only on change) + pointing-hand cursor; cleared on leave.
+- In sim mode, left-press on an atom + drag = grab → `atomForceRequested` (see Interactive Simulation).
+- ✅ **Measurement**: a single "Measure" toggle (viewer bar + Display dock); the type is auto-detected from the number of picked atoms (2 = distance, 3 = angle, 4 = dihedral). Click marks an atom, click it again to de-mark, Esc clears. The HUD shows ALL pairwise distances + chain angles + dihedral (`MoleculeViewer::updateMeasurement` → `SceneController::setMeasurement`).
+
+## UI / Docks (P1–P4)
+- ✅ **Display dock** (`displaypanel.*` + `widgets/collapsiblesection.*`; right side, tabbed with Editors): the single home for all viewer options, as collapsible sections Style / Effects / Lighting / Tools / Presets, bound live to `MoleculeViewer` setters. Replaced (and deleted) the modal `VisualizationSettingsDialog`. The viewer top bar is slim: frame-nav + playback (shown only for >1 frame) + Measure toggle + Color combo + "Display ⚙" button.
+- ✅ **Explore/Compute mode switch** (`MainWindow::createModeBar`/`setAppMode`): segmented buttons in the **menu-bar corner** (`setCornerWidget`, TopRight — fixed, immune to toolbar reflow). Explore hides the calculation toolbar and shows viewer + Display/Atoms docks; Compute shows the calc toolbar + Project/Output/Editors. Persisted as `ui/appMode`. Independent of the 4 layout presets (View ▸ Layout Presets, Ctrl+Alt+1–4).
+- ✅ **Command palette** (`widgets/commandpalette.*`; Ctrl+K or View ▸ Command Palette): searchable popup that auto-collects every menu action (recursive `menuBar()` walk: title + menu-path + shortcut + `QAction::trigger`) plus curated viewer/mode commands.
+- ✅ **Menus (6)**: File / Edit / View / **Molecule** (MD + Opt + RMSD — merged Simulation+Analysis) / Settings / Help. View carries Command-Palette, Mode ▸ Explore/Compute, the Display dock toggle, and Display Options.
