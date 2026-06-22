@@ -86,9 +86,9 @@ MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     setWindowTitle("Qurcuma 1.0 - Molecular Visualization");
 
     setupUI();
-    createModeBar();   // Claude Generated 2026 - P2: top mode row (before the calc toolbar)
     createToolbars();
     createMenus();
+    createModeBar();   // Claude Generated 2026 - P2/P4: menu-bar corner widget (after the menu bar exists)
     setupConnections();
     setupProjectViewContextMenu();  // Enable right-click on calculation directories
     setupShortcuts();  // Claude Generated - Phase 1.2
@@ -210,11 +210,8 @@ void MainWindow::setupUI()
     new QShortcut(Qt::CTRL | Qt::Key_A, this, SLOT(selectAllAtoms()));       // Ctrl+A for select all
     new QShortcut(Qt::Key_Escape, this, SLOT(clearAtomSelection()));          // Escape for clear selection
 
-    // Claude Generated 2026 - P3: Ctrl+K command palette
-    {
-        auto* paletteSc = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_K), this);
-        connect(paletteSc, &QShortcut::activated, this, &MainWindow::showCommandPalette);
-    }
+    // Claude Generated 2026 - P3 command palette: Ctrl+K is carried by the View ▸ Command
+    // Palette menu action (P4); no standalone QShortcut here to avoid an ambiguous overload.
 
     // Initial updates
     updatePathLabel(m_workingDirectory);
@@ -552,42 +549,44 @@ void MainWindow::initializeProgramCommands()
     };
 }
 
-// Claude Generated 2026 - P2: prominent Explore/Compute mode switch (top row).
+// Claude Generated 2026 - P2/P4: prominent Explore/Compute mode switch, placed in the
+// menu-bar corner so it has a fixed position and never reflows when the calculation
+// toolbar is shown/hidden (the former dedicated toolbar shared the top area and shifted).
 void MainWindow::createModeBar()
 {
-    m_modeToolbar = new QToolBar(tr("Mode"), this);
-    m_modeToolbar->setObjectName("ModeToolbar");
-    m_modeToolbar->setMovable(false);
-    m_modeToolbar->setFloatable(false);
+    QWidget* modeWidget = new QWidget(this);
+    QHBoxLayout* row = new QHBoxLayout(modeWidget);
+    row->setContentsMargins(2, 1, 6, 1);
+    row->setSpacing(0);
 
     auto* group = new QButtonGroup(this);
     group->setExclusive(true);
 
     auto makeBtn = [&](const QString& text, const QString& tip) {
-        auto* b = new QToolButton(this);
+        auto* b = new QToolButton(modeWidget);
         b->setText(text);
         b->setToolTip(tip);
         b->setCheckable(true);
-        b->setMinimumWidth(110);
+        b->setMinimumWidth(96);
         group->addButton(b);
-        m_modeToolbar->addWidget(b);
+        row->addWidget(b);
         return b;
     };
-    m_exploreButton = makeBtn(tr("🔬  Explore"),
+    m_exploreButton = makeBtn(tr("🔬 Explore"),
         tr("Molecule viewing & interactive simulation (hides the calculation toolbar)"));
-    m_computeButton = makeBtn(tr("⚙  Compute"),
+    m_computeButton = makeBtn(tr("⚙ Compute"),
         tr("Run calculations: program / command / threads, with project & output panels"));
 
-    m_modeToolbar->setStyleSheet(QStringLiteral(
-        "QToolButton { padding: 4px 16px; border: 1px solid palette(mid); }"
+    modeWidget->setStyleSheet(QStringLiteral(
+        "QToolButton { padding: 3px 14px; border: 1px solid palette(mid); }"
         "QToolButton:checked { background: palette(highlight); color: palette(highlighted-text);"
         " font-weight: bold; }"));
 
     connect(m_exploreButton, &QToolButton::clicked, this, [this]() { setAppMode(AppMode::Explore); });
     connect(m_computeButton, &QToolButton::clicked, this, [this]() { setAppMode(AppMode::Compute); });
 
-    addToolBar(Qt::TopToolBarArea, m_modeToolbar);
-    addToolBarBreak(Qt::TopToolBarArea); // calculation toolbar lands on the 2nd row
+    if (menuBar())
+        menuBar()->setCornerWidget(modeWidget, Qt::TopRightCorner);
 }
 
 // Claude Generated 2026 - P2: apply a top-level mode. Sets the calculation toolbar +
@@ -773,17 +772,17 @@ void MainWindow::createMenus()
     fileMenu->addSeparator();
 
     // Claude Generated - Quick Win: Recent files menu
-    m_recentFilesMenu = fileMenu->addMenu(tr("&Recent Files"));
+    m_recentFilesMenu = fileMenu->addMenu(QIcon::fromTheme("document-open-recent"), tr("&Recent Files"));
     m_recentFilesMenu->setEnabled(false);
 
     // Claude Generated Phase 4.5 - Workspace menu
-    m_workspaceMenu = fileMenu->addMenu(tr("&Workspaces"));
+    m_workspaceMenu = fileMenu->addMenu(QIcon::fromTheme("window-duplicate"), tr("&Workspaces"));
 
-    QAction *saveWorkspaceAction = m_workspaceMenu->addAction(tr("&Save Current Workspace..."));
+    QAction *saveWorkspaceAction = m_workspaceMenu->addAction(QIcon::fromTheme("document-save"), tr("&Save Current Workspace..."));
     saveWorkspaceAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
     connect(saveWorkspaceAction, &QAction::triggered, this, &MainWindow::saveCurrentWorkspace);
 
-    QAction *loadWorkspaceAction = m_workspaceMenu->addAction(tr("&Load Workspace..."));
+    QAction *loadWorkspaceAction = m_workspaceMenu->addAction(QIcon::fromTheme("document-open"), tr("&Load Workspace..."));
     loadWorkspaceAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
     connect(loadWorkspaceAction, &QAction::triggered, [this]() {
         // For now, load workspace can be done via the sidebar list
@@ -810,6 +809,19 @@ void MainWindow::createMenus()
 
     // Claude Generated - UI Restructuring: View Menu for dock visibility and layout presets
     QMenu *viewMenu = menuBar->addMenu(tr("&View"));
+
+    // Claude Generated 2026 - P4: Command palette + mode switch entries (discoverability).
+    QAction* paletteAction = viewMenu->addAction(QIcon::fromTheme("edit-find"), tr("Command &Palette…"));
+    paletteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_K));
+    connect(paletteAction, &QAction::triggered, this, &MainWindow::showCommandPalette);
+
+    QMenu* modeMenu = viewMenu->addMenu(tr("&Mode"));
+    QAction* exploreAct = modeMenu->addAction(QIcon::fromTheme("view-preview"), tr("&Explore"));
+    connect(exploreAct, &QAction::triggered, this, [this]() { setAppMode(AppMode::Explore); });
+    QAction* computeAct = modeMenu->addAction(QIcon::fromTheme("system-run"), tr("&Compute"));
+    connect(computeAct, &QAction::triggered, this, [this]() { setAppMode(AppMode::Compute); });
+
+    viewMenu->addSeparator();
 
     // Layout Presets submenu
     QMenu *layoutMenu = viewMenu->addMenu(QIcon::fromTheme("view-choose"), tr("&Layout Presets"));
@@ -852,8 +864,15 @@ void MainWindow::createMenus()
     addDockToggle(m_projectDock,          tr("&Project"),            QKeySequence(Qt::CTRL | Qt::Key_B));
     addDockToggle(m_navigationDock,       tr("&Navigation"));
     addDockToggle(m_editorsDock,          tr("&Editors"));
+    addDockToggle(m_displayDock,          tr("&Display"));
     addDockToggle(m_atomsSimulationDock,  tr("&Atoms && Simulation"));
     addDockToggle(m_outputViewDock,       tr("&Output"));
+
+    // Display options (raises the Display dock) — moved here from Settings (P4).
+    QAction *displayOptionsAction = viewMenu->addAction(
+        QIcon::fromTheme("preferences-desktop"), tr("Display &Options…"));
+    displayOptionsAction->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
+    connect(displayOptionsAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
 
     viewMenu->addSeparator();
 
@@ -873,7 +892,7 @@ void MainWindow::createMenus()
 
     // Claude Generated 2026 - "Use Invocation Directory" preference
     // Checkbox state is updated in the constructor after settings are loaded.
-    m_useInvocationDirAction = settingsMenu->addAction(tr("Use &Invocation Directory"));
+    m_useInvocationDirAction = settingsMenu->addAction(QIcon::fromTheme("go-home"), tr("Use &Invocation Directory"));
     m_useInvocationDirAction->setCheckable(true);
     m_useInvocationDirAction->setToolTip(
         tr("If enabled, treat the directory from which qurcuma was launched "
@@ -884,34 +903,19 @@ void MainWindow::createMenus()
     settingsMenu->addSeparator();
 
     // Claude Generated - Visual Polish: Dark mode toggle (checkbox state set later after loading settings)
-    m_darkModeAction = settingsMenu->addAction(tr("&Dark Mode"));
+    m_darkModeAction = settingsMenu->addAction(QIcon::fromTheme("weather-clear-night"), tr("&Dark Mode"));
     m_darkModeAction->setCheckable(true);
     // Note: checkbox state will be updated in constructor after loading settings
     connect(m_darkModeAction, &QAction::triggered, this, &MainWindow::toggleDarkMode);
 
     settingsMenu->addSeparator();
-
-    // Claude Generated - Visualization Settings
-    QAction *visSettingsAction = settingsMenu->addAction(QIcon::fromTheme("preferences-desktop"), tr("&Visualization Settings..."));
-    connect(visSettingsAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
-
-    settingsMenu->addSeparator();
     QAction *configAction = settingsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure Programs..."));
     connect(configAction, &QAction::triggered, this, &MainWindow::configurePrograms);
 
-    // Claude Generated 2026 - Analysis Menu: structure comparison tools (curcuma)
-    QMenu *analysisMenu = menuBar->addMenu(tr("&Analysis"));
-    QAction *rmsdAction = analysisMenu->addAction(QIcon::fromTheme("view-object-histogram-linear"),
-        tr("&RMSD / Align Structures"));
-    rmsdAction->setToolTip(
-        tr("Open the Analysis dock (RMSD tab): overlay two structures, align and "
-           "optionally reorder atoms (curcuma RMSDDriver)."));
-    connect(rmsdAction, &QAction::triggered, this, [this]() { showRMSDTool(); });
+    // Claude Generated 2026 - P4: "Molecule" menu merges Simulation (MD/Opt) + Analysis (RMSD).
+    QMenu *moleculeMenu = menuBar->addMenu(tr("&Molecule"));
 
-    // Simulation Menu - Claude Generated - Interactive Simulation Integration
-    QMenu *simulationMenu = menuBar->addMenu(tr("&Simulation"));
-
-    // Claude Generated 2026 - Phase 6: menu entries focus the dock instead of opening a dialog.
+    // Menu entries focus the simulation dock/tab instead of opening a dialog.
     auto showSimDock = [this](SimulationConfig::Mode mode) {
         if (!m_atomsSimulationDock) return;
         m_atomsSimulationDock->show();
@@ -923,41 +927,32 @@ void MainWindow::createMenus()
             m_simulationConfig = cfg;
         }
     };
-    QAction *mdAction = simulationMenu->addAction(
+    QAction *mdAction = moleculeMenu->addAction(
         QIcon::fromTheme("media-playback-start"), tr("Run &MD Simulation"));
     mdAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
     mdAction->setToolTip(tr("Focus the simulation dock in MD mode"));
     connect(mdAction, &QAction::triggered, this,
         [showSimDock]() { showSimDock(SimulationConfig::Mode::MolecularDynamics); });
 
-    QAction *optAction = simulationMenu->addAction(
+    QAction *optAction = moleculeMenu->addAction(
         QIcon::fromTheme("system-run"), tr("&Geometry Optimization"));
     optAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
     optAction->setToolTip(tr("Focus the simulation dock in optimization mode"));
     connect(optAction, &QAction::triggered, this,
         [showSimDock]() { showSimDock(SimulationConfig::Mode::GeometryOptimization); });
 
-    simulationMenu->addSeparator();
+    moleculeMenu->addSeparator();
 
-    QAction *toggleSimPanelAction = simulationMenu->addAction(tr("Show Simulation &Panel"));
-    toggleSimPanelAction->setCheckable(true);
-    toggleSimPanelAction->setChecked(true);
-    if (m_atomsSimulationDock && m_atomsSimulationTabs) {
-        // Claude Generated (2026-04) - Simulation is now a tab inside m_atomsSimulationDock.
-        // "Show Panel" both makes the dock visible and activates the Simulation tab (index 1).
-        toggleSimPanelAction->setChecked(m_atomsSimulationDock->isVisible());
-        connect(toggleSimPanelAction, &QAction::toggled, this, [this](bool on) {
-            if (!m_atomsSimulationDock) return;
-            m_atomsSimulationDock->setVisible(on);
-            if (on && m_atomsSimulationTabs) m_atomsSimulationTabs->setCurrentIndex(1);
-        });
-        connect(m_atomsSimulationDock, &QDockWidget::visibilityChanged,
-            toggleSimPanelAction, &QAction::setChecked);
-    }
+    QAction *rmsdAction = moleculeMenu->addAction(QIcon::fromTheme("view-object-histogram-linear"),
+        tr("&RMSD / Align Structures"));
+    rmsdAction->setToolTip(
+        tr("Open the Analysis dock (RMSD tab): overlay two structures, align and "
+           "optionally reorder atoms (curcuma RMSDDriver)."));
+    connect(rmsdAction, &QAction::triggered, this, [this]() { showRMSDTool(); });
 
     // Help Menu - Claude Generated - Quick Fix: About dialog
     QMenu *helpMenu = menuBar->addMenu(tr("&Help"));
-    QAction *aboutAction = helpMenu->addAction(tr("&About Qurcuma"));
+    QAction *aboutAction = helpMenu->addAction(QIcon::fromTheme("help-about"), tr("&About Qurcuma"));
     connect(aboutAction, &QAction::triggered, this, &MainWindow::showAboutDialog);
 
     // Statusleiste

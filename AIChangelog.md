@@ -1,5 +1,11 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - UI P3+P4: Command-Palette + Menü-Konsolidierung
+
+- **P3 Command-Palette** (`src/widgets/commandpalette.*`, `Ctrl+K`): durchsuchbares Popup; sammelt automatisch alle Menü-Actions (rekursiver `menuBar()`-Walk: Titel, Menü-Pfad als Kontext, Shortcut, `QAction::trigger`) + kuratierte Shortcut-only-Befehle (Explore/Compute, Render-Modi, Fit, Select-All/Clear). Tippen filtert (Prefix>Wortanfang>enthält>Kontext), ↑/↓, Enter, Esc; deaktivierte Actions grau. `MainWindow::showCommandPalette`.
+- **P4 Menü-Konsolidierung** (7→6): „Analysis" + „Simulation" → **„Molecule"** (MD/Opt + RMSD; redundantes „Show Simulation Panel" raus). **View** erweitert: Command Palette, **Mode ▸ Explore/Compute**, **Display-Dock-Toggle** (fehlte), „Display Options…" (von Settings hierher). Settings schlanker. Icons ergänzt (About/Recent/Workspaces/Dark Mode/…). `Ctrl+K` nur noch auf der Menü-Action (kein doppelter `QShortcut`).
+- **Fix Mode-Switch-Verschiebung**: Explore/Compute-Buttons aus der Toolbar-Area in die **Menüleisten-Ecke** (`menuBar()->setCornerWidget(…, Qt::TopRightCorner)`) → fester Platz, kein Reflow mehr beim Ein-/Ausblenden der Rechen-Toolbar. `createModeBar` läuft jetzt nach `createMenus`.
+
 ## Juni 2026 - Harmonische Confinement-Wände (aktivieren + visualisieren)
 
 - Curcuma `SimpleMD` kennt harmonische Wände (`wall_type` none/spheric/rect, `wall_potential` harmonic/logfermi, `wall_x|y|z_min/max`, `wall_radius`), aber qurcuma stellte sie nie ein, aktivierte sie nicht und zeichnete sie nicht. Jetzt: QGroupBox „Confinement Walls" im Simulation-Dock (MD-only, Enable→Details: Geometry/Potential-Combo + 6 rect bounds + sphere radius, manuell einstellbar) → `SimulationConfig`-Felder → `SimulationWorker::applyWallParams()` schreibt sie bei `wallEnabled` in den curcuma-Controller (Muster wie `applyRmsdMtdParams`).
