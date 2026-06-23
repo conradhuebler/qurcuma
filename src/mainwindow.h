@@ -54,6 +54,8 @@ class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
 class SimulationControlWidget;  // Claude Generated - Interactive Simulation Integration
+class SimulationChartWidget;    // Claude Generated 2026 - live MD temperature/energy charts
+class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog
 
 
 struct CalculationEntry {
@@ -444,6 +446,7 @@ private:
     QDockWidget* m_editorsDock = nullptr;           // Right: structure + input editors (internal QTabWidget)
     QDockWidget* m_atomsSimulationDock = nullptr;   // Right: atom list + simulation (internal QTabWidget)
     QDockWidget* m_outputViewDock = nullptr;        // Bottom: output log
+    QDialog* m_simulationChartDialog = nullptr;     // Modeless dialog: live MD temperature/energy charts
     QTabWidget* m_editorsTabs = nullptr;            // Internal tabs inside m_editorsDock (Structure/Input/RMSD)
     QTabWidget* m_atomsSimulationTabs = nullptr;    // Internal tabs inside m_atomsSimulationDock
     QTabWidget* m_navigationTabs = nullptr;         // Internal tabs inside m_navigationDock
@@ -457,6 +460,7 @@ private:
     QToolButton* m_exploreButton = nullptr;
     QToolButton* m_computeButton = nullptr;
     SimulationControlWidget* m_simulationControlWidget = nullptr;  // Claude Generated
+    SimulationChartWidget* m_simulationChartWidget = nullptr;     // Claude Generated 2026 - live T/energy charts
     SimulationConfig m_simulationConfig;             // Claude Generated - Shared config, edited from dock
 
     // Claude Generated - Interactive Simulation Integration

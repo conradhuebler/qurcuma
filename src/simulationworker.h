@@ -27,6 +27,17 @@ class SimpleMD;  // Full type only in simulationworker.cpp — curcuma headers s
  * @brief Configuration struct for a simulation run.
  * Claude Generated - Interactive Simulation Integration
  */
+/**
+ * @brief One thermal region: an atom subset thermostatted to its own target temperature
+ * (and optional ramp). Maps to a curcuma simplemd "temp_regions" array element.
+ * Claude Generated 2026.
+ */
+struct TempRegion {
+    QString atoms = "-1";       // selection string (FragString2Indicies grammar: "1:10,15", "F2", "-1"=all)
+    double temperature = 300.0; // region start setpoint (K)
+    QString schedule;           // optional ramp "T:mode:val;..." (empty = constant)
+};
+
 struct SimulationConfig {
     enum class Mode { MolecularDynamics, GeometryOptimization };
 
@@ -88,6 +99,13 @@ struct SimulationConfig {
     double wallYmin = 0.0, wallYmax = 0.0;
     double wallZmin = 0.0, wallZmax = 0.0;
     double wallRadius = 0.0; // Å, spheric wall radius (origin-centred; 0 = auto-size)
+
+    // Temperature ramp + regions (MD only) - curcuma SimpleMD temp_* params.
+    // The global ramp drives the (live-adjustable) global setpoint over a multi-stage
+    // schedule; regions thermostat atom subsets to their own target/ramp. Claude Generated 2026.
+    bool    tempRamp = false;        // temp_ramp: enable the global multi-stage ramp
+    QString tempSchedule;            // temp_schedule: "T:mode:val;..." (mode=steps|reach)
+    QVector<TempRegion> tempRegions; // temp_regions: per-atom-subset thermostats (empty = none)
 };
 
 /**
@@ -165,6 +183,13 @@ public slots:
      *  this the next step/iteration applies no external bias. */
     void clearInjectedForce();
 
+    /** @brief Live-set the global thermostat target temperature (Kelvin). Thread-safe;
+     *  called from the GUI thread via QueuedConnection when the user drags the temperature
+     *  slider during a run. Stored as a pending value and pushed into the running SimpleMD
+     *  before the next step (mirrors the sticky-force pattern). Overriding the setpoint this
+     *  way cancels any active global temperature ramp for the rest of the run. */
+    void setTargetTemperature(double temperature);
+
 signals:
     /**
      * @brief Emitted after each dump step with updated atom positions.
@@ -227,4 +252,10 @@ private:
     QMutex m_forceMutex;
     Eigen::MatrixXd m_pendingForces;
     bool m_pendingForcesValid = false;
+
+    // Live global temperature: written by the GUI thread (setTargetTemperature), read once per
+    // step by the worker thread in performMDStep() and pushed into SimpleMD. Claude Generated 2026.
+    QMutex m_tempMutex;
+    double m_pendingTemperature = 0.0;
+    bool m_pendingTemperatureValid = false;
 };

@@ -94,6 +94,8 @@ set(SOURCES
     src/displaypanel.cpp  # Claude Generated 2026 - docked viewer display options
     src/widgets/collapsiblesection.cpp  # Claude Generated 2026 - accordion section
     src/widgets/commandpalette.cpp  # Claude Generated 2026 - P3 Ctrl+K command palette
+    src/widgets/temperatureslider.cpp  # Claude Generated 2026 - vertical temperature-colored slider
+    src/widgets/simulationchart.cpp  # Claude Generated 2026 - live MD temperature/energy charts
     src/dialogs/nmrspectrumdialog.cpp
     src/dialogs/nmrcontroller.cpp
     src/dialogs/nmrdatastore.cpp
@@ -133,6 +135,8 @@ set(HEADERS
     src/displaypanel.h  # Claude Generated 2026 - docked viewer display options
     src/widgets/collapsiblesection.h  # Claude Generated 2026 - accordion section
     src/widgets/commandpalette.h  # Claude Generated 2026 - P3 Ctrl+K command palette
+    src/widgets/temperatureslider.h  # Claude Generated 2026 - vertical temperature-colored slider
+    src/widgets/simulationchart.h  # Claude Generated 2026 - live MD temperature/energy charts
     src/dialogs/nmrspectrumdialog.h
     src/dialogs/sftpdialog.h  # Claude Generated - SFTP remote file access
     src/sftpmodel.hpp  # Claude Generated - SFTP model (header-only with Q_OBJECT)

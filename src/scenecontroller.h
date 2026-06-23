@@ -166,6 +166,7 @@ public:
     // --- structure / animation (called by the viewer) ---
     void setStructure(const QVector<AtomDatum>& atoms, const QVector<BondDatum>& bonds);
     void updatePositions(const QVector<QVector3D>& positions); // sim fast path (same count)
+    void updateBonds(const QVector<BondDatum>& bonds);         // Claude Generated 2026 - swap bonds only (no bounds/camera change)
     void clear();
     int atomCount() const { return m_atoms.size(); }
     const QVector<AtomDatum>& atoms() const { return m_atoms; }

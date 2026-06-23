@@ -4,12 +4,18 @@
 
 #include "simulationcontrolwidget.h"
 
+#include "widgets/temperatureslider.h"
+
+#include <QComboBox>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QVBoxLayout>
 
 SimulationControlWidget::SimulationControlWidget(QWidget* parent)
@@ -213,14 +219,27 @@ void SimulationControlWidget::setupUI()
 
     // ---- MD Parameters ----
     m_mdGroup = new QGroupBox(tr("MD Parameters"), this);
-    auto* mdForm = new QFormLayout(m_mdGroup);
+    auto* mdOuter = new QHBoxLayout(m_mdGroup);
+    mdOuter->setSpacing(8);
 
-    m_tempSpin = new QDoubleSpinBox(this);
-    m_tempSpin->setRange(1.0, 5000.0);
-    m_tempSpin->setValue(300.0);
-    m_tempSpin->setSuffix(" K");
-    m_tempSpin->setDecimals(0);
-    mdForm->addRow(tr("Temperature:"), m_tempSpin);
+    // Vertical temperature-colored slider, live-adjustable during a run. Claude Generated 2026.
+    m_tempSlider = new TemperatureSlider(this);
+    m_tempSlider->setRange(1.0, 1000.0);
+    m_tempSlider->setValue(300.0);
+    m_tempSlider->setToolTip(tr("Thermostat target temperature. Editable min/max; the handle stays\n"
+                                "live during a run — drag it to change the temperature on the fly\n"
+                                "(a drag cancels an active global ramp)."));
+    auto* tempCol = new QVBoxLayout;
+    tempCol->setSpacing(2);
+    auto* tempCaption = new QLabel(tr("Temperature"), this);
+    tempCaption->setAlignment(Qt::AlignHCenter);
+    tempCol->addWidget(tempCaption);
+    tempCol->addWidget(m_tempSlider, 1);
+    mdOuter->addLayout(tempCol);
+
+    auto* mdForm = new QFormLayout;
+    mdForm->setContentsMargins(0, 0, 0, 0);
+    mdOuter->addLayout(mdForm, 1);
 
     m_timestepSpin = new QDoubleSpinBox(this);
     m_timestepSpin->setRange(0.1, 10.0);
@@ -249,6 +268,118 @@ void SimulationControlWidget::setupUI()
     mdForm->addRow(tr("H mass:"), m_hmassSpin);
 
     innerLayout->addWidget(m_mdGroup);
+
+    // ---- Temperature Ramp (global setpoint schedule, curcuma temp_ramp/temp_schedule) ----
+    // Claude Generated 2026 - drive the global setpoint through a multi-stage schedule.
+    m_tempRampGroup = new QGroupBox(tr("Temperature Ramp"), this);
+    auto* rampOuter = new QVBoxLayout(m_tempRampGroup);
+    rampOuter->setSpacing(4);
+    rampOuter->setContentsMargins(4, 4, 4, 4);
+
+    m_tempRampEnableCheck = new QCheckBox(tr("Enable temperature ramp"), this);
+    m_tempRampEnableCheck->setToolTip(tr("Drive the global thermostat setpoint through a multi-stage "
+        "schedule. Each segment ramps to a target either over N steps or until the measured temperature "
+        "reaches it. Dragging the temperature slider during a run overrides the ramp."));
+    rampOuter->addWidget(m_tempRampEnableCheck);
+
+    m_tempRampDetails = new QWidget(m_tempRampGroup);
+    auto* rampLay = new QVBoxLayout(m_tempRampDetails);
+    rampLay->setContentsMargins(0, 0, 0, 0);
+
+    m_tempRampTable = new QTableWidget(0, 3, m_tempRampDetails);
+    m_tempRampTable->setHorizontalHeaderLabels({ tr("Target (K)"), tr("Mode"), tr("Value") });
+    m_tempRampTable->horizontalHeader()->setStretchLastSection(true);
+    m_tempRampTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_tempRampTable->verticalHeader()->setVisible(false);
+    m_tempRampTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tempRampTable->setMaximumHeight(150);
+    m_tempRampTable->setToolTip(tr("Mode 'steps': ramp the setpoint to Target over <Value> integration steps.\n"
+                                   "Mode 'reach': hold the setpoint at Target, advance once |<T>-Target| < Value K."));
+    rampLay->addWidget(m_tempRampTable);
+
+    auto* rampBtnRow = new QHBoxLayout;
+    auto* rampAddBtn = new QPushButton(tr("+ Segment"), m_tempRampDetails);
+    auto* rampDelBtn = new QPushButton(tr("− Segment"), m_tempRampDetails);
+    rampBtnRow->addWidget(rampAddBtn);
+    rampBtnRow->addWidget(rampDelBtn);
+    rampBtnRow->addStretch(1);
+    rampLay->addLayout(rampBtnRow);
+
+    m_tempOverrideLabel = new QLabel(tr("⚠ ramp overridden by manual temperature"), m_tempRampDetails);
+    m_tempOverrideLabel->setStyleSheet(QStringLiteral("color:#c47f00;"));
+    m_tempOverrideLabel->setVisible(false);
+    rampLay->addWidget(m_tempOverrideLabel);
+
+    rampOuter->addWidget(m_tempRampDetails);
+    m_tempRampDetails->setVisible(false);  // hidden until enabled
+    innerLayout->addWidget(m_tempRampGroup);
+
+    connect(rampAddBtn, &QPushButton::clicked, this, [this]() {
+        addRampSegmentRow(500.0, QStringLiteral("steps"), 5000.0);
+        emit configChanged(buildConfig());
+    });
+    connect(rampDelBtn, &QPushButton::clicked, this, [this]() {
+        const int row = m_tempRampTable->currentRow() >= 0
+            ? m_tempRampTable->currentRow() : m_tempRampTable->rowCount() - 1;
+        if (row >= 0)
+            m_tempRampTable->removeRow(row);
+        emit configChanged(buildConfig());
+    });
+    connect(m_tempRampEnableCheck, &QCheckBox::toggled, this,
+        [this](bool on) {
+            m_tempRampDetails->setVisible(on);
+            if (on && m_tempRampTable->rowCount() == 0)
+                addRampSegmentRow(500.0, QStringLiteral("steps"), 5000.0);
+        });
+    connect(m_tempRampTable, &QTableWidget::cellChanged, this,
+        [this](int, int) { emit configChanged(buildConfig()); });
+
+    // ---- Temperature Regions (per-atom-subset thermostats, curcuma temp_regions) ----
+    // Claude Generated 2026 - each region thermostats an atom subset to its own target/ramp;
+    // atoms in no region follow the global temperature above.
+    m_tempRegionGroup = new QGroupBox(tr("Temperature Regions"), this);
+    auto* regOuter = new QVBoxLayout(m_tempRegionGroup);
+    regOuter->setSpacing(4);
+    regOuter->setContentsMargins(4, 4, 4, 4);
+
+    auto* regHelp = new QLabel(tr("Atom subsets with their own temperature. Atoms in no region "
+        "follow the global temperature."), m_tempRegionGroup);
+    regHelp->setWordWrap(true);
+    regOuter->addWidget(regHelp);
+
+    m_tempRegionTable = new QTableWidget(0, 3, m_tempRegionGroup);
+    m_tempRegionTable->setHorizontalHeaderLabels({ tr("Atoms"), tr("Start T (K)"), tr("Schedule") });
+    m_tempRegionTable->horizontalHeader()->setStretchLastSection(true);
+    m_tempRegionTable->verticalHeader()->setVisible(false);
+    m_tempRegionTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tempRegionTable->setMaximumHeight(150);
+    m_tempRegionTable->setToolTip(tr("Atoms: selection like \"1:10,15\", \"F2\" (fragment), or \"-1\" (all).\n"
+                                     "Schedule (optional): same grammar as the global ramp, e.g. \"800:steps:5000;300:reach:10\"."));
+    regOuter->addWidget(m_tempRegionTable);
+
+    auto* regBtnRow = new QHBoxLayout;
+    auto* regAddBtn = new QPushButton(tr("+ Region"), m_tempRegionGroup);
+    auto* regDelBtn = new QPushButton(tr("− Region"), m_tempRegionGroup);
+    regBtnRow->addWidget(regAddBtn);
+    regBtnRow->addWidget(regDelBtn);
+    regBtnRow->addStretch(1);
+    regOuter->addLayout(regBtnRow);
+
+    innerLayout->addWidget(m_tempRegionGroup);
+
+    connect(regAddBtn, &QPushButton::clicked, this, [this]() {
+        addRegionRow(QStringLiteral("-1"), 300.0, QString());
+        emit configChanged(buildConfig());
+    });
+    connect(regDelBtn, &QPushButton::clicked, this, [this]() {
+        const int row = m_tempRegionTable->currentRow() >= 0
+            ? m_tempRegionTable->currentRow() : m_tempRegionTable->rowCount() - 1;
+        if (row >= 0)
+            m_tempRegionTable->removeRow(row);
+        emit configChanged(buildConfig());
+    });
+    connect(m_tempRegionTable, &QTableWidget::cellChanged, this,
+        [this](int, int) { emit configChanged(buildConfig()); });
 
     // ---- RATTLE constraints (MD only) ----
     m_rattleGroup = new QGroupBox(tr("RATTLE Constraints"), this);
@@ -642,7 +773,14 @@ void SimulationControlWidget::setupUI()
     connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_topologyModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_optimizerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
-    connect(m_tempSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    // Temperature slider: stays live during a run. A drag emits temperatureChanged() (forwarded
+    // to the worker) and, while running, flags the ramp as overridden. Claude Generated 2026.
+    connect(m_tempSlider, &TemperatureSlider::valueChanged, this, [this](double t) {
+        emit temperatureChanged(t);
+        if (m_running && m_tempOverrideLabel && m_tempRampEnableCheck->isChecked())
+            m_tempOverrideLabel->setVisible(true);
+        emit configChanged(buildConfig());
+    });
     connect(m_timestepSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_stepsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_fpsLimitSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
@@ -768,7 +906,7 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.mode = static_cast<SimulationConfig::Mode>(m_modeCombo->currentData().toInt());
     cfg.method = m_methodCombo->currentData().toString();
     cfg.optimizer = m_optimizerCombo->currentData().toString();
-    cfg.temperature = m_tempSpin->value();
+    cfg.temperature = m_tempSlider->value();
     cfg.timestep = m_timestepSpin->value();
     cfg.steps = m_stepsSpin->value();
     cfg.fpsLimit = m_fpsLimitSpin->value();
@@ -811,7 +949,68 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.wallZmin = m_wallZminSpin->value();  cfg.wallZmax = m_wallZmaxSpin->value();
     cfg.wallRadius   = m_wallRadiusSpin->value();
 
+    // Claude Generated 2026 - Temperature ramp (global) + regions (curcuma SimpleMD temp_* params).
+    cfg.tempRamp = m_tempRampEnableCheck->isChecked();
+    cfg.tempSchedule.clear();
+    if (cfg.tempRamp) {
+        QStringList segs;
+        for (int r = 0; r < m_tempRampTable->rowCount(); ++r) {
+            const QTableWidgetItem* targetItem = m_tempRampTable->item(r, 0);
+            const auto* modeCombo = qobject_cast<QComboBox*>(m_tempRampTable->cellWidget(r, 1));
+            const QTableWidgetItem* valueItem = m_tempRampTable->item(r, 2);
+            const QString target = targetItem ? targetItem->text().trimmed() : QString();
+            const QString mode = modeCombo ? modeCombo->currentText() : QStringLiteral("steps");
+            const QString value = valueItem ? valueItem->text().trimmed() : QString();
+            if (target.isEmpty() || value.isEmpty())
+                continue;
+            segs << QStringLiteral("%1:%2:%3").arg(target, mode, value);
+        }
+        cfg.tempSchedule = segs.join(QLatin1Char(';'));
+    }
+
+    cfg.tempRegions.clear();
+    for (int r = 0; r < m_tempRegionTable->rowCount(); ++r) {
+        const QTableWidgetItem* atomsItem = m_tempRegionTable->item(r, 0);
+        const QTableWidgetItem* tItem = m_tempRegionTable->item(r, 1);
+        const QTableWidgetItem* schedItem = m_tempRegionTable->item(r, 2);
+        const QString atoms = atomsItem ? atomsItem->text().trimmed() : QString();
+        if (atoms.isEmpty())
+            continue;
+        TempRegion reg;
+        reg.atoms = atoms;
+        reg.temperature = tItem ? tItem->text().toDouble() : 300.0;
+        reg.schedule = schedItem ? schedItem->text().trimmed() : QString();
+        cfg.tempRegions.push_back(reg);
+    }
+
     return cfg;
+}
+
+// Claude Generated 2026 - append a row to the global ramp table (Target | Mode combo | Value).
+void SimulationControlWidget::addRampSegmentRow(double target, const QString& mode, double value)
+{
+    const QSignalBlocker blocker(m_tempRampTable);  // suppress cellChanged during the build
+    const int row = m_tempRampTable->rowCount();
+    m_tempRampTable->insertRow(row);
+    m_tempRampTable->setItem(row, 0, new QTableWidgetItem(QString::number(target, 'f', 0)));
+    auto* modeCombo = new QComboBox(m_tempRampTable);
+    modeCombo->addItems({ QStringLiteral("steps"), QStringLiteral("reach") });
+    modeCombo->setCurrentText(mode);
+    m_tempRampTable->setCellWidget(row, 1, modeCombo);
+    m_tempRampTable->setItem(row, 2, new QTableWidgetItem(QString::number(value, 'f', 0)));
+    connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int) { emit configChanged(buildConfig()); });
+}
+
+// Claude Generated 2026 - append a row to the regions table (Atoms | Start T | Schedule).
+void SimulationControlWidget::addRegionRow(const QString& atoms, double temperature, const QString& schedule)
+{
+    const QSignalBlocker blocker(m_tempRegionTable);
+    const int row = m_tempRegionTable->rowCount();
+    m_tempRegionTable->insertRow(row);
+    m_tempRegionTable->setItem(row, 0, new QTableWidgetItem(atoms));
+    m_tempRegionTable->setItem(row, 1, new QTableWidgetItem(QString::number(temperature, 'f', 0)));
+    m_tempRegionTable->setItem(row, 2, new QTableWidgetItem(schedule));
 }
 
 void SimulationControlWidget::onStartClicked()
@@ -1037,6 +1236,8 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
     m_rattleGroup->setVisible(isMD);
     m_rmsdMtdGroup->setVisible(isMD);
     m_wallGroup->setVisible(isMD);  // walls are MD-only (curcuma SimpleMD)
+    m_tempRampGroup->setVisible(isMD);    // temperature ramp is MD-only
+    m_tempRegionGroup->setVisible(isMD);  // temperature regions are MD-only
     m_optGroup->setVisible(!isMD);
 
     // Speed is visible in both modes (single-step optimisation uses it as a
@@ -1090,7 +1291,14 @@ void SimulationControlWidget::setRunning(bool running)
     m_modeCombo->setEnabled(!running);
     m_methodCombo->setEnabled(!running);
     m_optimizerCombo->setEnabled(!running);
-    m_tempSpin->setEnabled(!running);
+    // Temperature slider stays editable during a run — that is the whole point of the live
+    // setpoint; a drag is forwarded to the worker (temperatureChanged). Claude Generated 2026.
+    // The ramp/region configuration is fixed at start, so those lock while running.
+    m_tempRampEnableCheck->setEnabled(!running);
+    m_tempRampTable->setEnabled(!running);
+    m_tempRegionTable->setEnabled(!running);
+    if (!running && m_tempOverrideLabel)
+        m_tempOverrideLabel->setVisible(false);  // clear the override badge on (re)start
     m_timestepSpin->setEnabled(!running);
     m_stepsSpin->setEnabled(!running);
     // Speed stays editable during a run — the user often wants to slow down

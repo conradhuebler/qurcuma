@@ -372,6 +372,14 @@ void SceneController::updatePositions(const QVector<QVector3D>& positions)
     rebuildGeometry();
 }
 
+// Claude Generated 2026 - replace the bond list and rebuild geometry only. No bounds recompute or
+// camera reset, so a live bond break/formation (dynamic bonds during MD/Opt) does not jolt the view.
+void SceneController::updateBonds(const QVector<BondDatum>& bonds)
+{
+    m_bonds = bonds;
+    rebuildGeometry();
+}
+
 void SceneController::clear()
 {
     m_atoms.clear();

@@ -11,6 +11,7 @@
 #include <QClipboard>
 #include <QCheckBox>
 #include <QCompleter>
+#include <QDialog>
 #include <QDir>
 #include <QDateTime>
 #include <QDialogButtonBox>
@@ -57,6 +58,7 @@
 #include "frequencydialog.h"
 #include "displaypanel.h"
 #include "widgets/commandpalette.h"
+#include "widgets/simulationchart.h"  // Claude Generated 2026 - live MD temperature/energy charts
 
 #include "dialogs/nmrspectrumdialog.h"
 #include "rmsdwidget.h"  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
@@ -940,6 +942,18 @@ void MainWindow::createMenus()
     optAction->setToolTip(tr("Focus the simulation dock in optimization mode"));
     connect(optAction, &QAction::triggered, this,
         [showSimDock]() { showSimDock(SimulationConfig::Mode::GeometryOptimization); });
+
+    // Claude Generated 2026 - open the live temperature/energy charts (modeless dialog).
+    QAction *chartsAction = moleculeMenu->addAction(
+        QIcon::fromTheme("office-chart-line"), tr("Simulation &Charts…"));
+    chartsAction->setToolTip(tr("Open the live temperature/energy charts for the running simulation."));
+    connect(chartsAction, &QAction::triggered, this, [this]() {
+        if (!m_simulationChartDialog)
+            return;
+        m_simulationChartDialog->show();
+        m_simulationChartDialog->raise();
+        m_simulationChartDialog->activateWindow();
+    });
 
     moleculeMenu->addSeparator();
 
@@ -4409,6 +4423,22 @@ void MainWindow::createDockWidgets()
     outputLayout->addWidget(m_outputView);
     m_outputViewDock->setWidget(outputWidget);
 
+    // ==================== SIMULATION CHARTS DIALOG (modeless) ====================
+    // Claude Generated 2026 - live temperature + energy time series for the running MD/Opt,
+    // fed from SimulationWorker::frameReady (wired in wireSimulationWorker()). Hosted in a
+    // modeless dialog (opened from Molecule -> Simulation Charts) instead of a dock so it does
+    // not consume layout space. Modeless (show(), not exec()) keeps the simulation controls
+    // usable while the charts update live.
+    m_simulationChartDialog = new QDialog(this);
+    m_simulationChartDialog->setObjectName("SimulationChartDialog");
+    m_simulationChartDialog->setWindowTitle(tr("Simulation Charts"));
+    m_simulationChartDialog->setModal(false);
+    m_simulationChartDialog->resize(640, 560);
+    m_simulationChartWidget = new SimulationChartWidget(m_simulationChartDialog);
+    auto* chartDialogLayout = new QVBoxLayout(m_simulationChartDialog);
+    chartDialogLayout->setContentsMargins(4, 4, 4, 4);
+    chartDialogLayout->addWidget(m_simulationChartWidget);
+
     // ==================== INITIAL PLACEMENT ====================
     // Baseline layout. addDockWidget called exactly once per dock. Project and
     // Navigation share the left area via tabifyDockWidget (stable: only two
@@ -4596,6 +4626,24 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
             Qt::QueuedConnection);
         connect(m_moleculeView, &MoleculeViewer::atomGrabReleased,
             worker, &SimulationWorker::clearInjectedForce,
+            Qt::QueuedConnection);
+    }
+
+    // Claude Generated 2026 - Live temperature: dock slider drag → worker (worker thread).
+    // QueuedConnection marshals the value across threads; the worker pushes it into the
+    // running SimpleMD before the next step (and cancels any active global ramp).
+    if (m_simulationControlWidget) {
+        connect(m_simulationControlWidget, &SimulationControlWidget::temperatureChanged,
+            worker, &SimulationWorker::setTargetTemperature,
+            Qt::QueuedConnection);
+    }
+
+    // Claude Generated 2026 - Live charts: clear for the new run, then append every frame
+    // (temperature + energies). The widget throttles its own axis rescaling.
+    if (m_simulationChartWidget) {
+        m_simulationChartWidget->reset();
+        connect(worker, &SimulationWorker::frameReady,
+            m_simulationChartWidget, &SimulationChartWidget::appendFrame,
             Qt::QueuedConnection);
     }
 

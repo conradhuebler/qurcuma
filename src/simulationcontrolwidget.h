@@ -19,6 +19,9 @@
 #include <QToolButton>
 #include <QWidget>
 
+class QTableWidget;
+class TemperatureSlider;  // Claude Generated 2026 - vertical temperature-colored slider
+
 /**
  * @brief Dock widget holding every MD/Opt parameter + interactive-grab controls.
  *
@@ -61,6 +64,11 @@ signals:
     void configChanged(SimulationConfig);
     void simulationRunningChanged(bool running);
     void workerStarted(SimulationWorker* worker);
+
+    /** @brief Emitted whenever the temperature slider moves. During a run MainWindow
+     *  forwards it live to the worker (SimulationWorker::setTargetTemperature).
+     *  Claude Generated 2026. */
+    void temperatureChanged(double temperature);
 
     /** @brief Emitted whenever grab sliders change, so the viewer can update
      *  its live scaling. */
@@ -107,6 +115,10 @@ private:
     void onStepButtonEnableToggled();  // Claude Generated 2026 - re-arm Step after throttle
     SimulationConfig buildConfig() const;
 
+    // Claude Generated 2026 - temperature ramp / region table row helpers
+    void addRampSegmentRow(double target, const QString& mode, double value);
+    void addRegionRow(const QString& atoms, double temperature, const QString& schedule);
+
     // --- Mode / method ---
     QComboBox* m_modeCombo = nullptr;
     QComboBox* m_methodCombo = nullptr;
@@ -118,7 +130,7 @@ private:
     QLabel* m_stateLabel = nullptr;      // Claude Generated 2026 - "○ Ready / ● Running" pill
 
     // --- MD parameters ---
-    QDoubleSpinBox* m_tempSpin = nullptr;
+    TemperatureSlider* m_tempSlider = nullptr;  // Claude Generated 2026 - vertical, live during runs
     QDoubleSpinBox* m_timestepSpin = nullptr;
     QSpinBox* m_stepsSpin = nullptr;
     QDoubleSpinBox* m_hmassSpin = nullptr;  // Hydrogen mass scaling
@@ -175,6 +187,15 @@ private:
     QDoubleSpinBox*  m_wallZminSpin = nullptr;
     QDoubleSpinBox*  m_wallZmaxSpin = nullptr;
     QLabel*          m_wallStatusLabel = nullptr;  // live boundary-violation feedback
+
+    // --- Temperature ramp (global) + regions (curcuma SimpleMD temp_* params) ---
+    QGroupBox*    m_tempRampGroup = nullptr;
+    QCheckBox*    m_tempRampEnableCheck = nullptr;
+    QWidget*      m_tempRampDetails = nullptr;
+    QTableWidget* m_tempRampTable = nullptr;     // columns: Target(K) | Mode | Value
+    QGroupBox*    m_tempRegionGroup = nullptr;
+    QTableWidget* m_tempRegionTable = nullptr;   // columns: Atoms | Start T(K) | Schedule
+    QLabel*       m_tempOverrideLabel = nullptr; // "ramp overridden" badge after a live drag
 
     // --- Interactive grab ---
     QDoubleSpinBox* m_grabStrengthSpin = nullptr;

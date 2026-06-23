@@ -374,6 +374,17 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
     });
     f->addRow(QString(), m_forceVectorsCheck);
 
+    // Claude Generated 2026 - Dynamic bonds: re-detect the bond graph each live MD/Opt frame so
+    // bond breaking/formation in reactions is drawn. Default on (matches MoleculeViewer).
+    auto* dynamicBondsCheck = new QCheckBox(tr("Dynamic bonds (live MD/Opt reactions)"), this);
+    dynamicBondsCheck->setToolTip(tr("Re-detect bonds from the geometry every simulation frame so "
+        "bonds break and form as the structure reacts. Turn off to keep the initial topology fixed."));
+    dynamicBondsCheck->setChecked(m_viewer ? m_viewer->dynamicBonds() : true);
+    connect(dynamicBondsCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_viewer) m_viewer->setDynamicBonds(on);
+    });
+    f->addRow(QString(), dynamicBondsCheck);
+
     // Claude Generated 2026 - Confinement-wall wireframe toggle. The wall geometry
     // itself is driven by the Simulation config (auto-show when walls are enabled);
     // this checkbox is an independent show/hide override for the wireframe.

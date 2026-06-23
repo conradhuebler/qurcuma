@@ -73,6 +73,34 @@ void applyWallParams(const SimulationConfig& cfg, json& simplemd_params)
     simplemd_params["wall_z_max"] = cfg.wallZmax;
     simplemd_params["wall_radius"] = cfg.wallRadius;
 }
+
+// Claude Generated 2026 - Write curcuma's temperature ramp + region parameters into the
+// simplemd controller block. The global ramp (temp_ramp/temp_schedule) and the per-atom-subset
+// regions (temp_regions array) are independent; either, both, or neither may be present. Mirrors
+// the "Temperature Ramp" PARAM category + the temp_regions array in
+// external/curcuma/src/capabilities/simplemd.h.
+void applyTempRampParams(const SimulationConfig& cfg, json& simplemd_params)
+{
+    if (cfg.tempRamp && !cfg.tempSchedule.trimmed().isEmpty()) {
+        simplemd_params["temp_ramp"] = true;
+        simplemd_params["temp_schedule"] = cfg.tempSchedule.trimmed().toStdString();
+    }
+    if (!cfg.tempRegions.isEmpty()) {
+        json regions = json::array();
+        for (const TempRegion& r : cfg.tempRegions) {
+            if (r.atoms.trimmed().isEmpty())
+                continue;
+            json reg;
+            reg["atoms"] = r.atoms.trimmed().toStdString();
+            reg["temperature"] = r.temperature;
+            if (!r.schedule.trimmed().isEmpty())
+                reg["temp_schedule"] = r.schedule.trimmed().toStdString();
+            regions.push_back(reg);
+        }
+        if (!regions.empty())
+            simplemd_params["temp_regions"] = regions;
+    }
+}
 }  // namespace
 
 SimulationWorker::SimulationWorker(QObject* parent)
@@ -89,7 +117,8 @@ SimulationWorker::~SimulationWorker() = default;
 // definition site) and the rest of the worker methods.
 static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms);
 static SimulationFramePtr moleculeToFrame(
-    const Molecule& mol, int referenceSize, double energy, double ekin, int step);
+    const Molecule& mol, int referenceSize, double energy, double ekin, int step,
+    double temperature = 0.0, double targetTemperature = 0.0);
 static Vector pendingForcesToFlatVector(const Eigen::MatrixXd& pending);
 
 void SimulationWorker::setMolecule(const QVector<MoleculeViewer::Atom>& atoms)
@@ -129,6 +158,16 @@ void SimulationWorker::clearInjectedForce()
     QMutexLocker lock(&m_forceMutex);
     m_pendingForcesValid = false;
     m_pendingForces.resize(0, 0);
+}
+
+// Claude Generated 2026 - Live global temperature setpoint. Stored under a mutex; the value is
+// pushed into the running SimpleMD in performMDStep() before the next step (mirrors the sticky
+// mouse-grab force path). SimpleMD::setTargetTemperature() cancels any active global ramp.
+void SimulationWorker::setTargetTemperature(double temperature)
+{
+    QMutexLocker lock(&m_tempMutex);
+    m_pendingTemperature = temperature;
+    m_pendingTemperatureValid = true;
 }
 
 // Claude Generated 2026 - One-shot step from the dock's Step button.
@@ -198,7 +237,8 @@ void SimulationWorker::stepOnce()
         if (md->step()) {
             emit frameReady(moleculeToFrame(
                 md->currentMolecule(), m_initialAtoms.size(),
-                md->potentialEnergy(), md->kineticEnergy(), md->stepCount()));
+                md->potentialEnergy(), md->kineticEnergy(), md->stepCount(),
+                md->currentTemperature(), md->targetTemperature()));
         }
         md->finalizeRun();
         emit finished();
@@ -351,12 +391,15 @@ static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms)
 }
 
 static SimulationFramePtr moleculeToFrame(
-    const Molecule& mol, int referenceSize, double energy, double ekin, int step)
+    const Molecule& mol, int referenceSize, double energy, double ekin, int step,
+    double temperature, double targetTemperature)
 {
     auto frame = QSharedPointer<SimulationFrame>::create();
     frame->energy = energy;
     frame->ekin = ekin;
     frame->step = step;
+    frame->temperature = temperature;
+    frame->targetTemperature = targetTemperature;
 
     Geometry geo = mol.getGeometry();
     const int n = std::min(static_cast<int>(geo.rows()), referenceSize);
@@ -400,6 +443,7 @@ void SimulationWorker::startMD()
     simplemd_params["hmass"] = m_config.hmass;
     applyRmsdMtdParams(m_config, simplemd_params);
     applyWallParams(m_config, simplemd_params);
+    applyTempRampParams(m_config, simplemd_params);
 
     json controller;
     controller["simplemd"] = simplemd_params;
@@ -467,6 +511,16 @@ void SimulationWorker::performMDStep()
         m_md->applyExternalForces(ext);
     }
 
+    // Apply a live temperature change (slider drag during the run). Pushed once and consumed;
+    // SimpleMD::setTargetTemperature() also cancels any active global ramp. Claude Generated 2026.
+    {
+        QMutexLocker lock(&m_tempMutex);
+        if (m_pendingTemperatureValid) {
+            m_md->setTargetTemperature(m_pendingTemperature);
+            m_pendingTemperatureValid = false;
+        }
+    }
+
     if (!m_md->step()) {
         finalizeMDRun();
         return;
@@ -474,7 +528,8 @@ void SimulationWorker::performMDStep()
 
     SimulationFramePtr frame = moleculeToFrame(
         m_md->currentMolecule(), m_initialAtoms.size(),
-        m_md->potentialEnergy(), m_md->kineticEnergy(), m_md->stepCount());
+        m_md->potentialEnergy(), m_md->kineticEnergy(), m_md->stepCount(),
+        m_md->currentTemperature(), m_md->targetTemperature());
 
     emit frameReady(frame);
 

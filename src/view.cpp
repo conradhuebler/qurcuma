@@ -27,6 +27,7 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QSet>
 #include <QQmlContext>
 #include <QQuickView>
 #include <QToolButton>
@@ -839,6 +840,28 @@ void MoleculeViewer::previousFrame()
         showFrame(m_currentFrame - 1);
 }
 
+namespace {
+// Claude Generated 2026 - order-independent comparison of two bond sets (file-provided bonds may
+// not be in ascending (i,j) order, so compare as a set rather than element-wise).
+quint64 bondPairKey(int i, int j)
+{
+    return (static_cast<quint64>(qMin(i, j)) << 32) | static_cast<quint32>(qMax(i, j));
+}
+bool bondSetEqual(const QVector<MoleculeViewer::Bond>& a, const QVector<MoleculeViewer::Bond>& b)
+{
+    if (a.size() != b.size())
+        return false;
+    QSet<quint64> sa;
+    sa.reserve(a.size());
+    for (const MoleculeViewer::Bond& x : a)
+        sa.insert(bondPairKey(x.atom1, x.atom2));
+    for (const MoleculeViewer::Bond& x : b)
+        if (!sa.contains(bondPairKey(x.atom1, x.atom2)))
+            return false;
+    return true;
+}
+}  // namespace
+
 void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
 {
     if (!frame)
@@ -866,11 +889,33 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
         return;
     }
 
-    // In-place position update (keep element/charge/bonds).
+    // In-place position update (keep element/charge).
     auto& refAtoms = m_trajectoryAtoms[0];
     for (int i = 0; i < n; ++i)
         refAtoms[i].position = positions[i];
+
+    // Dynamic bonds: re-detect the bond graph from the new geometry so bond breaking/formation in
+    // MD/Opt reactions is reflected by the drawn bonds. Only the (rare) topology-change frames
+    // rebuild the bond instancing; stable frames stay on the fast position-only path. The bonds-only
+    // rebuild keeps the camera/bounds fixed so a reaction event does not jolt the view.
+    // Claude Generated 2026.
+    bool topologyChanged = false;
+    if (m_dynamicBonds && !m_trajectoryBonds.isEmpty()) {
+        QVector<Bond> newBonds = detectBondsHysteresis(refAtoms, m_trajectoryBonds[0]);
+        if (!bondSetEqual(newBonds, m_trajectoryBonds[0])) {
+            m_trajectoryBonds[0] = newBonds;
+            topologyChanged = true;
+        }
+    }
+
     syncSceneToController(0, /*resetCamera=*/false, /*fullRebuild=*/false);
+    if (topologyChanged && m_scene) {
+        QVector<SceneController::BondDatum> sb;
+        sb.reserve(m_trajectoryBonds[0].size());
+        for (const Bond& b : m_trajectoryBonds[0])
+            sb.append({ b.atom1, b.atom2, b.bondOrder });
+        m_scene->updateBonds(sb);
+    }
     computeWallViolations();  // live MD: recolour box + status as atoms cross walls
 
     // Throttled cache notify (once per worker run).
@@ -1255,6 +1300,33 @@ QVector<MoleculeViewer::Bond> MoleculeViewer::detectBonds(const QVector<Atom>& a
         }
     }
     return detectedBonds;
+}
+
+// Claude Generated 2026 - per-frame bond detection with hysteresis. A currently-bonded pair is
+// kept until it stretches past the looser BREAK threshold; an unbonded pair only forms a bond
+// within the tighter FORM threshold. The gap between the two suppresses on/off flicker for bonds
+// that vibrate near the cutoff at finite temperature.
+QVector<MoleculeViewer::Bond> MoleculeViewer::detectBondsHysteresis(
+    const QVector<Atom>& atoms, const QVector<Bond>& previous)
+{
+    QSet<quint64> bonded;
+    bonded.reserve(previous.size());
+    for (const Bond& b : previous)
+        bonded.insert(bondPairKey(b.atom1, b.atom2));
+
+    QVector<Bond> result;
+    constexpr float FORM = 1.25f;   // matches detectBonds() used at load
+    constexpr float BREAK = 1.45f;  // ~16% looser before an existing bond is dropped
+    for (int i = 0; i < atoms.size(); ++i) {
+        for (int j = i + 1; j < atoms.size(); ++j) {
+            const float distance = (atoms[i].position - atoms[j].position).length();
+            const float r = getCovalentRadius(atoms[i].element) + getCovalentRadius(atoms[j].element);
+            const float tol = bonded.contains(bondPairKey(i, j)) ? BREAK : FORM;
+            if (distance <= r * tol)
+                result.append({ i, j, 1 });
+        }
+    }
+    return result;
 }
 
 // ---------------------------------------------------------------------------

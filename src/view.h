@@ -199,9 +199,16 @@ public slots:
     }
 
     /**
-     * @brief Update atom positions for live simulation without scene rebuild or bond detection.
+     * @brief Update atom positions for live simulation. When dynamic bonds are enabled, the bond
+     * graph is re-detected from the new geometry each frame so bond breaking/formation in MD/Opt
+     * reactions is reflected by the drawn bonds.
      */
     void updateSimulationFrame(SimulationFramePtr frame);
+
+    /** @brief Enable/disable per-frame bond re-detection during live MD/Opt (default on).
+     *  Claude Generated 2026 - shows bond breaking/formation in reactions. */
+    void setDynamicBonds(bool on) { m_dynamicBonds = on; }
+    bool dynamicBonds() const { return m_dynamicBonds; }
 
     /**
      * @brief Enable/disable bulk picking. Quick3D picking is ray-based (always available),
@@ -301,6 +308,9 @@ private:
     float getAtomRadius(const QString& element) const;
     float getCovalentRadius(const QString& element);
     QVector<Bond> detectBonds(const QVector<Atom>& atoms);
+    // Claude Generated 2026 - per-frame bond re-detection with hysteresis (form tighter than break)
+    // so thermally vibrating bonds near the cutoff don't flicker on/off every frame.
+    QVector<Bond> detectBondsHysteresis(const QVector<Atom>& atoms, const QVector<Bond>& previous);
 
     void setDefaultView();
     QVector3D modelToWorld(const QVector3D& localPos) const;
@@ -392,6 +402,7 @@ private:
     bool m_hasUnsavedChanges = false;
 
     bool m_moleculeDirty = false;
+    bool m_dynamicBonds = true;  // Claude Generated 2026 - re-detect bonds each live frame (reactions)
 
     // Instancing threshold kept for API compatibility (informational).
     static constexpr int kAtomInstancingThresholdDefault = 500;
