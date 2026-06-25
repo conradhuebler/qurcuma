@@ -198,6 +198,7 @@ Settings::VisualizationSettings Settings::getVisualizationSettings() const
     settings.instancingThreshold = m_settings.value(VIZ_SETTINGS_PREFIX + "instancingThreshold", 500).toInt();
     settings.wallVisible = m_settings.value(VIZ_SETTINGS_PREFIX + "wallVisible", true).toBool();
     settings.wallOpacity = m_settings.value(VIZ_SETTINGS_PREFIX + "wallOpacity", 0.6).toDouble();
+    settings.centerOnLoad = m_settings.value(VIZ_SETTINGS_PREFIX + "centerOnLoad", true).toBool();
 
     return settings;
 }
@@ -228,6 +229,7 @@ void Settings::setVisualizationSettings(const VisualizationSettings& settings)
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "instancingThreshold", settings.instancingThreshold);
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "wallVisible", settings.wallVisible);
     m_settings.setValue(VIZ_SETTINGS_PREFIX + "wallOpacity", settings.wallOpacity);
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "centerOnLoad", settings.centerOnLoad);
     m_settings.sync();
 }
 

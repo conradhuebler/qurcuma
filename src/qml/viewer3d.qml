@@ -174,6 +174,43 @@ Item {
                                : PrincipledMaterial.Opaque
                 }
             }
+
+            // Iso-potential gradient shells (optional; enabled via Display panel).
+            // 3 inside shells (blue→teal) + 3 outside shells (yellow→red)
+            // at force-contour distances from the wall boundary.
+            Model {
+                source: "#Cylinder"
+                visible: controller.wallPotShellsVisible
+                instancing: controller.wallPotShellsInstancing
+                materials: PrincipledMaterial {
+                    baseColor: "white"
+                    lighting: PrincipledMaterial.NoLighting
+                    alphaMode: PrincipledMaterial.Blend
+                }
+            }
+
+            // Wall force vector field: arrows sampled on a grid around the boundary.
+            // Shafts (cylinder) + tips (cone), colour/length = force magnitude.
+            Model {
+                source: "#Cylinder"
+                visible: controller.wallForceArrowsVisible
+                instancing: controller.wallForceShaftsInstancing
+                materials: PrincipledMaterial {
+                    baseColor: "white"
+                    lighting: PrincipledMaterial.NoLighting
+                    alphaMode: PrincipledMaterial.Blend
+                }
+            }
+            Model {
+                source: "#Cone"
+                visible: controller.wallForceArrowsVisible
+                instancing: controller.wallForceTipsInstancing
+                materials: PrincipledMaterial {
+                    baseColor: "white"
+                    lighting: PrincipledMaterial.NoLighting
+                    alphaMode: PrincipledMaterial.Blend
+                }
+            }
         }
 
         // Force-vector arrows (opt-in). C++ computes them in WORLD space (post model
@@ -207,6 +244,40 @@ Item {
                 baseColor: "white"
                 lighting: PrincipledMaterial.NoLighting
             }
+        }
+    }
+
+    // Rubber-band (box) selection overlay (2D, structure editing). Rect is in viewport
+    // pixels supplied by C++; selection happens on mouse release.
+    Rectangle {
+        visible: controller.rubberBandActive
+        x: controller.rubberBandRect.x
+        y: controller.rubberBandRect.y
+        width: controller.rubberBandRect.width
+        height: controller.rubberBandRect.height
+        color: "#2290e0ff"
+        border.color: "#cc90e0ff"
+        border.width: 1
+    }
+
+    // Edit-mode hint bar (2D overlay, bottom-centre). Empty editHint = hidden.
+    Rectangle {
+        visible: controller.editHint.length > 0
+        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 10 }
+        width: Math.min(editHintText.implicitWidth + 18, root.width - 24)
+        height: editHintText.implicitHeight + 8
+        radius: 5
+        color: "#cc101418"
+        border.color: "#5affffff"
+        Text {
+            id: editHintText
+            anchors.centerIn: parent
+            width: parent.width - 16
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+            color: "#d8e6ff"
+            font.pixelSize: 12
+            text: controller.editHint
         }
     }
 

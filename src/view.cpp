@@ -9,6 +9,8 @@
 
 #include "bondeditor.h"
 #include "elementdata.h"
+
+#include "src/core/elements.h"
 #include "forceinjector.h"
 #include "performanceoptimizer.h"
 #include "scenecontroller.h"
@@ -18,12 +20,15 @@
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
+#include <QCursor>
 #include <QFileDialog>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QIcon>
 #include <QImage>
 #include <QInputDialog>
+#include <QKeyEvent>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPushButton>
@@ -119,6 +124,34 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 m_lastMousePos = me->position().toPoint();
                 m_leftPressPos = m_lastMousePos;
                 m_leftDragged = false;
+                m_movingSelection = false;
+                m_rubberBanding = false;
+                m_emptyPressPending = false;
+                if (m_editMode && !m_simulationActive) {
+                    // Edit mode: press on a selected/picked atom starts a move; press on
+                    // empty space clears selection on release (a plain click) or rotates.
+                    const int picked = pickAtomAtScreenPos(m_lastMousePos);
+                    const bool append = me->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier);
+                    if (picked >= 0) {
+                        if (!m_selectedAtoms.contains(picked))
+                            selectAtom(picked, append);
+                        m_movingSelection = true;
+                        m_moveSnapshotTaken = false;  // snapshot lazily on first drag
+                        m_moveRefLocal = selectionCentroidLocal();
+                        m_dragAnchorGlobal = me->globalPosition().toPoint();  // cursor-lock pin
+                        if (m_quickView) m_quickView->setCursor(Qt::ClosedHandCursor);
+                        if (m_container) m_container->setCursor(Qt::ClosedHandCursor);
+                    } else if (append) {
+                        // Ctrl/Shift + drag on empty space = rubber-band (box) select.
+                        m_rubberBanding = true;
+                        m_rubberStart = m_lastMousePos;
+                        if (m_scene)
+                            m_scene->setRubberBand(QRectF(m_rubberStart, m_rubberStart), true);
+                    } else {
+                        m_emptyPressPending = true;  // plain click clears; plain drag rotates
+                    }
+                    return true;
+                }
                 if (m_simulationActive) {
                     int picked = pickAtomAtScreenPos(m_lastMousePos);
                     if (picked >= 0) {
@@ -131,6 +164,8 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
             } else if (me->button() == Qt::RightButton) {
                 m_rightMousePressed = true;
                 m_lastMousePos = me->position().toPoint();
+                m_rightPressPos = m_lastMousePos;
+                m_rightDragged = false;
                 return true;
             } else if (me->button() == Qt::MiddleButton) {
                 resetView();
@@ -142,6 +177,35 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
             auto* me = static_cast<QMouseEvent*>(event);
             if (me->button() == Qt::LeftButton) {
                 m_leftMousePressed = false;
+                if (m_editMode && !m_simulationActive) {
+                    if (m_quickView) m_quickView->setCursor(Qt::ArrowCursor);
+                    if (m_container) m_container->setCursor(Qt::ArrowCursor);
+                    if (m_rubberBanding) {
+                        m_rubberBanding = false;
+                        if (m_scene) {
+                            const QRectF r = QRectF(m_rubberStart, me->position().toPoint()).normalized();
+                            const float w = m_quickView ? m_quickView->width() : 1.0f;
+                            const float h = m_quickView ? m_quickView->height() : 1.0f;
+                            const QVector<int> hits = m_scene->atomsInScreenRect(r, w, h);
+                            if (!hits.isEmpty())
+                                selectAtoms(hits, /*append=*/true);  // box-select adds
+                            m_scene->setRubberBand(QRectF(), false);
+                        }
+                        computeCollisions();
+                        m_emptyPressPending = false;
+                        return true;
+                    }
+                    if (m_movingSelection) {
+                        m_movingSelection = false;
+                        if (m_leftDragged)
+                            finalizeEdit();  // re-detect bonds + recheck clashes after a move
+                    } else if (m_emptyPressPending && !m_leftDragged) {
+                        clearSelection();      // plain click on empty space
+                        computeCollisions();
+                    }
+                    m_emptyPressPending = false;
+                    return true;
+                }
                 if (m_grabbedAtom >= 0) {
                     m_grabbedAtom = -1;
                     emit atomGrabReleased();
@@ -189,6 +253,12 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 return true;
             } else if (me->button() == Qt::RightButton) {
                 m_rightMousePressed = false;
+                // Right-click (no pan-drag) clears the selection / measurement marks.
+                if (!m_rightDragged && !m_selectedAtoms.isEmpty()) {
+                    clearSelection();
+                    if (m_editMode)
+                        computeCollisions();
+                }
                 return true;
             }
             break;
@@ -196,6 +266,44 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
         case QEvent::MouseMove: {
             auto* me = static_cast<QMouseEvent*>(event);
             QPoint pos = me->position().toPoint();
+            if (m_editMode && !m_simulationActive && m_leftMousePressed && m_movingSelection) {
+                const QPoint d = pos - m_lastMousePos;
+                if (d.isNull())
+                    return true;  // absorbs the synthetic move from a cursor-lock warp
+                if ((pos - m_leftPressPos).manhattanLength() > 3)
+                    m_leftDragged = true;
+                if (m_leftDragged && !m_moveSnapshotTaken) {
+                    emit editSnapshotRequested(tr("Before move"));  // pre-move state for undo
+                    m_moveSnapshotTaken = true;
+                }
+                const bool depth = me->modifiers() & Qt::ShiftModifier;
+                if (m_scene) {
+                    const float w = m_quickView ? m_quickView->width() : 1.0f;
+                    const float h = m_quickView ? m_quickView->height() : 1.0f;
+                    const QVector3D delta = depth
+                        ? m_scene->screenDragToModelDelta(0, 0, d.y(), m_moveRefLocal, w, h)
+                        : m_scene->screenDragToModelDelta(d.x(), d.y(), 0, m_moveRefLocal, w, h);
+                    moveSelection(delta);
+                    m_moveRefLocal = selectionCentroidLocal();  // keep depth scale current
+                }
+                if (m_dragCursorLock) {
+                    // Pin the cursor at the press point: warp it back so the drag never
+                    // runs off-screen and motion is relative (the zero-delta guard above
+                    // absorbs the synthetic move this warp generates).
+                    QCursor::setPos(m_dragAnchorGlobal);
+                    m_lastMousePos = m_leftPressPos;
+                } else {
+                    m_lastMousePos = pos;
+                }
+                return true;
+            }
+            if (m_editMode && !m_simulationActive && m_leftMousePressed && m_rubberBanding) {
+                m_leftDragged = true;
+                if (m_scene)
+                    m_scene->setRubberBand(QRectF(m_rubberStart, pos).normalized(), true);
+                m_lastMousePos = pos;
+                return true;
+            }
             if (m_grabbedAtom >= 0 && m_leftMousePressed) {
                 m_lastMousePos = pos;
                 QVector3D modelLocalForce = computeGrabForce(pos, m_grabbedAtom);
@@ -212,6 +320,8 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 m_lastMousePos = pos;
                 return true;
             } else if (m_rightMousePressed) {
+                if ((pos - m_rightPressPos).manhattanLength() > 3)
+                    m_rightDragged = true;
                 handleMousePan(pos);
                 m_lastMousePos = pos;
                 return true;
@@ -226,6 +336,22 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     : (m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor);
                 if (m_quickView) m_quickView->setCursor(shape);
                 if (m_container) m_container->setCursor(shape);
+            }
+            break;
+        }
+        case QEvent::MouseButtonDblClick: {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton && m_editMode && !m_simulationActive) {
+                // Double-click selects the whole connected molecule (fragment).
+                const int picked = pickAtomAtScreenPos(me->position().toPoint());
+                const bool append = me->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier);
+                if (picked >= 0) {
+                    selectFragment(picked, append);
+                    m_movingSelection = false;  // a subsequent press starts the move
+                    m_moveRefLocal = selectionCentroidLocal();
+                    computeCollisions();
+                }
+                return true;
             }
             break;
         }
@@ -258,16 +384,56 @@ void MoleculeViewer::resizeEvent(QResizeEvent* event)
 
 void MoleculeViewer::handleMouseRotation(const QPoint& currentPos)
 {
-    if (!m_scene)
-        return;
     const QPoint delta = currentPos - m_lastMousePos;
     const float sens = 0.5f;
-    // Camera is axis-aligned: right=+X, up=+Y. Rotate the molecule root.
-    const QQuaternion horiz = QQuaternion::fromAxisAndAngle(QVector3D(0, 1, 0), delta.x() * sens);
-    const QQuaternion vert = QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), -delta.y() * sens);
-    m_modelRotation = (horiz * vert) * m_modelRotation;
+    applyModelRotation(delta.x() * sens, -delta.y() * sens);
+}
+
+// Claude Generated 2026 - incremental model rotation about the view axes (right=+X,
+// up=+Y). Used by mouse drag and by keyboard rotation in Edit mode (regains the depth
+// degree of freedom that a 2D in-plane move alone cannot reach).
+void MoleculeViewer::applyModelRotation(float horizDeg, float vertDeg, float rollDeg)
+{
+    if (!m_scene)
+        return;
+    const QQuaternion horiz = QQuaternion::fromAxisAndAngle(QVector3D(0, 1, 0), horizDeg);
+    const QQuaternion vert = QQuaternion::fromAxisAndAngle(QVector3D(1, 0, 0), vertDeg);
+    const QQuaternion roll = QQuaternion::fromAxisAndAngle(QVector3D(0, 0, 1), rollDeg);
+    m_modelRotation = (horiz * vert * roll) * m_modelRotation;
     m_modelRotation.normalize();
     m_scene->setRootRotation(m_modelRotation);
+}
+
+// Claude Generated 2026 - WASD/QE scene rotation (W/S pitch, A/D yaw, Q/E roll). With
+// @p nudge (Shift) in Edit mode, the same keys translate the selection in the view
+// plane (Q/E = depth). Called from MainWindow's app-level key filter so it works no
+// matter which widget has focus.
+void MoleculeViewer::rotateSceneByKey(int key, bool nudge)
+{
+    if (nudge && m_editMode && !m_selectedAtoms.isEmpty() && m_scene) {
+        QVector3D worldStep;
+        switch (key) {
+        case Qt::Key_W: worldStep = QVector3D(0, kNudgeStep, 0); break;
+        case Qt::Key_S: worldStep = QVector3D(0, -kNudgeStep, 0); break;
+        case Qt::Key_A: worldStep = QVector3D(-kNudgeStep, 0, 0); break;
+        case Qt::Key_D: worldStep = QVector3D(kNudgeStep, 0, 0); break;
+        case Qt::Key_Q: worldStep = QVector3D(0, 0, kNudgeStep); break;   // toward viewer
+        case Qt::Key_E: worldStep = QVector3D(0, 0, -kNudgeStep); break;
+        default: return;
+        }
+        moveSelection(m_scene->rootRotation().inverted().rotatedVector(worldStep));
+        return;
+    }
+    constexpr float step = 12.0f;  // degrees per keypress
+    switch (key) {
+    case Qt::Key_A: applyModelRotation(-step, 0, 0); break;  // yaw left
+    case Qt::Key_D: applyModelRotation(step, 0, 0); break;   // yaw right
+    case Qt::Key_W: applyModelRotation(0, step, 0); break;   // pitch up
+    case Qt::Key_S: applyModelRotation(0, -step, 0); break;  // pitch down
+    case Qt::Key_Q: applyModelRotation(0, 0, -step); break;  // roll left
+    case Qt::Key_E: applyModelRotation(0, 0, step); break;   // roll right
+    default: break;
+    }
 }
 
 void MoleculeViewer::handleMousePan(const QPoint& currentPos)
@@ -359,6 +525,31 @@ void MoleculeViewer::setWallOpacity(qreal opacity)
 qreal MoleculeViewer::getWallOpacity() const
 {
     return m_scene ? m_scene->wallOpacity() : 1.0;
+}
+
+void MoleculeViewer::setWallPotentialViz(bool enabled)
+{
+    m_potVizEnabled = enabled;
+    if (m_scene)
+        m_scene->setWallPotentialViz(enabled, m_wallHarmonic, m_wallTemp, m_wallBeta);
+}
+
+void MoleculeViewer::setWallPotentialParams(bool harmonic, double wallTemp, float wallBeta)
+{
+    m_wallHarmonic = harmonic;
+    m_wallTemp = wallTemp;
+    m_wallBeta = wallBeta;
+    // Always update stored params in SceneController (handles both shells and arrows).
+    if (m_scene)
+        m_scene->setWallPotentialViz(m_potVizEnabled, harmonic, wallTemp, wallBeta);
+}
+
+void MoleculeViewer::setWallVectorField(bool enabled, int resolution)
+{
+    m_potArrowsEnabled = enabled;
+    m_potArrowResolution = resolution;
+    if (m_scene)
+        m_scene->setWallVectorField(enabled, resolution);
 }
 
 void MoleculeViewer::applyWallVisibility()
@@ -624,7 +815,8 @@ void MoleculeViewer::performBondEdit(int a, int b)
 // ---------------------------------------------------------------------------
 // Scene population
 // ---------------------------------------------------------------------------
-void MoleculeViewer::syncSceneToController(int frameIndex, bool resetCamera, bool fullRebuild)
+void MoleculeViewer::syncSceneToController(int frameIndex, bool resetCamera, bool fullRebuild,
+    bool keepView)
 {
     if (!m_scene || frameIndex < 0 || frameIndex >= m_trajectoryAtoms.size())
         return;
@@ -642,9 +834,11 @@ void MoleculeViewer::syncSceneToController(int frameIndex, bool resetCamera, boo
             for (const Bond& b : bonds)
                 sb.append({ b.atom1, b.atom2, b.bondOrder });
         }
-        m_scene->setStructure(sa, sb); // recomputes bounds + frames the camera
+        m_scene->setStructure(sa, sb, keepView); // keepView: no bounds/camera change
         m_scene->setSelection(m_selectedAtoms);
-        if (!resetCamera) {
+        if (keepView) {
+            // structure editing: keep the user's exact orientation/zoom/pan.
+        } else if (!resetCamera) {
             // Keep the user's current orientation/zoom across a refresh.
             m_scene->setRootRotation(m_modelRotation);
         } else {
@@ -714,6 +908,52 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
 
     m_moleculeDirty = false;
     emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
+}
+
+// Claude Generated 2026 - Merge a molecule into the current scene (single-frame only):
+// append atoms/bonds, select the new atoms, and start placement without a camera jump.
+void MoleculeViewer::appendMolecule(const QVector<Atom>& newAtoms, const QVector<Bond>& newBonds)
+{
+    if (newAtoms.isEmpty())
+        return;
+    if (m_trajectoryAtoms.isEmpty()) {
+        addMolecule(newAtoms, newBonds);   // nothing loaded yet -> behave like a load
+        return;
+    }
+    if (!canEditStructure()) {
+        qWarning() << "appendMolecule: only single-frame structures can be edited";
+        return;
+    }
+    emit editSnapshotRequested(tr("Before add molecule"));  // pre-merge state for undo
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    const int base = atoms.size();
+    atoms += newAtoms;
+
+    const QVector<Bond> appended = newBonds.isEmpty() ? detectBonds(newAtoms) : newBonds;
+    if (m_currentFrame >= m_trajectoryBonds.size())
+        m_trajectoryBonds.resize(m_currentFrame + 1);
+    for (const Bond& b : appended)
+        m_trajectoryBonds[m_currentFrame].append({ b.atom1 + base, b.atom2 + base, b.bondOrder });
+
+    if (m_bondEditor)
+        m_bondEditor->setAtoms(atoms);
+    if (m_perfOpt)
+        m_perfOpt->setAtomCount(atoms.size());
+
+    // Select the newly added atoms and rebuild without recentring the camera.
+    QVector<int> added;
+    for (int i = base; i < atoms.size(); ++i)
+        added.append(i);
+    m_selectedAtoms = added;
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/true, /*keepView=*/true);
+    selectAtoms(added, /*append=*/false);
+    buildForceAdjacency();
+    if (!m_editMode)
+        setEditMode(true);          // placement implies edit mode
+    m_moveRefLocal = selectionCentroidLocal();
+    computeCollisions();
+    onStructureChanged();
+    emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
 }
 
 void MoleculeViewer::showOverlay(const QVector<Atom>& refAtoms, const QVector<Bond>& refBonds,
@@ -948,6 +1188,29 @@ void MoleculeViewer::resetView() { setDefaultView(); }
 
 void MoleculeViewer::resetViewToMolecule() { setDefaultView(); }
 
+// Claude Generated 2026 - Translate every trajectory frame so that the mass-weighted
+// centre-of-mass coincides with the coordinate origin. Uses curcuma Elements tables
+// for consistent masses. After shifting, the current frame is reloaded with a camera reset.
+void MoleculeViewer::centerAtOrigin()
+{
+    if (m_trajectoryAtoms.isEmpty()) return;
+    for (QVector<Atom>& frame : m_trajectoryAtoms) {
+        if (frame.isEmpty()) continue;
+        double totalMass = 0.0;
+        QVector3D com;
+        for (const Atom& a : frame) {
+            const int z = Elements::String2Element(a.element.toLower().toStdString());
+            const double mass = (z > 0 && z < static_cast<int>(Elements::AtomicMass.size()))
+                ? Elements::AtomicMass[z] : 12.011;
+            com += a.position * static_cast<float>(mass);
+            totalMass += mass;
+        }
+        if (totalMass > 0.0) com /= static_cast<float>(totalMass);
+        for (Atom& a : frame) a.position -= com;
+    }
+    showFrame(m_currentFrame);
+}
+
 void MoleculeViewer::getSelectedBounds(QVector3D& center, float& radius)
 {
     if (m_trajectoryAtoms.isEmpty() || m_currentFrame >= m_trajectoryAtoms.size()) {
@@ -1171,17 +1434,57 @@ void MoleculeViewer::ensurePickersForGrab()
 // ---------------------------------------------------------------------------
 void MoleculeViewer::selectAtom(int index, bool append)
 {
-    if (!append && !m_selectedAtoms.isEmpty())
-        clearSelection();
+    if (index < 0)
+        return;
+    selectAtoms({ index }, append);
+}
 
-    if (!m_selectedAtoms.contains(index)) {
-        m_selectedAtoms.append(index);
-        if (m_selectionManager)
-            m_selectionManager->selectAtom(index, append);
-        if (m_scene)
-            m_scene->setSelection(m_selectedAtoms);
-        emit selectionChanged(m_selectedAtoms);
+// Claude Generated 2026 - Bulk select; shared by single-pick, fragment, paste, merge.
+void MoleculeViewer::selectAtoms(const QVector<int>& indices, bool append)
+{
+    if (!append)
+        m_selectedAtoms.clear();
+    for (int idx : indices)
+        if (idx >= 0 && !m_selectedAtoms.contains(idx))
+            m_selectedAtoms.append(idx);
+    if (m_selectionManager) {
+        m_selectionManager->clearSelection();
+        for (int a : m_selectedAtoms)
+            m_selectionManager->selectAtom(a, true);
     }
+    if (m_scene)
+        m_scene->setSelection(m_selectedAtoms);
+    emit selectionChanged(m_selectedAtoms);
+}
+
+// Claude Generated 2026 - Select the whole connected fragment containing seedAtom by
+// BFS over the current frame's bond graph (what the user actually sees), reusing the
+// force-injection adjacency builder.
+void MoleculeViewer::selectFragment(int seedAtom, bool append)
+{
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    if (seedAtom < 0 || seedAtom >= m_trajectoryAtoms[m_currentFrame].size())
+        return;
+    const QVector<Bond> bonds = (m_currentFrame < m_trajectoryBonds.size())
+        ? m_trajectoryBonds[m_currentFrame] : QVector<Bond>{};
+    const auto adjacency = forceinjector::buildAdjacency(
+        m_trajectoryAtoms[m_currentFrame].size(), bonds);
+
+    QVector<int> fragment;
+    QSet<int> seen;
+    QVector<int> queue{ seedAtom };
+    seen.insert(seedAtom);
+    while (!queue.isEmpty()) {
+        const int a = queue.takeFirst();
+        fragment.append(a);
+        for (int nb : adjacency[a])
+            if (!seen.contains(nb)) {
+                seen.insert(nb);
+                queue.append(nb);
+            }
+    }
+    selectAtoms(fragment, append);
 }
 
 void MoleculeViewer::clearSelection()
@@ -1197,6 +1500,8 @@ void MoleculeViewer::clearSelection()
 void MoleculeViewer::setMeasurementMode(int mode)
 {
     m_measurementMode = qBound(0, mode, 3);
+    if (m_measurementMode != 0 && m_editMode)
+        setEditMode(false);  // mutually exclusive interaction modes
     updateMeasurement(); // refresh/clear the on-screen measurement for the new mode
     emit measurementModeChanged(m_measurementMode);
 }
@@ -1204,6 +1509,8 @@ void MoleculeViewer::setMeasurementMode(int mode)
 void MoleculeViewer::setBondEditMode(int mode)
 {
     m_bondEditMode = qBound(0, mode, 3);
+    if (m_bondEditMode != 0 && m_editMode)
+        setEditMode(false);  // mutually exclusive interaction modes
     if (m_bondEditor) {
         BondEditor::EditMode editorMode;
         switch (m_bondEditMode) {
@@ -1214,6 +1521,257 @@ void MoleculeViewer::setBondEditMode(int mode)
         }
         m_bondEditor->setEditMode(editorMode);
     }
+}
+
+// ===========================================================================
+// Structure editing (Explore-mode "Edit" toggle). Claude Generated 2026.
+// Direct coordinate editing — select atoms/molecules, move, copy/paste, merge a
+// file, with collision feedback. Distinct from the simulation grab-force, which
+// injects forces into a running MD/Opt rather than mutating stored geometry.
+// ===========================================================================
+void MoleculeViewer::setEditMode(bool on)
+{
+    if (m_editMode == on)
+        return;
+    m_editMode = on;
+    if (on) {
+        if (m_measurementMode != 0)
+            setMeasurementMode(0);
+        if (m_bondEditMode != 0)
+            setBondEditMode(0);
+        computeCollisions();   // show any pre-existing clashes immediately
+        if (m_scene)
+            m_scene->setEditHint(tr("Edit  ·  drag: move (Shift = depth)  ·  WASD/QE: rotate"
+                                    "  ·  double-click: whole molecule"
+                                    "  ·  Ctrl/Shift+drag: box-select  ·  right-click: clear"));
+    } else {
+        m_movingSelection = false;
+        m_emptyPressPending = false;
+        m_collisionAtoms.clear();
+        if (m_scene) {
+            m_scene->setCollisionAtoms({});
+            m_scene->setEditHint(QString());
+        }
+        emit collisionCountChanged(0);
+    }
+    emit editModeChanged(m_editMode);
+}
+
+QVector3D MoleculeViewer::selectionCentroidLocal() const
+{
+    QVector3D c;
+    if (m_selectedAtoms.isEmpty() || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return c;
+    const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    int n = 0;
+    for (int idx : m_selectedAtoms)
+        if (idx >= 0 && idx < atoms.size()) {
+            c += atoms[idx].position;
+            ++n;
+        }
+    if (n > 0)
+        c /= float(n);
+    return c;
+}
+
+// Translate every selected atom by a model-local delta, redraw cheaply (no camera
+// jump), and re-check collisions for live red feedback.
+void MoleculeViewer::moveSelection(const QVector3D& modelDelta)
+{
+    if (m_selectedAtoms.isEmpty() || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    for (int idx : m_selectedAtoms)
+        if (idx >= 0 && idx < atoms.size())
+            atoms[idx].position += modelDelta;
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/false);
+    computeCollisions();
+}
+
+// Flag atoms that overlap (centre distance < kClashFactor * (vdw_i + vdw_j)). Bonded
+// pairs and pairs entirely inside the moving selection (a rigid body) never clash.
+void MoleculeViewer::computeCollisions()
+{
+    m_collisionAtoms.clear();
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
+        const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+        QSet<quint64> bonded;
+        if (m_currentFrame < m_trajectoryBonds.size())
+            for (const Bond& b : m_trajectoryBonds[m_currentFrame])
+                bonded.insert(bondPairKey(b.atom1, b.atom2));
+        const QSet<int> sel(m_selectedAtoms.begin(), m_selectedAtoms.end());
+        QSet<int> clash;
+        for (int i = 0; i < atoms.size(); ++i) {
+            for (int j = i + 1; j < atoms.size(); ++j) {
+                if (sel.contains(i) && sel.contains(j))
+                    continue;  // rigid body: intra-selection never self-clashes
+                if (bonded.contains(bondPairKey(i, j)))
+                    continue;
+                const float thr = (elem::vdwRadius(atoms[i].element)
+                                   + elem::vdwRadius(atoms[j].element)) * kClashFactor;
+                if ((atoms[i].position - atoms[j].position).length() < thr) {
+                    clash.insert(i);
+                    clash.insert(j);
+                }
+            }
+        }
+        m_collisionAtoms = QVector<int>(clash.begin(), clash.end());
+    }
+    if (m_scene)
+        m_scene->setCollisionAtoms(m_collisionAtoms);
+    emit collisionCountChanged(m_collisionAtoms.size());
+}
+
+// Re-detect connectivity after a move/edit so moved atoms gain/lose bonds, then
+// recompute clashes and notify consumers. Keeps the camera fixed.
+void MoleculeViewer::finalizeEdit()
+{
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    if (m_currentFrame < m_trajectoryBonds.size()) {
+        const QVector<Bond> newBonds = detectBondsHysteresis(
+            m_trajectoryAtoms[m_currentFrame], m_trajectoryBonds[m_currentFrame]);
+        if (!bondSetEqual(newBonds, m_trajectoryBonds[m_currentFrame])) {
+            m_trajectoryBonds[m_currentFrame] = newBonds;
+            if (m_scene) {
+                QVector<SceneController::BondDatum> sb;
+                sb.reserve(newBonds.size());
+                for (const Bond& b : newBonds)
+                    sb.append({ b.atom1, b.atom2, b.bondOrder });
+                m_scene->updateBonds(sb);  // bonds only, no bounds/camera change
+            }
+            buildForceAdjacency();
+        }
+    }
+    computeCollisions();
+    onStructureChanged();
+    emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
+}
+
+// Iteratively translate the moving selection (rigidly) along the net push-apart
+// direction until no atom clashes with the rest, or a step cap is reached.
+void MoleculeViewer::resolveClashes()
+{
+    if (m_selectedAtoms.isEmpty() || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    const QSet<int> sel(m_selectedAtoms.begin(), m_selectedAtoms.end());
+    QSet<quint64> bonded;
+    if (m_currentFrame < m_trajectoryBonds.size())
+        for (const Bond& b : m_trajectoryBonds[m_currentFrame])
+            bonded.insert(bondPairKey(b.atom1, b.atom2));
+
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    constexpr int kMaxIter = 200;
+    constexpr float kStep = 0.15f;  // Angstrom per iteration
+    for (int iter = 0; iter < kMaxIter; ++iter) {
+        QVector3D push;
+        int clashes = 0;
+        for (int s : sel) {
+            if (s < 0 || s >= atoms.size())
+                continue;
+            for (int j = 0; j < atoms.size(); ++j) {
+                if (sel.contains(j) || bonded.contains(bondPairKey(s, j)))
+                    continue;
+                const float thr = (elem::vdwRadius(atoms[s].element)
+                                   + elem::vdwRadius(atoms[j].element)) * kClashFactor;
+                QVector3D d = atoms[s].position - atoms[j].position;
+                const float dist = d.length();
+                if (dist < thr) {
+                    ++clashes;
+                    const QVector3D dir = (dist > 1e-4f) ? d / dist : QVector3D(1, 0, 0);
+                    push += dir * (thr - dist);  // overlap-weighted
+                }
+            }
+        }
+        if (clashes == 0)
+            break;
+        if (push.lengthSquared() < 1e-8f)
+            push = QVector3D(1, 0, 0);  // degenerate (fully enclosed): escape arbitrarily
+        push.normalize();
+        for (int s : sel)
+            if (s >= 0 && s < atoms.size())
+                atoms[s].position += push * kStep;
+    }
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/false);
+    finalizeEdit();
+}
+
+// Copy the selection (atoms + bonds internal to it) into the clipboard, re-indexed
+// to a 0-based block.
+void MoleculeViewer::copySelection()
+{
+    m_clipboardAtoms.clear();
+    m_clipboardBonds.clear();
+    if (m_selectedAtoms.isEmpty() || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    QHash<int, int> remap;  // old index -> clipboard index
+    for (int idx : m_selectedAtoms) {
+        if (idx < 0 || idx >= atoms.size())
+            continue;
+        remap.insert(idx, m_clipboardAtoms.size());
+        m_clipboardAtoms.append(atoms[idx]);
+    }
+    if (m_currentFrame < m_trajectoryBonds.size())
+        for (const Bond& b : m_trajectoryBonds[m_currentFrame])
+            if (remap.contains(b.atom1) && remap.contains(b.atom2))
+                m_clipboardBonds.append({ remap[b.atom1], remap[b.atom2], b.bondOrder });
+}
+
+// Paste the clipboard into the current frame (small offset so it's visible), select
+// it, and start placement. Single-frame only.
+void MoleculeViewer::pasteClipboard()
+{
+    if (m_clipboardAtoms.isEmpty() || !canEditStructure())
+        return;
+    QVector<Atom> add = m_clipboardAtoms;
+    const QVector3D offset(1.5f, 1.5f, 0.0f);
+    for (Atom& a : add)
+        a.position += offset;
+    appendMolecule(add, m_clipboardBonds);
+}
+
+// Remove the selected atoms and their incident bonds, reindexing the survivors.
+// Single-frame only.
+void MoleculeViewer::deleteSelection()
+{
+    if (m_selectedAtoms.isEmpty() || !canEditStructure())
+        return;
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    emit editSnapshotRequested(tr("Before delete"));  // pre-delete state for undo
+    const QSet<int> del(m_selectedAtoms.begin(), m_selectedAtoms.end());
+    const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    QVector<Atom> kept;
+    QVector<int> newIndex(atoms.size(), -1);  // old -> new (or -1 if deleted)
+    for (int i = 0; i < atoms.size(); ++i) {
+        if (del.contains(i))
+            continue;
+        newIndex[i] = kept.size();
+        kept.append(atoms[i]);
+    }
+    QVector<Bond> keptBonds;
+    if (m_currentFrame < m_trajectoryBonds.size())
+        for (const Bond& b : m_trajectoryBonds[m_currentFrame]) {
+            if (del.contains(b.atom1) || del.contains(b.atom2))
+                continue;
+            keptBonds.append({ newIndex[b.atom1], newIndex[b.atom2], b.bondOrder });
+        }
+    m_trajectoryAtoms[m_currentFrame] = kept;
+    if (m_currentFrame < m_trajectoryBonds.size())
+        m_trajectoryBonds[m_currentFrame] = keptBonds;
+
+    m_selectedAtoms.clear();
+    m_collisionAtoms.clear();
+    if (m_bondEditor)
+        m_bondEditor->setAtoms(kept);
+    if (m_perfOpt)
+        m_perfOpt->setAtomCount(kept.size());
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/true, /*keepView=*/true);
+    buildForceAdjacency();
+    computeCollisions();
+    onStructureChanged();
+    emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
 }
 
 // ---------------------------------------------------------------------------
@@ -1583,6 +2141,33 @@ void MoleculeViewer::setupControlPanel()
     });
     panelLayout->addWidget(measureBtn);
 
+    // Edit toggle — structure editing: select/move atoms & molecules, copy/paste, merge,
+    // with collision feedback (Claude Generated 2026). Sibling of the Measure toggle.
+    QToolButton* editBtn = new QToolButton;
+    editBtn->setText(tr("Edit"));
+    editBtn->setCheckable(true);
+    editBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    {
+        QIcon ico = QIcon::fromTheme(QStringLiteral("transform-move"));
+        if (ico.isNull())
+            ico = QIcon::fromTheme(QStringLiteral("edit-select-all"));
+        if (ico.isNull())
+            ico = QIcon::fromTheme(QStringLiteral("document-edit"));
+        if (!ico.isNull())
+            editBtn->setIcon(ico);
+    }
+    editBtn->setToolTip(tr("Edit mode: click to select an atom, double-click for the whole molecule, "
+                           "drag to move (Shift = depth, arrow keys = nudge). Overlapping atoms turn red."));
+    connect(editBtn, &QToolButton::toggled, this, [this](bool on) { setEditMode(on); });
+    connect(this, &MoleculeViewer::editModeChanged, editBtn, [editBtn](bool on) {
+        if (editBtn->isChecked() != on) {
+            editBtn->blockSignals(true);
+            editBtn->setChecked(on);
+            editBtn->blockSignals(false);
+        }
+    });
+    panelLayout->addWidget(editBtn);
+
     QComboBox* colorCombo = new QComboBox;
     colorCombo->addItem(tr("CPK"), static_cast<int>(ColorScheme::CPK));
     colorCombo->addItem(tr("Monochrome"), static_cast<int>(ColorScheme::Monochrome));
@@ -1600,6 +2185,36 @@ void MoleculeViewer::setupControlPanel()
         }
     });
     panelLayout->addWidget(colorCombo);
+
+    // Clash status + auto-resolve (visible only in Edit mode). Claude Generated 2026.
+    QLabel* clashLabel = new QLabel;
+    clashLabel->setVisible(false);
+    panelLayout->addWidget(clashLabel);
+
+    QPushButton* resolveBtn = new QPushButton(tr("Resolve clashes"));
+    resolveBtn->setToolTip(tr("Translate the selection away from the rest until it no longer overlaps."));
+    resolveBtn->setVisible(false);
+    connect(resolveBtn, &QPushButton::clicked, this, [this] { resolveClashes(); });
+    panelLayout->addWidget(resolveBtn);
+
+    connect(this, &MoleculeViewer::collisionCountChanged, this,
+        [this, clashLabel, resolveBtn](int n) {
+            clashLabel->setVisible(m_editMode);
+            resolveBtn->setVisible(m_editMode && n > 0);
+            if (n > 0) {
+                clashLabel->setText(tr("⚠ %1 clash%2").arg(n).arg(n == 1 ? QString() : tr("es")));
+                clashLabel->setStyleSheet(QStringLiteral("QLabel { color: #e63c3c; font-weight: bold; border: none; }"));
+            } else {
+                clashLabel->setText(tr("✓ no clashes"));
+                clashLabel->setStyleSheet(QStringLiteral("QLabel { color: #4caf50; border: none; }"));
+            }
+        });
+    connect(this, &MoleculeViewer::editModeChanged, this,
+        [clashLabel, resolveBtn](bool on) {
+            clashLabel->setVisible(on);
+            if (!on)
+                resolveBtn->setVisible(false);
+        });
 
     panelLayout->addStretch();
 

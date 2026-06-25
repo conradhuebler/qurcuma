@@ -10,6 +10,7 @@
 #include <QColor>
 #include <QObject>
 #include <QQuaternion>
+#include <QRectF>
 #include <QVector3D>
 #include <QVector>
 
@@ -41,6 +42,19 @@ class SceneController : public QObject
     // colour carries the grey/red RGB; the material baseColor alpha binds to
     // this so opacity is adjustable without rebuilding the geometry.
     Q_PROPERTY(qreal wallOpacity READ wallOpacity WRITE setWallOpacity NOTIFY wallChanged)
+    // Iso-potential shell overlay: 3 concentric shells showing the force gradient
+    // around the confinement wall. Optional, enabled via Display panel.
+    Q_PROPERTY(QQuick3DInstancing* wallPotShellsInstancing READ wallPotShellsInstancing CONSTANT)
+    Q_PROPERTY(bool wallPotShellsVisible READ wallPotShellsVisible NOTIFY wallChanged)
+    // Wall force vector field: arrows sampled on the boundary and outer shells.
+    Q_PROPERTY(QQuick3DInstancing* wallForceShaftsInstancing READ wallForceShaftsInstancing CONSTANT)
+    Q_PROPERTY(QQuick3DInstancing* wallForceTipsInstancing READ wallForceTipsInstancing CONSTANT)
+    Q_PROPERTY(bool wallForceArrowsVisible READ wallForceArrowsVisible NOTIFY wallChanged)
+    // Rubber-band (box) selection rectangle in viewport pixels (structure editing).
+    Q_PROPERTY(bool rubberBandActive READ rubberBandActive NOTIFY rubberBandChanged)
+    Q_PROPERTY(QRectF rubberBandRect READ rubberBandRect NOTIFY rubberBandChanged)
+    // Edit-mode key/mouse hint (2D overlay); empty string = hidden.
+    Q_PROPERTY(QString editHint READ editHint NOTIFY editHintChanged)
 
     // Visibility per rendering mode.
     Q_PROPERTY(bool atomsVisible READ atomsVisible NOTIFY appearanceChanged)
@@ -136,6 +150,18 @@ public:
     /// Recolour the current wall wireframe (e.g. red on boundary violations).
     void setWallColor(const QColor& color);
     void setWallVisible(bool on);
+    // Iso-potential shell overlay (optional visual gradient around the wall).
+    // 3 inside shells (blue→teal) + 3 outside shells (yellow→red).
+    QQuick3DInstancing* wallPotShellsInstancing() const;
+    bool wallPotShellsVisible() const { return m_wallVisible && m_potVizEnabled && m_wallGeom != 0; }
+    /// Enable/disable the shells and update the potential parameters.
+    void setWallPotentialViz(bool enabled, bool harmonic, double wallTemp, float wallBeta);
+    // Wall force vector field: arrows at grid-sampled points showing force direction
+    // and magnitude. Resolution = number of points per axis per face (box) or per ring (sphere).
+    QQuick3DInstancing* wallForceShaftsInstancing() const;
+    QQuick3DInstancing* wallForceTipsInstancing() const;
+    bool wallForceArrowsVisible() const { return m_wallVisible && m_potArrowsEnabled && m_wallGeom != 0; }
+    void setWallVectorField(bool enabled, int resolution);
 
     bool atomsVisible() const { return m_atomsVisible; }
     bool bondsVisible() const { return m_bondsVisible; }
@@ -164,7 +190,10 @@ public:
     float fieldOfView() const { return m_fov; }
 
     // --- structure / animation (called by the viewer) ---
-    void setStructure(const QVector<AtomDatum>& atoms, const QVector<BondDatum>& bonds);
+    // keepView=true (structure editing: append/delete atoms) skips bounds recompute +
+    // camera reset + selection clear, so the molecule stays put under the current view.
+    void setStructure(const QVector<AtomDatum>& atoms, const QVector<BondDatum>& bonds,
+        bool keepView = false);
     void updatePositions(const QVector<QVector3D>& positions); // sim fast path (same count)
     void updateBonds(const QVector<BondDatum>& bonds);         // Claude Generated 2026 - swap bonds only (no bounds/camera change)
     void clear();
@@ -181,6 +210,21 @@ public:
     void setBackgroundColor(const QColor& c);
     void setSelection(const QVector<int>& indices);
     void setHoverAtom(int index);  // mouse-over highlight (-1 = none)
+    // Claude Generated 2026 - Structure editing: atoms that currently clash with a
+    // moved/placed selection. Drawn RED (priority above the magenta selection) so the
+    // user sees what to push apart. Empty = no clashes.
+    void setCollisionAtoms(const QVector<int>& indices);
+    const QVector<int>& collisionAtoms() const { return m_collisionAtoms; }
+    // Claude Generated 2026 - Rubber-band (box) selection. The rect is in viewport
+    // pixels; QML draws it as a 2D overlay. atomsInScreenRect() returns the atoms whose
+    // projected centres fall inside a pixel rectangle (for selection on release).
+    bool rubberBandActive() const { return m_rubberBandActive; }
+    QRectF rubberBandRect() const { return m_rubberBandRect; }
+    void setRubberBand(const QRectF& rectPx, bool active);
+    QVector<int> atomsInScreenRect(const QRectF& rectPx, float viewW, float viewH) const;
+    // Edit-mode hint overlay (empty = hidden).
+    QString editHint() const { return m_editHint; }
+    void setEditHint(const QString& text);
 
     // --- effects ---
     void setSsao(bool on, float strength);
@@ -199,6 +243,7 @@ public:
     void setPan(const QVector3D& pan);
     QVector3D pan() const { return m_pan; }
     void resetView();              // frame the whole molecule
+    void centerAtOrigin();         // shift atoms to COM=origin, reset view
     void fitToBounds(const QVector3D& center, float radius);
 
     // --- picking / grab math (C++ replicates the axis-aligned camera projection,
@@ -211,6 +256,12 @@ public:
     /// Grab force in Eh/Bohr (model-local) from mouse vs atom's projected position.
     QVector3D computeGrabForce(float mx, float my, int atomIndex,
         float viewW, float viewH, double grabStrength) const;
+    /// Claude Generated 2026 - Structure editing: convert a screen-pixel drag into a
+    /// model-local translation (in Angstrom). @p dxPx/@p dyPx move in the view plane,
+    /// @p dDepthPx moves along the camera axis (depth). @p refLocal is the selection
+    /// centroid (intrinsic coords) used to set the pixel->world scale at its depth.
+    QVector3D screenDragToModelDelta(float dxPx, float dyPx, float dDepthPx,
+        const QVector3D& refLocal, float viewW, float viewH) const;
 
 signals:
     void appearanceChanged();
@@ -221,6 +272,8 @@ signals:
     void measurementChanged();
     void overlayChanged();
     void wallChanged();
+    void rubberBandChanged();
+    void editHintChanged();
 
 private:
     void rebuildGeometry();        // recompute atom items + bond segments
@@ -236,13 +289,23 @@ private:
     BondInstancing* m_measureLines = nullptr; // measurement lines (#Cylinder)
     QString m_measurementText;
     BondInstancing* m_wallLines = nullptr; // confinement-wall wireframe (#Cylinder)
+    BondInstancing* m_potShells = nullptr; // iso-potential shell overlay (#Cylinder)
     bool m_wallVisible = false;
     qreal m_wallOpacity = 0.6;     // wireframe alpha (0=invisible .. 1=opaque)
     int m_wallGeom = 0;            // 0=none, 1=sphere, 2=rect (rebuild source)
     QVector3D m_wallMin, m_wallMax;
     float m_wallRadius = 0.0f;
     QColor m_wallColor{ 200, 200, 205 };  // grey; recoloured red on violations
+    bool m_potVizEnabled = false;   // show iso-potential shells
+    bool m_wallHarmonic = true;     // harmonic (true) or LogFermi (false)
+    double m_wallTemp = 298.15;     // energy/force scale (wall_temp, K)
+    float m_wallBeta = 6.0f;        // LogFermi steepness β (Å⁻¹)
+    BondInstancing* m_wallForceShafts = nullptr; // wall force vector field shafts
+    BondInstancing* m_wallForceTips   = nullptr; // wall force vector field tips (cone)
+    bool m_potArrowsEnabled = false;
+    int  m_potArrowResolution = 4;
     void rebuildWall();            // regenerate segments from m_wallGeom + m_wallColor
+    void rebuildWallVectorField(); // regenerate force arrows
     AtomInstancing* m_overlayAtoms = nullptr; // RMSD overlay structure spheres
     BondInstancing* m_overlayBonds = nullptr; // RMSD overlay structure cylinders
     bool m_overlayVisible = false;
@@ -250,7 +313,11 @@ private:
     QVector<AtomDatum> m_atoms;
     QVector<BondDatum> m_bonds;
     QVector<int> m_selection;
+    QVector<int> m_collisionAtoms;  // Claude Generated 2026 - clashing atoms (drawn red)
     int m_hoverAtom = -1;
+    bool m_rubberBandActive = false;        // Claude Generated 2026 - box-select overlay
+    QRectF m_rubberBandRect;                // viewport pixels
+    QString m_editHint;                     // Claude Generated 2026 - edit-mode hint HUD
 
     // appearance state
     int m_colorScheme = CPK;

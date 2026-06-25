@@ -6,6 +6,8 @@
 #include "bondinstancing.h"
 #include "elementdata.h"
 
+#include "src/core/elements.h"
+
 #include <QPair>
 #include <QtMath>
 #include <limits>
@@ -59,6 +61,12 @@ SceneController::SceneController(QObject* parent)
     m_measureLines->setParent(this);
     m_wallLines = new BondInstancing(nullptr);
     m_wallLines->setParent(this);
+    m_potShells = new BondInstancing(nullptr);
+    m_potShells->setParent(this);
+    m_wallForceShafts = new BondInstancing(nullptr);
+    m_wallForceShafts->setParent(this);
+    m_wallForceTips = new BondInstancing(nullptr);
+    m_wallForceTips->setParent(this);
     m_overlayAtoms = new AtomInstancing(nullptr);
     m_overlayAtoms->setParent(this);
     m_overlayBonds = new BondInstancing(nullptr);
@@ -69,6 +77,9 @@ QQuick3DInstancing* SceneController::measureLineInstancing() const { return m_me
 QQuick3DInstancing* SceneController::overlayAtomInstancing() const { return m_overlayAtoms; }
 QQuick3DInstancing* SceneController::overlayBondInstancing() const { return m_overlayBonds; }
 QQuick3DInstancing* SceneController::wallInstancing() const { return m_wallLines; }
+QQuick3DInstancing* SceneController::wallPotShellsInstancing() const { return m_potShells; }
+QQuick3DInstancing* SceneController::wallForceShaftsInstancing() const { return m_wallForceShafts; }
+QQuick3DInstancing* SceneController::wallForceTipsInstancing() const { return m_wallForceTips; }
 
 void SceneController::setMeasurement(const QVector<QPair<QVector3D, QVector3D>>& lines, const QString& text)
 {
@@ -168,6 +179,65 @@ void appendWallEdge(QVector<BondInstancing::Segment>& segs,
     s.color = color;
     segs.append(s);
 }
+
+// Build 12-edge wireframe for a cuboid [mn..mx].
+void buildBoxWireframe(QVector<BondInstancing::Segment>& segs,
+    const QVector3D& mn, const QVector3D& mx, float r, const QColor& color)
+{
+    const QVector3D c000(mn.x(), mn.y(), mn.z()); const QVector3D c100(mx.x(), mn.y(), mn.z());
+    const QVector3D c010(mn.x(), mx.y(), mn.z()); const QVector3D c110(mx.x(), mx.y(), mn.z());
+    const QVector3D c001(mn.x(), mn.y(), mx.z()); const QVector3D c101(mx.x(), mn.y(), mx.z());
+    const QVector3D c011(mn.x(), mx.y(), mx.z()); const QVector3D c111(mx.x(), mx.y(), mx.z());
+    appendWallEdge(segs, c000, c100, r, color); appendWallEdge(segs, c010, c110, r, color);
+    appendWallEdge(segs, c001, c101, r, color); appendWallEdge(segs, c011, c111, r, color);
+    appendWallEdge(segs, c000, c010, r, color); appendWallEdge(segs, c100, c110, r, color);
+    appendWallEdge(segs, c001, c011, r, color); appendWallEdge(segs, c101, c111, r, color);
+    appendWallEdge(segs, c000, c001, r, color); appendWallEdge(segs, c100, c101, r, color);
+    appendWallEdge(segs, c010, c011, r, color); appendWallEdge(segs, c110, c111, r, color);
+}
+
+// Build lat/lon wireframe for an origin-centred sphere.
+void buildSphereWireframe(QVector<BondInstancing::Segment>& segs,
+    float radius, float r, const QColor& color)
+{
+    if (radius < 0.1f) return;
+    const int nLat = 7; const int nLng = 12;
+    for (int i = 1; i <= nLat; ++i) {
+        const float frac = float(i) / float(nLat + 1);
+        const float z = radius * std::cos(frac * float(M_PI));
+        const float ringR = radius * std::sin(frac * float(M_PI));
+        if (ringR < 1e-3f) continue;
+        QVector3D prev(ringR, 0.0f, z);
+        for (int k = 1; k <= 48; ++k) {
+            const float ang = 2.0f * float(M_PI) * float(k) / 48.0f;
+            const QVector3D cur(ringR * std::cos(ang), ringR * std::sin(ang), z);
+            appendWallEdge(segs, prev, cur, r, color); prev = cur;
+        }
+    }
+    for (int m = 0; m < nLng; ++m) {
+        const float phi = 2.0f * float(M_PI) * float(m) / float(nLng);
+        QVector3D prev(0.0f, 0.0f, radius);
+        for (int k = 1; k <= 48; ++k) {
+            const float theta = float(M_PI) * float(k) / 48.0f;
+            const QVector3D cur(radius * std::sin(theta) * std::cos(phi),
+                                radius * std::sin(theta) * std::sin(phi),
+                                radius * std::cos(theta));
+            appendWallEdge(segs, prev, cur, r, color); prev = cur;
+        }
+    }
+}
+
+// Force magnitude at signed distance d from wall boundary (d>0 = outside).
+// Harmonic: F ∝ d for d>0 (zero inside); LogFermi: bell-shaped peak at d=0.
+float wallForceMag(float d, bool harmonic, float wallBeta)
+{
+    if (harmonic)
+        return qMax(0.0f, d);
+    const float x = wallBeta * d;
+    const float xc = qBound(-20.0f, x, 20.0f);
+    const float sigma = 1.0f / (1.0f + std::exp(-xc));
+    return wallBeta * sigma * (1.0f - sigma);
+}
 }
 
 void SceneController::setWallBox(const QVector3D& min, const QVector3D& max)
@@ -229,75 +299,216 @@ void SceneController::setWallVisible(bool on)
 
 void SceneController::rebuildWall()
 {
-    const float r = 0.08f;       // slightly thicker than measurement lines
-    // Alpha is baked into the per-segment colour (mirrors atom transparency:
-    // SceneController bakes m_transparency into the instance colour and the
-    // material runs in Blend mode). RGB = m_wallColor (grey/red), alpha =
-    // m_wallOpacity. The QML material binds alphaMode to Blend when opacity<1.
+    const float r = 0.08f;
     const QColor color(m_wallColor.red(), m_wallColor.green(), m_wallColor.blue(),
                        int(m_wallOpacity * 255));
-    if (m_wallGeom == 2) {
-        // 12 edges of the cuboid [m_wallMin .. m_wallMax].
-        QVector<BondInstancing::Segment> segs;
-        segs.reserve(12);
-        const QVector3D& mn = m_wallMin;
-        const QVector3D& mx = m_wallMax;
-        const QVector3D c000(mn.x(), mn.y(), mn.z());
-        const QVector3D c100(mx.x(), mn.y(), mn.z());
-        const QVector3D c010(mn.x(), mx.y(), mn.z());
-        const QVector3D c110(mx.x(), mx.y(), mn.z());
-        const QVector3D c001(mn.x(), mn.y(), mx.z());
-        const QVector3D c101(mx.x(), mn.y(), mx.z());
-        const QVector3D c011(mn.x(), mx.y(), mx.z());
-        const QVector3D c111(mx.x(), mx.y(), mx.z());
-        appendWallEdge(segs, c000, c100, r, color);
-        appendWallEdge(segs, c010, c110, r, color);
-        appendWallEdge(segs, c001, c101, r, color);
-        appendWallEdge(segs, c011, c111, r, color);
-        appendWallEdge(segs, c000, c010, r, color);
-        appendWallEdge(segs, c100, c110, r, color);
-        appendWallEdge(segs, c001, c011, r, color);
-        appendWallEdge(segs, c101, c111, r, color);
-        appendWallEdge(segs, c000, c001, r, color);
-        appendWallEdge(segs, c100, c101, r, color);
-        appendWallEdge(segs, c010, c011, r, color);
-        appendWallEdge(segs, c110, c111, r, color);
-        m_wallLines->setSegments(segs);
-    } else if (m_wallGeom == 1) {
-        // Lat/long wireframe, origin-centred, radius m_wallRadius.
-        QVector<BondInstancing::Segment> segs;
-        const int nLat = 7;   // latitude rings (excluding poles)
-        const int nLng = 12;  // longitude half-rings through both poles
-        for (int i = 1; i <= nLat; ++i) {
-            const float frac = float(i) / float(nLat + 1);
-            const float z = m_wallRadius * std::cos(frac * float(M_PI));
-            const float ringR = m_wallRadius * std::sin(frac * float(M_PI));
-            if (ringR < 1e-3f)
-                continue;
-            const int seg = 48;
-            QVector3D prev(QVector3D(ringR, 0.0f, z));
-            for (int k = 1; k <= seg; ++k) {
-                const float ang = 2.0f * float(M_PI) * float(k) / float(seg);
-                const QVector3D cur(ringR * std::cos(ang), ringR * std::sin(ang), z);
-                appendWallEdge(segs, prev, cur, r, color);
-                prev = cur;
-            }
-        }
-        for (int m = 0; m < nLng; ++m) {
-            const float phi = 2.0f * float(M_PI) * float(m) / float(nLng);
-            const int seg = 48;
-            QVector3D prev(0.0f, 0.0f, m_wallRadius);
-            for (int k = 1; k <= seg; ++k) {
-                const float theta = float(M_PI) * float(k) / float(seg);
-                const QVector3D cur(m_wallRadius * std::sin(theta) * std::cos(phi),
-                                     m_wallRadius * std::sin(theta) * std::sin(phi),
-                                     m_wallRadius * std::cos(theta));
-                appendWallEdge(segs, prev, cur, r, color);
-                prev = cur;
-            }
-        }
-        m_wallLines->setSegments(segs);
+    // Build wireframe using the extracted helpers.
+    QVector<BondInstancing::Segment> segs;
+    if (m_wallGeom == 2)
+        buildBoxWireframe(segs, m_wallMin, m_wallMax, r, color);
+    else if (m_wallGeom == 1)
+        buildSphereWireframe(segs, m_wallRadius, r, color);
+    m_wallLines->setSegments(segs);
+
+    // Iso-potential shells: 3 inside + 3 outside, colour-coded blue→teal inside,
+    // yellow→red outside. Harmonic = fixed Å; LogFermi = scale with 1/beta.
+    if (!m_potVizEnabled || m_wallGeom == 0) {
+        m_potShells->setSegments({});
+        return;
     }
+    float d1, d2, d3;
+    if (m_wallHarmonic) {
+        d1 = 4.0f; d2 = 2.0f; d3 = 0.8f;
+    } else {
+        const float beta = qMax(0.1f, m_wallBeta);
+        d1 = qBound(0.2f, 4.0f / beta, 8.0f);
+        d2 = qBound(0.1f, 2.0f / beta, 6.0f);
+        d3 = qBound(0.05f, 0.5f / beta, 4.0f);
+    }
+    const int ai = int(m_wallOpacity * 255);
+    // Inside: blue → cyan → teal (cool, approach zone)
+    const QColor cIn1(50,  110, 255, qMin(255, int(ai * 0.22f)));
+    const QColor cIn2(60,  200, 255, qMin(255, int(ai * 0.28f)));
+    const QColor cIn3(80,  230, 170, qMin(255, int(ai * 0.32f)));
+    // Outside: yellow → orange → red (warm, force zone)
+    const QColor cOut1(235, 235,  50, qMin(255, int(ai * 0.36f)));
+    const QColor cOut2(255, 140,  30, qMin(255, int(ai * 0.42f)));
+    const QColor cOut3(255,  40,  40, qMin(255, int(ai * 0.50f)));
+    const float rs = 0.05f;
+
+    QVector<BondInstancing::Segment> shells;
+    if (m_wallGeom == 2) {
+        // expand > 0 = grow outward; expand < 0 = shrink inward
+        auto addShell = [&](float expand, const QColor& c) {
+            const QVector3D mn = m_wallMin - QVector3D(expand, expand, expand);
+            const QVector3D mx = m_wallMax + QVector3D(expand, expand, expand);
+            if (mn.x() < mx.x() && mn.y() < mx.y() && mn.z() < mx.z())
+                buildBoxWireframe(shells, mn, mx, rs, c);
+        };
+        addShell(-d1, cIn1); addShell(-d2, cIn2); addShell(-d3, cIn3);
+        addShell(+d3, cOut1); addShell(+d2, cOut2); addShell(+d1, cOut3);
+    } else if (m_wallGeom == 1) {
+        auto addShell = [&](float delta, const QColor& c) {
+            buildSphereWireframe(shells, qMax(0.2f, m_wallRadius + delta), rs, c);
+        };
+        addShell(-d1, cIn1); addShell(-d2, cIn2); addShell(-d3, cIn3);
+        addShell(+d3, cOut1); addShell(+d2, cOut2); addShell(+d1, cOut3);
+    }
+    m_potShells->setSegments(shells);
+}
+
+void SceneController::setWallPotentialViz(bool enabled, bool harmonic, double wallTemp, float wallBeta)
+{
+    const bool paramsChanged = m_wallHarmonic != harmonic || m_wallTemp != wallTemp || m_wallBeta != wallBeta;
+    const bool vizChanged    = m_potVizEnabled != enabled;
+    m_potVizEnabled = enabled;
+    m_wallHarmonic  = harmonic;
+    m_wallTemp      = wallTemp;
+    m_wallBeta      = wallBeta;
+    if (!vizChanged && !paramsChanged) return;
+    if (m_wallGeom != 0 && m_wallVisible) {
+        rebuildWall();  // rebuilds shells (and clears them if disabled)
+        if (m_potArrowsEnabled)
+            rebuildWallVectorField();
+    } else {
+        m_potShells->setSegments({});
+    }
+    emit wallChanged();
+}
+
+void SceneController::setWallVectorField(bool enabled, int resolution)
+{
+    m_potArrowsEnabled  = enabled;
+    m_potArrowResolution = qBound(2, resolution, 10);
+    if (!enabled || m_wallGeom == 0 || !m_wallVisible) {
+        m_wallForceShafts->setSegments({});
+        m_wallForceTips->setSegments({});
+    } else {
+        rebuildWallVectorField();
+    }
+    emit wallChanged();
+}
+
+void SceneController::rebuildWallVectorField()
+{
+    if (!m_potArrowsEnabled || m_wallGeom == 0) {
+        m_wallForceShafts->setSegments({});
+        m_wallForceTips->setSegments({});
+        return;
+    }
+    const int res = m_potArrowResolution;
+
+    // Sample distances: outside always shown (harmonic force > 0 only outside);
+    // inside levels added for LogFermi (bell-shaped, non-zero inside too).
+    struct Level { float dist; QColor color; };
+    const int aBase = int(m_wallOpacity * 220);
+    QVector<Level> levels;
+    if (!m_wallHarmonic) {
+        const float beta = qMax(0.1f, m_wallBeta);
+        const float d2 = qBound(0.1f, 2.0f / beta, 6.0f);
+        const float d3 = qBound(0.05f, 0.5f / beta, 4.0f);
+        levels.append({ -d2, QColor(60, 200, 255, qMin(255, int(aBase * 0.45f))) });
+        levels.append({ -d3, QColor(80, 230, 170, qMin(255, int(aBase * 0.55f))) });
+    }
+    // Compute shared outside distances
+    float od1, od2, od3;
+    if (m_wallHarmonic) {
+        od1 = 4.0f; od2 = 2.0f; od3 = 0.8f;
+    } else {
+        const float beta = qMax(0.1f, m_wallBeta);
+        od1 = qBound(0.2f, 4.0f / beta, 8.0f);
+        od2 = qBound(0.1f, 2.0f / beta, 6.0f);
+        od3 = qBound(0.05f, 0.5f / beta, 4.0f);
+    }
+    levels.append({ +od3, QColor(235, 235,  50, qMin(255, int(aBase * 0.65f))) });
+    levels.append({ +od2, QColor(255, 140,  30, qMin(255, int(aBase * 0.78f))) });
+    levels.append({ +od1, QColor(255,  40,  40, qMin(255, int(aBase * 0.90f))) });
+
+    // Find max force for length normalisation
+    float maxF = 0.0f;
+    for (const auto& lv : levels)
+        maxF = qMax(maxF, wallForceMag(lv.dist, m_wallHarmonic, m_wallBeta));
+    if (maxF < 1e-6f) maxF = 1.0f;
+
+    const float maxLen = 1.5f;  // Å, longest arrow
+    const float minLen = 0.15f; // Å, shortest visible arrow
+
+    // Accumulate shaft + tip segments directly
+    QVector<BondInstancing::Segment> shafts, tips;
+
+    auto pushArrow = [&](const QVector3D& origin, const QVector3D& dir, float fmag, const QColor& c) {
+        const float norm = qMin(1.0f, fmag / maxF);
+        if (norm < 0.015f) return;
+        const float len = minLen + norm * (maxLen - minLen);
+        const QQuaternion rot = bondRotation(dir);
+        const float sr = len * 0.040f;
+        const float shaftLen = len * 0.78f;
+        const float tipLen   = len * 0.22f;
+
+        BondInstancing::Segment shaft;
+        shaft.center   = origin + dir * (shaftLen * 0.5f);
+        shaft.scale    = QVector3D(sr / 50.0f, shaftLen / 100.0f, sr / 50.0f);
+        shaft.rotation = rot;
+        shaft.color    = c;
+        shafts.append(shaft);
+
+        BondInstancing::Segment tip;
+        tip.center   = origin + dir * (shaftLen + tipLen * 0.5f);
+        tip.scale    = QVector3D(sr * 2.4f / 50.0f, tipLen / 100.0f, sr * 2.4f / 50.0f);
+        tip.rotation = rot;
+        tip.color    = c;
+        tips.append(tip);
+    };
+
+    if (m_wallGeom == 1) {
+        // Sphere: lat/lon grid on each shell radius, arrows pointing radially inward.
+        for (const auto& lv : levels) {
+            const float r = m_wallRadius + lv.dist;
+            if (r < 0.1f) continue;
+            const float fmag = wallForceMag(lv.dist, m_wallHarmonic, m_wallBeta);
+            for (int ilat = 0; ilat < res; ++ilat) {
+                const float theta = float(M_PI) * (ilat + 0.5f) / float(res);
+                for (int ilon = 0; ilon < 2 * res; ++ilon) {
+                    const float phi = 2.0f * float(M_PI) * float(ilon) / float(2 * res);
+                    const QVector3D P(r * std::sin(theta) * std::cos(phi),
+                                     r * std::sin(theta) * std::sin(phi),
+                                     r * std::cos(theta));
+                    pushArrow(P, -P.normalized(), fmag, lv.color);
+                }
+            }
+        }
+    } else if (m_wallGeom == 2) {
+        // Box: sample res×res on each of 6 faces; force perpendicular to face (inward).
+        const QVector3D mn = m_wallMin, mx = m_wallMax;
+        for (const auto& lv : levels) {
+            const float d = lv.dist;
+            const float fmag = wallForceMag(d, m_wallHarmonic, m_wallBeta);
+            auto sampleFace = [&](float faceCoord, int axis, int sign) {
+                float u0, u1, v0, v1;
+                switch (axis) {
+                    case 0: u0=mn.y(); u1=mx.y(); v0=mn.z(); v1=mx.z(); break;
+                    case 1: u0=mn.x(); u1=mx.x(); v0=mn.z(); v1=mx.z(); break;
+                    default: u0=mn.x(); u1=mx.x(); v0=mn.y(); v1=mx.y(); break;
+                }
+                for (int i = 0; i < res; ++i) {
+                    for (int j = 0; j < res; ++j) {
+                        const float u = u0 + (i + 0.5f) * (u1 - u0) / float(res);
+                        const float v = v0 + (j + 0.5f) * (v1 - v0) / float(res);
+                        QVector3D P, dir;
+                        if (axis == 0)      { P = QVector3D(faceCoord, u, v); dir = QVector3D(-float(sign), 0, 0); }
+                        else if (axis == 1) { P = QVector3D(u, faceCoord, v); dir = QVector3D(0, -float(sign), 0); }
+                        else                { P = QVector3D(u, v, faceCoord); dir = QVector3D(0, 0, -float(sign)); }
+                        pushArrow(P, dir, fmag, lv.color);
+                    }
+                }
+            };
+            sampleFace(mx.x() + d, 0, +1); sampleFace(mn.x() - d, 0, -1);
+            sampleFace(mx.y() + d, 1, +1); sampleFace(mn.y() - d, 1, -1);
+            sampleFace(mx.z() + d, 2, +1); sampleFace(mn.z() - d, 2, -1);
+        }
+    }
+    m_wallForceShafts->setSegments(shafts);
+    m_wallForceTips->setSegments(tips);
 }
 
 QQuick3DInstancing* SceneController::atomInstancing() const { return m_atomInstancing; }
@@ -351,11 +562,21 @@ void SceneController::setForceArrows(const QVector<Arrow>& arrows)
     m_arrowTip->setSegments(tips);
 }
 
-void SceneController::setStructure(const QVector<AtomDatum>& atoms, const QVector<BondDatum>& bonds)
+void SceneController::setStructure(const QVector<AtomDatum>& atoms, const QVector<BondDatum>& bonds,
+    bool keepView)
 {
     m_atoms = atoms;
     m_bonds = bonds;
+    if (keepView) {
+        // Structure editing: atom count changed but keep the current view. Don't
+        // recompute bounds (that would shift a rotated molecule) or reset the camera;
+        // the caller manages the selection.
+        rebuildGeometry();
+        emit structureChanged();
+        return;
+    }
     m_selection.clear();
+    m_collisionAtoms.clear();
     clearOverlay();             // a fresh primary structure drops any RMSD overlay
     recomputeBounds();
     rebuildGeometry();
@@ -413,7 +634,13 @@ void SceneController::recomputeBounds()
 
 QColor SceneController::atomColor(int index) const
 {
-    // Selection wins; otherwise scheme-based colour. Alpha from transparency.
+    // Collision wins over everything (red), then selection (magenta); otherwise
+    // scheme-based colour. Alpha from transparency.
+    if (m_collisionAtoms.contains(index)) {
+        QColor r(235, 60, 60);
+        r.setAlphaF(1.0f);
+        return r;
+    }
     if (m_selection.contains(index)) {
         QColor h(255, 0, 255);
         h.setAlphaF(1.0f);
@@ -575,6 +802,33 @@ void SceneController::setSelection(const QVector<int>& indices)
     rebuildAtoms(); // only atom colours change
 }
 
+// Claude Generated 2026 - Structure editing: recolour clashing atoms red. Cheap
+// atoms-only rebuild, mirroring setSelection.
+void SceneController::setCollisionAtoms(const QVector<int>& indices)
+{
+    m_collisionAtoms = indices;
+    rebuildAtoms();
+}
+
+// Claude Generated 2026 - Rubber-band overlay rect (viewport pixels); QML draws it.
+void SceneController::setRubberBand(const QRectF& rectPx, bool active)
+{
+    if (m_rubberBandActive == active && m_rubberBandRect == rectPx)
+        return;
+    m_rubberBandActive = active;
+    m_rubberBandRect = rectPx;
+    emit rubberBandChanged();
+}
+
+// Claude Generated 2026 - Edit-mode hint text (empty = hidden); QML draws a 2D HUD.
+void SceneController::setEditHint(const QString& text)
+{
+    if (m_editHint == text)
+        return;
+    m_editHint = text;
+    emit editHintChanged();
+}
+
 // ---- effects setters ----
 void SceneController::setSsao(bool on, float strength)
 {
@@ -629,6 +883,30 @@ void SceneController::resetView()
     m_cameraDistance = m_sceneExtent * 3.0f;
     emit transformChanged();
 }
+// Claude Generated 2026 - shift the currently displayed atoms so the mass-weighted
+// centre-of-mass lands at the origin, then reset the camera to a clean framing.
+// Uses curcuma Elements::AtomicMass / Elements::String2Element for consistent masses.
+void SceneController::centerAtOrigin()
+{
+    if (m_atoms.isEmpty()) return;
+    QVector3D com;
+    float totalMass = 0.0f;
+    for (const AtomDatum& a : m_atoms) {
+        const int z = Elements::String2Element(a.element.toLower().toStdString());
+        const float mass = (z > 0 && z < static_cast<int>(Elements::AtomicMass.size()))
+            ? static_cast<float>(Elements::AtomicMass[z]) : 12.011f;
+        com += a.position * mass;
+        totalMass += mass;
+    }
+    if (totalMass > 0.0f) com /= totalMass;
+    for (AtomDatum& a : m_atoms)
+        a.position -= com;
+    recomputeBounds();
+    rebuildGeometry();
+    resetView();
+    emit structureChanged();
+}
+
 void SceneController::fitToBounds(const QVector3D& center, float radius)
 {
     m_pan = center - m_sceneCenter;
@@ -701,6 +979,23 @@ int SceneController::pickAtom(float sx, float sy, float viewW, float viewH) cons
     return best;
 }
 
+// Claude Generated 2026 - atoms whose projected centres fall inside a pixel rectangle
+// (rubber-band/box selection). Atoms behind the camera are skipped.
+QVector<int> SceneController::atomsInScreenRect(const QRectF& rectPx, float viewW, float viewH) const
+{
+    QVector<int> result;
+    if (m_atoms.isEmpty() || viewW <= 0 || viewH <= 0 || !rectPx.isValid())
+        return result;
+    const QVector3D camPos = cameraWorldPos();
+    for (int i = 0; i < m_atoms.size(); ++i) {
+        float sx = 0, sy = 0;
+        if (projectToScreen(modelToWorld(m_atoms[i].position), camPos, m_fov, viewW, viewH, sx, sy)
+            && rectPx.contains(sx, sy))
+            result.append(i);
+    }
+    return result;
+}
+
 QVector3D SceneController::computeGrabForce(float mx, float my, int atomIndex,
     float viewW, float viewH, double grabStrength) const
 {
@@ -726,4 +1021,28 @@ QVector3D SceneController::computeGrabForce(float mx, float my, int atomIndex,
         * float(worldPerPxBohr * grabStrength);
     // Back to model-local (intrinsic) coords the simulation operates in.
     return m_rootRotation.inverted().rotatedVector(worldForce);
+}
+
+// Claude Generated 2026 - Structure editing translation. Shares computeGrabForce's
+// pixels->world-at-depth scale but returns an Angstrom translation (no Bohr, no
+// strength). The X/Y components move in the view plane; dDepthPx moves along the
+// camera axis (+Z = toward the camera). The result is rotated into model-local
+// (intrinsic) coords so it can be added directly to stored atom positions.
+QVector3D SceneController::screenDragToModelDelta(float dxPx, float dyPx, float dDepthPx,
+    const QVector3D& refLocal, float viewW, float viewH) const
+{
+    if (viewW <= 0 || viewH <= 0)
+        return QVector3D();
+    const QVector3D camPos = cameraWorldPos();
+    const QVector3D refWorld = modelToWorld(refLocal);
+    const float dist = (refWorld - camPos).length();
+    const float worldPerPxAng = dist * std::tan(m_fov * float(M_PI) / 360.0f) / (viewH * 0.5f);
+
+    // right=+X, up=+Y; screen Y is down -> negate dy. Depth along +Z (toward camera):
+    // dragging up (dDepthPx < 0) pulls the selection toward the viewer.
+    const QVector3D worldDelta = (dxPx * QVector3D(1, 0, 0)
+                                  - dyPx * QVector3D(0, 1, 0)
+                                  - dDepthPx * QVector3D(0, 0, 1))
+        * worldPerPxAng;
+    return m_rootRotation.inverted().rotatedVector(worldDelta);
 }

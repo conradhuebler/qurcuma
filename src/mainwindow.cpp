@@ -7,6 +7,7 @@
 #include "snapshotswidget.h"  // Claude Generated 2026 - Snapshot history foundation
 // Claude Generated 2026 - Phase 6: SimulationDialog removed; the dock widget is the sole sim UI.
 #include <algorithm>  // Claude Generated - for std::min/std::max
+#include <QAbstractSpinBox>
 #include <QApplication>
 #include <QClipboard>
 #include <QCheckBox>
@@ -19,6 +20,9 @@
 #include <QDockWidget>  // Claude Generated - Phase 2C - For AtomListPanel dock
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QKeyEvent>
+#include <QPlainTextEdit>
+#include <QTextEdit>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMimeData>
@@ -92,6 +96,8 @@ MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     createMenus();
     createModeBar();   // Claude Generated 2026 - P2/P4: menu-bar corner widget (after the menu bar exists)
     setupConnections();
+    // Claude Generated 2026 - App-level key filter for WASD/QE scene rotation (see eventFilter).
+    qApp->installEventFilter(this);
     setupProjectViewContextMenu();  // Enable right-click on calculation directories
     setupShortcuts();  // Claude Generated - Phase 1.2
     loadDrafts();      // Claude Generated - Quick Win: Auto-save drafts
@@ -161,6 +167,7 @@ void MainWindow::setupUI()
     // Claude Generated 2026 - Interaction & Performance persisted values
     m_moleculeView->setRotationMode(vizSettings.rotationMode);
     m_moleculeView->setInstancingThreshold(vizSettings.instancingThreshold);
+    m_centerOnLoad = vizSettings.centerOnLoad;
     setCentralWidget(m_moleculeView);
 
     // Initialize available program commands before creating docks
@@ -207,6 +214,7 @@ void MainWindow::setupUI()
     new QShortcut(Qt::CTRL | Qt::Key_0, this, SLOT(fitMoleculeInView()));   // Ctrl+0 for fit all
     new QShortcut(Qt::Key_Home, this, SLOT(fitMoleculeInView()));            // Home key also fits
     new QShortcut(Qt::CTRL | Qt::Key_F, this, SLOT(centerViewOnSelection())); // Ctrl+F for focus
+    new QShortcut(Qt::CTRL | Qt::Key_Backspace, this, SLOT(centerMoleculeAtOrigin())); // Ctrl+Backspace for center at origin
 
     // Claude Generated - Phase 2A: Selection shortcuts
     new QShortcut(Qt::CTRL | Qt::Key_A, this, SLOT(selectAllAtoms()));       // Ctrl+A for select all
@@ -341,6 +349,11 @@ void MainWindow::setupContextMenu()
                 connect(rmsdAction, &QAction::triggered,
                     [this, filePath]() { showRMSDTool(filePath); });
 
+                // Claude Generated 2026 - merge this file into the current scene (editing).
+                QAction *mergeAction = contextMenu.addAction(tr("Add to current scene"));
+                connect(mergeAction, &QAction::triggered, this,
+                    [this, filePath]() { mergeFileIntoScene(filePath); });
+
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive))
             {
@@ -365,6 +378,11 @@ void MainWindow::setupContextMenu()
                 QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
                 connect(rmsdAction, &QAction::triggered,
                     [this, filePath]() { showRMSDTool(filePath); });
+
+                // Claude Generated 2026 - merge this file into the current scene (editing).
+                QAction *mergeAction = contextMenu.addAction(tr("Add to current scene"));
+                connect(mergeAction, &QAction::triggered, this,
+                    [this, filePath]() { mergeFileIntoScene(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".pdb", Qt::CaseInsensitive))
@@ -398,6 +416,11 @@ void MainWindow::setupContextMenu()
                 connect(rmsdAction, &QAction::triggered,
                     [this, filePath]() { showRMSDTool(filePath); });
 
+                // Claude Generated 2026 - merge this file into the current scene (editing).
+                QAction *mergeAction = contextMenu.addAction(tr("Add to current scene"));
+                connect(mergeAction, &QAction::triggered, this,
+                    [this, filePath]() { mergeFileIntoScene(filePath); });
+
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".mol2", Qt::CaseInsensitive))
             {
@@ -429,6 +452,11 @@ void MainWindow::setupContextMenu()
                 QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
                 connect(rmsdAction, &QAction::triggered,
                     [this, filePath]() { showRMSDTool(filePath); });
+
+                // Claude Generated 2026 - merge this file into the current scene (editing).
+                QAction *mergeAction = contextMenu.addAction(tr("Add to current scene"));
+                connect(mergeAction, &QAction::triggered, this,
+                    [this, filePath]() { mergeFileIntoScene(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             }else if(filePath.endsWith(".gbw", Qt::CaseInsensitive) || filePath.endsWith(".loc", Qt::CaseInsensitive) || filePath.endsWith(".ges", Qt::CaseInsensitive))
@@ -693,6 +721,7 @@ void MainWindow::showCommandPalette()
     add(tr("Wireframe"), tr("Render"), [this]() { setRenderingModeWireframe(); });
     add(tr("Sticks"), tr("Render"), [this]() { setRenderingModeSticks(); });
     add(tr("Fit Molecule in View"), tr("View"), [this]() { fitMoleculeInView(); });
+    add(tr("Center Molecule at Origin"), tr("View"), [this]() { centerMoleculeAtOrigin(); });
     add(tr("Select All Atoms"), tr("Selection"), [this]() { selectAllAtoms(); });
     add(tr("Clear Selection"), tr("Selection"), [this]() { clearAtomSelection(); });
 
@@ -801,13 +830,64 @@ void MainWindow::createMenus()
     // Claude Generated - Quick Win: Edit Menu with Copy/Paste
     QMenu *editMenu = menuBar->addMenu(tr("&Edit"));
 
-    QAction *copyAction = editMenu->addAction(QIcon::fromTheme("edit-copy"), tr("&Copy Structure"));
+    // Claude Generated 2026 - context-aware Copy/Paste: in viewer Edit mode they act on
+    // the selected atoms/molecule (in-app); otherwise on the structure text (clipboard).
+    QAction *copyAction = editMenu->addAction(QIcon::fromTheme("edit-copy"), tr("&Copy"));
     copyAction->setShortcut(QKeySequence::Copy);
-    connect(copyAction, &QAction::triggered, this, &MainWindow::copyStructureToClipboard);
+    copyAction->setToolTip(tr("Edit mode: copy the selected atoms. Otherwise: copy the structure text."));
+    connect(copyAction, &QAction::triggered, this, [this]() {
+        if (m_moleculeView && m_moleculeView->editMode() && !m_moleculeView->getSelectedAtoms().isEmpty()) {
+            m_moleculeView->copySelection();
+            statusBar()->showMessage(tr("Copied %1 atom(s)").arg(m_moleculeView->getSelectedAtoms().size()), 2000);
+        } else {
+            copyStructureToClipboard();
+        }
+    });
 
-    QAction *pasteAction = editMenu->addAction(QIcon::fromTheme("edit-paste"), tr("&Paste Structure"));
+    QAction *pasteAction = editMenu->addAction(QIcon::fromTheme("edit-paste"), tr("&Paste"));
     pasteAction->setShortcut(QKeySequence::Paste);
-    connect(pasteAction, &QAction::triggered, this, &MainWindow::pasteStructureFromClipboard);
+    pasteAction->setToolTip(tr("Edit mode: paste the copied atoms into the scene. Otherwise: paste structure text."));
+    connect(pasteAction, &QAction::triggered, this, [this]() {
+        if (m_moleculeView && m_moleculeView->editMode()) {
+            m_moleculeView->pasteClipboard();
+            statusBar()->showMessage(tr("Pasted into scene — drag to place, then Resolve clashes if needed"), 2500);
+        } else {
+            pasteStructureFromClipboard();
+        }
+    });
+
+    // Claude Generated 2026 - Structure editing actions (active in viewer Edit mode).
+    editMenu->addSeparator();
+
+    QAction *editModeAction = editMenu->addAction(QIcon::fromTheme("transform-move"), tr("Structure &Edit Mode"));
+    editModeAction->setCheckable(true);
+    editModeAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_E));
+    editModeAction->setToolTip(tr("Select/move atoms & molecules, copy/paste, merge files, with clash feedback."));
+    connect(editModeAction, &QAction::toggled, this, [this](bool on) {
+        if (m_moleculeView) m_moleculeView->setEditMode(on);
+    });
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::editModeChanged, editModeAction, &QAction::setChecked);
+
+    QAction *deleteSelAction = editMenu->addAction(QIcon::fromTheme("edit-delete"), tr("&Delete Selection"));
+    deleteSelAction->setShortcut(QKeySequence::Delete);
+    deleteSelAction->setToolTip(tr("Delete the selected atoms (Edit mode, single-frame structures)."));
+    connect(deleteSelAction, &QAction::triggered, this, [this]() {
+        if (m_moleculeView && m_moleculeView->editMode())
+            m_moleculeView->deleteSelection();
+    });
+
+    QAction *addMoleculeAction = editMenu->addAction(QIcon::fromTheme("list-add"), tr("&Add Molecule to Scene…"));
+    addMoleculeAction->setToolTip(tr("Merge a molecule from a file into the current scene (single-frame structures)."));
+    connect(addMoleculeAction, &QAction::triggered, this, &MainWindow::addMoleculeToScene);
+
+    QAction *cursorLockAction = editMenu->addAction(tr("&Lock Cursor While Dragging"));
+    cursorLockAction->setCheckable(true);
+    cursorLockAction->setChecked(m_moleculeView ? m_moleculeView->dragCursorLock() : true);
+    cursorLockAction->setToolTip(tr("Pin the cursor at the press point during a move so the drag never runs off-screen (relative drag)."));
+    connect(cursorLockAction, &QAction::toggled, this, [this](bool on) {
+        if (m_moleculeView) m_moleculeView->setDragCursorLock(on);
+    });
 
     // Claude Generated - UI Restructuring: View Menu for dock visibility and layout presets
     QMenu *viewMenu = menuBar->addMenu(tr("&View"));
@@ -963,6 +1043,17 @@ void MainWindow::createMenus()
         tr("Open the Analysis dock (RMSD tab): overlay two structures, align and "
            "optionally reorder atoms (curcuma RMSDDriver)."));
     connect(rmsdAction, &QAction::triggered, this, [this]() { showRMSDTool(); });
+
+    moleculeMenu->addSeparator();
+
+    QAction *centerOriginAction = moleculeMenu->addAction(
+        QIcon::fromTheme("snap-orthogonal"), tr("&Center at Origin"));
+    centerOriginAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Backspace));
+    centerOriginAction->setToolTip(
+        tr("Translate all frames so the mass-weighted centre-of-mass is at the origin, "
+           "then reset the camera."));
+    connect(centerOriginAction, &QAction::triggered, this,
+        &MainWindow::centerMoleculeAtOrigin);
 
     // Help Menu - Claude Generated - Quick Fix: About dialog
     QMenu *helpMenu = menuBar->addMenu(tr("&Help"));
@@ -1122,8 +1213,9 @@ void MainWindow::setupConnections()
     connect(m_autoSaveTimer, &QTimer::timeout, this, &MainWindow::autoSaveDrafts);
     m_autoSaveTimer->start(30000);  // Auto-save every 30 seconds
 
-    // Claude Generated - Quick Win: Copy/Paste structures shortcut
-    new QShortcut(QKeySequence::Paste, this, SLOT(pasteStructureFromClipboard()));
+    // Ctrl+V is handled by the Edit-menu Paste action (context-aware: selection in
+    // viewer Edit mode, else structure text). A second QShortcut here caused an
+    // "Ambiguous shortcut overload: Ctrl+V" so paste stopped working. Claude Generated 2026.
 
     // Claude Generated - Phase 2C: AtomListPanel Connections
     if (m_atomListPanel && m_moleculeView) {
@@ -2878,6 +2970,82 @@ void MainWindow::loadDrafts()
 }
 
 // Claude Generated - Quick Win: Copy/Paste structures
+// Claude Generated 2026 - Parse the first frame of a structure file into viewer atoms/
+// bonds. Local parser instances keep the main parsers' state untouched.
+bool MainWindow::parseFirstFrame(const QString& filePath, QVector<MoleculeViewer::Atom>& atoms,
+    QVector<MoleculeViewer::Bond>& bonds)
+{
+    atoms.clear();
+    bonds.clear();
+    if (filePath.isEmpty() || !QFile::exists(filePath))
+        return false;
+    const QString suffix = QFileInfo(filePath).suffix().toLower();
+    if (suffix == "xyz") {
+        XYZParser parser;
+        XYZParser::XYZFrame frame;
+        if (parser.parseTrajectory(filePath) && parser.getFrameCount() > 0 && parser.getFrame(0, frame))
+            XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
+    } else if (suffix == "vtf") {
+        VTFParser parser;
+        VTFParser::VTFFrame frame;
+        if (parser.parseTrajectory(filePath) && parser.getFrameCount() > 0 && parser.getFrame(0, frame))
+            VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
+    } else if (suffix == "pdb") {
+        PDBParser parser;
+        PDBParser::PDBFrame frame;
+        if (parser.parseFile(filePath, frame))
+            PDBParser::convertToMoleculeViewer(frame, atoms, bonds, parser.getBonds());
+    } else if (suffix == "mol2") {
+        MOL2Parser parser;
+        MOL2Parser::MOL2Molecule molecule;
+        if (parser.parseFile(filePath, molecule))
+            MOL2Parser::convertToMoleculeViewer(molecule, atoms, bonds);
+    }
+    return !atoms.isEmpty();
+}
+
+// Claude Generated 2026 - Merge a molecule from a file into the current scene (single
+// frame only). The added atoms arrive selected and in Edit/placement mode with live
+// clash feedback; drag to place and use Resolve clashes if they overlap.
+void MainWindow::addMoleculeToScene()
+{
+    if (!m_moleculeView)
+        return;
+    if (!m_moleculeView->canEditStructure()) {
+        QMessageBox::information(this, tr("Add Molecule to Scene"),
+            tr("Merging is only available for single-frame structures, not trajectories."));
+        return;
+    }
+    const QString path = QFileDialog::getOpenFileName(this, tr("Add Molecule to Scene"), QString(),
+        tr("Molecule files (*.xyz *.vtf *.pdb *.mol2);;All files (*)"));
+    if (path.isEmpty())
+        return;
+    mergeFileIntoScene(path);
+}
+
+// Claude Generated 2026 - Parse a file's first frame and append it to the current scene.
+// Shared by the Edit menu and the file-browser right-click "Add to current scene".
+void MainWindow::mergeFileIntoScene(const QString& filePath)
+{
+    if (!m_moleculeView || filePath.isEmpty())
+        return;
+    if (!m_moleculeView->canEditStructure()) {
+        QMessageBox::information(this, tr("Add Molecule to Scene"),
+            tr("Merging is only available for single-frame structures, not trajectories."));
+        return;
+    }
+    QVector<MoleculeViewer::Atom> atoms;
+    QVector<MoleculeViewer::Bond> bonds;
+    if (!parseFirstFrame(filePath, atoms, bonds)) {
+        QMessageBox::warning(this, tr("Add Molecule to Scene"),
+            tr("Could not read a structure from:\n%1").arg(filePath));
+        return;
+    }
+    m_moleculeView->appendMolecule(atoms, bonds);  // selects new atoms + enters placement
+    statusBar()->showMessage(
+        tr("Added %1 atoms — drag to place, then Resolve clashes if needed").arg(atoms.size()), 3000);
+}
+
 void MainWindow::copyStructureToClipboard()
 {
     QString structureText = m_structureView->toPlainText();
@@ -3346,6 +3514,14 @@ void MainWindow::centerViewOnSelection()
     syncVisualizationDialog();
 }
 
+// Claude Generated 2026 - Move all frames so the mass-weighted COM = origin, reset camera.
+void MainWindow::centerMoleculeAtOrigin()
+{
+    if (!m_moleculeView) return;
+    m_moleculeView->centerAtOrigin();
+    statusBar()->showMessage(tr("Molecule centered at origin"), 2000);
+}
+
 // Claude Generated - Phase 2A: Selection management commands
 void MainWindow::selectAllAtoms()
 {
@@ -3636,13 +3812,14 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
 
             DEBUG_LOG << "XYZ: Total frames loaded:" << allAtoms.size();
             m_moleculeView->setTrajectoryData(allAtoms, allBonds);
+            if (m_centerOnLoad) m_moleculeView->centerAtOrigin();
 
             // Claude Generated - Feed the loaded molecule into the inline
             // simulation widget so the user can start a run without manually
             // re-selecting it. First frame is used as the simulation input.
             if (m_simulationControlWidget && !allAtoms.isEmpty())
-                m_simulationControlWidget->setMolecule(allAtoms.first(),
-                    !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
+                m_simulationControlWidget->setMolecule(m_moleculeView->getCurrentFrameAtoms(),
+                    m_moleculeView->getCurrentFrameBonds());
             // Claude Generated 2026 - Fresh load: clear the modified flag, cache
             // the new source path (so a follow-up Save overwrites it), and
             // enable the File>Save actions. The Save action is enabled as soon
@@ -3658,8 +3835,8 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
             // Snapshot 0 is the automatic load-time snapshot and also seeds the
             // manual snapshot history list.
             if (!allAtoms.isEmpty()) {
-                captureInitialSnapshot(filePath, allAtoms.first(),
-                    !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
+                captureInitialSnapshot(filePath, m_moleculeView->getCurrentFrameAtoms(),
+                    m_moleculeView->getCurrentFrameBonds());
             }
             fileLoaded = true;
         } else {
@@ -3706,11 +3883,12 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
 
             DEBUG_LOG << "VTF: Total frames loaded:" << allAtoms.size();
             m_moleculeView->setTrajectoryData(allAtoms, allBonds);
+            if (m_centerOnLoad) m_moleculeView->centerAtOrigin();
 
             // Claude Generated - Feed first frame into the simulation widget.
             if (m_simulationControlWidget && !allAtoms.isEmpty())
-                m_simulationControlWidget->setMolecule(allAtoms.first(),
-                    !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
+                m_simulationControlWidget->setMolecule(m_moleculeView->getCurrentFrameAtoms(),
+                    m_moleculeView->getCurrentFrameBonds());
             // Claude Generated 2026 - Fresh load: clear the modified flag, cache
             // the new source path (so a follow-up Save overwrites it), and
             // enable the File>Save actions. The Save action is enabled as soon
@@ -3726,8 +3904,8 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
             // Snapshot 0 is the automatic load-time snapshot and also seeds the
             // manual snapshot history list.
             if (!allAtoms.isEmpty()) {
-                captureInitialSnapshot(filePath, allAtoms.first(),
-                    !allBonds.isEmpty() ? allBonds.first() : QVector<MoleculeViewer::Bond>{});
+                captureInitialSnapshot(filePath, m_moleculeView->getCurrentFrameAtoms(),
+                    m_moleculeView->getCurrentFrameBonds());
             }
             fileLoaded = true;
         } else {
@@ -4305,6 +4483,16 @@ void MainWindow::createDockWidgets()
     m_displayDock->setObjectName("DisplayDock");
     m_displayPanel = new DisplayPanel(m_moleculeView, &m_settings, this);
     m_displayDock->setWidget(m_displayPanel);
+    connect(m_displayPanel, &DisplayPanel::centerOnLoadChanged, this, [this](bool on) {
+        m_centerOnLoad = on;
+        Settings::VisualizationSettings vs = m_settings.getVisualizationSettings();
+        vs.centerOnLoad = on;
+        m_settings.setVisualizationSettings(vs);
+    });
+    connect(m_displayPanel, &DisplayPanel::potVectorFieldChanged,
+        this, [this](bool on, int res) {
+            if (m_moleculeView) m_moleculeView->setWallVectorField(on, res);
+        });
     // The viewer's slim "Display ⚙" bar button surfaces this dock.
     if (m_moleculeView)
         connect(m_moleculeView, &MoleculeViewer::displayOptionsRequested,
@@ -4330,6 +4518,11 @@ void MainWindow::createDockWidgets()
                     m_simulationControlWidget->setStructureModified(true);
             });
     }
+    // Claude Generated 2026 - Structure editing: snapshot the pre-edit geometry before a
+    // move/paste/merge/delete so the Snapshots tab doubles as undo for those edits.
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::editSnapshotRequested, this,
+            [this](const QString& label) { takeSnapshot(label); });
     connect(m_simulationControlWidget, &SimulationControlWidget::workerStarted,
         this, &MainWindow::wireSimulationWorker);
     connect(m_simulationControlWidget, &SimulationControlWidget::configChanged,
@@ -4579,6 +4772,43 @@ void MainWindow::closeEvent(QCloseEvent* event)
     QMainWindow::closeEvent(event);
 }
 
+// Claude Generated 2026 - True if a text-entry widget currently has focus, so the
+// WASD/QE rotation keys must pass through (don't steal letters from typing).
+static bool isTextInputFocused()
+{
+    QWidget* w = QApplication::focusWidget();
+    if (!w)
+        return false;
+    return qobject_cast<QLineEdit*>(w) || qobject_cast<QAbstractSpinBox*>(w)
+        || qobject_cast<QPlainTextEdit*>(w) || qobject_cast<QTextEdit*>(w)
+        || qobject_cast<QComboBox*>(w);
+}
+
+// Claude Generated 2026 - Application-level key filter: WASD = pitch/yaw, QE = roll
+// rotate the 3D scene from anywhere (the file browser used to eat the arrow keys), and
+// Shift+WASDQE nudges the selection in Edit mode. Skipped while a text widget has focus
+// and when Ctrl/Alt/Meta are held (so Ctrl+A etc. keep working).
+bool MainWindow::eventFilter(QObject* obj, QEvent* event)
+{
+    if (event->type() == QEvent::KeyPress && m_moleculeView) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        // Auto-repeat allowed: holding a key keeps rotating.
+        if (!(ke->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
+            const int key = ke->key();
+            const bool isRotKey = key == Qt::Key_W || key == Qt::Key_A || key == Qt::Key_S
+                || key == Qt::Key_D || key == Qt::Key_Q || key == Qt::Key_E;
+            // Intercept WASD/QE in Edit mode AND in the interactive MD/Opt grab mode
+            // (rotation is purely visual there); free everywhere else.
+            if (isRotKey && (m_moleculeView->editMode() || m_moleculeView->simulationActive())
+                && !isTextInputFocused()) {
+                m_moleculeView->rotateSceneByKey(key, ke->modifiers() & Qt::ShiftModifier);
+                return true;  // consume
+            }
+        }
+    }
+    return QMainWindow::eventFilter(obj, event);
+}
+
 // Claude Generated - Interactive Simulation Integration
 
 // Claude Generated - Keep shared config in sync when dock widget controls change
@@ -4596,6 +4826,9 @@ void MainWindow::onSimulationConfigChanged(SimulationConfig cfg)
             QVector3D(cfg.wallXmin, cfg.wallYmin, cfg.wallZmin),
             QVector3D(cfg.wallXmax, cfg.wallYmax, cfg.wallZmax),
             float(cfg.wallRadius));
+        // Keep iso-potential shell params in sync with the current wall config.
+        m_moleculeView->setWallPotentialParams(
+            cfg.wallHarmonic, cfg.wallTemp, float(cfg.wallBeta));
     }
 }
 
@@ -4636,6 +4869,25 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
         connect(m_simulationControlWidget, &SimulationControlWidget::temperatureChanged,
             worker, &SimulationWorker::setTargetTemperature,
             Qt::QueuedConnection);
+        connect(m_simulationControlWidget, &SimulationControlWidget::wallTempChanged,
+            worker, &SimulationWorker::setWallTemp,
+            Qt::QueuedConnection);
+        connect(m_simulationControlWidget, &SimulationControlWidget::wallBetaChanged,
+            worker, &SimulationWorker::setWallBeta,
+            Qt::QueuedConnection);
+        // Keep iso-potential shell params in sync with live slider changes.
+        if (m_moleculeView) {
+            connect(m_simulationControlWidget, &SimulationControlWidget::wallTempChanged,
+                m_moleculeView, [this](double T) {
+                    m_moleculeView->setWallPotentialParams(
+                        m_simulationConfig.wallHarmonic, T, float(m_simulationConfig.wallBeta));
+                });
+            connect(m_simulationControlWidget, &SimulationControlWidget::wallBetaChanged,
+                m_moleculeView, [this](double beta) {
+                    m_moleculeView->setWallPotentialParams(
+                        m_simulationConfig.wallHarmonic, m_simulationConfig.wallTemp, float(beta));
+                });
+        }
     }
 
     // Claude Generated 2026 - Live charts: clear for the new run, then append every frame

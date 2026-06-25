@@ -97,6 +97,7 @@ public:
         // (the wall geometry itself comes from the Simulation config).
         bool wallVisible = true;
         qreal wallOpacity = 0.6;  // wireframe alpha 0..1
+        bool centerOnLoad = true;  // translate COM to origin after loading
     };
 
     VisualizationSettings getVisualizationSettings() const;

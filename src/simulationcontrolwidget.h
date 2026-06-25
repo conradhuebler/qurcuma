@@ -70,6 +70,11 @@ signals:
      *  Claude Generated 2026. */
     void temperatureChanged(double temperature);
 
+    /** @brief Emitted when the wall_temp slider moves — live during a run. */
+    void wallTempChanged(double T);
+    /** @brief Emitted when the wall_beta slider moves — live during a run. */
+    void wallBetaChanged(double beta);
+
     /** @brief Emitted whenever grab sliders change, so the viewer can update
      *  its live scaling. */
     void grabSettingsChanged(double strength, double alpha, int maxShells);
@@ -131,6 +136,11 @@ private:
 
     // --- MD parameters ---
     TemperatureSlider* m_tempSlider = nullptr;  // Claude Generated 2026 - vertical, live during runs
+    // Thermostat selection (Claude Generated 2026 - curcuma SimpleMD "Thermostat" PARAMs).
+    QComboBox*      m_thermostatCombo = nullptr;   // csvr/berendsen/andersen/nosehover/none
+    QDoubleSpinBox* m_couplingSpin = nullptr;      // coupling time (fs)
+    QDoubleSpinBox* m_andersenProbSpin = nullptr;  // Andersen collision probability
+    QSpinBox*       m_noseChainSpin = nullptr;     // Nosé-Hoover chain length
     QDoubleSpinBox* m_timestepSpin = nullptr;
     QSpinBox* m_stepsSpin = nullptr;
     QDoubleSpinBox* m_hmassSpin = nullptr;  // Hydrogen mass scaling
@@ -187,6 +197,8 @@ private:
     QDoubleSpinBox*  m_wallZminSpin = nullptr;
     QDoubleSpinBox*  m_wallZmaxSpin = nullptr;
     QLabel*          m_wallStatusLabel = nullptr;  // live boundary-violation feedback
+    TemperatureSlider* m_wallTempSlider = nullptr; // wall_temp: energy scale (K), live during run
+    TemperatureSlider* m_wallBetaSlider = nullptr; // wall_beta: steepness (β), live during run
 
     // --- Temperature ramp (global) + regions (curcuma SimpleMD temp_* params) ---
     QGroupBox*    m_tempRampGroup = nullptr;

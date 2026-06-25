@@ -72,6 +72,14 @@ struct SimulationConfig {
     // Hydrogen mass scaling (MD only) - increases H mass to allow larger time steps
     double hmass = 1.0; // 1.0 = normal mass, 2.0 or 3.0 = scaled (common values)
 
+    // Thermostat (MD only) - curcuma SimpleMD "Thermostat" PARAM category
+    // (external/curcuma/src/capabilities/simplemd.h). CSVR is the default; Andersen
+    // (stochastic collisions) samples single atoms / gas-phase better than CSVR.
+    QString thermostat          = "csvr";  // csvr | berendsen | andersen | nosehover | none
+    double  thermostatCoupling  = 10.0;    // coupling: coupling time (fs)
+    double  andersenProbability = 0.001;   // andersen_probability: collision probability/step
+    int     noseChainLength     = 3;       // chain_length: Nosé-Hoover chain length
+
     // RMSD metadynamics (MD only) - curcuma SimpleMD bias mode (rmsd_mtd=true).
     // Adds a bias potential in RMSD-to-reference space during the MD run, driving
     // exploration away from already-sampled geometries. Defaults mirror curcuma's
@@ -99,6 +107,8 @@ struct SimulationConfig {
     double wallYmin = 0.0, wallYmax = 0.0;
     double wallZmin = 0.0, wallZmax = 0.0;
     double wallRadius = 0.0; // Å, spheric wall radius (origin-centred; 0 = auto-size)
+    double wallTemp = 298.15; // K — energy/force scale for the wall potential (wall_temp)
+    double wallBeta = 6.0;   // steepness parameter β (wall_beta; Å⁻¹ for LogFermi)
 
     // Temperature ramp + regions (MD only) - curcuma SimpleMD temp_* params.
     // The global ramp drives the (live-adjustable) global setpoint over a multi-stage
@@ -190,6 +200,12 @@ public slots:
      *  way cancels any active global temperature ramp for the rest of the run. */
     void setTargetTemperature(double temperature);
 
+    /** @brief Live-set the wall potential energy/temperature scale (K). Thread-safe;
+     *  pushed into the running SimpleMD before the next step. */
+    void setWallTemp(double T);
+    /** @brief Live-set the wall steepness parameter β. Thread-safe. */
+    void setWallBeta(double beta);
+
 signals:
     /**
      * @brief Emitted after each dump step with updated atom positions.
@@ -258,4 +274,11 @@ private:
     QMutex m_tempMutex;
     double m_pendingTemperature = 0.0;
     bool m_pendingTemperatureValid = false;
+
+    // Live wall parameters (setWallTemp / setWallBeta), same mutex-buffered pattern.
+    QMutex m_wallParamMutex;
+    double m_pendingWallTemp = 0.0;
+    bool   m_pendingWallTempValid = false;
+    double m_pendingWallBeta = 0.0;
+    bool   m_pendingWallBetaValid = false;
 };

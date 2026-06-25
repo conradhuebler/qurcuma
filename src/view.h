@@ -69,6 +69,10 @@ public:
     void addMolecule(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
     void addMolecule(const QVector<Atom>& atoms) { addMolecule(atoms, {}); }
 
+    /// Claude Generated 2026 - Merge a molecule into the current scene (single frame
+    /// only): append its atoms/bonds, select them, and start placement (no camera jump).
+    void appendMolecule(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
+
     /**
      * @brief Overlay two structures simultaneously (RMSD/align comparison view).
      */
@@ -157,6 +161,7 @@ public:
 public slots:
     void resetView();
     void resetViewToMolecule();  // Reset to molecule center (fallback to default if none loaded)
+    void centerAtOrigin();       // Translate all frames so COM = origin, reset camera
     void showFrame(int frameIndex);  // Show specific frame
     void nextFrame();               // Show next frame
     void previousFrame();           // Show previous frame
@@ -179,6 +184,37 @@ public slots:
     int getMeasurementMode() const { return m_measurementMode; }
     void selectAtom(int index, bool append = false);
     SelectionManager* getSelectionManager() const { return m_selectionManager; }
+
+    // ----- Structure editing (Explore-mode "Edit" toggle) -------------------
+    // Claude Generated 2026 - direct coordinate editing: mark atoms/molecules, move
+    // them, copy/paste, merge a file, with collision feedback. Distinct from the
+    // simulation grab-force (which injects forces into a running MD/Opt).
+    /// Enable/disable the Edit interaction mode (mutually exclusive with measure/bond-edit).
+    void setEditMode(bool on);
+    bool editMode() const { return m_editMode; }
+    /// Select all atoms of the connected fragment that @p seedAtom belongs to.
+    void selectFragment(int seedAtom, bool append = false);
+    /// Bulk-select a list of atom indices (used by fragment/paste/merge).
+    void selectAtoms(const QVector<int>& indices, bool append = false);
+    /// Copy the current selection (atoms + internal bonds) into the clipboard.
+    void copySelection();
+    /// Paste the clipboard into the current frame (offset, selected, ready to move).
+    void pasteClipboard();
+    /// Delete the selected atoms (and incident bonds) from the current frame.
+    void deleteSelection();
+    /// Translate the moving selection along the net overlap direction until clash-free.
+    void resolveClashes();
+    /// True when structural edits (add/remove atoms) are allowed (single frame only).
+    bool canEditStructure() const { return m_frameCount <= 1; }
+    int getCollisionCount() const { return m_collisionAtoms.size(); }
+    /// Rotate the scene (or, with @p nudge in Edit mode, translate the selection) from a
+    /// WASD/QE key. Driven by MainWindow's application-level key filter (focus-independent).
+    void rotateSceneByKey(int key, bool nudge);
+    /// Pin the cursor at the press point during a move-drag (relative/infinite drag).
+    /// Default on; togglable from the Edit menu. (Cursor warping needs X11; on Wayland
+    /// it may be a no-op — the drag still works, the cursor just isn't pinned.)
+    void setDragCursorLock(bool on) { m_dragCursorLock = on; }
+    bool dragCursorLock() const { return m_dragCursorLock; }
     MeasurementOverlay* getMeasurementOverlay() const { return m_measurementOverlay; }
 
     // Claude Generated - Phase 4B: Bond editing
@@ -241,12 +277,19 @@ signals:
     void colorSchemeChanged(MoleculeViewer::ColorScheme scheme);
     void measurementModeChanged(int mode);  // 0=off,1=distance,2=angle,3=dihedral
     void displayOptionsRequested();
+    // Claude Generated 2026 - Structure editing.
+    void editModeChanged(bool on);
+    void collisionCountChanged(int count);  // clashing atoms in the current frame
+    // Emitted just BEFORE a structural edit (move/paste/merge/delete) so a listener
+    // can snapshot the pre-edit geometry for undo (restore via the Snapshots tab).
+    void editSnapshotRequested(const QString& label);
     // Claude Generated 2026 - confinement-wall boundary violations for the
     // current frame. Emitted when the count changes; 0 = all atoms inside.
     void wallViolationChanged(int count);
 
 public slots:
     void setSimulationActive(bool on);
+    bool simulationActive() const { return m_simulationActive; }  // for the WASD/QE key filter
     void setGrabStrength(double s) { m_grabStrength = s; }
     void setGrabAlpha(double a) { m_grabAlpha = a; }
     void setGrabMaxShells(int n) { m_grabMaxShells = n; }
@@ -280,6 +323,16 @@ public slots:
     qreal getWallOpacity() const;
     /** Count of current-frame atoms outside the configured wall region. */
     int getWallViolationCount() const { return m_wallViolationCount; }
+    /** Enable/disable the iso-potential shell overlay (Display panel checkbox). */
+    void setWallPotentialViz(bool enabled);
+    bool getPotVizEnabled() const { return m_potVizEnabled; }
+    /** Update the potential parameters driving the shell distances; rebuilds
+     *  the shells (and arrows if enabled) when viz is active. */
+    void setWallPotentialParams(bool harmonic, double wallTemp, float wallBeta);
+    /** Enable/disable the wall force vector field and set its resolution. */
+    void setWallVectorField(bool enabled, int resolution);
+    bool getPotArrowsEnabled() const { return m_potArrowsEnabled; }
+    int  getPotArrowResolution() const { return m_potArrowResolution; }
 
 public:
     void clearScenePublic();  // Public wrapper for file loading
@@ -296,7 +349,8 @@ private:
 
     // Push the current frame's atoms/bonds into the SceneController.
     // resetCamera=false keeps the camera for in-place rebuilds (refresh).
-    void syncSceneToController(int frameIndex, bool resetCamera, bool fullRebuild);
+    void syncSceneToController(int frameIndex, bool resetCamera, bool fullRebuild,
+        bool keepView = false);
     void applyAppearanceToController();  // mirror appearance/effect state into the scene
     void updateFramePositions(int frameIndex);  // fast position-only update (animation)
 
@@ -328,6 +382,9 @@ private:
     int pickAtomAtScreenPos(const QPoint &screenPos) const;
     QVector3D computeGrabForce(const QPoint &mousePos, int atomIndex) const;
     void handleMouseRotation(const QPoint& currentPos);
+    // Claude Generated 2026 - apply an incremental model rotation (degrees about the
+    // view's horizontal/vertical/roll axes); shared by mouse drag and keyboard rotation.
+    void applyModelRotation(float horizDeg, float vertDeg, float rollDeg = 0.0f);
     void handleMousePan(const QPoint& currentPos);
     void handleMouseZoom(int delta);
 
@@ -389,6 +446,27 @@ private:
     QVector<int> m_selectedAtoms;
     int m_measurementMode = 0;
 
+    // Claude Generated 2026 - Structure editing state
+    bool m_editMode = false;
+    bool m_movingSelection = false;       // a drag-move of the selection is in progress
+    bool m_moveSnapshotTaken = false;     // pre-move undo snapshot taken for this drag
+    bool m_emptyPressPending = false;     // left-press on empty space (clears on release)
+    bool m_rubberBanding = false;         // box-select drag in progress
+    QPoint m_rubberStart;                 // box-select anchor (viewport pixels)
+    bool m_dragCursorLock = true;         // pin cursor at press point during move-drag
+    QPoint m_dragAnchorGlobal;            // global cursor pos to warp back to (cursor lock)
+    QVector3D m_moveRefLocal;             // selection centroid (intrinsic) for drag depth scale
+    QVector<int> m_collisionAtoms;        // clashing atoms in the current frame
+    QVector<Atom> m_clipboardAtoms;       // copy/paste buffer
+    QVector<Bond> m_clipboardBonds;       // bonds internal to the clipboard (re-indexed)
+    static constexpr float kClashFactor = 0.6f;  // clash if dist < factor * (vdw_i + vdw_j)
+    static constexpr float kNudgeStep = 0.1f;    // arrow-key nudge (Angstrom)
+    // Helpers
+    QVector3D selectionCentroidLocal() const;     // mean position of selected atoms (current frame)
+    void computeCollisions();                      // recolour clashes + emit collisionCountChanged
+    void moveSelection(const QVector3D& modelDelta); // translate selected atoms, redraw, recheck
+    void finalizeEdit();                           // re-detect bonds + recompute collisions after a move/edit
+
     SelectionManager *m_selectionManager = nullptr;
     MeasurementOverlay *m_measurementOverlay = nullptr;  // nullptr until Quick3D port (M2)
     BondEditor *m_bondEditor = nullptr;
@@ -418,6 +496,8 @@ private:
     QPoint m_lastMousePos;
     QPoint m_leftPressPos;       // where the left button went down (click vs drag)
     bool m_leftDragged = false;  // set once the cursor moves past the click threshold
+    QPoint m_rightPressPos;      // where the right button went down (click vs pan-drag)
+    bool m_rightDragged = false; // right-click (no drag) clears the selection
 
     // Claude Generated 2026 - Interactive-sim grab state
     bool m_simulationActive = false;
@@ -429,6 +509,14 @@ private:
     // Force-vector overlay (opt-in)
     bool m_forceVectorsVisible = false;
     QVector<QVector<int>> m_forceAdjacency;
+
+    // Iso-potential shell + vector-field viz state (mirrors SceneController params).
+    bool m_potVizEnabled = false;
+    bool m_wallHarmonic = true;
+    double m_wallTemp = 298.15;
+    float m_wallBeta = 6.0f;
+    bool m_potArrowsEnabled = false;
+    int  m_potArrowResolution = 4;
 
     // Confinement-wall overlay (driven by Simulation config; hideable via the
     // Display panel). m_wallEnabled reflects the config; m_wallVisibleOverride is

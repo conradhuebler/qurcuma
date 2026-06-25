@@ -241,6 +241,41 @@ void SimulationControlWidget::setupUI()
     mdForm->setContentsMargins(0, 0, 0, 0);
     mdOuter->addLayout(mdForm, 1);
 
+    // Thermostat selection (Claude Generated 2026 - curcuma SimpleMD "Thermostat" PARAMs).
+    m_thermostatCombo = new QComboBox(this);
+    m_thermostatCombo->addItem(tr("CSVR (velocity rescaling)"), "csvr");
+    m_thermostatCombo->addItem(tr("Berendsen"), "berendsen");
+    m_thermostatCombo->addItem(tr("Andersen (stochastic)"), "andersen");
+    m_thermostatCombo->addItem(tr("Nosé-Hoover"), "nosehover");
+    m_thermostatCombo->addItem(tr("None (NVE)"), "none");
+    m_thermostatCombo->setToolTip(tr("Thermostat algorithm. CSVR is a solid default for molecules;\n"
+                                     "Andersen (stochastic velocity reassignment) thermalizes single\n"
+                                     "atoms / gas-phase systems better than CSVR."));
+    mdForm->addRow(tr("Thermostat:"), m_thermostatCombo);
+
+    m_couplingSpin = new QDoubleSpinBox(this);
+    m_couplingSpin->setRange(0.1, 10000.0);
+    m_couplingSpin->setDecimals(1);
+    m_couplingSpin->setValue(10.0);
+    m_couplingSpin->setSuffix(" fs");
+    m_couplingSpin->setToolTip(tr("Thermostat coupling time τ (fs). Larger = weaker/looser coupling."));
+    mdForm->addRow(tr("Coupling:"), m_couplingSpin);
+
+    m_andersenProbSpin = new QDoubleSpinBox(this);
+    m_andersenProbSpin->setRange(0.0, 1.0);
+    m_andersenProbSpin->setDecimals(4);
+    m_andersenProbSpin->setSingleStep(0.001);
+    m_andersenProbSpin->setValue(0.001);
+    m_andersenProbSpin->setToolTip(tr("Andersen thermostat: per-step probability that an atom's velocity\n"
+                                      "is redrawn from the Maxwell-Boltzmann distribution at the target T."));
+    mdForm->addRow(tr("Andersen p:"), m_andersenProbSpin);
+
+    m_noseChainSpin = new QSpinBox(this);
+    m_noseChainSpin->setRange(1, 10);
+    m_noseChainSpin->setValue(3);
+    m_noseChainSpin->setToolTip(tr("Nosé-Hoover thermostat chain length."));
+    mdForm->addRow(tr("NH chain:"), m_noseChainSpin);
+
     m_timestepSpin = new QDoubleSpinBox(this);
     m_timestepSpin->setRange(0.1, 10.0);
     m_timestepSpin->setValue(1.0);
@@ -594,6 +629,45 @@ void SimulationControlWidget::setupUI()
         "V = ½k·d² (unbounded force); LogFermi: soft, temperature-dependent wall."));
     wallForm->addRow(tr("Potential:"), m_wallPotentialCombo);
 
+    // Claude Generated 2026 - wall_temp (force/energy scale) + wall_beta (steepness).
+    // Both sliders stay live during the run (wallTempChanged / wallBetaChanged signals).
+    {
+        m_wallTempSlider = new TemperatureSlider(this);
+        m_wallTempSlider->setRange(1.0, 5000.0);
+        m_wallTempSlider->setValue(298.15);
+        m_wallTempSlider->setToolTip(tr(
+            "Wall potential energy scale (wall_temp, K).\n"
+            "Harmonic: spring constant k = wall_temp × kB.\n"
+            "LogFermi: thermal energy kBT for the Fermi function.\n"
+            "Draggable during the run."));
+
+        m_wallBetaSlider = new TemperatureSlider(this);
+        m_wallBetaSlider->setRange(0.1, 50.0);
+        m_wallBetaSlider->setValue(6.0);
+        m_wallBetaSlider->setToolTip(tr(
+            "Wall steepness β (wall_beta).\n"
+            "LogFermi: Å⁻¹ — larger = sharper wall.\n"
+            "Harmonic: secondary scaling of the gradient correction.\n"
+            "Draggable during the run."));
+
+        auto* wallSliderRow = new QHBoxLayout;
+        auto* twCol = new QVBoxLayout;
+        auto* twCap = new QLabel(tr("Strength (K)"), this);
+        twCap->setAlignment(Qt::AlignHCenter);
+        twCol->addWidget(twCap);
+        twCol->addWidget(m_wallTempSlider, 1);
+
+        auto* bCol = new QVBoxLayout;
+        auto* bCap = new QLabel(tr("Steepness β"), this);
+        bCap->setAlignment(Qt::AlignHCenter);
+        bCol->addWidget(bCap);
+        bCol->addWidget(m_wallBetaSlider, 1);
+
+        wallSliderRow->addLayout(twCol);
+        wallSliderRow->addLayout(bCol);
+        wallForm->addRow(wallSliderRow);
+    }
+
     auto makeBoundSpin = [this](const QString& suffix) {
         auto* s = new QDoubleSpinBox(this);
         s->setRange(-1e5, 1e5);
@@ -781,6 +855,19 @@ void SimulationControlWidget::setupUI()
             m_tempOverrideLabel->setVisible(true);
         emit configChanged(buildConfig());
     });
+    // Thermostat: enable only the params relevant to the chosen type. Claude Generated 2026.
+    auto updateThermostatRows = [this]() {
+        const QString t = m_thermostatCombo->currentData().toString();
+        m_couplingSpin->setEnabled(t != "none");
+        m_andersenProbSpin->setEnabled(t == "andersen");
+        m_noseChainSpin->setEnabled(t == "nosehover");
+    };
+    connect(m_thermostatCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this, updateThermostatRows](int) { updateThermostatRows(); emit configChanged(buildConfig()); });
+    connect(m_couplingSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_andersenProbSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_noseChainSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    updateThermostatRows();
     connect(m_timestepSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_stepsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_fpsLimitSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
@@ -823,6 +910,15 @@ void SimulationControlWidget::setupUI()
     connect(m_wallYmaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallZminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallZmaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    // Wall temp/beta sliders: emit live signals (forwarded to worker) + notify config.
+    connect(m_wallTempSlider, &TemperatureSlider::valueChanged, this, [this](double v) {
+        emit wallTempChanged(v);
+        emit configChanged(buildConfig());
+    });
+    connect(m_wallBetaSlider, &TemperatureSlider::valueChanged, this, [this](double v) {
+        emit wallBetaChanged(v);
+        emit configChanged(buildConfig());
+    });
 
     // Show/hide groups based on mode and RATTLE selection
     connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
@@ -911,6 +1007,11 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.steps = m_stepsSpin->value();
     cfg.fpsLimit = m_fpsLimitSpin->value();
     cfg.hmass = m_hmassSpin->value();
+    // Thermostat (Claude Generated 2026)
+    cfg.thermostat          = m_thermostatCombo->currentData().toString();
+    cfg.thermostatCoupling  = m_couplingSpin->value();
+    cfg.andersenProbability = m_andersenProbSpin->value();
+    cfg.noseChainLength     = m_noseChainSpin->value();
     cfg.gpu = m_gpuCombo->currentData().toString();
     cfg.writeTrajectory = m_writeTrjCheck->isChecked();
     cfg.performanceAnalysis = m_perfCheck->isChecked();
@@ -948,6 +1049,8 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.wallYmin = m_wallYminSpin->value();  cfg.wallYmax = m_wallYmaxSpin->value();
     cfg.wallZmin = m_wallZminSpin->value();  cfg.wallZmax = m_wallZmaxSpin->value();
     cfg.wallRadius   = m_wallRadiusSpin->value();
+    cfg.wallTemp     = m_wallTempSlider ? m_wallTempSlider->value() : 298.15;
+    cfg.wallBeta     = m_wallBetaSlider ? m_wallBetaSlider->value() : 6.0;
 
     // Claude Generated 2026 - Temperature ramp (global) + regions (curcuma SimpleMD temp_* params).
     cfg.tempRamp = m_tempRampEnableCheck->isChecked();
@@ -1301,6 +1404,14 @@ void SimulationControlWidget::setRunning(bool running)
         m_tempOverrideLabel->setVisible(false);  // clear the override badge on (re)start
     m_timestepSpin->setEnabled(!running);
     m_stepsSpin->setEnabled(!running);
+    // Thermostat type/params are fixed for the duration of a run (Claude Generated 2026).
+    if (m_thermostatCombo) {
+        const QString t = m_thermostatCombo->currentData().toString();
+        m_thermostatCombo->setEnabled(!running);
+        m_couplingSpin->setEnabled(!running && t != "none");
+        m_andersenProbSpin->setEnabled(!running && t == "andersen");
+        m_noseChainSpin->setEnabled(!running && t == "nosehover");
+    }
     // Speed stays editable during a run — the user often wants to slow down
     // or speed up a live MD/Opt without stopping it.
     // m_fpsLimitSpin->setEnabled(!running);

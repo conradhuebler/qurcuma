@@ -203,6 +203,7 @@ private slots:
     // Claude Generated - Focus & centering commands
     void fitMoleculeInView();
     void centerViewOnSelection();
+    void centerMoleculeAtOrigin();
 
     // Claude Generated - Phase 2A: Selection commands
     void selectAllAtoms();
@@ -214,6 +215,13 @@ private slots:
     // Claude Generated - Quick Win: Copy/Paste structures (moved from private to slots)
     void copyStructureToClipboard();
     void pasteStructureFromClipboard();
+
+    // Claude Generated 2026 - Merge a molecule from a file into the current scene
+    // (structure editing). addMoleculeToScene() opens a file dialog;
+    // mergeFileIntoScene() parses+appends a given path (also used by the browser
+    // right-click "Add to current scene").
+    void addMoleculeToScene();
+    void mergeFileIntoScene(const QString& filePath);
 
     // Claude Generated - Quick Win: Zoom to fit molecule (moved from private to slots)
     void zoomToMolecule();
@@ -259,6 +267,11 @@ private:
 
     // Claude Generated - SFTP: Load molecule file (local or remote)
     void loadMoleculeFile(const QString& filePath);
+
+    // Claude Generated 2026 - Parse just the first frame of a structure file (xyz/vtf/
+    // pdb/mol2) into viewer atoms/bonds; used by addMoleculeToScene() to merge.
+    bool parseFirstFrame(const QString& filePath, QVector<MoleculeViewer::Atom>& atoms,
+        QVector<MoleculeViewer::Bond>& bonds);
 
     void setupProgramSpecificDirectory(const QString &dirPath, const QString &program);
     void updateDirectoryContent();  // Claude Generated - removed unused path parameter
@@ -392,6 +405,7 @@ private:
     // user with Save/Discard/Cancel.
     QString m_currentMoleculeFilePath;
     bool m_structureModified = false;
+    bool m_centerOnLoad = true;  // shift COM to origin after loading (from VisualizationSettings)
     QAction* m_saveAction = nullptr;
     QAction* m_saveAsAction = nullptr;
     bool saveStructure(const QString& path = QString());
@@ -480,4 +494,9 @@ protected:
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
+    // Claude Generated 2026 - Application-level key filter: WASD = pitch/yaw, QE = roll
+    // rotate the 3D scene (and Shift+WASDQE nudges the selection). Only active in the
+    // viewer's Edit mode, so the keys stay free everywhere else; also skipped while a
+    // text-entry widget has focus or Ctrl/Alt/Meta is held. Installed on qApp.
+    bool eventFilter(QObject* obj, QEvent* event) override;
 };

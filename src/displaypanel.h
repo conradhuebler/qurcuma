@@ -33,6 +33,13 @@ public:
     /// or external changes so the panel stays in sync).
     void loadCurrentSettings();
 
+signals:
+    void centerOnLoadChanged(bool enabled);
+    /** Emitted when the "Show potential gradient" checkbox changes. */
+    void potGradientChanged(bool enabled);
+    /** Emitted when the "Show force vectors" checkbox or resolution spinbox changes. */
+    void potVectorFieldChanged(bool enabled, int resolution);
+
 private slots:
     // Style
     void onRenderingModeChanged(int index);
@@ -113,6 +120,9 @@ private:
     QCheckBox* m_wallCheck = nullptr;          // confinement-wall wireframe show/hide
     QSlider* m_wallOpacitySlider = nullptr;    // confinement-wall wireframe transparency
     QLabel* m_wallOpacityLabel = nullptr;
+    QCheckBox* m_potGradientCheck = nullptr;   // iso-potential shell overlay show/hide
+    QCheckBox* m_potArrowCheck = nullptr;      // wall force vector field show/hide
+    QSpinBox*  m_potArrowResSpin = nullptr;    // vector field resolution (points per axis)
     QComboBox* m_rotationModeCombo = nullptr;
     QSpinBox* m_instancingThresholdSpin = nullptr;
 

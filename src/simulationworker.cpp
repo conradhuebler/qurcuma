@@ -65,6 +65,8 @@ void applyWallParams(const SimulationConfig& cfg, json& simplemd_params)
     simplemd_params["wall_type"] = cfg.wallType == 2 ? "rect"
                               : cfg.wallType == 1 ? "spheric" : "none";
     simplemd_params["wall_potential"] = cfg.wallHarmonic ? "harmonic" : "logfermi";
+    simplemd_params["wall_temp"] = cfg.wallTemp;
+    simplemd_params["wall_beta"] = cfg.wallBeta;
     simplemd_params["wall_x_min"] = cfg.wallXmin;
     simplemd_params["wall_x_max"] = cfg.wallXmax;
     simplemd_params["wall_y_min"] = cfg.wallYmin;
@@ -168,6 +170,22 @@ void SimulationWorker::setTargetTemperature(double temperature)
     QMutexLocker lock(&m_tempMutex);
     m_pendingTemperature = temperature;
     m_pendingTemperatureValid = true;
+}
+
+// Claude Generated 2026 - Live wall potential parameters. Same mutex-buffered pattern as
+// setTargetTemperature: stored here, pushed into SimpleMD in performMDStep().
+void SimulationWorker::setWallTemp(double T)
+{
+    QMutexLocker lock(&m_wallParamMutex);
+    m_pendingWallTemp = T;
+    m_pendingWallTempValid = true;
+}
+
+void SimulationWorker::setWallBeta(double beta)
+{
+    QMutexLocker lock(&m_wallParamMutex);
+    m_pendingWallBeta = beta;
+    m_pendingWallBetaValid = true;
 }
 
 // Claude Generated 2026 - One-shot step from the dock's Step button.
@@ -441,6 +459,11 @@ void SimulationWorker::startMD()
     simplemd_params["rattle_tol_13"] = m_config.rattleTol13;
     simplemd_params["rattle_max_iterations"] = m_config.rattleMaxIter;
     simplemd_params["hmass"] = m_config.hmass;
+    // Thermostat selection (curcuma reads only the params relevant to the chosen type).
+    simplemd_params["thermostat"] = m_config.thermostat.toStdString();
+    simplemd_params["coupling"] = m_config.thermostatCoupling;
+    simplemd_params["andersen_probability"] = m_config.andersenProbability;
+    simplemd_params["chain_length"] = m_config.noseChainLength;
     applyRmsdMtdParams(m_config, simplemd_params);
     applyWallParams(m_config, simplemd_params);
     applyTempRampParams(m_config, simplemd_params);
@@ -518,6 +541,19 @@ void SimulationWorker::performMDStep()
         if (m_pendingTemperatureValid) {
             m_md->setTargetTemperature(m_pendingTemperature);
             m_pendingTemperatureValid = false;
+        }
+    }
+
+    // Apply live wall parameter changes (slider drag during the run). Claude Generated 2026.
+    {
+        QMutexLocker lock(&m_wallParamMutex);
+        if (m_pendingWallTempValid) {
+            m_md->setWallTemp(m_pendingWallTemp);
+            m_pendingWallTempValid = false;
+        }
+        if (m_pendingWallBetaValid) {
+            m_md->setWallBeta(m_pendingWallBeta);
+            m_pendingWallBetaValid = false;
         }
     }
 

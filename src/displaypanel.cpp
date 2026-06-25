@@ -385,6 +385,18 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
     });
     f->addRow(QString(), dynamicBondsCheck);
 
+    // Claude Generated 2026 - Auto-center on load: shift COM to origin when a file is opened.
+    auto* centerOnLoadCheck = new QCheckBox(tr("Center molecule at origin on load"), this);
+    centerOnLoadCheck->setToolTip(tr("When opening a file, translate all frames so the "
+        "mass-weighted centre-of-mass is at the coordinate origin."));
+    const bool currentCenterOnLoad = m_settings
+        ? m_settings->getVisualizationSettings().centerOnLoad : true;
+    centerOnLoadCheck->setChecked(currentCenterOnLoad);
+    connect(centerOnLoadCheck, &QCheckBox::toggled, this, [this](bool on) {
+        emit centerOnLoadChanged(on);
+    });
+    f->addRow(QString(), centerOnLoadCheck);
+
     // Claude Generated 2026 - Confinement-wall wireframe toggle. The wall geometry
     // itself is driven by the Simulation config (auto-show when walls are enabled);
     // this checkbox is an independent show/hide override for the wireframe.
@@ -416,6 +428,46 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
             m_viewer->setWallOpacity(v / 100.0);
     });
     f->addRow(tr("Wall opacity:"), wol);
+
+    // Iso-potential gradient shell overlay. 3 inside shells (blue->teal) +
+    // 3 outside shells (yellow->red) at force-contour distances from the boundary.
+    m_potGradientCheck = new QCheckBox(tr("Show potential gradient"), this);
+    m_potGradientCheck->setToolTip(tr("Overlay concentric iso-potential wireframe shells:\n"
+        "Blue/teal (inside boundary, approach zone), yellow/red (outside, force zone).\n"
+        "Shell spacing scales with 1/beta for LogFermi walls."));
+    m_potGradientCheck->setChecked(false);
+    connect(m_potGradientCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_viewer) m_viewer->setWallPotentialViz(on);
+        emit potGradientChanged(on);
+    });
+    f->addRow(QString(), m_potGradientCheck);
+
+    // Wall force vector field: arrows sampled on a grid around the boundary.
+    m_potArrowCheck = new QCheckBox(tr("Show force vectors"), this);
+    m_potArrowCheck->setToolTip(tr("Draw force arrows at grid points around the wall boundary.\n"
+        "Length = force magnitude; colour = distance level.\n"
+        "LogFermi: also shows arrows inside (bell-shaped force profile)."));
+    m_potArrowCheck->setChecked(false);
+    QHBoxLayout* arrowResLay = new QHBoxLayout;
+    m_potArrowResSpin = new QSpinBox(this);
+    m_potArrowResSpin->setRange(2, 8);
+    m_potArrowResSpin->setValue(4);
+    m_potArrowResSpin->setToolTip(tr("Sample points per axis (box face) or per latitude ring (sphere)."));
+    arrowResLay->addWidget(m_potArrowCheck);
+    arrowResLay->addWidget(new QLabel(tr("Res:"), this));
+    arrowResLay->addWidget(m_potArrowResSpin);
+    arrowResLay->addStretch();
+    auto emitArrows = [this]() {
+        const bool on  = m_potArrowCheck   && m_potArrowCheck->isChecked();
+        const int  res = m_potArrowResSpin ? m_potArrowResSpin->value() : 4;
+        if (m_viewer) m_viewer->setWallVectorField(on, res);
+        emit potVectorFieldChanged(on, res);
+    };
+    connect(m_potArrowCheck,   &QCheckBox::toggled,
+            this, [emitArrows](bool) { emitArrows(); });
+    connect(m_potArrowResSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, [emitArrows](int)  { emitArrows(); });
+    f->addRow(QString(), arrowResLay);
 
     f->addRow(new QLabel(""));
 
