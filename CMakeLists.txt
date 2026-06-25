@@ -120,6 +120,9 @@ set(SOURCES
     src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.cpp  # Claude Generated 2026 - Quick3D renderer: bond instancing
     src/scenecontroller.cpp  # Claude Generated 2026 - Quick3D renderer: scene view-model
+    src/lesson.cpp  # Claude Generated 2026 - OER teaching scenarios (Lesson model + JSON)
+    src/lessonstructuremodel.cpp  # Claude Generated 2026 - in-memory lesson structure list model
+    src/dialogs/lessonmetadatadialog.cpp  # Claude Generated 2026 - lesson metadata editor
 )
 
 # Header-Dateien
@@ -153,6 +156,9 @@ set(HEADERS
     src/atominstancing.h  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.h  # Claude Generated 2026 - Quick3D renderer: bond instancing
     src/scenecontroller.h  # Claude Generated 2026 - Quick3D renderer: scene view-model
+    src/lesson.h  # Claude Generated 2026 - OER teaching scenarios (Lesson model + JSON)
+    src/lessonstructuremodel.h  # Claude Generated 2026 - in-memory lesson structure list model (Q_OBJECT)
+    src/dialogs/lessonmetadatadialog.h  # Claude Generated 2026 - lesson metadata editor (Q_OBJECT)
     #src/dialogs/nmrstructuremodel.h
 
 )

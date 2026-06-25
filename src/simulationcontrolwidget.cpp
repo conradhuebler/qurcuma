@@ -1089,6 +1089,118 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     return cfg;
 }
 
+// Claude Generated 2026 - Inverse of buildConfig(): push a stored SimulationConfig
+// back into every widget. Used to restore a lesson structure's simulation
+// conditions on load. Signals are blocked during the apply (otherwise each
+// spin/combo's "emit configChanged(buildConfig())" lambda and the temperature
+// slider's live valueChanged would fire ~50 times mid-update); primary group/detail
+// visibility is then set directly (replicating the enable-toggle handlers) and a
+// single configChanged() is emitted at the end.
+void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
+{
+    // Select a combo entry by its userData, leaving it unchanged if not found.
+    auto selectData = [](QComboBox* c, const QVariant& v) {
+        if (!c) return;
+        const int i = c->findData(v);
+        if (i >= 0) c->setCurrentIndex(i);
+    };
+
+    const QList<QWidget*> guarded = {
+        m_modeCombo, m_methodCombo, m_optimizerCombo, m_tempSlider, m_timestepSpin,
+        m_stepsSpin, m_fpsLimitSpin, m_hmassSpin, m_thermostatCombo, m_couplingSpin,
+        m_andersenProbSpin, m_noseChainSpin, m_gpuCombo, m_writeTrjCheck, m_perfCheck,
+        m_convergenceSpin, m_optKeepParamsCheck, m_rattleCombo, m_rattle12Check,
+        m_rattle13Check, m_rattleTol12Spin, m_rattleTol13Spin, m_rattleMaxIterSpin,
+        m_topologyModeCombo, m_rmsdMtdEnableCheck, m_rmsdMtdKSpin, m_rmsdMtdAlphaSpin,
+        m_rmsdMtdAtomsEdit, m_rmsdMtdRefFileEdit, m_rmsdMtdMaxGaussiansSpin,
+        m_rmsdMtdMaxHeightSpin, m_rmsdMtdEconvSpin, m_rmsdMtdPaceSpin, m_rmsdMtdWtmtdCheck,
+        m_rmsdMtdDtSpin, m_rmsdMtdFreezeCheck, m_wallEnableCheck, m_wallTypeCombo,
+        m_wallPotentialCombo, m_wallRadiusSpin, m_wallXminSpin, m_wallXmaxSpin,
+        m_wallYminSpin, m_wallYmaxSpin, m_wallZminSpin, m_wallZmaxSpin, m_wallTempSlider,
+        m_wallBetaSlider, m_tempRampEnableCheck, m_tempRampTable, m_tempRegionTable
+    };
+    for (QWidget* w : guarded)
+        if (w) w->blockSignals(true);
+
+    selectData(m_modeCombo, static_cast<int>(cfg.mode));
+    selectData(m_methodCombo, cfg.method);
+    selectData(m_optimizerCombo, cfg.optimizer);
+    if (m_tempSlider) m_tempSlider->setValue(cfg.temperature);
+    m_timestepSpin->setValue(cfg.timestep);
+    m_stepsSpin->setValue(cfg.steps);
+    m_fpsLimitSpin->setValue(cfg.fpsLimit);
+    m_hmassSpin->setValue(cfg.hmass);
+    selectData(m_thermostatCombo, cfg.thermostat);
+    m_couplingSpin->setValue(cfg.thermostatCoupling);
+    m_andersenProbSpin->setValue(cfg.andersenProbability);
+    m_noseChainSpin->setValue(cfg.noseChainLength);
+    selectData(m_gpuCombo, cfg.gpu);
+    m_writeTrjCheck->setChecked(cfg.writeTrajectory);
+    m_perfCheck->setChecked(cfg.performanceAnalysis);
+    m_convergenceSpin->setValue(cfg.convergence);
+    m_optKeepParamsCheck->setChecked(cfg.optKeepParameters);
+    selectData(m_rattleCombo, cfg.rattleMode);
+    m_rattle12Check->setChecked(cfg.rattle12);
+    m_rattle13Check->setChecked(cfg.rattle13);
+    m_rattleTol12Spin->setValue(cfg.rattleTol12);
+    m_rattleTol13Spin->setValue(cfg.rattleTol13);
+    m_rattleMaxIterSpin->setValue(cfg.rattleMaxIter);
+    selectData(m_topologyModeCombo, cfg.topologyMode);
+
+    // RMSD metadynamics
+    m_rmsdMtdEnableCheck->setChecked(cfg.rmsdMtd);
+    m_rmsdMtdKSpin->setValue(cfg.rmsdMtdK);
+    m_rmsdMtdAlphaSpin->setValue(cfg.rmsdMtdAlpha);
+    m_rmsdMtdAtomsEdit->setText(cfg.rmsdMtdAtoms);
+    m_rmsdMtdRefFileEdit->setText(cfg.rmsdMtdRefFile);
+    m_rmsdMtdMaxGaussiansSpin->setValue(cfg.rmsdMtdMaxGaussians);
+    m_rmsdMtdMaxHeightSpin->setValue(cfg.rmsdMtdMaxHeight);
+    m_rmsdMtdEconvSpin->setValue(cfg.rmsdMtdEconv);
+    m_rmsdMtdPaceSpin->setValue(cfg.rmsdMtdPace);
+    m_rmsdMtdWtmtdCheck->setChecked(cfg.rmsdMtdWtmtd);
+    m_rmsdMtdDtSpin->setValue(cfg.rmsdMtdDt);
+    m_rmsdMtdFreezeCheck->setChecked(cfg.rmsdMtdFreezeInherited);
+
+    // Confinement walls
+    m_wallEnableCheck->setChecked(cfg.wallEnabled);
+    selectData(m_wallTypeCombo, cfg.wallType);
+    selectData(m_wallPotentialCombo, cfg.wallHarmonic ? 0 : 1);
+    m_wallRadiusSpin->setValue(cfg.wallRadius);
+    m_wallXminSpin->setValue(cfg.wallXmin);  m_wallXmaxSpin->setValue(cfg.wallXmax);
+    m_wallYminSpin->setValue(cfg.wallYmin);  m_wallYmaxSpin->setValue(cfg.wallYmax);
+    m_wallZminSpin->setValue(cfg.wallZmin);  m_wallZmaxSpin->setValue(cfg.wallZmax);
+    if (m_wallTempSlider) m_wallTempSlider->setValue(cfg.wallTemp);
+    if (m_wallBetaSlider) m_wallBetaSlider->setValue(cfg.wallBeta);
+
+    // Temperature ramp + regions: rebuild the tables from the schedule string / list.
+    m_tempRampEnableCheck->setChecked(cfg.tempRamp);
+    m_tempRampTable->setRowCount(0);
+    const QStringList segs = cfg.tempSchedule.split(QLatin1Char(';'), Qt::SkipEmptyParts);
+    for (const QString& seg : segs) {
+        const QStringList parts = seg.split(QLatin1Char(':'));
+        if (parts.size() != 3) continue;
+        addRampSegmentRow(parts[0].toDouble(), parts[1].trimmed(), parts[2].toDouble());
+    }
+    m_tempRegionTable->setRowCount(0);
+    for (const TempRegion& r : cfg.tempRegions)
+        addRegionRow(r.atoms, r.temperature, r.schedule);
+
+    for (QWidget* w : guarded)
+        if (w) w->blockSignals(false);
+
+    // Replicate the primary visibility decisions of the enable-toggle handlers
+    // (those connections were suppressed above). Secondary thermostat sub-field
+    // visibility is left as-is; the stored values are correct regardless.
+    onModeChanged(m_modeCombo->currentIndex());
+    if (m_rattleDetails) m_rattleDetails->setVisible(cfg.rattleMode != 0);
+    if (m_wallDetails) m_wallDetails->setVisible(cfg.wallEnabled);
+    if (m_rmsdMtdDetails) m_rmsdMtdDetails->setVisible(cfg.rmsdMtd);
+    if (m_tempRampDetails) m_tempRampDetails->setVisible(cfg.tempRamp);
+
+    m_config = cfg;
+    emit configChanged(cfg);
+}
+
 // Claude Generated 2026 - append a row to the global ramp table (Target | Mode combo | Value).
 void SimulationControlWidget::addRampSegmentRow(double target, const QString& mode, double value)
 {

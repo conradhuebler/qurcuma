@@ -1,5 +1,14 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - Lehrszenarien (Lessons, OER) v1
+
+- **Lessons** (`src/lesson.{h,cpp}`): self-contained `*.qlesson.json` Lehrszenario — mehrere Strukturen, je mit voller `SimulationConfig` (verlustfreier `simConfigToJson`/`simConfigFromJson`-Roundtrip, eigene Feldnamen) + Lehr-Metadaten (Titel/Beschreibung/Lizenz/Sprache/Keywords + Autoren mit Name/ORCID/Einrichtung/E-Mail). Strukturen sind inline als XYZ eingebettet. `extractLesson()` entpackt beim Laden in ein Arbeitsverzeichnis (`<slug>.xyz` + Sidecar `lesson.json` mit `file`-Verweisen) → Strukturen erscheinen im bestehenden Datei-Browser.
+- **File ▸ Lesson-Menü** (`MainWindow::openLesson`/`saveLesson`/`addCurrentStructureToLesson`/`editLessonMetadata`): Open lädt+entpackt+wechselt Arbeitsverzeichnis; „Add Current Structure to Lesson…" erfasst aktuelle Geometrie + Dock-Bedingungen + Name/Beschreibung/Rolle; „Lesson Metadata…" via `LessonMetadataDialog` (`src/dialogs/`); „Save as Lesson…" schreibt inline-JSON.
+- **Bedingungs-Restore**: `SimulationControlWidget::applyConfig()` (Umkehrung von `buildConfig`, signal-blockiert) treibt alle MD/Opt/Wall/Thermostat/Ramp-Widgets aus einer `SimulationConfig`. `MainWindow::applyLessonConditions()` (Hook in `loadMoleculeFile`) stellt beim Klick auf eine Lesson-Struktur deren Bedingungen wieder her, wenn ein `lesson.json`-Sidecar sie referenziert.
+- **Überspeichern**: `Save Lesson` überschreibt die gemerkte `m_lessonFilePath` direkt (gesetzt von `openLesson`/`saveLesson`), `Save Lesson As…` fragt nach — beide über `saveLessonInteractive(forceDialog)`.
+- **In-Memory-Strukturen sichtbar**: `LessonStructureModel` (`src/lessonstructuremodel.*`) zeigt die noch nicht gespeicherten Lesson-Strukturen im **bestehenden** Datei-Browser via `[ Files | Lesson (N) ]`-Combo (Modell-Swap, kein zweiter View); Klick lädt Inline-XYZ (`xyzToAtoms`) + `applyConfig`, Kontextmenü Load/Remove.
+- **Haber-Bosch-Kontext**: „Druck" wird über Box-/Wandvolumen (`wall*`-Felder) + Zusammensetzung kodiert; kein Barostat/NPT (separates Feature). Ergebnis-Felder im Schema reserviert, in v1 nicht implementiert.
+
 ## Juni 2026 - Wall Potential Parameters + Visual Potential Field
 
 - **Wall potential parameters** (`wall_temp` / `wall_beta`) in Simulation dock Confinement Walls group: two `TemperatureSlider` widgets ("Strength (K)" / "Steepness β") for energy/force scale and LogFermi steepness. Live-adjustable during an MD run via mutex-buffered `SimulationWorker::setWallTemp`/`setWallBeta` (same pattern as thermostat). `SimulationConfig` extended; `applyWallParams()` writes them into the curcuma `simplemd` controller.

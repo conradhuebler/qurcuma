@@ -33,6 +33,12 @@
 - CLI `qurcuma <file> -md|-opt` loads the file and auto-starts the interactive simulation from bash
 - Release/AVX-512 start crash fixed: `CMakeLists.txt` matches curcuma's `-march=native` on the qurcuma target so both share Eigen's `EIGEN_MAX_ALIGN_BYTES` (mismatch caused `double free` in `moleculeToFrame`)
 
+## Lessons (OER teaching scenarios)
+- ✅ **Lesson v1** (`src/lesson.*`, `src/dialogs/lessonmetadatadialog.*`) — self-contained `*.qlesson.json` bündelt mehrere Strukturen (inline XYZ) + je volle `SimulationConfig` + Metadaten (Titel/Lizenz/Keywords + Autoren mit ORCID/Einrichtung). `simConfigToJson`/`simConfigFromJson` = einziger verlustfreier `SimulationConfig`-Roundtrip (eigene Feldnamen, entkoppelt von curcumas `simplemd`-Param-Schema). `extractLesson()` entpackt beim Laden nach `<file-dir>/<stem>/` als `<slug>.xyz` + Sidecar `lesson.json` (mit `file`-Verweisen) → Strukturen im bestehenden Datei-Browser.
+- ✅ **File ▸ Lesson-Menü** — `openLesson` (laden→entpacken→`switchWorkingDirectory`), `addCurrentStructureToLesson` (Geometrie + `SimulationControlWidget::currentConfig()` + Name/Beschreibung/Rolle), `editLessonMetadata`, **`Save Lesson`** (überschreibt direkt die gemerkte `m_lessonFilePath`) / **`Save Lesson As…`** über `saveLessonInteractive(forceDialog)`. Klick auf eine **extrahierte** `.xyz` → `applyLessonConditions()` (Hook am Ende von `loadMoleculeFile`) liest das `lesson.json`-Sidecar und ruft `SimulationControlWidget::applyConfig()` (Umkehrung von `buildConfig`, signal-blockiert) → Bedingungen wiederhergestellt.
+- ✅ **In-Memory-Strukturen im Datei-Browser** (`LessonStructureModel`, `src/lessonstructuremodel.*`) — kein zweiter View: ein `[ Files | Lesson (N) ]`-Combo (`m_browserModeCombo`) in der Project-Dock-Statuszeile swappt das Modell von `m_directoryContentView` (`setBrowserMode`); der `clicked`/Kontextmenü-Handler verzweigt auf `m_lessonBrowseMode` → `loadLessonStructureFromIndex` (parst Inline-XYZ via `xyzToAtoms`, `applyConfig`) bzw. Load/Remove. `addCurrentStructureToLesson` schaltet auto in Lesson-Modus; `openLesson` bleibt im Files-Modus (extrahierte `.xyz` sind dort schon sichtbar).
+- „Druck" (Haber-Bosch) = Box-/Wandvolumen (`wall*`) + Zusammensetzung; kein Barostat/NPT. Ergebnis-/Ziel-Felder im Schema reserviert, in v1 nicht implementiert.
+
 ## Mouse Interactions (C++ `eventFilter` on the `QQuickView`)
 - Left-drag = rotate (model rotation); right-drag = pan; wheel = zoom; middle-click = reset view.
 - Left-**click** (no drag) = ray-pick an atom → select (Ctrl/Shift = add to selection).

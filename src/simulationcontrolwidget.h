@@ -46,6 +46,12 @@ public:
 
     SimulationConfig currentConfig() const { return buildConfig(); }
 
+    /** @brief Drive every widget from a config (inverse of buildConfig). Used to
+     *  restore a lesson structure's stored simulation conditions. Signals are
+     *  suppressed during the apply, then configChanged() is emitted once.
+     *  Claude Generated 2026. */
+    void applyConfig(const SimulationConfig& cfg);
+
     /** @brief Set the MD/Opt mode programmatically (drives the combo so that
      *  buildConfig() reflects the requested mode). Used by the CLI auto-start
      *  (-md / -opt). Claude Generated 2026. */
