@@ -1,55 +1,59 @@
-# src/CLAUDE.md - Qurcuma Project Overview
+# VTF/XYZ Parsers, 3D Viewer, Mouse Interactions
 
-**Qt-based molecular visualization GUI for VTF/XYZ/PDB/MOL2 formats with 3D rendering, GPU instancing, and performance optimization for molecules >1000 atoms.**
+## Parsing
+- VTF format supports periodic boundary conditions
+- XYZ format reads atomic coordinates and optional velocities
+- Both formats handle large files efficiently
 
-## Phase Status Overview
+## 3D Viewer (Qt Quick 3D / Vulkan)
+- ✅ **Renderer = Qt Quick 3D on the Vulkan RHI** (migrated off Qt3D, which is fully removed). `MoleculeViewer` (`view.*`) stays a `QWidget` with its public API unchanged, but internally wraps a `QQuickView` (`createWindowContainer`) + `SceneController` view-model (`scenecontroller.*`) + `src/qml/viewer3d.qml`. Atoms/bonds = `QQuick3DInstancing` (`atominstancing.*`/`bondinstancing.*`); effects via `ExtendedSceneEnvironment` (SSAO/Bloom/HDR/Tonemap/Fog) + world-fixed cast shadows.
+- Vulkan chosen in `main.cpp` via a probe (`QVulkanInstance::create()`) with OpenGL fallback; override `QSG_RHI_BACKEND`. In this Qt build `QQuick3DViewport`/`Camera` are PRIVATE headers → the camera is axis-aligned and C++ replicates its projection for picking/grab (no private headers). The molecule rotates under `moleculeRoot`; the camera stays fixed. [[quick3d-private-headers]]
+- Rendering modes (ball-stick/space-filling/wireframe/sticks), color schemes (CPK/mono/by-charge), transparency, atom/bond size — all in `SceneController`. RMSD overlay = second instanced structure in HSV-shifted CPK colours (`setOverlayStructure`/`shiftOverlayColor`).
+- ✅ **Screen-fixed corner lights** (◤◥◣◢): `DirectionalLight`s parented to the QML camera (lit zone stays view-fixed); a separate world-fixed key light casts shadows. Toggled via `SceneController` cornerLight properties.
 
-| Phase | Status | Lines | Details |
-|-------|--------|-------|---------|
-| 1-3 | ✅ COMPLETE | 1,500+ | Settings, Navigation, Workspace | [phase-timeline](../docs/development/phase-timeline.md) |
-| 4A/4B | ✅ COMPLETE | 1,550+ | PBR Shaders, Bond Editor | [api-ref](../docs/development/api-reference.md) |
-| 5A/5B | ✅ COMPLETE | 2,000+ | Multi-pass FrameGraph, SSAO, Bloom, HDR | [rendering](../docs/architecture/rendering-pipeline.md) |
-| 5C | ✅ COMPLETE | 950+ | PDB & MOL2 Format Support | [parsers](../docs/architecture/file-parsers.md) |
-| 5D | 🚧 IN PROGRESS | 700+ | GPU Instancing, Frustum Culling, Async Loading | [performance](../docs/architecture/performance-optimization.md) |
+## Editors Dock (RMSD-Tab)
+- ✅ **RMSD / Align** (`src/rmsdwidget.*`, `RMSDWidget : QWidget`) — dritter Tab im Editors-Dock (`m_editorsTabs`: Structure/Input/RMSD), statt eigenem Dock. Backed by curcuma `RMSDDriver`; reference = Viewer-Struktur, target = Datei. Referenz-Saat per Auto (`showRMSDTool` → Tab-Index 2) + Button (`seedReferenceRequested` → `MainWindow::seedRMSDReference`); Overlay via `overlayRequested` → `MoleculeViewer::showOverlay`.
 
-**Detailed Documentation:** [docs/README.md](../docs/README.md)
+## Interactive Simulation
+- ✅ **RMSD-MTD bias** — `rmsd_mtd` ist kein eigener Treiber, sondern ein Bias-Modus *innerhalb* von curcuma `SimpleMD` (aktiviert via `rmsd_mtd=true` + `rmsd_mtd_*` im `simplemd`-Controller). Im Simulation-Widget als QGroupBox "RMSD Metadynamics" (MD-only, Enable→Details): k/α/atoms/ref-file/max-gaussians/max-height/econv/pace/wtmtd+ΔT/freeze-inherited. `SimulationConfig` hält die Felder; `SimulationWorker::applyRmsdMtdParams()` (file-local, simulationworker.cpp) schreibt sie nur bei `rmsdMtd=true` in den Controller. Defaults aus `external/curcuma/src/capabilities/simplemd.h` "RMSD-MTD"-PARAM-Kategorie (`rmsd_econv` default 1e8, funktional — steuert Bias-Ablagerung via `setEnergyConv`).
+- ✅ **Harmonic confinement walls** — curcuma `SimpleMD` `wall_type` (none/spheric/rect) + `wall_potential` (harmonic/logfermi) + `wall_x|y|z_min/max` / `wall_radius` ("Walls"-PARAM-Kategorie, simplemd.h). Im Simulation-Widget QGroupBox "Confinement Walls" (MD-only, Enable→Details): Geometry/Potential-Combo + 6 rect bounds + sphere radius, manuell einstellbar. `SimulationConfig` hält die Felder; `SimulationWorker::applyWallParams()` (file-local) schreibt sie nur bei `wallEnabled` in den Controller. Viz: `SceneController::setWallBox`/`setWallSphere` bauen 12 Kanten bzw. Lat/Long-Ringe als `BondInstancing`-Segmente (Muster wie `setMeasurement`), Model unter `moleculeRoot` (rotiert mit dem Molekül, intrinsische Koordinaten). `MainWindow::onSimulationConfigChanged` → `MoleculeViewer::setConfinementBox` zeichnet die Box live beim Tippen (auto-show when enabled); Display-Panel "Show confinement walls" (`setWallVisibleOverride`) blendet sie unabhängig aus (`wallVisible` in `VisualizationSettings`). Display-Panel "Wall opacity"-Slider (`setWallOpacity` → `SceneController::wallOpacity`-Q_PROPERTY) steuert die Transparenz variabel: RGB (grau/rot) kommt pro Segment, das Alpha ist das Material-`baseColor`-Alpha (QML-Binding `Qt.rgba(1,1,1,controller.wallOpacity)`), kein Geometry-Rebuild bei Änderung. Auto-Size (Bounds/Radius = 0) wird von curcuma erst zur Laufzeit berechnet → nicht vorab zeichenbar.
+- ✅ **Wand-Grenzverletzungs-Feedback** — `MoleculeViewer::computeWallViolations()` zählt pro Frame/Live-MD die Atome außerhalb der Wand (rect: Achse außerhalb [min,max]; spheric: |r|>radius), rekolloriert das Wireframe **rot** bei Verletzung (sonst grau; `SceneController::setWallColor`+`rebuildWall`), emit `wallViolationChanged(count)` → `SimulationControlWidget::setWallViolationCount` zeigt „⚠ N atoms outside / ✓ all atoms inside". Aufgerufen aus `showFrame`, `updateSimulationFrame`, `applyWallVisibility`.
+- ✅ **Wand-Potential-Parameter + Iso-Potential-Schalen + Vektorfeld** — `wall_temp`/`wall_beta` als `TemperatureSlider` in Confinement Walls; live-anpassbar via mutex-gepufferte `SimulationWorker::setWallTemp/setWallBeta`. Display-Panel "Show potential gradient": 6 konzentrische Schalen — 3 innen (blau→grün, Annäherungszone) + 3 außen (gelb→rot, Kraftzone) — Abstände harmonic: 4/2/0.8 Å; LogFermi: 4/β, 2/β, 0.5/β; Schalen auch außerhalb der Wand (wo die Kraft tatsächlich wirkt). Display-Panel "Show force vectors" + Resolution-Spinbox (2–8): Kraft-Pfeile auf Gitternetz um die Wand (Kugel: lat/lon-Gitter; Box: res×res pro Fläche), Pfeillänge = Kraftbetrag, Farbe = Abstandsebene. Harmonic: nur außen (F=0 innen); LogFermi: auch innen (Glockenkurve). Impl: `SceneController::rebuildWallVectorField()` + `wallForceMag()` (anon-namespace); `m_wallForceShafts`/`m_wallForceTips` (`BondInstancing`); `setWallVectorField(bool, int)` durch alle Layer bis `MainWindow`.
+- ✅ **Stale-`stop`-File-Guard** — curcuma `CurcumaMethod::CheckStop()` (curcumamethod.cpp) bricht `SimpleMD::step()` sofort ab, wenn eine Datei `stop` im CWD liegt (CLI-Interrupt-Mechanismus). qurcuma steuert den Abbruch interaktiv über `requestStop()`, nicht über die Datei. Eine leftover `stop`-Datei aus einem früheren curcuma-CLI-Lauf im selben Verzeichnis hat daher jeden interaktiven MD/Opt-Lauf bei Step 0 abgebrochen (`step()` false beim ersten Aufruf, `m_run_prepared` true → finalize druckt Initialframe + „Exchange with heat bath", null Integrationsschritte = „MD startet nicht"-Symptom). `SimulationWorker::run()` entfernt `CWD/stop` vor jedem Run.
+- ✅ **Thermostat-Auswahl** — Combo im Simulation-Widget (MD Parameters): CSVR/Berendsen/**Andersen**/Nosé-Hoover/None → `SimulationConfig::thermostat` + `coupling`/`andersen_probability`/`chain_length` (alle in `startMD` in den `simplemd`-Controller geschrieben; curcuma liest nur die zum Typ passenden). Coupling/Andersen-p/NH-chain werden je nach Auswahl aktiviert. Andersen (stochastische Geschwindigkeits-Neuzuweisung) thermalisiert Einzelatome/Gasphase besser als CSVR. Engine: `external/curcuma/src/capabilities/simplemd.h` "Thermostat"-PARAM-Kategorie (Typo `anderson`→`andersen` in curcuma bereinigt, ohne Alias).
+- ✅ **Laufzeit-Temperatur: Slider + Rampen + Regionen** — vertikaler temperatur-farbiger Slider (`src/widgets/temperatureslider.*`, blau→rot, editierbares Min/Max) ersetzt die Temperatur-Spinbox und bleibt **während des Laufs aktiv**. Drag → `SimulationControlWidget::temperatureChanged` → `MainWindow::wireSimulationWorker` (QueuedConnection) → `SimulationWorker::setTargetTemperature` → setzt `SimpleMD::setTargetTemperature` vor dem nächsten Step (Muster wie Grab-Force, mutex-gepuffert in `performMDStep`); überschreibt eine laufende globale Rampe. QGroupBox "Temperature Ramp" (Enable→Tabelle Target/Mode/Value → `temp_schedule`-String) + "Temperature Regions" (Tabelle Atoms/Start T/Schedule → `temp_regions`-JSON-Array), MD-only, im Lauf gesperrt. `SimulationConfig`: `tempRamp`/`tempSchedule`/`tempRegions`; `SimulationWorker::applyTempRampParams()` (file-local) schreibt sie in den `simplemd`-Controller. Engine: `external/curcuma/docs/TEMPERATURE_RAMP.md`.
+- ✅ **Live-Charts** (`src/widgets/simulationchart.*`, CuteChart `ListChart` + QtCharts): **modeless Dialog** "Simulation Charts" (Molecule ▸ Simulation Charts, `MainWindow::m_simulationChartDialog`; modeless statt `exec()`, sonst wäre die Sim-Steuerung im Lauf blockiert) mit zwei Zeitreihen-Charts — Temperatur (instantan + Sollwert/Rampe) und Energie (E_pot/E_kin/E_tot). `SimulationFrame` trägt `temperature`/`targetTemperature` (aus `SimpleMD::currentTemperature()`/`targetTemperature()`); `MainWindow::wireSimulationWorker` verbindet `frameReady` → `SimulationChartWidget::appendFrame` (QueuedConnection) + `reset()` pro Run. Rollendes Punkt-Limit (2000) + gedrosseltes `formatAxis()` (~8 Hz). `ListChart::chart()` → `ChartView` (hat `formatAxis()`/`setZoomStrategy`).
+- ✅ **Dynamische Bindungen** (`MoleculeViewer::updateSimulationFrame`, `m_dynamicBonds` default an): pro Live-Frame (MD **und** Opt) wird der Bindungsgraph aus der neuen Geometrie neu erkannt (`detectBondsHysteresis` — Kovalenzradien × Toleranz mit Hysterese form 1.25 / break 1.45 gegen Flackern), sodass Bindungsbruch/-bildung in Reaktionen gezeichnet werden. Nur bei echter Topologieänderung (`bondSetEqual`, mengen-basiert) ruft es `SceneController::updateBonds()` (rebuild der Bond-Instancing-Geometrie ohne `recomputeBounds`/`resetView` → keine Kamerasprünge); stabile Frames bleiben auf `updatePositions`. Toggle: Display-Dock ▸ Tools ▸ "Dynamic bonds". Kosten O(N²)/Frame.
+- Mouse grab distributes a screen-space drag as Eh/Bohr force across bonded shells (Angstrom-to-Bohr corrected in `computeGrabForce`)
+- Grab force is **sticky**: `injectForce` holds it until `clearInjectedForce` (mouse release), and the worker *re-reads* (`currentInjectedForces`, peek not drain) it every MD step / Opt iteration. The viewer only emits `atomForceRequested` on mouse-*move* + once per frame, so the old one-shot drain dropped the bias whenever the cursor held still — fatal for Opt (no momentum: it relaxes straight back). Sticky = "force acts as long as the button is held"
+- Opt grab needs all three: (1) sticky force (above); (2) `runOptimization` pumps `QCoreApplication::processEvents()` in the step callback so queued `injectForce`/`clearInjectedForce` reach the worker (its event loop is blocked in synchronous `Optimize()`; the dispatcher exists — MD's `QTimer` fires — so the pump delivers; MD never blocks so it needs no pump); (3) curcuma applies the bias at each optimizer's own gradient eval (LBFGSpp objective, native `LBFGS::getEnergyGradient`, ANCOpt) — the old base-loop bias was inert
+- Reset restores snapshot index 0, which is captured automatically when a molecule is loaded
+- Snapshots tab provides manual take/restore/delete history plus an auto-snapshot stride in Simulation tab (every N steps/iterations, 0 = off)
+- GPU dropdown shows only compiled backends (CUDA/ROCm/Vulkan via `USE_*` CMake options); curcuma `feature/vulkan_rocm` branch
+- CLI `qurcuma <file> -md|-opt` loads the file and auto-starts the interactive simulation from bash
+- Release/AVX-512 start crash fixed: `CMakeLists.txt` matches curcuma's `-march=native` on the qurcuma target so both share Eigen's `EIGEN_MAX_ALIGN_BYTES` (mismatch caused `double free` in `moleculeToFrame`)
 
-## Core Modules
+## Mouse Interactions (C++ `eventFilter` on the `QQuickView`)
+- Left-drag = rotate (model rotation); right-drag = pan; wheel = zoom; middle-click = reset view.
+- Left-**click** (no drag) = ray-pick an atom → select (Ctrl/Shift = add to selection).
+- ✅ **Hover feedback**: moving over an atom brightens it (`SceneController::setHoverAtom`, cheap atoms-only `rebuildAtoms`, only on change) + pointing-hand cursor; cleared on leave.
+- In sim mode, left-press on an atom + drag = grab → `atomForceRequested` (see Interactive Simulation).
+- ✅ **Measurement**: a single "Measure" toggle (viewer bar + Display dock); the type is auto-detected from the number of picked atoms (2 = distance, 3 = angle, 4 = dihedral). Click marks an atom, click it again to de-mark, Esc clears. The HUD shows ALL pairwise distances + chain angles + dihedral (`MoleculeViewer::updateMeasurement` → `SceneController::setMeasurement`).
 
-| Module | File | Purpose |
-|--------|------|---------|
-| **3D Viewer** | view.cpp/h | Qt3D molecular visualization + arcball rotation |
-| **File Parsers** | *parser.cpp/h | VTF, XYZ, PDB, MOL2 format support |
-| **SFTP Remote Access** | sftpdialog.cpp/h, sftpmodel.hpp | HPC cluster file access via SSH/SFTP (libssh) |
-| **GPU Instancing** | atominstancingsystem.cpp/h | Single draw call for >1000 atoms (Phase 5D) |
-| **Frustum Culling** | frustumculler.cpp/h | Off-screen atom culling, 30-50% draw reduction |
-| **Async Loading** | fileloadingworker.cpp/h | QThread background file parsing |
-| **Selection** | selectionmanager.cpp/h | Atom selection & state management |
-| **Measurements** | measurementoverlay.cpp/h | Distance/angle/dihedral calculations |
-| **Rendering** | customframegraph.cpp/h | 4-pass pipeline: Geometry→SSAO→Blur→Composite (disabled) |
-| **Performance** | performanceoptimizer.cpp/h | LOD system, quality auto-detection |
-| **Workspace** | workspacemanager.cpp/h | Save/restore full application state |
-| **Settings** | settings.cpp/h | QSettings persistence (visualization + performance) |
+## Structure Editing (Explore-mode "Edit" toggle)
+- ✅ **Edit mode** (`MoleculeViewer::setEditMode`, viewer-bar "Edit" toggle; sibling of Measure, exclusive with measure/bond-edit) — direct coordinate editing, **distinct from the sim grab-force** (which injects forces into running MD/Opt). `eventFilter` Edit branch: click = select atom, **double-click = whole molecule** (`selectFragment`, BFS over the current bond graph via `forceinjector::buildAdjacency`), drag on atom = move (Shift = depth), drag empty = rotate, **Ctrl/Shift+drag empty = rubber-band box-select** (`SceneController::atomsInScreenRect` + a 2D QML overlay rect via `setRubberBand`), click empty = clear.
+- ✅ **WASD/QE scene rotation** (W/S pitch, A/D yaw, **Q/E roll** → full 3-axis) — application-level key filter `MainWindow::eventFilter` (installed on `qApp`), **active in Edit mode and the interactive MD/Opt grab mode** (`simulationActive()`; rotation is purely visual there) so the keys stay free everywhere else; also skipped while a text widget has focus or Ctrl/Alt/Meta is held. Calls `MoleculeViewer::rotateSceneByKey` → `applyModelRotation` (shared with mouse rotate). **Shift+WASDQE** nudges the selection (Q/E = depth). Gives the depth DOF a 2D in-plane move can't reach.
+- ✅ **Deselect** — **right-click (no pan-drag)** clears the selection (and measurement marks); right-drag still pans. Plain left-click on empty space in Edit mode also clears.
+- ✅ **Edit hint HUD** — bottom-centre 2D overlay (`SceneController::editHint` Q_PROPERTY → `viewer3d.qml`) listing the key/mouse bindings; shown while Edit mode is on (set in `setEditMode`), empty string = hidden.
+- ✅ **Move** — `SceneController::screenDragToModelDelta` (translation twin of `computeGrabForce`: same pixel→world-at-depth scale, Ångström not Bohr, no force factor) → `moveSelection` adds the delta to atom positions via the cheap `updatePositions` path (no camera jump).
+- ✅ **Cursor lock while dragging** (`m_dragCursorLock`, default on; Edit ▸ "Lock Cursor While Dragging") — warps the cursor back to the press point each move so the drag is relative/infinite and never runs off-screen (a zero-delta guard absorbs the synthetic warp move). Needs X11 cursor warping; on Wayland `QCursor::setPos` may be a no-op (drag still works, cursor just isn't pinned).
+- ✅ **Collisions** — `computeCollisions` (O(N²): clash if dist < `kClashFactor`=0.6 × (vdW_i+vdw_j); skips bonded pairs + pairs both inside the selection) → `SceneController::setCollisionAtoms` recolours them **red** (priority above the magenta selection in `atomColor`); `collisionCountChanged` → viewer-bar "⚠ N clashes / ✓ no clashes". **Resolve clashes** button = `resolveClashes` (rigid translation of the selection along the overlap-weighted net push until clear).
+- ✅ **Copy/Paste/Delete** (Edit menu; Ctrl+C/Ctrl+V context-aware: selection in Edit mode, structure text otherwise) — `copySelection`/`pasteClipboard` (re-indexed internal bonds, paste offset) and `deleteSelection` (reindexes bonds). Count-changing ops are single-frame only (`canEditStructure`, `frameCount<=1`).
+- ✅ **Merge from file** (`Edit ▸ Add Molecule to Scene…` + `MainWindow::parseFirstFrame`) — `MoleculeViewer::appendMolecule` appends + selects + starts placement via a **bounds-preserving** rebuild `SceneController::setStructure(..., keepView=true)` (no `recomputeBounds`/`resetView`, else a rotated molecule jumps by (I−R)·Δcenter).
+- ✅ **Undo** — viewer emits `editSnapshotRequested(label)` before each mutating op → `MainWindow::takeSnapshot`; restore via the Snapshots tab.
 
-## Build & Test
-
-```bash
-# Build
-cmake --build debug      # Full debug symbols, no optimizations
-cmake --build release    # O3 optimizations, production build
-
-# Test
-./debug/test_vtf_bonds   # Bond parsing (expects 199 bonds)
-./debug/test_vtf_frames  # Frame detection (expects 3 frames)
-./debug/test_vtf_full    # End-to-end validation
-```
-
-## Development Guidelines
-
-- **Code Marking:** Add `// Claude Generated - Phase X` comment for traceability
-- **Documentation:** Doxygen-ready with scientific context (equations, references)
-- **Git Workflow:** Only commit source files, test before commit, no warnings/errors
-- **Commit Format:** `"Verb: Brief description (Phase X)"`
-- **Architecture:** Prefer flat over hierarchical, minimal abstraction layers
-
-See [docs/](../docs/) for detailed architecture and API documentation.
+## UI / Docks (P1–P4)
+- ✅ **Display dock** (`displaypanel.*` + `widgets/collapsiblesection.*`; right side, tabbed with Editors): the single home for all viewer options, as collapsible sections Style / Effects / Lighting / Tools / Presets, bound live to `MoleculeViewer` setters. Replaced (and deleted) the modal `VisualizationSettingsDialog`. The viewer top bar is slim: frame-nav + playback (shown only for >1 frame) + Measure toggle + Color combo + "Display ⚙" button.
+- ✅ **Explore/Compute mode switch** (`MainWindow::createModeBar`/`setAppMode`): segmented buttons in the **menu-bar corner** (`setCornerWidget`, TopRight — fixed, immune to toolbar reflow). Explore hides the calculation toolbar and shows viewer + Display/Atoms docks; Compute shows the calc toolbar + Project/Output/Editors. Persisted as `ui/appMode`. Independent of the 4 layout presets (View ▸ Layout Presets, Ctrl+Alt+1–4).
+- ✅ **Command palette** (`widgets/commandpalette.*`; Ctrl+K or View ▸ Command Palette): searchable popup that auto-collects every menu action (recursive `menuBar()` walk: title + menu-path + shortcut + `QAction::trigger`) plus curated viewer/mode commands.
+- ✅ **Menus (6)**: File / Edit / View / **Molecule** (MD + Opt + RMSD — merged Simulation+Analysis) / Settings / Help. View carries Command-Palette, Mode ▸ Explore/Compute, the Display dock toggle, and Display Options.

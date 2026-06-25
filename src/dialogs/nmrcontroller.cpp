@@ -161,7 +161,6 @@ bool NMRController::exportData(const QString& filename)
     QFile file(filename);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         NMR_CONTROLLER_LOG("Failed to open file for export: " << filename);
-        // emit dataExportFailed(tr("Datei konnte nicht zum Schreiben geöffnet werden."));
         return false;
     }
 

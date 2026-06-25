@@ -8,7 +8,9 @@
 #include <memory>
 
 // Debug-Makros zur einfachen Fehlersuche
+#ifndef NMR_DEBUG
 #define NMR_DEBUG 1
+#endif
 
 #if NMR_DEBUG
 #include <QDebug>
@@ -66,7 +68,7 @@ private slots:
     /**
      * Handles element filter changes
      */
-    void elementFilterChanged(int state);
+    void elementFilterChanged(Qt::CheckState state);
 
     /**
      * Sets the number of plot points
@@ -96,7 +98,6 @@ private slots:
     /**
      * Handles selection change in the tree view
      */
-    // void handleSelectionChanged(const QModelIndex& current, const QModelIndex& previous);
     void handleSelectionChanged(const QItemSelection& selected, const QItemSelection& deselected);
     /**
      * Handles data change in the model

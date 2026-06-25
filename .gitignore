@@ -65,6 +65,7 @@ compile_commands.json
 
 # Test executables and artifacts (generated in root)
 test_vtf*
+!test_vtf*.cpp
 test_frame_detection*
 test_trajectory.xyz
 test_xyz_parser
@@ -77,6 +78,9 @@ scnp_cut.vtf
 .idea/
 *.sublime-workspace
 *.sublime-project
+
+# Clangd cache
+.cache/
 
 # OS specific files
 .DS_Store
@@ -92,4 +96,14 @@ scnp_cut.vtf
 # Add any specific files or directories for your project
 settings.ini
 *.log
+
+# FetchContent-populated external dependencies (populated by cmake, not tracked by git)
+external/CuteChart/
+external/curcuma/
+external/fmt/
+external/LBFGSpp/
+external/CxxThreadPool/
+external/ripser/
+external/cpp-d4/
+external/ulysses-main/
 

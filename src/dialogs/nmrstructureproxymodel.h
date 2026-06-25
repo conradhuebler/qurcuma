@@ -11,7 +11,9 @@
 class NMRDataStore;
 
 // Debug-Makros zur einfachen Fehlersuche
+#ifndef NMR_DEBUG
 #define NMR_DEBUG 1
+#endif
 
 #if NMR_DEBUG
 #include <QDebug>

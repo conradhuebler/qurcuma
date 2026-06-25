@@ -96,7 +96,7 @@ void NMRSpectrumDialog::setupUI()
 
     // Chart section
     m_chart = new ListChart;
-    m_chart->Chart()->setZoomStrategy(ZoomStrategy::Z_Horizontal);
+    m_chart->chart()->setZoomStrategy(ZoomStrategy::Horizontal);
 
     // Table section
     m_shiftTable = new QTableWidget(this);
@@ -208,7 +208,7 @@ void NMRSpectrumDialog::setupElementFilters()
         checkbox->setChecked(m_controller->isElementVisible(element));
         checkbox->setObjectName(element); // Store element in object name
 
-        connect(checkbox, &QCheckBox::stateChanged, this, &NMRSpectrumDialog::elementFilterChanged);
+        connect(checkbox, &QCheckBox::checkStateChanged, this, &NMRSpectrumDialog::elementFilterChanged);
 
         m_elementFilterBox->layout()->addWidget(checkbox);
         NMR_DIALOG_LOG("Added checkbox for element: " << element);
@@ -226,7 +226,7 @@ void NMRSpectrumDialog::updateElementFilters()
 /**
  * Handles element filter changes
  */
-void NMRSpectrumDialog::elementFilterChanged(int state)
+void NMRSpectrumDialog::elementFilterChanged(Qt::CheckState state)
 {
     QCheckBox* checkbox = qobject_cast<QCheckBox*>(sender());
     if (!checkbox)
@@ -368,7 +368,7 @@ void NMRSpectrumDialog::generateSpectrum()
     NMR_DIALOG_LOG("Generating spectrum with " << m_plotPoints << " points and line width " << m_lineWidth);
 
     // Clear previous data
-    m_chart->Clear();
+    m_chart->clear();
     m_shiftTable->setRowCount(0);
 
     // Generate spectrum using controller
@@ -556,7 +556,7 @@ void NMRSpectrumDialog::clearData()
     }
 
     m_controller->clearAllStructures();
-    m_chart->Clear();
+    m_chart->clear();
     m_shiftTable->setRowCount(0);
     updateElementFilters();
 

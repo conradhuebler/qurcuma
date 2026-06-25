@@ -1,11 +1,20 @@
 #include "settings.h"
 #include "selectionmanager.h"  // Claude Generated - Phase 2A
 #include "atomlistpanel.h"  // Claude Generated - Phase 2C
+#ifdef USE_SFTP
+#include "sftpmodel.hpp"
+#include "dialogs/sftpdialog.h"
+#endif
+#include "simulationcontrolwidget.h"  // Claude Generated - Interactive Simulation Integration
+#include "snapshotswidget.h"  // Claude Generated 2026 - Snapshot history foundation
+// Claude Generated 2026 - Phase 6: SimulationDialog removed; the dock widget is the sole sim UI.
 #include <algorithm>  // Claude Generated - for std::min/std::max
+#include <QAbstractSpinBox>
 #include <QApplication>
 #include <QClipboard>
 #include <QCheckBox>
 #include <QCompleter>
+#include <QDialog>
 #include <QDir>
 #include <QDateTime>
 #include <QDialogButtonBox>
@@ -13,6 +22,9 @@
 #include <QDockWidget>  // Claude Generated - Phase 2C - For AtomListPanel dock
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QKeyEvent>
+#include <QPlainTextEdit>
+#include <QTextEdit>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMimeData>
@@ -29,7 +41,10 @@
 #include <QProcessEnvironment>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QCloseEvent>
 #include <QScrollBar>
+#include <QButtonGroup>
+#include <QSettings>
 #include <QShortcut>
 #include <QStandardPaths>
 #include <QStatusBar>
@@ -38,6 +53,7 @@
 #include <QThread>
 #include <QTime>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QToolBar>
 #include <QToolButton>
 
@@ -46,10 +62,15 @@
 #include <QString>
 #include "view.h"
 #include "frequencydialog.h"
-#include "visualizationsettingsdialog.h"
+#include "displaypanel.h"
+#include "widgets/commandpalette.h"
+#include "widgets/simulationchart.h"  // Claude Generated 2026 - live MD temperature/energy charts
 
 #include "dialogs/nmrspectrumdialog.h"
-#include "dialogs/sftpdialog.h"  // Claude Generated - SFTP remote file access
+#include "rmsdwidget.h"  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
+#ifdef USE_SFTP
+#include "dialogs/sftpdialog.h"
+#endif
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "mainwindow.h"
 
@@ -60,9 +81,14 @@
 #define DEBUG_LOG if(false) qDebug()
 #endif
 
-MainWindow::MainWindow(QWidget *parent)
+// Claude Generated 2026 - "Use Invocation Directory" preference.
+// invocationDir is captured from QDir::currentPath() in main.cpp BEFORE
+// QApplication is created. When useInvocationDirectoryEnabled() is true,
+// this directory becomes the active Working Directory.
+MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     : QMainWindow(parent)
 {
+    m_invocationDir = invocationDir;
     // Claude Generated - Initialize m_currentProcess first (needed by setupConnections)
     m_currentProcess = new QProcess(this);
 
@@ -72,16 +98,15 @@ MainWindow::MainWindow(QWidget *parent)
     setupUI();
     createToolbars();
     createMenus();
+    createModeBar();   // Claude Generated 2026 - P2/P4: menu-bar corner widget (after the menu bar exists)
     setupConnections();
+    // Claude Generated 2026 - App-level key filter for WASD/QE scene rotation (see eventFilter).
+    qApp->installEventFilter(this);
     setupProjectViewContextMenu();  // Enable right-click on calculation directories
     setupShortcuts();  // Claude Generated - Phase 1.2
     loadDrafts();      // Claude Generated - Quick Win: Auto-save drafts
 
-    m_nmrDialog = new NMRSpectrumDialog(this);
-    m_vtfParser = new VTFParser();
-    m_xyzParser = new XYZParser();
-
-    // Arbeitsverzeichnis aus Settings laden
+    // Arbeitsverzeichnis aus Settings laden (must be AFTER createDockWidgets which creates m_projectListView)
     m_workingDirectory = m_settings.workingDirectory();
     if (!m_workingDirectory.isEmpty()) {
         m_projectModel->setRootPath(m_workingDirectory);
@@ -91,6 +116,26 @@ MainWindow::MainWindow(QWidget *parent)
     if (!lastDir.isEmpty() && QDir(lastDir).exists()) {
         switchWorkingDirectory(lastDir);
     }
+
+    // Claude Generated 2026 - "Use Invocation Directory" preference.
+    // The invocation dir was captured at the top of the constructor; here we
+    // read the persisted toggle, reflect it on the menu action, and apply
+    // switchWorkingDirectory if the user opted in. If the dir is missing
+    // (e.g. USB stick gone), switchWorkingDirectory shows a warning and the
+    // last-used dir stays.
+    m_useInvocationDirectoryEnabled = m_settings.useInvocationDirectoryEnabled();
+    if (m_useInvocationDirAction) {
+        m_useInvocationDirAction->setChecked(m_useInvocationDirectoryEnabled);
+    }
+    if (m_useInvocationDirectoryEnabled
+        && !m_invocationDir.isEmpty()
+        && QDir(m_invocationDir).exists()) {
+        switchWorkingDirectory(m_invocationDir);
+    }
+
+    m_nmrDialog = new NMRSpectrumDialog(this);
+    m_vtfParser = new VTFParser();
+    m_xyzParser = new XYZParser();
 
     // Claude Generated - Visual Polish: Load dark mode setting and update checkbox
     m_darkModeEnabled = m_settings.darkModeEnabled();
@@ -104,7 +149,6 @@ MainWindow::~MainWindow()
 {
     delete m_vtfParser;
     delete m_xyzParser;
-    //delete m_currentProcess;
 }
 
 void MainWindow::setupUI()
@@ -112,286 +156,9 @@ void MainWindow::setupUI()
     // Claude Generated - Quick Win: Enable drag and drop
     setAcceptDrops(true);
 
-    // Create main widget
-    QWidget *centralWidget = new QWidget(this);
-    setCentralWidget(centralWidget);
-    QHBoxLayout *mainLayout = new QHBoxLayout(centralWidget);
-
-    // Create main splitter for flexible sizing
-    m_splitter = new QSplitter(Qt::Horizontal);
-    mainLayout->addWidget(m_splitter);
-
-    // Left side: File browser and bookmarks
-    QWidget *leftWidget = new QWidget;
-    QVBoxLayout *leftLayout = new QVBoxLayout(leftWidget);
-    leftLayout->setSpacing(5);
-
-    // Current directory widget with bookmark button
-    QWidget* currentDirWidget = new QWidget;
-    QHBoxLayout* currentDirLayout = new QHBoxLayout(currentDirWidget);
-    currentDirLayout->setContentsMargins(0, 0, 0, 0);
-
-    // Directory icon - Claude Generated Phase 2.1
-    m_chooseDirectory = new QPushButton(tr("Choose Working Directory"));
-    m_chooseDirectory->setIcon(QIcon::fromTheme("folder-open", QIcon(":/icons/folder.png")));
-    currentDirLayout->addWidget(m_chooseDirectory);
-
-    // Claude Generated Phase 1 - Breadcrumb navigation bar
-    m_breadcrumbBar = new BreadcrumbBar;
-    m_breadcrumbBar->setHomeDirectory(QDir::homePath());
-    connect(m_breadcrumbBar, &BreadcrumbBar::pathSelected, this, &MainWindow::switchWorkingDirectory);
-    currentDirLayout->addWidget(m_breadcrumbBar, 1);
-
-    // Bookmark button
-    m_bookmarkButton = new QToolButton;
-    m_bookmarkButton->setIcon(QIcon::fromTheme("bookmark-new", QIcon(":/icons/bookmark.png")));
-    m_bookmarkButton->setToolTip(tr("Bookmark current directory"));
-    currentDirLayout->addWidget(m_bookmarkButton);
-
-    leftLayout->addWidget(currentDirWidget);
-
-    // Separator line
-    QFrame* line1 = new QFrame;
-    line1->setFrameShape(QFrame::HLine);
-    line1->setFrameShadow(QFrame::Sunken);
-    leftLayout->addWidget(line1);
-
-    // Directory content section
-    // Claude Generated - Phase 3.1: Renamed for clarity and added tooltip
-    QLabel* dirListLabel = new QLabel(tr("Calculation Directories"));
-    dirListLabel->setStyleSheet("font-weight: bold;");
-    dirListLabel->setToolTip(tr("Subdirectories for individual calculations"));
-    leftLayout->addWidget(dirListLabel);
-
-    // Project list view setup
-    m_projectListView = new QListView;
-    m_projectModel = new QFileSystemModel(this);
-    m_projectModel->setRootPath(m_workingDirectory);
-    m_projectModel->setFilter(QDir::AllDirs | QDir::NoDot);
-    m_projectModel->setReadOnly(true);
-    m_projectListView->setModel(m_projectModel);
-    m_projectListView->setRootIndex(m_projectModel->index(m_workingDirectory));
-    leftLayout->addWidget(m_projectListView);
-
-    // Another separator
-    QFrame* line2 = new QFrame;
-    line2->setFrameShape(QFrame::HLine);
-    line2->setFrameShadow(QFrame::Sunken);
-    leftLayout->addWidget(line2);
-
-    // Bookmarks section
-    QLabel* bookmarksLabel = new QLabel(tr("Bookmarks"));
-    bookmarksLabel->setStyleSheet("font-weight: bold;");
-    leftLayout->addWidget(bookmarksLabel);
-
-    // Claude Generated Phase 3.2 - Bookmark tree with hierarchical folder support
-    m_bookmarkTreeView = new QTreeWidget;
-    m_bookmarkTreeView->setHeaderLabels(QStringList() << tr("Bookmarks"));
-    m_bookmarkTreeView->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_bookmarkTreeView->setDragDropMode(QAbstractItemView::InternalMove);
-    leftLayout->addWidget(m_bookmarkTreeView);
-
-    // Claude Generated Phase 4.3 - Workspace list section
-    QFrame* line3 = new QFrame;
-    line3->setFrameShape(QFrame::HLine);
-    line3->setFrameShadow(QFrame::Sunken);
-    leftLayout->addWidget(line3);
-
-    // Workspace header with add button
-    QWidget* workspaceHeader = new QWidget;
-    QHBoxLayout* wsHeaderLayout = new QHBoxLayout(workspaceHeader);
-    wsHeaderLayout->setContentsMargins(0, 0, 0, 0);
-    wsHeaderLayout->setSpacing(5);
-
-    QLabel* workspacesLabel = new QLabel(tr("Workspaces"));
-    workspacesLabel->setStyleSheet("font-weight: bold;");
-    wsHeaderLayout->addWidget(workspacesLabel);
-
-    QPushButton* newWorkspaceButton = new QPushButton("+");
-    newWorkspaceButton->setMaximumWidth(30);
-    newWorkspaceButton->setToolTip(tr("Save current state as workspace"));
-    connect(newWorkspaceButton, &QPushButton::clicked, this, &MainWindow::saveCurrentWorkspace);
-    wsHeaderLayout->addWidget(newWorkspaceButton);
-
-    leftLayout->addWidget(workspaceHeader);
-
-    // Workspace list
-    m_workspaceListView = new QListWidget;
-    m_workspaceListView->setContextMenuPolicy(Qt::CustomContextMenu);
-    leftLayout->addWidget(m_workspaceListView);
-
-    // Add left widget to splitter
-    m_splitter->addWidget(leftWidget);
-
-    // Middle section: File content view
-    QWidget *middleWidget = new QWidget;
-    QVBoxLayout *middleLayout = new QVBoxLayout(middleWidget);
-
-    // Make new calculation button and create directory - Claude Generated Phase 2.1
-    // Claude Generated - Visual Polish: Button icons
-    m_newCalculationButton = new QPushButton(tr("Create Calculation Directory"));
-    m_newCalculationButton->setIcon(QIcon::fromTheme("folder-new", QIcon()));
-    m_newCalculationButton->setToolTip(tr("Create a new calculation directory (Ctrl+N)"));
-    m_newCalculationButton->setIconSize(QSize(16, 16));
-    middleLayout->addWidget(m_newCalculationButton);
-
-    // Claude Generated - Quick Fix: Project label with copy button
-    QWidget* pathWidget = new QWidget;
-    QHBoxLayout* pathLayout = new QHBoxLayout(pathWidget);
-    pathLayout->setContentsMargins(0, 0, 0, 0);
-
-    m_currentProjectLabel = new QLabel(m_currentCalculationDir);
-    m_currentProjectLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_currentProjectLabel->setWordWrap(false);
-    pathLayout->addWidget(m_currentProjectLabel);
-
-    QPushButton* copyPathButton = new QPushButton;
-    copyPathButton->setIcon(QIcon::fromTheme("edit-copy"));
-    copyPathButton->setToolTip(tr("Copy current path to clipboard"));
-    copyPathButton->setMaximumWidth(30);
-    connect(copyPathButton, &QPushButton::clicked, this, &MainWindow::copyCurrentPath);
-    pathLayout->addWidget(copyPathButton);
-
-    middleLayout->addWidget(pathWidget);
-
-    // Claude Generated - Phase 3.3: Visual state indicators
-    QWidget* stateWidget = new QWidget;
-    QHBoxLayout* stateLayout = new QHBoxLayout(stateWidget);
-    stateLayout->setContentsMargins(0, 0, 0, 0);
-
-    m_stateIcon = new QLabel("●");
-    m_stateIcon->setStyleSheet("color: grey; font-size: 14px;");
-    m_stateIcon->setFixedWidth(20);
-    stateLayout->addWidget(m_stateIcon);
-
-    m_stateIndicator = new QLabel(tr("No directory selected"));
-    stateLayout->addWidget(m_stateIndicator);
-    stateLayout->addStretch();
-
-    middleLayout->addWidget(stateWidget);
-
-    // Setup directory content view for files
-    m_directoryContentView = new QListView;
-    m_directoryContentModel = new QFileSystemModel(this);
-    m_directoryContentModel->setFilter(QDir::NoDotAndDotDot | QDir::Files);
-    // Set file filters for relevant chemistry files
-    m_directoryContentModel->setNameFilters(QStringList()
-        << "*.xyz" << "*.vtf" << "*.pdb" << "*.mol2" << "*.inp" << "*.log" << "*.out"
-        << "*.hess" << "*.gbw" << "*.txt" << "*.*" << "input");
-    m_directoryContentModel->setNameFilterDisables(false);
-    m_directoryContentView->setModel(m_directoryContentModel);
-
-    // Setup context menu for files
-    m_directoryContentView->setContextMenuPolicy(Qt::CustomContextMenu);
-    setupContextMenu();
-    middleLayout->addWidget(m_directoryContentView);
-    m_splitter->addWidget(middleWidget);
-
-    // Right section: Program controls and editors
-    QWidget *rightWidget = new QWidget;
-    QVBoxLayout *rightLayout = new QVBoxLayout(rightWidget);
-    m_splitter->addWidget(rightWidget);
-
-    // Initialize available program commands
-    initializeProgramCommands();
-
-    // Program selection dropdown
-    QHBoxLayout *programLayout = new QHBoxLayout;
-    m_programSelector = new QComboBox;
-    m_programSelector->addItems(m_simulationPrograms);
-    m_programSelector->setToolTip(tr("Choose computational chemistry program"));
-    programLayout->addWidget(new QLabel(tr("Program:")));
-    programLayout->addWidget(m_programSelector);
-
-    // Claude Generated - Quick Win: Calculation timer label
-    m_timerLabel = new QLabel("00:00:00");
-    m_timerLabel->setStyleSheet("font-weight: bold; color: #0066cc;");
-    m_timerLabel->setMinimumWidth(70);
-    m_timerLabel->setToolTip(tr("Elapsed calculation time"));
-    programLayout->addStretch();
-    programLayout->addWidget(m_timerLabel);
-
-    rightLayout->addLayout(programLayout);
-
-    // Command input with auto-completion
-    QHBoxLayout *commandLayout = new QHBoxLayout;
-    m_commandInput = new QLineEdit;
-    m_commandInput->setPlaceholderText("Enter command...");
-    m_commandInput->setToolTip(tr("Enter program-specific command arguments"));
-
-    m_commandCompleter = new QCompleter(this);
-    m_commandCompleter->setCaseSensitivity(Qt::CaseInsensitive);
-    m_commandCompleter->setFilterMode(Qt::MatchContains);
-    m_commandInput->setCompleter(m_commandCompleter);
-
-    // choose number of threads
-    m_threads = new QSpinBox;
-    m_threads->setRange(1, QThread::idealThreadCount());
-    m_threads->setValue(1);
-    m_threads->setToolTip(tr("Number of parallel threads for calculation"));
-
-    m_uniqueFileNames = new QCheckBox(tr("Unique file names"));
-    m_uniqueFileNames->setToolTip(tr("Append timestamp to output filenames"));
-
-    // Run calculation button - Claude Generated Phase 2.1
-    m_runCalculation = new QPushButton(tr("Start Calculation"));
-    m_runCalculation->setIcon(QIcon::fromTheme("system-run", QIcon()));
-    m_runCalculation->setToolTip(tr("Start calculation with selected program (Ctrl+R)"));
-    m_runCalculation->setIconSize(QSize(16, 16));
-
-    commandLayout->addWidget(m_commandInput, 3);
-    commandLayout->addWidget(m_threads);
-    commandLayout->addWidget(m_uniqueFileNames);
-    commandLayout->addWidget(m_runCalculation);
-    rightLayout->addLayout(commandLayout);
-
-    // Tab widget for structure and input editors
-    QTabWidget *editorTabs = new QTabWidget;
-
-    // Structure tab
-    QWidget *structureTab = new QWidget;
-    QVBoxLayout *structureLayout = new QVBoxLayout(structureTab);
-    
-    QHBoxLayout *structureFileLayout = new QHBoxLayout;
-    structureFileLayout->addWidget(new QLabel(tr("Structure file:")));
-    m_structureFileEdit = new QLineEdit("input"); // Default name
-    m_structureFileEdit->setToolTip(tr("Base name for structure file"));
-    m_structureFileEditExtension = new QLineEdit("xyz");
-    structureFileLayout->addWidget(m_structureFileEdit);
-    structureFileLayout->addWidget(m_structureFileEditExtension);
-    structureLayout->addLayout(structureFileLayout);
-
-    // Structure editor - Claude Generated Phase 2.3
-    m_structureView = new ModifiableTextEdit;
-    m_structureView->setPlaceholderText("Structure data");
-    structureLayout->addWidget(m_structureView);
-
-    // Claude Generated - Visual Polish: Tab icons
-    editorTabs->addTab(structureTab, QIcon::fromTheme("document-properties"), tr("Structure"));
-
-    // Input tab
-    QWidget *inputTab = new QWidget;
-    QVBoxLayout *inputLayout = new QVBoxLayout(inputTab);
-
-    QHBoxLayout *inputFileLayout = new QHBoxLayout;
-    inputFileLayout->addWidget(new QLabel(tr("Input file:")));
-    m_inputFileEdit = new QLineEdit("input"); // Default name
-    m_inputFileEdit->setToolTip(tr("Base name for input file"));
-    m_inputFileEditExtension = new QLineEdit("");
-    inputFileLayout->addWidget(m_inputFileEdit);
-    inputFileLayout->addWidget(m_inputFileEditExtension);
-    inputLayout->addLayout(inputFileLayout);
-
-    // Input editor - Claude Generated Phase 2.3
-    m_inputView = new ModifiableTextEdit;
-    m_inputView->setPlaceholderText("Input data");
-    inputLayout->addWidget(m_inputView);
-
-    editorTabs->addTab(inputTab, QIcon::fromTheme("document-edit"), tr("Input"));
-
+    // Claude Generated (2026-04) - Dock rewrite: MoleculeViewer is the real central widget.
+    // Replaces the old 1x1 dummy — fixes dock resize math and eliminates the tab-support hack.
     m_moleculeView = new MoleculeViewer;
-
-    // Claude Generated - Apply saved visualization settings
     Settings::VisualizationSettings vizSettings = m_settings.getVisualizationSettings();
     m_moleculeView->setRenderingMode(static_cast<MoleculeViewer::RenderingMode>(vizSettings.renderingMode));
     m_moleculeView->setColorScheme(static_cast<MoleculeViewer::ColorScheme>(vizSettings.colorScheme));
@@ -401,59 +168,36 @@ void MainWindow::setupUI()
     m_moleculeView->setBondThickness(vizSettings.bondThickness);
     m_moleculeView->setFogEnabled(vizSettings.fogEnabled);
     m_moleculeView->setFogIntensity(vizSettings.fogIntensity);
+    // Claude Generated 2026 - Interaction & Performance persisted values
+    m_moleculeView->setRotationMode(vizSettings.rotationMode);
+    m_moleculeView->setInstancingThreshold(vizSettings.instancingThreshold);
+    m_centerOnLoad = vizSettings.centerOnLoad;
+    setCentralWidget(m_moleculeView);
 
-    // Frame navigation is now handled directly in MoleculeViewer control panel
+    // Initialize available program commands before creating docks
+    initializeProgramCommands();
 
+    // Claude Generated - UI Restructuring: Create all dock widgets
+    createDockWidgets();
 
-    // Create integrated structure viewer widget with navigation controls
-    QWidget *structureViewerWidget = new QWidget;
-    QVBoxLayout *structureViewerLayout = new QVBoxLayout(structureViewerWidget);
-    
-    // Add the 3D molecule viewer
-    structureViewerLayout->addWidget(m_moleculeView, 1);  // Stretch factor 1
-    
-    editorTabs->addTab(structureViewerWidget, QIcon::fromTheme("document-import"), tr("Structure Viewer"));
+    // Claude Generated - UI Restructuring: Enable dock features AFTER dock creation
+    setDockOptions(QMainWindow::AllowTabbedDocks |
+                   QMainWindow::AnimatedDocks |
+                   QMainWindow::AllowNestedDocks |
+                   QMainWindow::GroupedDragging);
 
-    // Claude Generated - Phase 2C: Create Atom List Panel as DockWidget
-    m_atomListPanel = new AtomListPanel(this);
-    QDockWidget *atomListDock = new QDockWidget(tr("Atom List"), this);
-    atomListDock->setWidget(m_atomListPanel);
-    atomListDock->setObjectName("AtomListDock");  // For saving/restoring state
-    addDockWidget(Qt::RightDockWidgetArea, atomListDock);
+    setTabPosition(Qt::LeftDockWidgetArea, QTabWidget::North);
+    setTabPosition(Qt::RightDockWidgetArea, QTabWidget::North);
+    setTabPosition(Qt::TopDockWidgetArea, QTabWidget::North);
+    setTabPosition(Qt::BottomDockWidgetArea, QTabWidget::North);
 
-    rightLayout->addWidget(editorTabs);
+    // Setup context menu for file list
+    setupContextMenu();
 
-    // Output view (read-only) with clear button
-    // Claude Generated - Quick Fix: Output view with clear button
-    QWidget* outputWidget = new QWidget;
-    QVBoxLayout* outputLayout = new QVBoxLayout(outputWidget);
-    outputLayout->setContentsMargins(0, 0, 0, 0);
-
-    QHBoxLayout* outputHeaderLayout = new QHBoxLayout;
-    QLabel* outputLabel = new QLabel(tr("Output"));
-    outputLabel->setStyleSheet("font-weight: bold;");
-    outputHeaderLayout->addWidget(outputLabel);
-    outputHeaderLayout->addStretch();
-
-    QPushButton* clearOutputButton = new QPushButton;
-    clearOutputButton->setIcon(QIcon::fromTheme("edit-clear"));
-    clearOutputButton->setToolTip(tr("Clear output (Ctrl+L)"));
-    clearOutputButton->setMaximumWidth(30);
-    connect(clearOutputButton, &QPushButton::clicked, this, &MainWindow::clearOutputView);
-    outputHeaderLayout->addWidget(clearOutputButton);
-
-    outputLayout->addLayout(outputHeaderLayout);
-
-    m_outputView = new QTextEdit;
-    m_outputView->setPlaceholderText("Output");
-    m_outputView->setReadOnly(true);
-    outputLayout->addWidget(m_outputView);
-
-    rightLayout->addWidget(outputWidget);
-
-    // Shortcut for toggling left panel (Ctrl+B)
-    QShortcut* toggleLeftPanelShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_B), this);
-    connect(toggleLeftPanelShortcut, &QShortcut::activated, this, &MainWindow::toggleLeftPanel);
+    // Update initial state
+#ifdef USE_SFTP
+    updateRemoteDirectoriesView();
+#endif
 
     // Claude Generated - Rendering mode shortcuts (Keys 1-4)
     new QShortcut(Qt::Key_1, this, SLOT(setRenderingModeBallAndStick()));
@@ -476,29 +220,107 @@ void MainWindow::setupUI()
     new QShortcut(Qt::CTRL | Qt::Key_0, this, SLOT(fitMoleculeInView()));   // Ctrl+0 for fit all
     new QShortcut(Qt::Key_Home, this, SLOT(fitMoleculeInView()));            // Home key also fits
     new QShortcut(Qt::CTRL | Qt::Key_F, this, SLOT(centerViewOnSelection())); // Ctrl+F for focus
+    new QShortcut(Qt::CTRL | Qt::Key_Backspace, this, SLOT(centerMoleculeAtOrigin())); // Ctrl+Backspace for center at origin
 
     // Claude Generated - Phase 2A: Selection shortcuts
     new QShortcut(Qt::CTRL | Qt::Key_A, this, SLOT(selectAllAtoms()));       // Ctrl+A for select all
     new QShortcut(Qt::Key_Escape, this, SLOT(clearAtomSelection()));          // Escape for clear selection
+
+    // Claude Generated 2026 - P3 command palette: Ctrl+K is carried by the View ▸ Command
+    // Palette menu action (P4); no standalone QShortcut here to avoid an ambiguous overload.
 
     // Initial updates
     updatePathLabel(m_workingDirectory);
     updateBookmarkTree();
 
     // Window settings
-    resize(1200, 800);
+    resize(1400, 900);  // Larger default size for flexible docking
     setWindowTitle("Qurcuma");
 
-    // Set initial splitter sizes (20:30:50 ratio)
-    m_splitter->setSizes(QList<int>() << 240 << 360 << 600);
+    // Claude Generated (2026-04) - Dock rewrite: capture baseline after Qt finished
+    // placement, then prefer the globally persisted layout from QSettings. Falls
+    // back to applyAnalysisLayout() only on first run.
+    QTimer::singleShot(0, this, [this]() {
+        m_defaultDockState = saveState();
+        QSettings uiSettings;
+        const QByteArray savedGeometry = uiSettings.value("ui/geometry").toByteArray();
+        const QByteArray savedState = uiSettings.value("ui/dockState").toByteArray();
+        if (!savedGeometry.isEmpty()) restoreGeometry(savedGeometry);
+        if (!savedState.isEmpty()) {
+            restoreState(savedState);
+        } else {
+            applyAnalysisLayout();
+        }
+        // Claude Generated 2026 - P2: enforce the saved Explore/Compute mode last so the
+        // calculation toolbar + dock visibility match the mode (default Explore on first run).
+        const auto savedMode = static_cast<AppMode>(
+            uiSettings.value("ui/appMode", static_cast<int>(AppMode::Explore)).toInt());
+        setAppMode(savedMode, /*reflow=*/false);
+    });
 }
 
 void MainWindow::createToolbars()
 {
-    QToolBar* toolbar = new QToolBar(this);
+    // Claude Generated (2026-04) - Dock rewrite: program controls moved from Top dock
+    // into a proper toolbar. Main toolbar carries the full calculation command line.
+    QToolBar* toolbar = new QToolBar(tr("Calculation"), this);
+    m_calculationToolbar = toolbar; // Claude Generated 2026 - P2: hidden in Explore mode
+    toolbar->setObjectName("CalculationToolbar");
+    toolbar->setMovable(true);
+    toolbar->setIconSize(QSize(18, 18));
+
+    toolbar->addWidget(new QLabel(tr("Program: ")));
+    m_programSelector = new QComboBox;
+    m_programSelector->addItems(m_simulationPrograms);
+    m_programSelector->setToolTip(tr("Choose computational chemistry program"));
+    m_programSelector->setMinimumWidth(110);
+    toolbar->addWidget(m_programSelector);
+
+    toolbar->addSeparator();
+
+    m_commandInput = new QLineEdit;
+    m_commandInput->setPlaceholderText(tr("Enter command..."));
+    m_commandInput->setToolTip(tr("Program-specific command arguments"));
+    m_commandInput->setMinimumWidth(240);
+    m_commandCompleter = new QCompleter(this);
+    m_commandCompleter->setCaseSensitivity(Qt::CaseInsensitive);
+    m_commandCompleter->setFilterMode(Qt::MatchContains);
+    m_commandInput->setCompleter(m_commandCompleter);
+    toolbar->addWidget(m_commandInput);
+
+    toolbar->addSeparator();
+
+    toolbar->addWidget(new QLabel(tr(" Threads: ")));
+    m_threads = new QSpinBox;
+    m_threads->setRange(1, QThread::idealThreadCount());
+    m_threads->setValue(1);
+    m_threads->setToolTip(tr("Number of parallel threads for calculation"));
+    toolbar->addWidget(m_threads);
+
+    m_uniqueFileNames = new QCheckBox(tr("Unique filenames"));
+    m_uniqueFileNames->setToolTip(tr("Append timestamp to output filenames"));
+    toolbar->addWidget(m_uniqueFileNames);
+
+    m_runCalculation = new QPushButton(tr("Start"));
+    m_runCalculation->setIcon(QIcon::fromTheme("system-run"));
+    m_runCalculation->setToolTip(tr("Start calculation with selected program (Ctrl+R)"));
+    toolbar->addWidget(m_runCalculation);
+
+    toolbar->addSeparator();
+
+    m_timerLabel = new QLabel("00:00:00");
+    m_timerLabel->setStyleSheet("font-weight: bold; color: #0066cc;");
+    m_timerLabel->setMinimumWidth(70);
+    m_timerLabel->setToolTip(tr("Elapsed calculation time"));
+    toolbar->addWidget(m_timerLabel);
+
+    QWidget* spacer = new QWidget;
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    toolbar->addWidget(spacer);
+
     QAction* toggleNMR = toolbar->addAction(tr("NMR Spektren"));
     connect(toggleNMR, &QAction::triggered, [this]() { m_nmrDialog->show(); });
-    addToolBar(toolbar);
+    addToolBar(Qt::TopToolBarArea, toolbar);
 }
 
 void MainWindow::setupContextMenu()
@@ -527,6 +349,17 @@ void MainWindow::setupContextMenu()
                 connect(iboviewAction, &QAction::triggered,
                     [this, filePath]() { openWithVisualizer(filePath, "iboview"); });
 
+                // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
+                contextMenu.addSeparator();
+                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                connect(rmsdAction, &QAction::triggered,
+                    [this, filePath]() { showRMSDTool(filePath); });
+
+                // Claude Generated 2026 - merge this file into the current scene (editing).
+                QAction *mergeAction = contextMenu.addAction(tr("Add to current scene"));
+                connect(mergeAction, &QAction::triggered, this,
+                    [this, filePath]() { mergeFileIntoScene(filePath); });
+
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive))
             {
@@ -540,23 +373,22 @@ void MainWindow::setupContextMenu()
                 QAction *visualizerAction = contextMenu.addAction(tr("Open with 3D Viewer"));
 
                 connect(visualizerAction, &QAction::triggered,
-                    [this, filePath]() { 
-                        // VTF-Datei im 3D-Viewer laden mit Trajektorie-Support
-                        if (m_vtfParser->parseTrajectory(filePath)) {
-                            int frameCount = m_vtfParser->getFrameCount();
-                            m_moleculeView->setFrameCount(frameCount);
-                            
-                            VTFParser::VTFFrame frame;
-                            if (m_vtfParser->getFrame(0, frame)) {
-                                QVector<MoleculeViewer::Atom> atoms;
-                                QVector<MoleculeViewer::Bond> bonds;
-                                VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
-                                m_moleculeView->addMolecule(atoms, bonds);
-                                
-                                // Frame controls are now managed by MoleculeViewer
-                            }
-                        }
+                    [this, filePath]() {
+                        // Claude Generated 2026 - Route through loadMoleculeFile
+                        // so snapshots, save-path, and simulation dock are synced.
+                        loadMoleculeFile(filePath);
                     });
+
+                // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
+                contextMenu.addSeparator();
+                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                connect(rmsdAction, &QAction::triggered,
+                    [this, filePath]() { showRMSDTool(filePath); });
+
+                // Claude Generated 2026 - merge this file into the current scene (editing).
+                QAction *mergeAction = contextMenu.addAction(tr("Add to current scene"));
+                connect(mergeAction, &QAction::triggered, this,
+                    [this, filePath]() { mergeFileIntoScene(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".pdb", Qt::CaseInsensitive))
@@ -578,10 +410,22 @@ void MainWindow::setupContextMenu()
                             QVector<MoleculeViewer::Bond> bonds;
                             PDBParser::convertToMoleculeViewer(frame, atoms, bonds, pdbParser.getBonds());
                             m_moleculeView->addMolecule(atoms, bonds);
+                            if (m_simulationControlWidget) m_simulationControlWidget->setMolecule(atoms, bonds);
                         } else {
                             QMessageBox::warning(this, tr("Error"), tr("Failed to parse PDB file: %1").arg(pdbParser.getLastError()));
                         }
                     });
+
+                // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
+                contextMenu.addSeparator();
+                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                connect(rmsdAction, &QAction::triggered,
+                    [this, filePath]() { showRMSDTool(filePath); });
+
+                // Claude Generated 2026 - merge this file into the current scene (editing).
+                QAction *mergeAction = contextMenu.addAction(tr("Add to current scene"));
+                connect(mergeAction, &QAction::triggered, this,
+                    [this, filePath]() { mergeFileIntoScene(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".mol2", Qt::CaseInsensitive))
@@ -603,10 +447,22 @@ void MainWindow::setupContextMenu()
                             QVector<MoleculeViewer::Bond> bonds;
                             MOL2Parser::convertToMoleculeViewer(molecule, atoms, bonds);
                             m_moleculeView->addMolecule(atoms, bonds);
+                            if (m_simulationControlWidget) m_simulationControlWidget->setMolecule(atoms, bonds);
                         } else {
                             QMessageBox::warning(this, tr("Error"), tr("Failed to parse MOL2 file: %1").arg(mol2Parser.getLastError()));
                         }
                     });
+
+                // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
+                contextMenu.addSeparator();
+                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                connect(rmsdAction, &QAction::triggered,
+                    [this, filePath]() { showRMSDTool(filePath); });
+
+                // Claude Generated 2026 - merge this file into the current scene (editing).
+                QAction *mergeAction = contextMenu.addAction(tr("Add to current scene"));
+                connect(mergeAction, &QAction::triggered, this,
+                    [this, filePath]() { mergeFileIntoScene(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             }else if(filePath.endsWith(".gbw", Qt::CaseInsensitive) || filePath.endsWith(".loc", Qt::CaseInsensitive) || filePath.endsWith(".ges", Qt::CaseInsensitive))
@@ -729,6 +585,156 @@ void MainWindow::initializeProgramCommands()
     };
 }
 
+// Claude Generated 2026 - P2/P4: prominent Explore/Compute mode switch, placed in the
+// menu-bar corner so it has a fixed position and never reflows when the calculation
+// toolbar is shown/hidden (the former dedicated toolbar shared the top area and shifted).
+void MainWindow::createModeBar()
+{
+    QWidget* modeWidget = new QWidget(this);
+    QHBoxLayout* row = new QHBoxLayout(modeWidget);
+    row->setContentsMargins(2, 1, 6, 1);
+    row->setSpacing(0);
+
+    auto* group = new QButtonGroup(this);
+    group->setExclusive(true);
+
+    auto makeBtn = [&](const QString& text, const QString& tip) {
+        auto* b = new QToolButton(modeWidget);
+        b->setText(text);
+        b->setToolTip(tip);
+        b->setCheckable(true);
+        b->setMinimumWidth(96);
+        group->addButton(b);
+        row->addWidget(b);
+        return b;
+    };
+    m_exploreButton = makeBtn(tr("🔬 Explore"),
+        tr("Molecule viewing & interactive simulation (hides the calculation toolbar)"));
+    m_computeButton = makeBtn(tr("⚙ Compute"),
+        tr("Run calculations: program / command / threads, with project & output panels"));
+
+    modeWidget->setStyleSheet(QStringLiteral(
+        "QToolButton { padding: 3px 14px; border: 1px solid palette(mid); }"
+        "QToolButton:checked { background: palette(highlight); color: palette(highlighted-text);"
+        " font-weight: bold; }"));
+
+    connect(m_exploreButton, &QToolButton::clicked, this, [this]() { setAppMode(AppMode::Explore); });
+    connect(m_computeButton, &QToolButton::clicked, this, [this]() { setAppMode(AppMode::Compute); });
+
+    if (menuBar())
+        menuBar()->setCornerWidget(modeWidget, Qt::TopRightCorner);
+}
+
+// Claude Generated 2026 - P2: apply a top-level mode. Sets the calculation toolbar +
+// dock visibility explicitly (deterministic); reflow=false keeps restored sizes on startup.
+void MainWindow::setAppMode(AppMode mode, bool reflow)
+{
+    m_appMode = mode;
+    const bool explore = (mode == AppMode::Explore);
+
+    for (QToolButton* b : { m_exploreButton, m_computeButton }) {
+        if (!b)
+            continue;
+        b->blockSignals(true);
+        b->setChecked((b == m_exploreButton) == explore);
+        b->blockSignals(false);
+    }
+    QSettings().setValue("ui/appMode", static_cast<int>(mode));
+
+    if (m_calculationToolbar)
+        m_calculationToolbar->setVisible(!explore);
+
+    auto vis = [](QDockWidget* d, bool on) { if (d) d->setVisible(on); };
+    vis(m_projectDock, true);
+    vis(m_navigationDock, false);
+    vis(m_editorsDock, !explore);
+    vis(m_displayDock, explore);
+    vis(m_atomsSimulationDock, explore);
+    vis(m_outputViewDock, !explore);
+    if (explore && m_displayDock)
+        m_displayDock->raise();
+
+    if (reflow) {
+        if (explore) {
+            if (width() > 0)
+                resizeDocks({ m_projectDock, m_atomsSimulationDock },
+                    { int(width() * 0.16), int(width() * 0.22) }, Qt::Horizontal);
+        } else {
+            if (width() > 0)
+                resizeDocks({ m_projectDock, m_editorsDock },
+                    { int(width() * 0.20), int(width() * 0.30) }, Qt::Horizontal);
+            if (height() > 0)
+                resizeDocks({ m_outputViewDock }, { int(height() * 0.32) }, Qt::Vertical);
+        }
+    }
+
+    statusBar()->showMessage(explore ? tr("Mode: Explore") : tr("Mode: Compute"), 2000);
+}
+
+// Claude Generated 2026 - P3: recursively collect leaf menu actions as palette commands.
+static void collectMenuCommands(QMenu* menu, const QString& path, QVector<CommandPalette::Command>& out)
+{
+    if (!menu)
+        return;
+    for (QAction* a : menu->actions()) {
+        if (a->isSeparator())
+            continue;
+        QString text = a->text();
+        text.remove('&');
+        if (a->menu()) {
+            const QString sub = path.isEmpty() ? text : (path + QStringLiteral(" ▸ ") + text);
+            collectMenuCommands(a->menu(), sub, out);
+        } else if (!text.isEmpty()) {
+            CommandPalette::Command c;
+            c.title = text;
+            c.context = path;
+            c.shortcut = a->shortcut().toString(QKeySequence::NativeText);
+            c.enabled = a->isEnabled();
+            QPointer<QAction> ap(a);
+            c.run = [ap]() { if (ap) ap->trigger(); };
+            out.append(c);
+        }
+    }
+}
+
+void MainWindow::showCommandPalette()
+{
+    if (!m_commandPalette)
+        m_commandPalette = new CommandPalette(this);
+
+    QVector<CommandPalette::Command> cmds;
+    if (menuBar()) {
+        for (QAction* topAct : menuBar()->actions()) {
+            if (!topAct->menu())
+                continue;
+            QString top = topAct->text();
+            top.remove('&');
+            collectMenuCommands(topAct->menu(), top, cmds);
+        }
+    }
+    // Curated viewer/mode commands that are shortcut-only (not in any menu).
+    auto add = [&](const QString& title, const QString& ctx, std::function<void()> run) {
+        CommandPalette::Command c;
+        c.title = title;
+        c.context = ctx;
+        c.run = std::move(run);
+        cmds.append(c);
+    };
+    add(tr("Explore Mode"), tr("Mode"), [this]() { setAppMode(AppMode::Explore); });
+    add(tr("Compute Mode"), tr("Mode"), [this]() { setAppMode(AppMode::Compute); });
+    add(tr("Ball and Stick"), tr("Render"), [this]() { setRenderingModeBallAndStick(); });
+    add(tr("Space Filling"), tr("Render"), [this]() { setRenderingModeSpaceFilling(); });
+    add(tr("Wireframe"), tr("Render"), [this]() { setRenderingModeWireframe(); });
+    add(tr("Sticks"), tr("Render"), [this]() { setRenderingModeSticks(); });
+    add(tr("Fit Molecule in View"), tr("View"), [this]() { fitMoleculeInView(); });
+    add(tr("Center Molecule at Origin"), tr("View"), [this]() { centerMoleculeAtOrigin(); });
+    add(tr("Select All Atoms"), tr("Selection"), [this]() { selectAllAtoms(); });
+    add(tr("Clear Selection"), tr("Selection"), [this]() { clearAtomSelection(); });
+
+    m_commandPalette->setCommands(cmds);
+    m_commandPalette->popUp();
+}
+
 void MainWindow::createMenus()
 {
     QMenuBar *menuBar = new QMenuBar;
@@ -737,7 +743,47 @@ void MainWindow::createMenus()
     // File Menu
     QMenu *fileMenu = menuBar->addMenu(tr("&File"));
 
-    // Claude Generated - SFTP: Open Remote File
+    // Claude Generated 2026 - Local file open. The previous File menu only
+    // exposed "Open Remote File..."; the standard "Open File..." action was
+    // missing. The action uses the current Working Directory as the dialog's
+    // start path so the user lands where they expect, and the underlying
+    // loadMoleculeFile() will auto-switch the working directory to the
+    // file's parent directory on a successful load.
+    QAction *openFileAction = fileMenu->addAction(QIcon::fromTheme("document-open"), tr("&Open File..."));
+    openFileAction->setShortcut(QKeySequence::Open);  // Ctrl+O / Cmd+O
+    connect(openFileAction, &QAction::triggered, this, [this]() {
+        const QString startDir = m_workingDirectory.isEmpty()
+                                 ? QDir::homePath()
+                                 : m_workingDirectory;
+        const QString path = QFileDialog::getOpenFileName(this,
+            tr("Open Molecule File"),
+            startDir,
+            tr("Molecule Files (*.xyz *.vtf *.pdb *.mol2);;All Files (*)"));
+        if (path.isEmpty()) return;
+        loadMoleculeFile(path);
+    });
+
+    fileMenu->addSeparator();
+
+    // Claude Generated 2026 - Save / Save As. The Save action overwrites the
+    // source XYZ when the source is a .xyz file; otherwise it falls through
+    // to a Save-As dialog. Save As always opens the dialog.
+    m_saveAction = fileMenu->addAction(QIcon::fromTheme("document-save"), tr("&Save"));
+    m_saveAction->setShortcut(QKeySequence::Save);
+    m_saveAction->setToolTip(tr("Save the current structure. Overwrites the source "
+                               "XYZ, or opens a Save As dialog for other formats."));
+    m_saveAction->setEnabled(false);
+    connect(m_saveAction, &QAction::triggered, this, &MainWindow::saveCurrentStructure);
+
+    m_saveAsAction = fileMenu->addAction(QIcon::fromTheme("document-save-as"), tr("Save &As..."));
+    m_saveAsAction->setShortcut(QKeySequence::SaveAs);
+    m_saveAsAction->setToolTip(tr("Save the current structure to a new XYZ file"));
+    m_saveAsAction->setEnabled(false);
+    connect(m_saveAsAction, &QAction::triggered, this, &MainWindow::saveCurrentStructureAs);
+
+    fileMenu->addSeparator();
+
+#ifdef USE_SFTP
     QAction *openRemoteAction = fileMenu->addAction(QIcon::fromTheme("folder-remote"), tr("Open &Remote File..."));
     openRemoteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R));
     connect(openRemoteAction, &QAction::triggered, this, [this]() {
@@ -745,27 +791,31 @@ void MainWindow::createMenus()
         if (dialog.exec() == QDialog::Accepted) {
             QString localPath = dialog.getLocalPath();
             if (!localPath.isEmpty()) {
-                // Load the downloaded file using existing parsers
                 loadMoleculeFile(localPath);
                 statusBar()->showMessage(tr("Loaded remote file: %1").arg(QFileInfo(localPath).fileName()), 3000);
+                updateRecentConnectionsMenu();
             }
         }
     });
+    m_recentConnectionsMenu = fileMenu->addMenu(QIcon::fromTheme("network-server"), tr("Recent Remote &Connections"));
+    m_recentConnectionsMenu->setEnabled(false);
+    updateRecentConnectionsMenu();
+#endif
 
     fileMenu->addSeparator();
 
     // Claude Generated - Quick Win: Recent files menu
-    m_recentFilesMenu = fileMenu->addMenu(tr("&Recent Files"));
+    m_recentFilesMenu = fileMenu->addMenu(QIcon::fromTheme("document-open-recent"), tr("&Recent Files"));
     m_recentFilesMenu->setEnabled(false);
 
     // Claude Generated Phase 4.5 - Workspace menu
-    m_workspaceMenu = fileMenu->addMenu(tr("&Workspaces"));
+    m_workspaceMenu = fileMenu->addMenu(QIcon::fromTheme("window-duplicate"), tr("&Workspaces"));
 
-    QAction *saveWorkspaceAction = m_workspaceMenu->addAction(tr("&Save Current Workspace..."));
+    QAction *saveWorkspaceAction = m_workspaceMenu->addAction(QIcon::fromTheme("document-save"), tr("&Save Current Workspace..."));
     saveWorkspaceAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
     connect(saveWorkspaceAction, &QAction::triggered, this, &MainWindow::saveCurrentWorkspace);
 
-    QAction *loadWorkspaceAction = m_workspaceMenu->addAction(tr("&Load Workspace..."));
+    QAction *loadWorkspaceAction = m_workspaceMenu->addAction(QIcon::fromTheme("document-open"), tr("&Load Workspace..."));
     loadWorkspaceAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
     connect(loadWorkspaceAction, &QAction::triggered, [this]() {
         // For now, load workspace can be done via the sidebar list
@@ -782,36 +832,234 @@ void MainWindow::createMenus()
     // Claude Generated - Quick Win: Edit Menu with Copy/Paste
     QMenu *editMenu = menuBar->addMenu(tr("&Edit"));
 
-    QAction *copyAction = editMenu->addAction(QIcon::fromTheme("edit-copy"), tr("&Copy Structure"));
+    // Claude Generated 2026 - context-aware Copy/Paste: in viewer Edit mode they act on
+    // the selected atoms/molecule (in-app); otherwise on the structure text (clipboard).
+    QAction *copyAction = editMenu->addAction(QIcon::fromTheme("edit-copy"), tr("&Copy"));
     copyAction->setShortcut(QKeySequence::Copy);
-    connect(copyAction, &QAction::triggered, this, &MainWindow::copyStructureToClipboard);
+    copyAction->setToolTip(tr("Edit mode: copy the selected atoms. Otherwise: copy the structure text."));
+    connect(copyAction, &QAction::triggered, this, [this]() {
+        if (m_moleculeView && m_moleculeView->editMode() && !m_moleculeView->getSelectedAtoms().isEmpty()) {
+            m_moleculeView->copySelection();
+            statusBar()->showMessage(tr("Copied %1 atom(s)").arg(m_moleculeView->getSelectedAtoms().size()), 2000);
+        } else {
+            copyStructureToClipboard();
+        }
+    });
 
-    QAction *pasteAction = editMenu->addAction(QIcon::fromTheme("edit-paste"), tr("&Paste Structure"));
+    QAction *pasteAction = editMenu->addAction(QIcon::fromTheme("edit-paste"), tr("&Paste"));
     pasteAction->setShortcut(QKeySequence::Paste);
-    connect(pasteAction, &QAction::triggered, this, &MainWindow::pasteStructureFromClipboard);
+    pasteAction->setToolTip(tr("Edit mode: paste the copied atoms into the scene. Otherwise: paste structure text."));
+    connect(pasteAction, &QAction::triggered, this, [this]() {
+        if (m_moleculeView && m_moleculeView->editMode()) {
+            m_moleculeView->pasteClipboard();
+            statusBar()->showMessage(tr("Pasted into scene — drag to place, then Resolve clashes if needed"), 2500);
+        } else {
+            pasteStructureFromClipboard();
+        }
+    });
+
+    // Claude Generated 2026 - Structure editing actions (active in viewer Edit mode).
+    editMenu->addSeparator();
+
+    QAction *editModeAction = editMenu->addAction(QIcon::fromTheme("transform-move"), tr("Structure &Edit Mode"));
+    editModeAction->setCheckable(true);
+    editModeAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_E));
+    editModeAction->setToolTip(tr("Select/move atoms & molecules, copy/paste, merge files, with clash feedback."));
+    connect(editModeAction, &QAction::toggled, this, [this](bool on) {
+        if (m_moleculeView) m_moleculeView->setEditMode(on);
+    });
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::editModeChanged, editModeAction, &QAction::setChecked);
+
+    QAction *deleteSelAction = editMenu->addAction(QIcon::fromTheme("edit-delete"), tr("&Delete Selection"));
+    deleteSelAction->setShortcut(QKeySequence::Delete);
+    deleteSelAction->setToolTip(tr("Delete the selected atoms (Edit mode, single-frame structures)."));
+    connect(deleteSelAction, &QAction::triggered, this, [this]() {
+        if (m_moleculeView && m_moleculeView->editMode())
+            m_moleculeView->deleteSelection();
+    });
+
+    QAction *addMoleculeAction = editMenu->addAction(QIcon::fromTheme("list-add"), tr("&Add Molecule to Scene…"));
+    addMoleculeAction->setToolTip(tr("Merge a molecule from a file into the current scene (single-frame structures)."));
+    connect(addMoleculeAction, &QAction::triggered, this, &MainWindow::addMoleculeToScene);
+
+    QAction *cursorLockAction = editMenu->addAction(tr("&Lock Cursor While Dragging"));
+    cursorLockAction->setCheckable(true);
+    cursorLockAction->setChecked(m_moleculeView ? m_moleculeView->dragCursorLock() : true);
+    cursorLockAction->setToolTip(tr("Pin the cursor at the press point during a move so the drag never runs off-screen (relative drag)."));
+    connect(cursorLockAction, &QAction::toggled, this, [this](bool on) {
+        if (m_moleculeView) m_moleculeView->setDragCursorLock(on);
+    });
+
+    // Claude Generated - UI Restructuring: View Menu for dock visibility and layout presets
+    QMenu *viewMenu = menuBar->addMenu(tr("&View"));
+
+    // Claude Generated 2026 - P4: Command palette + mode switch entries (discoverability).
+    QAction* paletteAction = viewMenu->addAction(QIcon::fromTheme("edit-find"), tr("Command &Palette…"));
+    paletteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_K));
+    connect(paletteAction, &QAction::triggered, this, &MainWindow::showCommandPalette);
+
+    QMenu* modeMenu = viewMenu->addMenu(tr("&Mode"));
+    QAction* exploreAct = modeMenu->addAction(QIcon::fromTheme("view-preview"), tr("&Explore"));
+    connect(exploreAct, &QAction::triggered, this, [this]() { setAppMode(AppMode::Explore); });
+    QAction* computeAct = modeMenu->addAction(QIcon::fromTheme("system-run"), tr("&Compute"));
+    connect(computeAct, &QAction::triggered, this, [this]() { setAppMode(AppMode::Compute); });
+
+    viewMenu->addSeparator();
+
+    // Layout Presets submenu
+    QMenu *layoutMenu = viewMenu->addMenu(QIcon::fromTheme("view-choose"), tr("&Layout Presets"));
+
+    QAction *visualizationLayoutAction = layoutMenu->addAction(tr("&Visualization Mode"));
+    visualizationLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_1));
+    visualizationLayoutAction->setToolTip(tr("Focus on 3D viewer (Ctrl+Alt+1)"));
+    connect(visualizationLayoutAction, &QAction::triggered, this, &MainWindow::applyVisualizationLayout);
+
+    QAction *editingLayoutAction = layoutMenu->addAction(tr("&Editing Mode"));
+    editingLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_2));
+    editingLayoutAction->setToolTip(tr("Focus on editors (Ctrl+Alt+2)"));
+    connect(editingLayoutAction, &QAction::triggered, this, &MainWindow::applyEditingLayout);
+
+    QAction *calculationLayoutAction = layoutMenu->addAction(tr("&Calculation Mode"));
+    calculationLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_3));
+    calculationLayoutAction->setToolTip(tr("Focus on calculation workflow (Ctrl+Alt+3)"));
+    connect(calculationLayoutAction, &QAction::triggered, this, &MainWindow::applyCalculationLayout);
+
+    QAction *analysisLayoutAction = layoutMenu->addAction(tr("&Analysis Mode (All Panels)"));
+    analysisLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_4));
+    analysisLayoutAction->setToolTip(tr("Balanced layout with all panels (Ctrl+Alt+4)"));
+    connect(analysisLayoutAction, &QAction::triggered, this, &MainWindow::applyAnalysisLayout);
+
+    viewMenu->addSeparator();
+
+    // Claude Generated (2026-04) - Dock rewrite: toggle actions for the 5-dock architecture.
+    QMenu *docksMenu = viewMenu->addMenu(QIcon::fromTheme("view-split-left-right"), tr("&Dock Panels"));
+
+    auto addDockToggle = [&docksMenu, this](QDockWidget* dock, const QString& label, const QKeySequence& shortcut = QKeySequence()) {
+        if (!dock) return;
+        QAction* act = docksMenu->addAction(label);
+        act->setCheckable(true);
+        act->setChecked(dock->isVisible());
+        if (!shortcut.isEmpty()) act->setShortcut(shortcut);
+        connect(act, &QAction::toggled, dock, &QDockWidget::setVisible);
+        connect(dock, &QDockWidget::visibilityChanged, act, &QAction::setChecked);
+    };
+
+    addDockToggle(m_projectDock,          tr("&Project"),            QKeySequence(Qt::CTRL | Qt::Key_B));
+    addDockToggle(m_navigationDock,       tr("&Navigation"));
+    addDockToggle(m_editorsDock,          tr("&Editors"));
+    addDockToggle(m_displayDock,          tr("&Display"));
+    addDockToggle(m_atomsSimulationDock,  tr("&Atoms && Simulation"));
+    addDockToggle(m_outputViewDock,       tr("&Output"));
+
+    // Display options (raises the Display dock) — moved here from Settings (P4).
+    QAction *displayOptionsAction = viewMenu->addAction(
+        QIcon::fromTheme("preferences-desktop"), tr("Display &Options…"));
+    displayOptionsAction->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
+    connect(displayOptionsAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
+
+    viewMenu->addSeparator();
+
+    // Reset layout: restore the captured baseline (drops preset caches so they re-derive).
+    QAction *resetLayoutAction = viewMenu->addAction(QIcon::fromTheme("view-restore"), tr("&Reset to Default Layout"));
+    resetLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_0));
+    connect(resetLayoutAction, &QAction::triggered, this, [this]() {
+        if (!m_defaultDockState.isEmpty()) {
+            m_presetStates.clear();
+            restoreState(m_defaultDockState);
+            statusBar()->showMessage(tr("Layout reset to default"), 2000);
+        }
+    });
 
     // Settings Menu
     QMenu *settingsMenu = menuBar->addMenu(tr("&Settings"));
 
+    // Claude Generated 2026 - "Use Invocation Directory" preference
+    // Checkbox state is updated in the constructor after settings are loaded.
+    m_useInvocationDirAction = settingsMenu->addAction(QIcon::fromTheme("go-home"), tr("Use &Invocation Directory"));
+    m_useInvocationDirAction->setCheckable(true);
+    m_useInvocationDirAction->setToolTip(
+        tr("If enabled, treat the directory from which qurcuma was launched "
+           "as the active Working Directory on each launch."));
+    connect(m_useInvocationDirAction, &QAction::triggered,
+            this, &MainWindow::toggleUseInvocationDirectory);
+
+    settingsMenu->addSeparator();
+
     // Claude Generated - Visual Polish: Dark mode toggle (checkbox state set later after loading settings)
-    m_darkModeAction = settingsMenu->addAction(tr("&Dark Mode"));
+    m_darkModeAction = settingsMenu->addAction(QIcon::fromTheme("weather-clear-night"), tr("&Dark Mode"));
     m_darkModeAction->setCheckable(true);
     // Note: checkbox state will be updated in constructor after loading settings
     connect(m_darkModeAction, &QAction::triggered, this, &MainWindow::toggleDarkMode);
 
     settingsMenu->addSeparator();
-
-    // Claude Generated - Visualization Settings
-    QAction *visSettingsAction = settingsMenu->addAction(QIcon::fromTheme("preferences-desktop"), tr("&Visualization Settings..."));
-    connect(visSettingsAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
-
-    settingsMenu->addSeparator();
     QAction *configAction = settingsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure Programs..."));
     connect(configAction, &QAction::triggered, this, &MainWindow::configurePrograms);
 
+    // Claude Generated 2026 - P4: "Molecule" menu merges Simulation (MD/Opt) + Analysis (RMSD).
+    QMenu *moleculeMenu = menuBar->addMenu(tr("&Molecule"));
+
+    // Menu entries focus the simulation dock/tab instead of opening a dialog.
+    auto showSimDock = [this](SimulationConfig::Mode mode) {
+        if (!m_atomsSimulationDock) return;
+        m_atomsSimulationDock->show();
+        m_atomsSimulationDock->raise();
+        if (m_atomsSimulationTabs) m_atomsSimulationTabs->setCurrentIndex(1);
+        if (m_simulationControlWidget) {
+            SimulationConfig cfg = m_simulationControlWidget->currentConfig();
+            cfg.mode = mode;
+            m_simulationConfig = cfg;
+        }
+    };
+    QAction *mdAction = moleculeMenu->addAction(
+        QIcon::fromTheme("media-playback-start"), tr("Run &MD Simulation"));
+    mdAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    mdAction->setToolTip(tr("Focus the simulation dock in MD mode"));
+    connect(mdAction, &QAction::triggered, this,
+        [showSimDock]() { showSimDock(SimulationConfig::Mode::MolecularDynamics); });
+
+    QAction *optAction = moleculeMenu->addAction(
+        QIcon::fromTheme("system-run"), tr("&Geometry Optimization"));
+    optAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
+    optAction->setToolTip(tr("Focus the simulation dock in optimization mode"));
+    connect(optAction, &QAction::triggered, this,
+        [showSimDock]() { showSimDock(SimulationConfig::Mode::GeometryOptimization); });
+
+    // Claude Generated 2026 - open the live temperature/energy charts (modeless dialog).
+    QAction *chartsAction = moleculeMenu->addAction(
+        QIcon::fromTheme("office-chart-line"), tr("Simulation &Charts…"));
+    chartsAction->setToolTip(tr("Open the live temperature/energy charts for the running simulation."));
+    connect(chartsAction, &QAction::triggered, this, [this]() {
+        if (!m_simulationChartDialog)
+            return;
+        m_simulationChartDialog->show();
+        m_simulationChartDialog->raise();
+        m_simulationChartDialog->activateWindow();
+    });
+
+    moleculeMenu->addSeparator();
+
+    QAction *rmsdAction = moleculeMenu->addAction(QIcon::fromTheme("view-object-histogram-linear"),
+        tr("&RMSD / Align Structures"));
+    rmsdAction->setToolTip(
+        tr("Open the Analysis dock (RMSD tab): overlay two structures, align and "
+           "optionally reorder atoms (curcuma RMSDDriver)."));
+    connect(rmsdAction, &QAction::triggered, this, [this]() { showRMSDTool(); });
+
+    moleculeMenu->addSeparator();
+
+    QAction *centerOriginAction = moleculeMenu->addAction(
+        QIcon::fromTheme("snap-orthogonal"), tr("&Center at Origin"));
+    centerOriginAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Backspace));
+    centerOriginAction->setToolTip(
+        tr("Translate all frames so the mass-weighted centre-of-mass is at the origin, "
+           "then reset the camera."));
+    connect(centerOriginAction, &QAction::triggered, this,
+        &MainWindow::centerMoleculeAtOrigin);
+
     // Help Menu - Claude Generated - Quick Fix: About dialog
     QMenu *helpMenu = menuBar->addMenu(tr("&Help"));
-    QAction *aboutAction = helpMenu->addAction(tr("&About Qurcuma"));
+    QAction *aboutAction = helpMenu->addAction(QIcon::fromTheme("help-about"), tr("&About Qurcuma"));
     connect(aboutAction, &QAction::triggered, this, &MainWindow::showAboutDialog);
 
     // Statusleiste
@@ -899,104 +1147,11 @@ void MainWindow::setupConnections()
             QString filePath = m_directoryContentModel->filePath(index);
             QString suffix = QFileInfo(filePath).suffix().toLower();
             QString basename = QFileInfo(filePath).baseName();
-            if (suffix == "xyz") {
-                // XYZ-Datei mit Parser laden
-                if (m_xyzParser->parseTrajectory(filePath)) {
-                    // Lade XYZ-Daten als Text anzeigen
-                    QFile file(filePath);
-                    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                        m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
-                        m_structureFileEdit->setText(QFileInfo(filePath).fileName());
-                        file.close();
-                    }
-
-                    // Get frame count and setup trajectory data
-                    int frameCount = m_xyzParser->getFrameCount();
-                    DEBUG_LOG << "XYZ: frameCount =" << frameCount;
-                    m_moleculeView->setFrameCount(frameCount);
-
-                    // Reset molecule viewer for new file
-                    m_moleculeView->clearScenePublic();
-
-                    // Convert all frames to trajectory data
-                    QVector<QVector<MoleculeViewer::Atom>> allAtoms;
-                    QVector<QVector<MoleculeViewer::Bond>> allBonds;
-
-                    for (int i = 0; i < frameCount; ++i) {
-                        XYZParser::XYZFrame frame;
-                        if (m_xyzParser->getFrame(i, frame)) {
-                            QVector<MoleculeViewer::Atom> atoms;
-                            QVector<MoleculeViewer::Bond> bonds;
-                            XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
-                            allAtoms.append(atoms);
-                            allBonds.append(bonds);
-                            DEBUG_LOG << "XYZ: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
-                        } else {
-                            DEBUG_LOG << "XYZ: Failed to load frame" << i;
-                        }
-                    }
-
-                    DEBUG_LOG << "XYZ: Total frames loaded:" << allAtoms.size();
-                    // Set trajectory data in molecule viewer
-                    // This automatically loads and displays the first frame
-                    m_moleculeView->setTrajectoryData(allAtoms, allBonds);
-
-                    // Frame controls are now managed by MoleculeViewer
-                } else {
-                    // Clear any previous content if parsing fails
-                    m_moleculeView->clearScenePublic();
-                    qWarning() << "Failed to parse XYZ file:" << filePath;
-                }
-            }
-            else if (suffix == "vtf") {
-                // VTF-Datei mit Parser laden
-                m_vtfParser = new VTFParser(); // Fresh parser for each file
-                if (m_vtfParser->parseTrajectory(filePath)) {
-                    // Lade VTF-Daten als Text anzeigen
-                    QFile file(filePath);
-                    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                        m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
-                        m_structureFileEdit->setText(QFileInfo(filePath).fileName());
-                        file.close();
-                    }
-                    
-                    // Get frame count and setup trajectory data
-                    int frameCount = m_vtfParser->getFrameCount();
-                    DEBUG_LOG << "VTF: frameCount =" << frameCount;
-                    m_moleculeView->setFrameCount(frameCount);
-
-                    // Reset molecule viewer for new file
-                    m_moleculeView->clearScenePublic();
-
-                    // Convert all frames to trajectory data
-                    QVector<QVector<MoleculeViewer::Atom>> allAtoms;
-                    QVector<QVector<MoleculeViewer::Bond>> allBonds;
-
-                    for (int i = 0; i < frameCount; ++i) {
-                        VTFParser::VTFFrame frame;
-                        if (m_vtfParser->getFrame(i, frame)) {
-                            QVector<MoleculeViewer::Atom> atoms;
-                            QVector<MoleculeViewer::Bond> bonds;
-                            VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
-                            allAtoms.append(atoms);
-                            allBonds.append(bonds);
-                            DEBUG_LOG << "VTF: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
-                        } else {
-                            DEBUG_LOG << "VTF: Failed to load frame" << i;
-                        }
-                    }
-
-                    DEBUG_LOG << "VTF: Total frames loaded:" << allAtoms.size();
-                    // Set trajectory data in molecule viewer
-                    // This automatically loads and displays the first frame
-                    m_moleculeView->setVTFTrajectoryData(allAtoms, allBonds);
-
-                    // Frame controls are now managed by MoleculeViewer
-                } else {
-                    // Clear any previous content if parsing fails
-                    m_moleculeView->clearScenePublic();
-                    qWarning() << "Failed to parse VTF file:" << filePath;
-                }
+            if (suffix == "xyz" || suffix == "vtf") {
+                // Claude Generated 2026 - Route molecule files through the
+                // central loadMoleculeFile() which handles snapshots, simulation
+                // dock sync, save-path tracking, and modified-state flags.
+                loadMoleculeFile(filePath);
             }
             else if (suffix == "log" || suffix == "out" || suffix == "txt") {
                 // Log/Output-Dateien in Output View laden
@@ -1060,8 +1215,9 @@ void MainWindow::setupConnections()
     connect(m_autoSaveTimer, &QTimer::timeout, this, &MainWindow::autoSaveDrafts);
     m_autoSaveTimer->start(30000);  // Auto-save every 30 seconds
 
-    // Claude Generated - Quick Win: Copy/Paste structures shortcut
-    new QShortcut(QKeySequence::Paste, this, SLOT(pasteStructureFromClipboard()));
+    // Ctrl+V is handled by the Edit-menu Paste action (context-aware: selection in
+    // viewer Edit mode, else structure text). A second QShortcut here caused an
+    // "Ambiguous shortcut overload: Ctrl+V" so paste stopped working. Claude Generated 2026.
 
     // Claude Generated - Phase 2C: AtomListPanel Connections
     if (m_atomListPanel && m_moleculeView) {
@@ -1125,7 +1281,10 @@ void MainWindow::setupShortcuts()
     new QShortcut(QKeySequence::New, this, SLOT(createNewDirectory()));
     new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_R), this, SLOT(runSimulation()));
     new QShortcut(QKeySequence::Refresh, this, SLOT(runSimulation()));  // F5
-    new QShortcut(QKeySequence::Save, this, SLOT(saveCurrentEditor()));
+    // Claude Generated 2026 - Ctrl+S is bound to the File>Save menu action
+    // (m_saveAction) below, so we deliberately omit a second QShortcut here to
+    // avoid double-firing. The editor save behaviour is still reachable via
+    // saveCurrentStructureAs() / editor shortcuts.
     new QShortcut(Qt::Key_Escape, this, SLOT(cancelCalculation()));
     new QShortcut(QKeySequence::NextChild, this, SLOT(switchEditorTab()));  // Ctrl+Tab
 
@@ -2372,16 +2531,18 @@ void MainWindow::switchWorkingDirectory(const QString& path)
     updateWorkflowState(WorkflowState::NoDirectory);
 }
 
+// Claude Generated (2026-04) - Toggles Project dock (Ctrl+B). Navigation is tabbed
+// with Project so hiding the group hides both.
 void MainWindow::toggleLeftPanel()
 {
-    QList<int> sizes = m_splitter->sizes();
-    if (sizes[0] > 0) { // If left panel is visible
-        m_lastLeftPanelWidth = sizes[0]; // Store current width
-        sizes[0] = 0; // Set width to 0
-    } else { // If left panel is hidden
-        sizes[0] = m_lastLeftPanelWidth > 0 ? m_lastLeftPanelWidth : 240; // Restore previous width
+    if (m_projectDock) {
+        const bool show = !m_projectDock->isVisible();
+        m_projectDock->setVisible(show);
+        if (m_navigationDock) m_navigationDock->setVisible(show);
+        statusBar()->showMessage(
+            show ? tr("Project panel shown") : tr("Project panel hidden"),
+            1500);
     }
-    m_splitter->setSizes(sizes);
 }
 
 QPair<int, int> MainWindow::countImaginaryFrequencies(const QString& filename) {
@@ -2566,6 +2727,205 @@ void MainWindow::saveCurrentEditor()
     }
 }
 
+// Claude Generated 2026 - Central molecule-save routine. Used by:
+//   - File > Save / File > Save As (Ctrl+S / Ctrl+Shift+S)
+//   - The Save button inside the simulation dock
+//   - The Save/Discard/Cancel prompt when opening a new structure
+//
+// Strategy:
+//   1. If `path` is empty AND the loaded source is .xyz → overwrite it.
+//   2. Otherwise open a Save-As dialog with the .xyz default filter.
+//   3. Build an XYZ frame from the current viewer geometry and write it.
+bool MainWindow::saveStructure(const QString& path)
+{
+    if (!m_moleculeView) {
+        statusBar()->showMessage(tr("No molecule viewer"), 3000);
+        return false;
+    }
+    const QVector<MoleculeViewer::Atom> atoms = m_moleculeView->getCurrentFrameAtoms();
+    if (atoms.isEmpty()) {
+        statusBar()->showMessage(tr("No molecule to save"), 3000);
+        return false;
+    }
+
+    // 1) Resolve target path
+    QString targetPath = path;
+    if (targetPath.isEmpty()) {
+        const QString suffix = QFileInfo(m_currentMoleculeFilePath).suffix().toLower();
+        if (suffix == QLatin1String("xyz") && QFile::exists(m_currentMoleculeFilePath)) {
+            targetPath = m_currentMoleculeFilePath;  // silent overwrite of source
+        } else {
+            const QString startDir = m_workingDirectory.isEmpty()
+                ? QDir::homePath() : m_workingDirectory;
+            targetPath = QFileDialog::getSaveFileName(this,
+                tr("Save Molecule File As"),
+                QDir(startDir).filePath(
+                    QFileInfo(m_currentMoleculeFilePath).completeBaseName().isEmpty()
+                        ? QStringLiteral("structure.xyz")
+                        : QFileInfo(m_currentMoleculeFilePath).completeBaseName() + QStringLiteral(".xyz")),
+                tr("XYZ Files (*.xyz);;All Files (*)"));
+            if (targetPath.isEmpty())  // user cancelled
+                return false;
+            // Force .xyz suffix if the user typed something else — XYZParser::writeFile
+            // writes raw text regardless, but the dialog filter and recent-files menu
+            // behave more predictably with a .xyz extension.
+            if (QFileInfo(targetPath).suffix().isEmpty())
+                targetPath += QStringLiteral(".xyz");
+        }
+    }
+
+    // 2) Build the frame
+    XYZParser::XYZFrame frame;
+    const QString comment = tr("Saved from Qurcuma after MD/Optimization");
+    XYZParser::convertFromMoleculeViewer(atoms, comment, frame);
+
+    // 3) Write
+    if (!XYZParser::writeFile(targetPath, frame)) {
+        QMessageBox::critical(this, tr("Save failed"),
+            tr("Could not write %1").arg(targetPath));
+        return false;
+    }
+
+    // 4) Update application state
+    m_currentMoleculeFilePath = targetPath;
+    m_structureModified = false;
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setStructureModified(false);
+    if (m_structureFileEdit)
+        m_structureFileEdit->setText(QFileInfo(targetPath).fileName());
+    statusBar()->showMessage(tr("Saved: %1").arg(targetPath), 3000);
+    addToRecentFiles(targetPath);
+    return true;
+}
+
+bool MainWindow::saveCurrentStructure()
+{
+    return saveStructure(QString());
+}
+
+void MainWindow::saveCurrentStructureAs()
+{
+    // Pass an explicitly-empty path AND clear the cached source path so the
+    // saveStructure() resolution always falls through to the Save-As dialog,
+    // even when the source was a .xyz file.
+    const QString oldPath = m_currentMoleculeFilePath;
+    m_currentMoleculeFilePath.clear();
+    const bool ok = saveStructure(QString());
+    if (!ok)
+        m_currentMoleculeFilePath = oldPath;  // user cancelled; keep old target
+}
+
+// Claude Generated 2026 - In-dock reset: reload the current source file to
+// discard any MD/Opt changes and start over from the original structure.
+void MainWindow::reloadCurrentFile()
+{
+    resetToOriginalSnapshot();
+}
+
+// Claude Generated 2026 - Restore the first snapshot (index 0), which is always
+// the geometry as it was when the molecule was loaded. If no snapshot exists,
+// fall back to reloading the source file.
+void MainWindow::resetToOriginalSnapshot()
+{
+    if (m_snapshots.isEmpty()) {
+        // Fall back to reloading the source file if no snapshot exists.
+        if (m_currentMoleculeFilePath.isEmpty() || !QFile::exists(m_currentMoleculeFilePath)) {
+            statusBar()->showMessage(tr("No original structure to reset to"), 2000);
+            return;
+        }
+        if (m_simulationControlWidget)
+            m_simulationControlWidget->onStopClicked();
+        m_structureModified = false;
+        if (m_simulationControlWidget)
+            m_simulationControlWidget->setStructureModified(false);
+        loadMoleculeFile(m_currentMoleculeFilePath);
+        statusBar()->showMessage(tr("Reloaded original structure"), 2000);
+        return;
+    }
+
+    restoreSnapshot(m_snapshots[0]);
+
+    // Reset means "back to the loaded original", so the modified flag must be
+    // cleared afterwards. restoreSnapshot() sets it to true because restoring an
+    // arbitrary snapshot is a user edit; for the initial snapshot it is not.
+    m_structureModified = false;
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setStructureModified(false);
+
+    statusBar()->showMessage(tr("Reset to original structure"), 2000);
+}
+
+// Claude Generated 2026 - Store the initial snapshot (index 0) from the loaded geometry.
+// Called once per loadMoleculeFile(); clears any previous snapshots, creates snapshot 0
+// from the first frame, and enables the Reset button.
+void MainWindow::captureInitialSnapshot(const QString& filePath,
+    const QVector<MoleculeViewer::Atom>& atoms,
+    const QVector<MoleculeViewer::Bond>& bonds)
+{
+    m_snapshots.clear();
+    if (m_snapshotsWidget)
+        m_snapshotsWidget->clearSnapshots();
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setResetEnabled(false);
+
+    MoleculeSnapshot snap;
+    snap.name = QFileInfo(filePath).fileName();
+    snap.timestamp = QDateTime::currentDateTime();
+    snap.atoms = atoms;
+    snap.bonds = bonds;
+    m_snapshots.append(snap);
+
+    if (m_snapshotsWidget)
+        m_snapshotsWidget->addSnapshot(snap);
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setResetEnabled(true);
+}
+
+// Claude Generated 2026 - Capture the current viewer geometry as a named snapshot.
+void MainWindow::takeSnapshot(const QString& name)
+{
+    if (!m_moleculeView)
+        return;
+    const QVector<MoleculeViewer::Atom> atoms = m_moleculeView->getCurrentFrameAtoms();
+    const QVector<MoleculeViewer::Bond> bonds = m_moleculeView->getCurrentFrameBonds();
+    if (atoms.isEmpty())
+        return;
+
+    MoleculeSnapshot snap;
+    snap.name = name.isEmpty()
+        ? tr("Snapshot %1").arg(m_snapshots.size() + 1)
+        : name;
+    snap.timestamp = QDateTime::currentDateTime();
+    snap.atoms = atoms;
+    snap.bonds = bonds;
+    m_snapshots.append(snap);
+
+    if (m_snapshotsWidget)
+        m_snapshotsWidget->addSnapshot(snap);
+}
+
+// Claude Generated 2026 - Restore any snapshot to the viewer and simulation dock.
+void MainWindow::restoreSnapshot(const MoleculeSnapshot& snapshot)
+{
+    if (!m_moleculeView)
+        return;
+
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->onStopClicked();
+
+    m_moleculeView->setTrajectoryData(
+        QVector<QVector<MoleculeViewer::Atom>>{ snapshot.atoms },
+        QVector<QVector<MoleculeViewer::Bond>>{ snapshot.bonds });
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setMolecule(snapshot.atoms, snapshot.bonds);
+
+    m_structureModified = true;
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setStructureModified(true);
+
+    statusBar()->showMessage(tr("Restored snapshot: %1").arg(snapshot.name), 2000);
+}
+
 // Claude Generated - Quick Win: Auto-save drafts
 void MainWindow::autoSaveDrafts()
 {
@@ -2612,6 +2972,82 @@ void MainWindow::loadDrafts()
 }
 
 // Claude Generated - Quick Win: Copy/Paste structures
+// Claude Generated 2026 - Parse the first frame of a structure file into viewer atoms/
+// bonds. Local parser instances keep the main parsers' state untouched.
+bool MainWindow::parseFirstFrame(const QString& filePath, QVector<MoleculeViewer::Atom>& atoms,
+    QVector<MoleculeViewer::Bond>& bonds)
+{
+    atoms.clear();
+    bonds.clear();
+    if (filePath.isEmpty() || !QFile::exists(filePath))
+        return false;
+    const QString suffix = QFileInfo(filePath).suffix().toLower();
+    if (suffix == "xyz") {
+        XYZParser parser;
+        XYZParser::XYZFrame frame;
+        if (parser.parseTrajectory(filePath) && parser.getFrameCount() > 0 && parser.getFrame(0, frame))
+            XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
+    } else if (suffix == "vtf") {
+        VTFParser parser;
+        VTFParser::VTFFrame frame;
+        if (parser.parseTrajectory(filePath) && parser.getFrameCount() > 0 && parser.getFrame(0, frame))
+            VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
+    } else if (suffix == "pdb") {
+        PDBParser parser;
+        PDBParser::PDBFrame frame;
+        if (parser.parseFile(filePath, frame))
+            PDBParser::convertToMoleculeViewer(frame, atoms, bonds, parser.getBonds());
+    } else if (suffix == "mol2") {
+        MOL2Parser parser;
+        MOL2Parser::MOL2Molecule molecule;
+        if (parser.parseFile(filePath, molecule))
+            MOL2Parser::convertToMoleculeViewer(molecule, atoms, bonds);
+    }
+    return !atoms.isEmpty();
+}
+
+// Claude Generated 2026 - Merge a molecule from a file into the current scene (single
+// frame only). The added atoms arrive selected and in Edit/placement mode with live
+// clash feedback; drag to place and use Resolve clashes if they overlap.
+void MainWindow::addMoleculeToScene()
+{
+    if (!m_moleculeView)
+        return;
+    if (!m_moleculeView->canEditStructure()) {
+        QMessageBox::information(this, tr("Add Molecule to Scene"),
+            tr("Merging is only available for single-frame structures, not trajectories."));
+        return;
+    }
+    const QString path = QFileDialog::getOpenFileName(this, tr("Add Molecule to Scene"), QString(),
+        tr("Molecule files (*.xyz *.vtf *.pdb *.mol2);;All files (*)"));
+    if (path.isEmpty())
+        return;
+    mergeFileIntoScene(path);
+}
+
+// Claude Generated 2026 - Parse a file's first frame and append it to the current scene.
+// Shared by the Edit menu and the file-browser right-click "Add to current scene".
+void MainWindow::mergeFileIntoScene(const QString& filePath)
+{
+    if (!m_moleculeView || filePath.isEmpty())
+        return;
+    if (!m_moleculeView->canEditStructure()) {
+        QMessageBox::information(this, tr("Add Molecule to Scene"),
+            tr("Merging is only available for single-frame structures, not trajectories."));
+        return;
+    }
+    QVector<MoleculeViewer::Atom> atoms;
+    QVector<MoleculeViewer::Bond> bonds;
+    if (!parseFirstFrame(filePath, atoms, bonds)) {
+        QMessageBox::warning(this, tr("Add Molecule to Scene"),
+            tr("Could not read a structure from:\n%1").arg(filePath));
+        return;
+    }
+    m_moleculeView->appendMolecule(atoms, bonds);  // selects new atoms + enters placement
+    statusBar()->showMessage(
+        tr("Added %1 atoms — drag to place, then Resolve clashes if needed").arg(atoms.size()), 3000);
+}
+
 void MainWindow::copyStructureToClipboard()
 {
     QString structureText = m_structureView->toPlainText();
@@ -2672,18 +3108,66 @@ void MainWindow::copyCurrentPath()
 }
 
 // Claude Generated - Visualization Settings Dialog
+// Claude Generated 2026 - Display options now live in the docked DisplayPanel
+// (the former modal dialog was retired). This just surfaces the dock.
 void MainWindow::openVisualizationSettings()
+{
+    if (!m_displayDock)
+        return;
+    if (m_displayPanel)
+        m_displayPanel->loadCurrentSettings();
+    m_displayDock->show();
+    m_displayDock->raise();
+}
+
+// Claude Generated 2026 - RMSD / align / reorder tool (curcuma RMSDDriver),
+// embedded as a tab in the Editors dock. Raises the Editors dock + RMSD tab and
+// re-seeds the reference from the current viewer frame; optional targetFile
+// preloads the comparison structure (used by the file-manager context menu).
+void MainWindow::showRMSDTool(const QString& targetFile)
 {
     if (!m_moleculeView) {
         QMessageBox::warning(this, tr("No Viewer"), tr("Molecule viewer is not available."));
         return;
     }
 
-    // Claude Generated - Pass Settings object for persistence
-    // Store dialog pointer for shortcut synchronization (Fix: Shortcuts sync with dialog)
-    m_visualizationDialog = new VisualizationSettingsDialog(m_moleculeView, &m_settings, this);
-    m_visualizationDialog->setAttribute(Qt::WA_DeleteOnClose);
-    m_visualizationDialog->show();
+    if (!m_rmsdWidget)
+        return;  // tab not built yet (should not happen post-construction)
+
+    // Auto-seed the reference from the currently displayed structure.
+    seedRMSDReference();
+
+    if (!targetFile.isEmpty())
+        m_rmsdWidget->setTargetFile(targetFile);
+
+    // Focus the Editors dock and switch to the RMSD / Align tab (index 2).
+    if (m_editorsDock) {
+        m_editorsDock->show();
+        m_editorsDock->raise();
+        m_editorsDock->activateWindow();
+    }
+    if (m_editorsTabs)
+        m_editorsTabs->setCurrentIndex(2);  // Structure=0, Input=1, RMSD / Align=2
+}
+
+// Claude Generated 2026 - Re-seed the RMSD reference from the current viewer
+// frame. Called on Analysis-menu/context-menu invocation and by the widget's
+// "Use current as reference" button (seedReferenceRequested).
+void MainWindow::seedRMSDReference()
+{
+    if (!m_moleculeView || !m_rmsdWidget)
+        return;
+
+    const QVector<MoleculeViewer::Atom> refAtoms = m_moleculeView->getCurrentFrameAtoms();
+    if (refAtoms.isEmpty()) {
+        QMessageBox::information(this, tr("RMSD"),
+            tr("Load a structure first — it becomes the alignment reference."));
+        return;
+    }
+    const QString refName = m_currentMoleculeFilePath.isEmpty()
+        ? tr("current structure")
+        : QFileInfo(m_currentMoleculeFilePath).fileName();
+    m_rmsdWidget->setReferenceStructure(refAtoms, m_moleculeView->getCurrentFrameBonds(), refName);
 }
 
 // Claude Generated - Quick Fix: Show about dialog
@@ -2777,30 +3261,35 @@ void MainWindow::updateWorkflowState(WorkflowState state)
 }
 
 // Claude Generated - Visual Polish: Apply stylesheet (dark/light mode)
+// Claude Generated 2026 - The .qss files in stylesheets/ are intentionally NOT
+// applied any more. They were a stop-gap "Material-style" theme that
+// overrode Qt's native look-and-feel. The setting/state plumbing stays
+// (so the dark-mode menu action remains a working toggle), but the actual
+// qApp->setStyleSheet() call is now a no-op. Restore by reverting this
+// function and uncommenting the file load below.
 void MainWindow::applyStylesheet(bool darkMode)
 {
-    QString stylesheetPath = darkMode ?
-        ":/stylesheets/dark.qss" :
-        ":/stylesheets/light.qss";
+    Q_UNUSED(darkMode);
 
-    DEBUG_LOG << "[Dark Mode] Attempting to load stylesheet:" << stylesheetPath;
+    // --- Disabled 2026: do not load any custom stylesheet. ---
+    // QString stylesheetPath = darkMode ?
+    //     ":/stylesheets/dark.qss" :
+    //     ":/stylesheets/light.qss";
+    // QFile styleFile(stylesheetPath);
+    // if (styleFile.open(QFile::ReadOnly)) {
+    //     QString styleSheet = QString::fromUtf8(styleFile.readAll());
+    //     qApp->setStyleSheet(styleSheet);
+    //     styleFile.close();
+    // } else {
+    //     qWarning() << "[Dark Mode] FAILED to open stylesheet file:" << stylesheetPath;
+    //     qWarning() << "[Dark Mode] Error:" << styleFile.errorString();
+    // }
 
-    QFile styleFile(stylesheetPath);
-    if (styleFile.open(QFile::ReadOnly)) {
-        QString styleSheet = QString::fromUtf8(styleFile.readAll());
-        DEBUG_LOG << "[Dark Mode] Stylesheet loaded successfully, size:" << styleSheet.length() << "bytes";
-        qApp->setStyleSheet(styleSheet);
-        styleFile.close();
-        m_darkModeEnabled = darkMode;
-        m_settings.setDarkMode(darkMode);
-        DEBUG_LOG << "[Dark Mode] Settings saved: darkMode =" << darkMode;
-        statusBar()->showMessage(
-            darkMode ? tr("Dark Mode enabled") : tr("Light Mode enabled"),
-            2000);
-    } else {
-        qWarning() << "[Dark Mode] FAILED to open stylesheet file:" << stylesheetPath;
-        qWarning() << "[Dark Mode] Error:" << styleFile.errorString();
-    }
+    m_darkModeEnabled = darkMode;
+    m_settings.setDarkMode(darkMode);
+    statusBar()->showMessage(
+        darkMode ? tr("Dark Mode (native)") : tr("Light Mode (native)"),
+        2000);
 }
 
 void MainWindow::toggleDarkMode()
@@ -2811,6 +3300,65 @@ void MainWindow::toggleDarkMode()
     if (m_darkModeAction) {
         m_darkModeAction->setChecked(newMode);
     }
+}
+
+// Claude Generated 2026 - "Use Invocation Directory" preference
+// Centralized logic used by the menu toggle, the dialog checkbox signal,
+// and the constructor. Keeps a single source of truth for the
+// "use the directory qurcuma was launched from" feature.
+void MainWindow::applyUseInvocationDirectoryState(bool enabled)
+{
+    m_useInvocationDirectoryEnabled = enabled;
+    m_settings.setUseInvocationDirectoryEnabled(enabled);
+
+    if (m_useInvocationDirAction) {
+        m_useInvocationDirAction->setChecked(enabled);
+    }
+
+    if (enabled) {
+        // If we somehow lack a captured dir (e.g. toggled via dialog before
+        // main.cpp populated it, or the dir was removed), fall back to the
+        // process CWD right now. Without this branch the feature would
+        // silently do nothing.
+        if (m_invocationDir.isEmpty() || !QDir(m_invocationDir).exists()) {
+            m_invocationDir = QDir::currentPath();
+        }
+        if (!m_invocationDir.isEmpty() && QDir(m_invocationDir).exists()) {
+            switchWorkingDirectory(m_invocationDir);
+        } else {
+            QMessageBox::warning(this, tr("Invocation Directory"),
+                tr("No valid invocation directory is available."));
+            m_useInvocationDirectoryEnabled = false;
+            m_settings.setUseInvocationDirectoryEnabled(false);
+            if (m_useInvocationDirAction) {
+                m_useInvocationDirAction->setChecked(false);
+            }
+        }
+    } else {
+        // Toggling OFF: restore the last-used working dir (or the settings
+        // default if no last-used dir is recorded). User expects their
+        // previous working state back when they uncheck.
+        const QString lastDir = m_settings.lastUsedWorkingDirectory();
+        if (!lastDir.isEmpty() && QDir(lastDir).exists()) {
+            switchWorkingDirectory(lastDir);
+        } else {
+            const QString fallback = m_settings.workingDirectory();
+            if (!fallback.isEmpty() && QDir(fallback).exists()) {
+                switchWorkingDirectory(fallback);
+            }
+        }
+    }
+}
+
+// Claude Generated 2026 - "Use Invocation Directory" preference
+// Reads the desired new state from the menu action (or falls back to the
+// in-memory mirror) and delegates to applyUseInvocationDirectoryState.
+void MainWindow::toggleUseInvocationDirectory()
+{
+    const bool newState = !(m_useInvocationDirAction
+                            ? m_useInvocationDirAction->isChecked()
+                            : m_useInvocationDirectoryEnabled);
+    applyUseInvocationDirectoryState(newState);
 }
 
 // Claude Generated - Quick Win: Drag & Drop support
@@ -2941,11 +3489,9 @@ void MainWindow::decreaseBondThickness()
 // Claude Generated - Helper: Update visualization dialog when settings change via shortcuts
 void MainWindow::syncVisualizationDialog()
 {
-    // Synchronize dialog widgets with current viewer state when shortcut is used
-    // This ensures dialog shows correct values even if shortcuts were used while dialog open
-    if (m_visualizationDialog && m_visualizationDialog->isVisible()) {
-        m_visualizationDialog->loadCurrentSettings();
-    }
+    // Keep the Display dock in sync when settings change via shortcuts.
+    if (m_displayPanel)
+        m_displayPanel->loadCurrentSettings();
 }
 
 // Claude Generated - Focus & Centering Commands
@@ -2968,6 +3514,14 @@ void MainWindow::centerViewOnSelection()
     }
     // Claude Generated - Sync dialog if open
     syncVisualizationDialog();
+}
+
+// Claude Generated 2026 - Move all frames so the mass-weighted COM = origin, reset camera.
+void MainWindow::centerMoleculeAtOrigin()
+{
+    if (!m_moleculeView) return;
+    m_moleculeView->centerAtOrigin();
+    statusBar()->showMessage(tr("Molecule centered at origin"), 2000);
 }
 
 // Claude Generated - Phase 2A: Selection management commands
@@ -3127,7 +3681,7 @@ void MainWindow::saveCurrentWorkspace()
     ws.workingDirectory = m_workingDirectory;
     ws.openCalculations = m_currentCalculationDir.isEmpty() ? QStringList() : QStringList() << m_currentCalculationDir;
     ws.windowGeometry = saveGeometry();
-    ws.splitterStates = m_splitter->saveState();
+    ws.dockState = saveState();  // Claude Generated - UI Restructuring: Save dock widget layout
     ws.created = QDateTime::currentDateTime();
     ws.lastUsed = QDateTime::currentDateTime();
 
@@ -3148,8 +3702,12 @@ void MainWindow::restoreWorkspaceState(const Settings::Workspace& ws)
         restoreGeometry(ws.windowGeometry);
     }
 
-    if (!ws.splitterStates.isEmpty() && m_splitter) {
-        m_splitter->restoreState(ws.splitterStates);
+    // Claude Generated - UI Restructuring: Restore dock widget layout
+    if (!ws.dockState.isEmpty()) {
+        restoreState(ws.dockState);
+    } else {
+        // Fallback: Apply default layout if no dock state saved (backward compatibility)
+        applyAnalysisLayout();
     }
 
     if (m_workspaceManager) {
@@ -3185,8 +3743,37 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
         return;
     }
 
+    // Claude Generated 2026 - If the user has modified the structure (e.g. by
+    // running an MD/Opt), prompt before discarding those changes. Save runs
+    // through the central saveStructure() helper which itself may show a
+    // Save-As dialog; if the user cancels that, the load is aborted.
+    if (m_structureModified) {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle(tr("Unsaved changes"));
+        box.setText(tr("The current structure has unsaved changes from a "
+                       "previous MD/optimization run."));
+        box.setInformativeText(tr("Save them before opening a new file?"));
+        QPushButton* saveBtn    = box.addButton(tr("Save..."),  QMessageBox::AcceptRole);
+        QPushButton* discardBtn = box.addButton(tr("Discard"),  QMessageBox::DestructiveRole);
+        QPushButton* cancelBtn  = box.addButton(tr("Cancel"),   QMessageBox::RejectRole);
+        box.setDefaultButton(saveBtn);
+        box.exec();
+        QAbstractButton* clicked = box.clickedButton();
+        if (clicked == cancelBtn)
+            return;
+        if (clicked == saveBtn && !saveCurrentStructure())
+            return;  // user cancelled Save-As — keep the unsaved structure
+        // Discard falls through silently.
+    }
+
     QString suffix = QFileInfo(filePath).suffix().toLower();
     QString basename = QFileInfo(filePath).baseName();
+
+    // Claude Generated 2026 - tracks whether at least one parser successfully
+    // loaded the file. Only used at the end to decide whether to auto-switch
+    // the working directory to the file's parent directory.
+    bool fileLoaded = false;
 
     if (suffix == "xyz") {
         // XYZ file loading
@@ -3227,13 +3814,39 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
 
             DEBUG_LOG << "XYZ: Total frames loaded:" << allAtoms.size();
             m_moleculeView->setTrajectoryData(allAtoms, allBonds);
+            if (m_centerOnLoad) m_moleculeView->centerAtOrigin();
+
+            // Claude Generated - Feed the loaded molecule into the inline
+            // simulation widget so the user can start a run without manually
+            // re-selecting it. First frame is used as the simulation input.
+            if (m_simulationControlWidget && !allAtoms.isEmpty())
+                m_simulationControlWidget->setMolecule(m_moleculeView->getCurrentFrameAtoms(),
+                    m_moleculeView->getCurrentFrameBonds());
+            // Claude Generated 2026 - Fresh load: clear the modified flag, cache
+            // the new source path (so a follow-up Save overwrites it), and
+            // enable the File>Save actions. The Save action is enabled as soon
+            // as a molecule is on screen, regardless of modification state.
+            m_currentMoleculeFilePath = filePath;
+            m_structureModified = false;
+            if (m_simulationControlWidget)
+                m_simulationControlWidget->setStructureModified(false);
+            if (m_saveAction) m_saveAction->setEnabled(true);
+            if (m_saveAsAction) m_saveAsAction->setEnabled(true);
+            // Store an in-memory snapshot of the original geometry so the
+            // in-dock Reset button can restore it without reloading the file.
+            // Snapshot 0 is the automatic load-time snapshot and also seeds the
+            // manual snapshot history list.
+            if (!allAtoms.isEmpty()) {
+                captureInitialSnapshot(filePath, m_moleculeView->getCurrentFrameAtoms(),
+                    m_moleculeView->getCurrentFrameBonds());
+            }
+            fileLoaded = true;
         } else {
             m_moleculeView->clearScenePublic();
             qWarning() << "Failed to parse XYZ file:" << filePath;
         }
     }
     else if (suffix == "vtf") {
-        // VTF file loading
         m_vtfParser = new VTFParser();
         if (m_vtfParser->parseTrajectory(filePath)) {
             // Load VTF data as text
@@ -3272,6 +3885,31 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
 
             DEBUG_LOG << "VTF: Total frames loaded:" << allAtoms.size();
             m_moleculeView->setTrajectoryData(allAtoms, allBonds);
+            if (m_centerOnLoad) m_moleculeView->centerAtOrigin();
+
+            // Claude Generated - Feed first frame into the simulation widget.
+            if (m_simulationControlWidget && !allAtoms.isEmpty())
+                m_simulationControlWidget->setMolecule(m_moleculeView->getCurrentFrameAtoms(),
+                    m_moleculeView->getCurrentFrameBonds());
+            // Claude Generated 2026 - Fresh load: clear the modified flag, cache
+            // the new source path (so a follow-up Save overwrites it), and
+            // enable the File>Save actions. The Save action is enabled as soon
+            // as a molecule is on screen, regardless of modification state.
+            m_currentMoleculeFilePath = filePath;
+            m_structureModified = false;
+            if (m_simulationControlWidget)
+                m_simulationControlWidget->setStructureModified(false);
+            if (m_saveAction) m_saveAction->setEnabled(true);
+            if (m_saveAsAction) m_saveAsAction->setEnabled(true);
+            // Store an in-memory snapshot of the original geometry so the
+            // in-dock Reset button can restore it without reloading the file.
+            // Snapshot 0 is the automatic load-time snapshot and also seeds the
+            // manual snapshot history list.
+            if (!allAtoms.isEmpty()) {
+                captureInitialSnapshot(filePath, m_moleculeView->getCurrentFrameAtoms(),
+                    m_moleculeView->getCurrentFrameBonds());
+            }
+            fileLoaded = true;
         } else {
             m_moleculeView->clearScenePublic();
             qWarning() << "Failed to parse VTF file:" << filePath;
@@ -3283,5 +3921,1097 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     }
     else {
         statusBar()->showMessage(tr("Unsupported file format: %1").arg(suffix), 2000);
+    }
+
+    // Claude Generated 2026 - "Open file follows its own directory" semantics.
+    // When a file is loaded successfully, the user almost always wants to
+    // work next to the file (output files, sidecar data, related files).
+    // We auto-switch the Working Directory to the file's parent directory.
+    // Failure cases (parse error, unsupported format) leave the current
+    // Working Directory untouched. switchWorkingDirectory already shows a
+    // status-bar message and updates recent files.
+    if (fileLoaded) {
+        const QString fileDir = QFileInfo(filePath).absolutePath();
+        if (!fileDir.isEmpty() && QDir(fileDir).exists() && fileDir != m_workingDirectory) {
+            switchWorkingDirectory(fileDir);
+        }
+    }
+}
+
+#ifdef USE_SFTP
+// Claude Generated - Phase SFTP Integration: Recent remote connections menu management
+void MainWindow::updateRecentConnectionsMenu()
+{
+    m_recentConnectionsMenu->clear();
+
+    Settings settings;
+    QVector<Settings::SftpConnectionProfile> recentConnections = settings.getRecentSftpConnections(5);
+
+    if (recentConnections.isEmpty()) {
+        m_recentConnectionsMenu->setEnabled(false);
+        return;
+    }
+
+    m_recentConnectionsMenu->setEnabled(true);
+
+    for (const auto& connection : recentConnections) {
+        QString displayText = QString("%1 (%2@%3)")
+            .arg(connection.name)
+            .arg(connection.username)
+            .arg(connection.host);
+
+        // Show last used time
+        QString timeAgo;
+        qint64 secondsAgo = connection.lastUsed.secsTo(QDateTime::currentDateTime());
+        if (secondsAgo < 3600) {
+            timeAgo = tr("%1 minutes ago").arg(secondsAgo / 60);
+        } else if (secondsAgo < 86400) {
+            timeAgo = tr("%1 hours ago").arg(secondsAgo / 3600);
+        } else {
+            timeAgo = tr("%1 days ago").arg(secondsAgo / 86400);
+        }
+
+        QAction* action = m_recentConnectionsMenu->addAction(
+            QIcon::fromTheme("network-server"),
+            QString("%1 - %2").arg(displayText, timeAgo)
+        );
+
+        action->setData(connection.id);
+        connect(action, &QAction::triggered, this, [this, connection]() {
+            openRecentConnection(connection.id);
+        });
+    }
+
+    m_recentConnectionsMenu->addSeparator();
+    QAction* clearAction = m_recentConnectionsMenu->addAction(tr("Clear Recent Connections"));
+    connect(clearAction, &QAction::triggered, this, [this]() {
+        Settings settings;
+        settings.setSftpProfiles({});  // Clear all profiles
+        updateRecentConnectionsMenu();
+    });
+}
+
+void MainWindow::openRecentConnection(const QString& profileId)
+{
+    // This would be better with profile pre-selection in SftpDialog
+    // For now, just open the dialog
+    SftpDialog dialog(this);
+    if (dialog.exec() == QDialog::Accepted) {
+        QString localPath = dialog.getLocalPath();
+        if (!localPath.isEmpty()) {
+            loadMoleculeFile(localPath);
+            statusBar()->showMessage(tr("Loaded remote file: %1").arg(QFileInfo(localPath).fileName()), 3000);
+            updateRecentConnectionsMenu();
+        }
+    }
+}
+
+// Claude Generated - Remote Directory Mounting
+void MainWindow::onAddRemoteDirectoryClicked()
+{
+    SftpDialog dialog(this);
+    dialog.setMode(SftpDialog::Mode::SelectDirectory);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QString remotePath = dialog.getSelectedDirectory();
+    QString profileId = dialog.getSelectedProfileId();
+
+    if (remotePath.isEmpty() || profileId.isEmpty()) {
+        QMessageBox::warning(this, tr("Invalid Selection"), tr("Could not get directory path or profile."));
+        return;
+    }
+
+    // Ask for name
+    bool ok;
+    QString name = QInputDialog::getText(this, tr("Remote Directory Name"),
+        tr("Name for this remote directory:"), QLineEdit::Normal,
+        remotePath, &ok);
+    if (!ok || name.isEmpty()) return;
+
+    // Save mount
+    Settings::RemoteMountPoint mount;
+    mount.id = QUuid::createUuid().toString();
+    mount.name = name;
+    mount.profileId = profileId;
+    mount.remotePath = remotePath;
+    mount.mounted = QDateTime::currentDateTime();
+    mount.lastAccessed = QDateTime::currentDateTime();
+
+    m_settings.addRemoteMount(mount);
+    updateRemoteDirectoriesView();
+    statusBar()->showMessage(tr("Remote directory added: %1").arg(name), 3000);
+}
+
+void MainWindow::updateRemoteDirectoriesView()
+{
+    m_remoteDirectoriesView->clear();
+    Settings settings;
+    auto mounts = settings.remoteMounts();
+
+    for (const auto& mount : mounts) {
+        QTreeWidgetItem* item = new QTreeWidgetItem(m_remoteDirectoriesView);
+        item->setText(0, QString("📡 %1").arg(mount.name));
+        item->setData(0, Qt::UserRole, mount.id);
+        item->setToolTip(0, mount.remotePath);
+    }
+}
+
+void MainWindow::onRemoteDirectoryClicked(QTreeWidgetItem* item, int column)
+{
+    if (!item) return;
+    QString mountId = item->data(0, Qt::UserRole).toString();
+    if (mountId.isEmpty()) return;
+
+    Settings settings;
+    auto mounts = settings.remoteMounts();
+    Settings::RemoteMountPoint mount;
+    for (const auto& m : mounts) {
+        if (m.id == mountId) {
+            mount = m;
+            break;
+        }
+    }
+    if (!mount.isValid()) return;
+
+    auto profiles = settings.sftpProfiles();
+    Settings::SftpConnectionProfile profile;
+    for (const auto& p : profiles) {
+        if (p.id == mount.profileId) {
+            profile = p;
+            break;
+        }
+    }
+    if (!profile.isValid()) {
+        QMessageBox::warning(this, tr("Error"), tr("Connection profile not found."));
+        return;
+    }
+
+    QString password = QInputDialog::getText(this, tr("Password"),
+        tr("Password for %1@%2:").arg(profile.username, profile.host),
+        QLineEdit::Password);
+    if (password.isEmpty()) return;
+
+    // Create/get SFTP model
+    if (!m_remoteSftpModels.contains(mountId)) {
+        m_remoteSftpModels[mountId] = new SftpItemModel(profile.host, profile.username, password, profile.port, this);
+        if (profile.useKeyAuth) {
+            m_remoteSftpModels[mountId]->setUseKeyAuth(true);
+        }
+    }
+
+    SftpItemModel* model = m_remoteSftpModels[mountId];
+    if (!model->isConnected()) {
+        QMessageBox::critical(this, tr("Connection Failed"), tr("Could not connect to server."));
+        return;
+    }
+
+    m_directoryContentView->setModel(model);
+    m_currentRemoteMountId = mountId;
+    settings.updateRemoteMountLastAccessed(mountId);
+    updateRemoteDirectoriesView();
+    statusBar()->showMessage(tr("Browsing: %1 (%2)").arg(mount.name, mount.remotePath));
+}
+
+// Claude Generated - Remote File Double-Click Handler
+void MainWindow::onRemoteFileDoubleClicked(const QModelIndex& index)
+{
+    // Check if we have an active SFTP model
+    if (m_currentRemoteMountId.isEmpty()) return;
+    if (!m_remoteSftpModels.contains(m_currentRemoteMountId)) return;
+
+    SftpItemModel* model = m_remoteSftpModels[m_currentRemoteMountId];
+    if (!model || !model->isConnected()) return;
+
+    // Get the file path from the SFTP model
+    QString filePath = model->getItemPath(index);
+    if (filePath.isEmpty()) return;
+
+    // Check if it's a directory
+    if (model->isDirectory(index)) {
+        // For directories, we would need to navigate, but SftpItemModel
+        // doesn't support cd() yet. This is for file downloads.
+        statusBar()->showMessage(tr("Directory navigation not yet supported for SFTP."));
+        return;
+    }
+
+    // Download and load the file
+    downloadAndLoadRemoteFile(filePath);
+}
+
+// Claude Generated - Download Remote File and Load into Viewer
+void MainWindow::downloadAndLoadRemoteFile(const QString& filePath)
+{
+    if (m_currentRemoteMountId.isEmpty()) return;
+    if (!m_remoteSftpModels.contains(m_currentRemoteMountId)) return;
+
+    SftpItemModel* model = m_remoteSftpModels[m_currentRemoteMountId];
+    if (!model) return;
+
+    // Extract filename from path
+    QString fileName = filePath.split("/").last();
+    if (fileName.isEmpty()) return;
+
+    // Create cache directory in system temp
+    QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/qurcuma_remote/";
+    QDir().mkpath(cacheDir);
+
+    // Download file to cache
+    QString localPath = cacheDir + fileName;
+    statusBar()->showMessage(tr("Downloading: %1...").arg(fileName));
+
+    if (!model->downloadFile(filePath, localPath)) {
+        QMessageBox::critical(this, tr("Download Failed"),
+            tr("Failed to download file: %1").arg(fileName));
+        return;
+    }
+
+    // Load the downloaded file into the viewer based on file extension
+    if (filePath.endsWith(".xyz", Qt::CaseInsensitive)) {
+        if (m_xyzParser->parseTrajectory(localPath)) {
+            int frameCount = m_xyzParser->getFrameCount();
+            m_moleculeView->setFrameCount(frameCount);
+
+            XYZParser::XYZFrame frame;
+            if (m_xyzParser->getFrame(0, frame)) {
+                QVector<MoleculeViewer::Atom> atoms;
+                QVector<MoleculeViewer::Bond> bonds;
+                XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
+                m_moleculeView->addMolecule(atoms, bonds);
+            }
+        }
+    } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive)) {
+        m_vtfParser = new VTFParser();
+        if (m_vtfParser->parseTrajectory(localPath)) {
+            int frameCount = m_vtfParser->getFrameCount();
+            m_moleculeView->setFrameCount(frameCount);
+
+            VTFParser::VTFFrame frame;
+            if (m_vtfParser->getFrame(0, frame)) {
+                QVector<MoleculeViewer::Atom> atoms;
+                QVector<MoleculeViewer::Bond> bonds;
+                VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
+                m_moleculeView->addMolecule(atoms, bonds);
+            }
+        }
+    } else if (filePath.endsWith(".pdb", Qt::CaseInsensitive)) {
+        PDBParser pdbParser;
+        PDBParser::PDBFrame frame;
+        if (pdbParser.parseFile(localPath, frame)) {
+            QVector<MoleculeViewer::Atom> atoms;
+            QVector<MoleculeViewer::Bond> bonds;
+            PDBParser::convertToMoleculeViewer(frame, atoms, bonds, pdbParser.getBonds());
+            m_moleculeView->addMolecule(atoms, bonds);
+        } else {
+            QMessageBox::warning(this, tr("Error"), tr("Failed to parse PDB file: %1").arg(pdbParser.getLastError()));
+        }
+    } else if (filePath.endsWith(".mol2", Qt::CaseInsensitive)) {
+        MOL2Parser mol2Parser;
+        MOL2Parser::MOL2Molecule molecule;
+        if (mol2Parser.parseFile(localPath, molecule)) {
+            QVector<MoleculeViewer::Atom> atoms;
+            QVector<MoleculeViewer::Bond> bonds;
+            MOL2Parser::convertToMoleculeViewer(molecule, atoms, bonds);
+            m_moleculeView->addMolecule(atoms, bonds);
+        } else {
+            QMessageBox::warning(this, tr("Error"), tr("Failed to parse MOL2 file: %1").arg(mol2Parser.getLastError()));
+        }
+    } else {
+        QMessageBox::warning(this, tr("Unsupported Format"),
+            tr("File format not supported: %1").arg(filePath));
+        return;
+    }
+
+    statusBar()->showMessage(tr("Loaded: %1 (from %2)").arg(fileName, filePath));
+}
+#endif // USE_SFTP
+
+// Claude Generated (2026-04) - Dock architecture rewrite. Five focused docks rahmen
+// the MoleculeViewer (CentralWidget). Internal QTabWidgets replace fragile Qt
+// tabifyDockWidget chains for editors and atoms/simulation, eliminating the
+// drift bug where preset switches stacked redundant tab groupings.
+void MainWindow::createDockWidgets()
+{
+    // ==================== PROJECT DOCK (left) ====================
+    // Working dir + breadcrumb + calculation directory list + calculation file list
+    m_projectDock = new QDockWidget(tr("Project"), this);
+    m_projectDock->setObjectName("ProjectDock");
+
+    QWidget* projectWidget = new QWidget;
+    QVBoxLayout* projectLayout = new QVBoxLayout(projectWidget);
+    projectLayout->setContentsMargins(4, 4, 4, 4);
+    projectLayout->setSpacing(4);
+
+    m_chooseDirectory = new QPushButton(tr("Choose Working Directory"));
+    m_chooseDirectory->setIcon(QIcon::fromTheme("folder-open", QIcon(":/icons/folder.png")));
+    projectLayout->addWidget(m_chooseDirectory);
+
+    m_breadcrumbBar = new BreadcrumbBar;
+    m_breadcrumbBar->setHomeDirectory(QDir::homePath());
+    connect(m_breadcrumbBar, &BreadcrumbBar::pathSelected, this, &MainWindow::switchWorkingDirectory);
+    projectLayout->addWidget(m_breadcrumbBar);
+
+    // Splitter: upper = calculation directories list, lower = files inside selected dir
+    QSplitter* projectSplitter = new QSplitter(Qt::Vertical);
+
+    QWidget* calcDirsWidget = new QWidget;
+    QVBoxLayout* calcDirsLayout = new QVBoxLayout(calcDirsWidget);
+    calcDirsLayout->setContentsMargins(0, 0, 0, 0);
+    QLabel* dirListLabel = new QLabel(tr("Calculation Directories"));
+    dirListLabel->setStyleSheet("font-weight: bold;");
+    calcDirsLayout->addWidget(dirListLabel);
+    m_projectListView = new QListView;
+    m_projectModel = new QFileSystemModel(this);
+    m_projectModel->setRootPath(m_workingDirectory);
+    m_projectModel->setFilter(QDir::AllDirs | QDir::NoDot);
+    m_projectModel->setReadOnly(true);
+    m_projectListView->setModel(m_projectModel);
+    m_projectListView->setRootIndex(m_projectModel->index(m_workingDirectory));
+    calcDirsLayout->addWidget(m_projectListView);
+    m_newCalculationButton = new QPushButton(tr("+ New Calculation Directory"));
+    m_newCalculationButton->setIcon(QIcon::fromTheme("folder-new", QIcon()));
+    m_newCalculationButton->setToolTip(tr("Create a new calculation directory (Ctrl+N)"));
+    calcDirsLayout->addWidget(m_newCalculationButton);
+    projectSplitter->addWidget(calcDirsWidget);
+
+    QWidget* calcFilesWidget = new QWidget;
+    QVBoxLayout* calcFilesLayout = new QVBoxLayout(calcFilesWidget);
+    calcFilesLayout->setContentsMargins(0, 0, 0, 0);
+
+    QWidget* pathWidget = new QWidget;
+    QHBoxLayout* pathLayout = new QHBoxLayout(pathWidget);
+    pathLayout->setContentsMargins(0, 0, 0, 0);
+    m_currentProjectLabel = new QLabel(m_currentCalculationDir);
+    m_currentProjectLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_currentProjectLabel->setWordWrap(false);
+    pathLayout->addWidget(m_currentProjectLabel, 1);
+    QPushButton* copyPathButton = new QPushButton;
+    copyPathButton->setIcon(QIcon::fromTheme("edit-copy"));
+    copyPathButton->setToolTip(tr("Copy current path to clipboard"));
+    copyPathButton->setMaximumWidth(30);
+    connect(copyPathButton, &QPushButton::clicked, this, &MainWindow::copyCurrentPath);
+    pathLayout->addWidget(copyPathButton);
+    calcFilesLayout->addWidget(pathWidget);
+
+    QWidget* stateWidget = new QWidget;
+    QHBoxLayout* stateLayout = new QHBoxLayout(stateWidget);
+    stateLayout->setContentsMargins(0, 0, 0, 0);
+    m_stateIcon = new QLabel("●");
+    m_stateIcon->setStyleSheet("color: grey; font-size: 14px;");
+    m_stateIcon->setFixedWidth(20);
+    stateLayout->addWidget(m_stateIcon);
+    m_stateIndicator = new QLabel(tr("No directory selected"));
+    stateLayout->addWidget(m_stateIndicator);
+    stateLayout->addStretch();
+    calcFilesLayout->addWidget(stateWidget);
+
+    m_directoryContentView = new QListView;
+    m_directoryContentModel = new QFileSystemModel(this);
+    m_directoryContentModel->setFilter(QDir::NoDotAndDotDot | QDir::Files);
+    m_directoryContentModel->setNameFilters(QStringList()
+        << "*.xyz" << "*.vtf" << "*.pdb" << "*.mol2" << "*.inp" << "*.log" << "*.out"
+        << "*.hess" << "*.gbw" << "*.txt" << "*.*" << "input");
+    m_directoryContentModel->setNameFilterDisables(false);
+    m_directoryContentView->setModel(m_directoryContentModel);
+    m_directoryContentView->setContextMenuPolicy(Qt::CustomContextMenu);
+#ifdef USE_SFTP
+    connect(m_directoryContentView, &QListView::doubleClicked, this, &MainWindow::onRemoteFileDoubleClicked);
+#endif
+    calcFilesLayout->addWidget(m_directoryContentView);
+    projectSplitter->addWidget(calcFilesWidget);
+
+    projectSplitter->setStretchFactor(0, 1);
+    projectSplitter->setStretchFactor(1, 2);
+    projectLayout->addWidget(projectSplitter, 1);
+
+    m_projectDock->setWidget(projectWidget);
+
+    // ==================== NAVIGATION DOCK (left, tabbed with Project) ====================
+    // Bookmarks / Workspaces / Remote Directories as internal tabs.
+    m_navigationDock = new QDockWidget(tr("Navigation"), this);
+    m_navigationDock->setObjectName("NavigationDock");
+    m_navigationTabs = new QTabWidget;
+    m_navigationTabs->setTabPosition(QTabWidget::North);
+    m_navigationTabs->setDocumentMode(true);
+
+    // Bookmarks tab
+    QWidget* bookmarksWidget = new QWidget;
+    QVBoxLayout* bookmarksLayout = new QVBoxLayout(bookmarksWidget);
+    bookmarksLayout->setContentsMargins(4, 4, 4, 4);
+    QWidget* bookmarkHeader = new QWidget;
+    QHBoxLayout* bookmarkHeaderLayout = new QHBoxLayout(bookmarkHeader);
+    bookmarkHeaderLayout->setContentsMargins(0, 0, 0, 0);
+    QLabel* bookmarksLabel = new QLabel(tr("Bookmarks"));
+    bookmarksLabel->setStyleSheet("font-weight: bold;");
+    bookmarkHeaderLayout->addWidget(bookmarksLabel, 1);
+    m_bookmarkButton = new QToolButton;
+    m_bookmarkButton->setIcon(QIcon::fromTheme("bookmark-new", QIcon(":/icons/bookmark.png")));
+    m_bookmarkButton->setToolTip(tr("Bookmark current directory"));
+    bookmarkHeaderLayout->addWidget(m_bookmarkButton);
+    bookmarksLayout->addWidget(bookmarkHeader);
+    m_bookmarkTreeView = new QTreeWidget;
+    m_bookmarkTreeView->setHeaderLabels(QStringList() << tr("Bookmarks"));
+    m_bookmarkTreeView->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_bookmarkTreeView->setDragDropMode(QAbstractItemView::InternalMove);
+    bookmarksLayout->addWidget(m_bookmarkTreeView);
+    m_navigationTabs->addTab(bookmarksWidget, tr("Bookmarks"));
+
+    // Workspaces tab
+    QWidget* workspacesWidget = new QWidget;
+    QVBoxLayout* workspacesLayout = new QVBoxLayout(workspacesWidget);
+    workspacesLayout->setContentsMargins(4, 4, 4, 4);
+    QWidget* workspaceHeader = new QWidget;
+    QHBoxLayout* wsHeaderLayout = new QHBoxLayout(workspaceHeader);
+    wsHeaderLayout->setContentsMargins(0, 0, 0, 0);
+    QLabel* workspacesLabel = new QLabel(tr("Workspaces"));
+    workspacesLabel->setStyleSheet("font-weight: bold;");
+    wsHeaderLayout->addWidget(workspacesLabel, 1);
+    QPushButton* newWorkspaceButton = new QPushButton("+");
+    newWorkspaceButton->setMaximumWidth(30);
+    newWorkspaceButton->setToolTip(tr("Save current state as workspace"));
+    connect(newWorkspaceButton, &QPushButton::clicked, this, &MainWindow::saveCurrentWorkspace);
+    wsHeaderLayout->addWidget(newWorkspaceButton);
+    workspacesLayout->addWidget(workspaceHeader);
+    m_workspaceListView = new QListWidget;
+    m_workspaceListView->setContextMenuPolicy(Qt::CustomContextMenu);
+    workspacesLayout->addWidget(m_workspaceListView);
+    m_navigationTabs->addTab(workspacesWidget, tr("Workspaces"));
+
+    // Remote tab
+    QWidget* remoteWidget = new QWidget;
+    QVBoxLayout* remoteLayout = new QVBoxLayout(remoteWidget);
+    remoteLayout->setContentsMargins(4, 4, 4, 4);
+    QWidget* remoteHeader = new QWidget;
+    QHBoxLayout* remoteHeaderLayout = new QHBoxLayout(remoteHeader);
+    remoteHeaderLayout->setContentsMargins(0, 0, 0, 0);
+    QLabel* remoteLabel = new QLabel(tr("Remote Directories"));
+    remoteLabel->setStyleSheet("font-weight: bold;");
+    remoteHeaderLayout->addWidget(remoteLabel, 1);
+    QPushButton* addRemoteBtn = new QPushButton("+");
+    addRemoteBtn->setMaximumWidth(30);
+    addRemoteBtn->setToolTip(tr("Add remote directory"));
+#ifdef USE_SFTP
+    connect(addRemoteBtn, &QPushButton::clicked, this, &MainWindow::onAddRemoteDirectoryClicked);
+#endif
+    remoteHeaderLayout->addWidget(addRemoteBtn);
+    remoteLayout->addWidget(remoteHeader);
+    m_remoteDirectoriesView = new QTreeWidget;
+    m_remoteDirectoriesView->setHeaderHidden(true);
+#ifdef USE_SFTP
+    connect(m_remoteDirectoriesView, &QTreeWidget::itemClicked, this, &MainWindow::onRemoteDirectoryClicked);
+#endif
+    remoteLayout->addWidget(m_remoteDirectoriesView);
+    m_navigationTabs->addTab(remoteWidget, tr("Remote"));
+
+    m_navigationDock->setWidget(m_navigationTabs);
+
+    // ==================== EDITORS DOCK (right, top) ====================
+    // Structure + Input as internal tabs — avoids Qt's fragile dock-tabify churn.
+    m_editorsDock = new QDockWidget(tr("Editors"), this);
+    m_editorsDock->setObjectName("EditorsDock");
+    m_editorsTabs = new QTabWidget;
+    m_editorsTabs->setTabPosition(QTabWidget::North);
+    m_editorsTabs->setDocumentMode(true);
+
+    QWidget* structureWidget = new QWidget;
+    QVBoxLayout* structureLayout = new QVBoxLayout(structureWidget);
+    structureLayout->setContentsMargins(4, 4, 4, 4);
+    QHBoxLayout* structureFileLayout = new QHBoxLayout;
+    structureFileLayout->addWidget(new QLabel(tr("Structure file:")));
+    m_structureFileEdit = new QLineEdit("input");
+    m_structureFileEdit->setToolTip(tr("Base name for structure file"));
+    m_structureFileEditExtension = new QLineEdit("xyz");
+    m_structureFileEditExtension->setMaximumWidth(60);
+    structureFileLayout->addWidget(m_structureFileEdit);
+    structureFileLayout->addWidget(m_structureFileEditExtension);
+    structureLayout->addLayout(structureFileLayout);
+    m_structureView = new ModifiableTextEdit;
+    m_structureView->setPlaceholderText("Structure data");
+    structureLayout->addWidget(m_structureView);
+    m_editorsTabs->addTab(structureWidget, tr("Structure"));
+
+    QWidget* inputWidget = new QWidget;
+    QVBoxLayout* inputLayout = new QVBoxLayout(inputWidget);
+    inputLayout->setContentsMargins(4, 4, 4, 4);
+    QHBoxLayout* inputFileLayout = new QHBoxLayout;
+    inputFileLayout->addWidget(new QLabel(tr("Input file:")));
+    m_inputFileEdit = new QLineEdit("input");
+    m_inputFileEdit->setToolTip(tr("Base name for input file"));
+    m_inputFileEditExtension = new QLineEdit("");
+    m_inputFileEditExtension->setMaximumWidth(60);
+    inputFileLayout->addWidget(m_inputFileEdit);
+    inputFileLayout->addWidget(m_inputFileEditExtension);
+    inputLayout->addLayout(inputFileLayout);
+    m_inputView = new ModifiableTextEdit;
+    m_inputView->setPlaceholderText("Input data");
+    inputLayout->addWidget(m_inputView);
+    m_editorsTabs->addTab(inputWidget, tr("Input"));
+
+    // Claude Generated 2026 - RMSD / align tool as a third Editors tab (folded
+    // here instead of its own dock, to keep the right side uncluttered).
+    // Backed by curcuma RMSDDriver; reference seeded by MainWindow.
+    m_rmsdWidget = new RMSDWidget(this);
+    m_editorsTabs->addTab(m_rmsdWidget, tr("RMSD / Align"));
+    // Overlay the aligned target onto the reference in the 3D viewer.
+    connect(m_rmsdWidget, &RMSDWidget::overlayRequested, this,
+        [this](const QVector<MoleculeViewer::Atom>& refAtoms,
+            const QVector<MoleculeViewer::Bond>& refBonds,
+            const QVector<MoleculeViewer::Atom>& targetAtoms) {
+            if (m_moleculeView)
+                m_moleculeView->showOverlay(refAtoms, refBonds, targetAtoms);
+        });
+    // "Use current as reference" button: re-seed from the current viewer frame.
+    connect(m_rmsdWidget, &RMSDWidget::seedReferenceRequested, this,
+        [this]() { seedRMSDReference(); });
+
+    m_editorsDock->setWidget(m_editorsTabs);
+
+    // ==================== ATOMS & SIMULATION DOCK (right, below Editors) ====================
+    m_atomsSimulationDock = new QDockWidget(tr("Atoms && Simulation"), this);
+    m_atomsSimulationDock->setObjectName("AtomsSimulationDock");
+    m_atomsSimulationTabs = new QTabWidget;
+    m_atomsSimulationTabs->setTabPosition(QTabWidget::North);
+    m_atomsSimulationTabs->setDocumentMode(true);
+
+    m_atomListPanel = new AtomListPanel(this);
+    m_atomsSimulationTabs->addTab(m_atomListPanel, tr("Atoms"));
+
+    m_simulationControlWidget = new SimulationControlWidget(this);
+    m_atomsSimulationTabs->addTab(m_simulationControlWidget, tr("Simulation"));
+
+    m_snapshotsWidget = new SnapshotsWidget(this);
+    m_atomsSimulationTabs->addTab(m_snapshotsWidget, tr("Snapshots"));
+
+    m_atomsSimulationDock->setWidget(m_atomsSimulationTabs);
+
+    // ==================== DISPLAY DOCK (right) ====================
+    // Single home for all 3D-viewer display options (style/effects/lighting/tools),
+    // replacing the former modal VisualizationSettingsDialog. Claude Generated 2026.
+    m_displayDock = new QDockWidget(tr("Display"), this);
+    m_displayDock->setObjectName("DisplayDock");
+    m_displayPanel = new DisplayPanel(m_moleculeView, &m_settings, this);
+    m_displayDock->setWidget(m_displayPanel);
+    connect(m_displayPanel, &DisplayPanel::centerOnLoadChanged, this, [this](bool on) {
+        m_centerOnLoad = on;
+        Settings::VisualizationSettings vs = m_settings.getVisualizationSettings();
+        vs.centerOnLoad = on;
+        m_settings.setVisualizationSettings(vs);
+    });
+    connect(m_displayPanel, &DisplayPanel::potVectorFieldChanged,
+        this, [this](bool on, int res) {
+            if (m_moleculeView) m_moleculeView->setWallVectorField(on, res);
+        });
+    // The viewer's slim "Display ⚙" bar button surfaces this dock.
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::displayOptionsRequested,
+            this, &MainWindow::openVisualizationSettings);
+
+    // Claude Generated - Worker is wired to view + status slot directly (skips widget mid-hop).
+    // Claude Generated 2026 - Phase 6: every molecule load path emits MoleculeViewer::moleculeUpdated;
+    // centralising the sim-dock sync here replaces a dozen ad-hoc setMolecule callsites.
+    // Claude Generated 2026 - The sim path (MoleculeViewer::updateSimulationFrame)
+    // also emits moleculeUpdated (throttled to once per worker run) so the sim
+    // dock's m_atoms cache stays in lockstep with the viewer. We mark the
+    // structure as modified here too, which surfaces the "● Modified" hint and
+    // enables the save button / File>Save action.
+    if (m_moleculeView) {
+        connect(m_moleculeView, &MoleculeViewer::moleculeUpdated,
+            m_simulationControlWidget,
+            [this](const QVector<MoleculeViewer::Atom>& atoms,
+                const QVector<MoleculeViewer::Bond>& bonds) {
+                if (m_simulationControlWidget)
+                    m_simulationControlWidget->setMolecule(atoms, bonds);
+                m_structureModified = true;
+                if (m_simulationControlWidget)
+                    m_simulationControlWidget->setStructureModified(true);
+            });
+    }
+    // Claude Generated 2026 - Structure editing: snapshot the pre-edit geometry before a
+    // move/paste/merge/delete so the Snapshots tab doubles as undo for those edits.
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::editSnapshotRequested, this,
+            [this](const QString& label) { takeSnapshot(label); });
+    connect(m_simulationControlWidget, &SimulationControlWidget::workerStarted,
+        this, &MainWindow::wireSimulationWorker);
+    connect(m_simulationControlWidget, &SimulationControlWidget::configChanged,
+        this, &MainWindow::onSimulationConfigChanged);
+    // Claude Generated 2026 - In-dock "Save" button routes to the central save.
+    connect(m_simulationControlWidget, &SimulationControlWidget::saveStructureRequested,
+        this, [this]() { saveCurrentStructure(); });
+    // Claude Generated 2026 - In-dock "Reset" button restores the original geometry.
+    // Always calls resetToOriginalSnapshot() which handles the empty-snapshots
+    // fallback and correctly clears the modified flag (unlike restoreSnapshot).
+    connect(m_simulationControlWidget, &SimulationControlWidget::resetStructureRequested,
+        this, [this](int /*index*/) {
+            resetToOriginalSnapshot();
+        });
+
+    // Claude Generated 2026 - Live wall-boundary feedback: viewer counts atoms
+    // outside the configured wall region (per frame / live MD) and the dock shows
+    // a "N atoms outside" status; the 3D wireframe also turns red.
+    connect(m_moleculeView, &MoleculeViewer::wallViolationChanged,
+        m_simulationControlWidget, &SimulationControlWidget::setWallViolationCount);
+
+    // Claude Generated 2026 - Snapshot widget controls.
+    connect(m_snapshotsWidget, &SnapshotsWidget::takeSnapshotRequested,
+        this, [this]() {
+            takeSnapshot();
+        });
+    connect(m_snapshotsWidget, &SnapshotsWidget::restoreSnapshotRequested,
+        this, [this](int index) {
+            if (index >= 0 && index < m_snapshots.size())
+                restoreSnapshot(m_snapshots[index]);
+        });
+    // Claude Generated 2026 - Protect snapshot 0 (original geometry) from deletion.
+    // Deleting it would break the Reset-to-original invariant.
+    connect(m_snapshotsWidget, &SnapshotsWidget::deleteSnapshotRequested,
+        this, [this](int index) {
+            if (index == 0)
+                return;  // Original snapshot must not be deleted
+            if (index > 0 && index < m_snapshots.size()) {
+                m_snapshots.removeAt(index);
+                if (m_simulationControlWidget)
+                    m_simulationControlWidget->setResetEnabled(!m_snapshots.isEmpty());
+            }
+        });
+    // Claude Generated 2026 - Phase 6: keep pickers ON during sim so click+drag
+    // on an atom triggers the grab path (QObjectPicker::pressed). Without this
+    // the camera controller would eat the press and rotate instead.
+    connect(m_simulationControlWidget, &SimulationControlWidget::simulationRunningChanged,
+        this, [this](bool running) {
+            if (!m_moleculeView) return;
+            // Ensure pickers exist for grab (creates them if instancing skipped them)
+            if (running)
+                m_moleculeView->ensurePickersForGrab();
+            m_moleculeView->setPickingActive(true);
+            m_moleculeView->setSimulationActive(running);
+            if (running && m_simulationControlWidget) {
+                m_moleculeView->setGrabStrength(m_simulationControlWidget->grabStrength());
+                m_moleculeView->setGrabAlpha(m_simulationControlWidget->grabAlpha());
+                m_moleculeView->setGrabMaxShells(m_simulationControlWidget->grabMaxShells());
+            }
+        });
+    // Claude Generated 2026 - Phase 6: push live grab-slider changes into the viewer.
+    connect(m_simulationControlWidget, &SimulationControlWidget::grabSettingsChanged,
+        this, [this](double strength, double alpha, int maxShells) {
+            if (!m_moleculeView) return;
+            m_moleculeView->setGrabStrength(strength);
+            m_moleculeView->setGrabAlpha(alpha);
+            m_moleculeView->setGrabMaxShells(maxShells);
+        });
+
+    // ==================== OUTPUT DOCK (bottom) ====================
+    m_outputViewDock = new QDockWidget(tr("Output"), this);
+    m_outputViewDock->setObjectName("OutputViewDock");
+    QWidget* outputWidget = new QWidget;
+    QVBoxLayout* outputLayout = new QVBoxLayout(outputWidget);
+    outputLayout->setContentsMargins(4, 4, 4, 4);
+    QHBoxLayout* outputHeaderLayout = new QHBoxLayout;
+    QLabel* outputLabel = new QLabel(tr("Output"));
+    outputLabel->setStyleSheet("font-weight: bold;");
+    outputHeaderLayout->addWidget(outputLabel);
+    outputHeaderLayout->addStretch();
+    QPushButton* clearOutputButton = new QPushButton;
+    clearOutputButton->setIcon(QIcon::fromTheme("edit-clear"));
+    clearOutputButton->setToolTip(tr("Clear output (Ctrl+L)"));
+    clearOutputButton->setMaximumWidth(30);
+    connect(clearOutputButton, &QPushButton::clicked, this, &MainWindow::clearOutputView);
+    outputHeaderLayout->addWidget(clearOutputButton);
+    outputLayout->addLayout(outputHeaderLayout);
+    m_outputView = new QTextEdit;
+    m_outputView->setPlaceholderText("Output");
+    m_outputView->setReadOnly(true);
+    outputLayout->addWidget(m_outputView);
+    m_outputViewDock->setWidget(outputWidget);
+
+    // ==================== SIMULATION CHARTS DIALOG (modeless) ====================
+    // Claude Generated 2026 - live temperature + energy time series for the running MD/Opt,
+    // fed from SimulationWorker::frameReady (wired in wireSimulationWorker()). Hosted in a
+    // modeless dialog (opened from Molecule -> Simulation Charts) instead of a dock so it does
+    // not consume layout space. Modeless (show(), not exec()) keeps the simulation controls
+    // usable while the charts update live.
+    m_simulationChartDialog = new QDialog(this);
+    m_simulationChartDialog->setObjectName("SimulationChartDialog");
+    m_simulationChartDialog->setWindowTitle(tr("Simulation Charts"));
+    m_simulationChartDialog->setModal(false);
+    m_simulationChartDialog->resize(640, 560);
+    m_simulationChartWidget = new SimulationChartWidget(m_simulationChartDialog);
+    auto* chartDialogLayout = new QVBoxLayout(m_simulationChartDialog);
+    chartDialogLayout->setContentsMargins(4, 4, 4, 4);
+    chartDialogLayout->addWidget(m_simulationChartWidget);
+
+    // ==================== INITIAL PLACEMENT ====================
+    // Baseline layout. addDockWidget called exactly once per dock. Project and
+    // Navigation share the left area via tabifyDockWidget (stable: only two
+    // peers). Editors and Atoms&Simulation split vertically on the right — not
+    // tabified, so clicking one never hides the other.
+    addDockWidget(Qt::LeftDockWidgetArea, m_projectDock);
+    addDockWidget(Qt::LeftDockWidgetArea, m_navigationDock);
+    tabifyDockWidget(m_projectDock, m_navigationDock);
+    m_projectDock->raise();
+
+    addDockWidget(Qt::RightDockWidgetArea, m_editorsDock);
+    addDockWidget(Qt::RightDockWidgetArea, m_atomsSimulationDock);
+    splitDockWidget(m_editorsDock, m_atomsSimulationDock, Qt::Vertical);
+
+    // Display dock shares the top-right area, tabified with the Editors dock.
+    addDockWidget(Qt::RightDockWidgetArea, m_displayDock);
+    tabifyDockWidget(m_editorsDock, m_displayDock);
+
+    addDockWidget(Qt::BottomDockWidgetArea, m_outputViewDock);
+}
+
+// Claude Generated - UI Restructuring: Layout preset dispatcher
+void MainWindow::applyLayoutPreset(LayoutPreset preset)
+{
+    switch (preset) {
+        case LayoutPreset::Visualization: applyVisualizationLayout(); break;
+        case LayoutPreset::Editing:       applyEditingLayout();       break;
+        case LayoutPreset::Calculation:   applyCalculationLayout();   break;
+        case LayoutPreset::Analysis:      applyAnalysisLayout();      break;
+    }
+}
+
+// Claude Generated (2026-04) - Preset lazy-cache: first call sets visibility and
+// caches saveState(); subsequent calls simply restoreState(). Eliminates the
+// drift caused by repeated tabify/split calls.
+static inline void applyPresetVisibility(QDockWidget* dock, bool visible) {
+    if (dock) dock->setVisible(visible);
+}
+
+void MainWindow::applyVisualizationLayout()
+{
+    const int key = static_cast<int>(LayoutPreset::Visualization);
+    auto it = m_presetStates.find(key);
+    if (it != m_presetStates.end()) {
+        restoreState(*it);
+    } else {
+        applyPresetVisibility(m_projectDock, true);
+        applyPresetVisibility(m_navigationDock, false);
+        applyPresetVisibility(m_editorsDock, false);
+        applyPresetVisibility(m_atomsSimulationDock, true);
+        applyPresetVisibility(m_outputViewDock, false);
+        if (m_atomsSimulationTabs) m_atomsSimulationTabs->setCurrentIndex(0);
+        if (width() > 0) {
+            resizeDocks({m_projectDock, m_atomsSimulationDock},
+                        {int(width() * 0.18), int(width() * 0.22)},
+                        Qt::Horizontal);
+        }
+        m_presetStates.insert(key, saveState());
+    }
+    statusBar()->showMessage(tr("Layout: Visualization Mode"), 2000);
+}
+
+void MainWindow::applyEditingLayout()
+{
+    const int key = static_cast<int>(LayoutPreset::Editing);
+    auto it = m_presetStates.find(key);
+    if (it != m_presetStates.end()) {
+        restoreState(*it);
+    } else {
+        applyPresetVisibility(m_projectDock, true);
+        applyPresetVisibility(m_navigationDock, true);
+        applyPresetVisibility(m_editorsDock, true);
+        applyPresetVisibility(m_atomsSimulationDock, false);
+        applyPresetVisibility(m_outputViewDock, false);
+        if (m_editorsTabs) m_editorsTabs->setCurrentIndex(0);
+        if (width() > 0) {
+            resizeDocks({m_projectDock, m_editorsDock},
+                        {int(width() * 0.22), int(width() * 0.32)},
+                        Qt::Horizontal);
+        }
+        m_presetStates.insert(key, saveState());
+    }
+    statusBar()->showMessage(tr("Layout: Editing Mode"), 2000);
+}
+
+void MainWindow::applyCalculationLayout()
+{
+    const int key = static_cast<int>(LayoutPreset::Calculation);
+    auto it = m_presetStates.find(key);
+    if (it != m_presetStates.end()) {
+        restoreState(*it);
+    } else {
+        applyPresetVisibility(m_projectDock, true);
+        applyPresetVisibility(m_navigationDock, false);
+        applyPresetVisibility(m_editorsDock, true);
+        applyPresetVisibility(m_atomsSimulationDock, false);
+        applyPresetVisibility(m_outputViewDock, true);
+        if (height() > 0) {
+            resizeDocks({m_outputViewDock}, {int(height() * 0.35)}, Qt::Vertical);
+        }
+        m_presetStates.insert(key, saveState());
+    }
+    statusBar()->showMessage(tr("Layout: Calculation Mode"), 2000);
+}
+
+void MainWindow::applyAnalysisLayout()
+{
+    const int key = static_cast<int>(LayoutPreset::Analysis);
+    auto it = m_presetStates.find(key);
+    if (it != m_presetStates.end()) {
+        restoreState(*it);
+    } else {
+        applyPresetVisibility(m_projectDock, true);
+        applyPresetVisibility(m_navigationDock, true);
+        applyPresetVisibility(m_editorsDock, true);
+        applyPresetVisibility(m_atomsSimulationDock, true);
+        applyPresetVisibility(m_outputViewDock, true);
+        if (width() > 0) {
+            resizeDocks({m_projectDock, m_editorsDock},
+                        {int(width() * 0.22), int(width() * 0.28)},
+                        Qt::Horizontal);
+        }
+        if (height() > 0) {
+            resizeDocks({m_outputViewDock}, {int(height() * 0.22)}, Qt::Vertical);
+        }
+        m_presetStates.insert(key, saveState());
+    }
+    statusBar()->showMessage(tr("Layout: Analysis Mode (All Panels)"), 2000);
+}
+
+// Claude Generated (2026-04) - Save global dock/geometry on close so next start
+// restores the user's last arrangement. Per-workspace save is orthogonal.
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    QSettings uiSettings;
+    uiSettings.setValue("ui/geometry", saveGeometry());
+    uiSettings.setValue("ui/dockState", saveState());
+    QMainWindow::closeEvent(event);
+}
+
+// Claude Generated 2026 - True if a text-entry widget currently has focus, so the
+// WASD/QE rotation keys must pass through (don't steal letters from typing).
+static bool isTextInputFocused()
+{
+    QWidget* w = QApplication::focusWidget();
+    if (!w)
+        return false;
+    return qobject_cast<QLineEdit*>(w) || qobject_cast<QAbstractSpinBox*>(w)
+        || qobject_cast<QPlainTextEdit*>(w) || qobject_cast<QTextEdit*>(w)
+        || qobject_cast<QComboBox*>(w);
+}
+
+// Claude Generated 2026 - Application-level key filter: WASD = pitch/yaw, QE = roll
+// rotate the 3D scene from anywhere (the file browser used to eat the arrow keys), and
+// Shift+WASDQE nudges the selection in Edit mode. Skipped while a text widget has focus
+// and when Ctrl/Alt/Meta are held (so Ctrl+A etc. keep working).
+bool MainWindow::eventFilter(QObject* obj, QEvent* event)
+{
+    if (event->type() == QEvent::KeyPress && m_moleculeView) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        // Auto-repeat allowed: holding a key keeps rotating.
+        if (!(ke->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
+            const int key = ke->key();
+            const bool isRotKey = key == Qt::Key_W || key == Qt::Key_A || key == Qt::Key_S
+                || key == Qt::Key_D || key == Qt::Key_Q || key == Qt::Key_E;
+            // Intercept WASD/QE in Edit mode AND in the interactive MD/Opt grab mode
+            // (rotation is purely visual there); free everywhere else.
+            if (isRotKey && (m_moleculeView->editMode() || m_moleculeView->simulationActive())
+                && !isTextInputFocused()) {
+                m_moleculeView->rotateSceneByKey(key, ke->modifiers() & Qt::ShiftModifier);
+                return true;  // consume
+            }
+        }
+    }
+    return QMainWindow::eventFilter(obj, event);
+}
+
+// Claude Generated - Interactive Simulation Integration
+
+// Claude Generated - Keep shared config in sync when dock widget controls change
+void MainWindow::onSimulationConfigChanged(SimulationConfig cfg)
+{
+    m_simulationConfig = cfg;
+
+    // Claude Generated 2026 - Forward the confinement-wall config to the viewer
+    // so the box wireframe is drawn live (auto-show when enabled) as the operator
+    // types the bounds — preview before the MD run even starts. notifyConfig
+    // emits on every field edit, so this updates in real time.
+    if (m_moleculeView) {
+        m_moleculeView->setConfinementBox(
+            cfg.wallEnabled, cfg.wallType,
+            QVector3D(cfg.wallXmin, cfg.wallYmin, cfg.wallZmin),
+            QVector3D(cfg.wallXmax, cfg.wallYmax, cfg.wallZmax),
+            float(cfg.wallRadius));
+        // Keep iso-potential shell params in sync with the current wall config.
+        m_moleculeView->setWallPotentialParams(
+            cfg.wallHarmonic, cfg.wallTemp, float(cfg.wallBeta));
+    }
+}
+
+// Claude Generated - Connect a freshly-created worker to the viewer + status bar directly.
+// Avoids widget/dialog acting as an atom-data forwarder; eliminates two queued signal hops
+// per frame. Connections auto-clean when the worker is deleteLater'd at simulation end.
+void MainWindow::wireSimulationWorker(SimulationWorker* worker)
+{
+    if (!worker)
+        return;
+
+    if (m_moleculeView) {
+        // Claude Generated 2026 - Critical: a new worker run must re-arm the
+        // viewer's throttled moleculeUpdated emit. Otherwise the *first* frame
+        // of e.g. an MD-after-Opt run is dropped (m_moleculeDirty was still
+        // true from the previous run's first frame), the sim dock's m_atoms
+        // cache never sees the new geometry, and the new run starts from the
+        // stale cache instead of the previous run's final coordinates.
+        m_moleculeView->resetSimDirty();
+
+        connect(worker, &SimulationWorker::frameReady,
+            m_moleculeView, &MoleculeViewer::updateSimulationFrame,
+            Qt::QueuedConnection);
+        // Claude Generated 2026 - Phase 6: viewer drag → worker force injection.
+        // QueuedConnection marshals the force matrix to the worker thread safely.
+        connect(m_moleculeView, &MoleculeViewer::atomForceRequested,
+            worker, &SimulationWorker::injectForce,
+            Qt::QueuedConnection);
+        connect(m_moleculeView, &MoleculeViewer::atomGrabReleased,
+            worker, &SimulationWorker::clearInjectedForce,
+            Qt::QueuedConnection);
+    }
+
+    // Claude Generated 2026 - Live temperature: dock slider drag → worker (worker thread).
+    // QueuedConnection marshals the value across threads; the worker pushes it into the
+    // running SimpleMD before the next step (and cancels any active global ramp).
+    if (m_simulationControlWidget) {
+        connect(m_simulationControlWidget, &SimulationControlWidget::temperatureChanged,
+            worker, &SimulationWorker::setTargetTemperature,
+            Qt::QueuedConnection);
+        connect(m_simulationControlWidget, &SimulationControlWidget::wallTempChanged,
+            worker, &SimulationWorker::setWallTemp,
+            Qt::QueuedConnection);
+        connect(m_simulationControlWidget, &SimulationControlWidget::wallBetaChanged,
+            worker, &SimulationWorker::setWallBeta,
+            Qt::QueuedConnection);
+        // Keep iso-potential shell params in sync with live slider changes.
+        if (m_moleculeView) {
+            connect(m_simulationControlWidget, &SimulationControlWidget::wallTempChanged,
+                m_moleculeView, [this](double T) {
+                    m_moleculeView->setWallPotentialParams(
+                        m_simulationConfig.wallHarmonic, T, float(m_simulationConfig.wallBeta));
+                });
+            connect(m_simulationControlWidget, &SimulationControlWidget::wallBetaChanged,
+                m_moleculeView, [this](double beta) {
+                    m_moleculeView->setWallPotentialParams(
+                        m_simulationConfig.wallHarmonic, m_simulationConfig.wallTemp, float(beta));
+                });
+        }
+    }
+
+    // Claude Generated 2026 - Live charts: clear for the new run, then append every frame
+    // (temperature + energies). The widget throttles its own axis rescaling.
+    if (m_simulationChartWidget) {
+        m_simulationChartWidget->reset();
+        connect(worker, &SimulationWorker::frameReady,
+            m_simulationChartWidget, &SimulationChartWidget::appendFrame,
+            Qt::QueuedConnection);
+    }
+
+    // Claude Generated 2026 - Re-sync the sim-dock m_atoms cache with the
+    // viewer's *current* geometry before the new run starts. The
+    // moleculeUpdated signal from the previous run's first frame only ever
+    // captured frame-1 coordinates; every frame after that mutated
+    // m_trajectoryAtoms[0] in place but the dock was never told. So the
+    // cache is always one run behind — unless we refresh it here.
+    if (m_simulationControlWidget && m_moleculeView) {
+        const QVector<MoleculeViewer::Atom> liveAtoms = m_moleculeView->getCurrentFrameAtoms();
+        if (!liveAtoms.isEmpty())
+            m_simulationControlWidget->setMolecule(liveAtoms,
+                m_moleculeView->getCurrentFrameBonds());
+    }
+
+    // Status-bar slot is a lambda so we don't need a Qt slot declaration.
+    // Throttled to ~5 Hz to reduce per-frame GUI overhead.
+    connect(worker, &SimulationWorker::frameReady,
+        this, [this](SimulationFramePtr frame) {
+            if (!frame) return;
+            if (m_simStatusBarTimer.isValid() && m_simStatusBarTimer.elapsed() < 200)
+                return;
+            m_simStatusBarTimer.restart();
+            statusBar()->showMessage(
+                tr("Simulation step %1 | E = %2 Eh | Ekin = %3 Eh")
+                    .arg(frame->step)
+                    .arg(frame->energy, 0, 'f', 8)
+                    .arg(frame->ekin, 0, 'f', 6),
+                0);
+        },
+        Qt::QueuedConnection);
+
+    // Claude Generated 2026 - Auto-snapshot stride: if the user sets N > 0 in the
+    // Snapshots tab, capture a snapshot every N-th simulation step/iteration.
+    connect(worker, &SimulationWorker::frameReady,
+        this, [this](SimulationFramePtr frame) {
+            if (!frame || frame->step <= 0)
+                return;
+            const int stride = m_simulationControlWidget
+                ? m_simulationControlWidget->autoStride() : 0;
+            if (stride <= 0)
+                return;
+            if (frame->step % stride != 0)
+                return;
+            takeSnapshot(tr("Auto step %1").arg(frame->step));
+        },
+        Qt::QueuedConnection);
+}
+
+// Claude Generated (Apr 2026): Entry point for command-line file argument loading.
+// Called via QTimer::singleShot(200) from main.cpp so Qt3D is fully initialized.
+void MainWindow::loadFileFromArg(const QString& path)
+{
+    if (path.isEmpty()) return;
+    QString absPath = QFileInfo(path).absoluteFilePath();
+    if (!QFile::exists(absPath)) {
+        qWarning() << "Command-line file not found:" << absPath;
+        return;
+    }
+    loadMoleculeFile(absPath);
+    // Note: loadMoleculeFile() now auto-switches the working directory to
+    // the file's parent directory on success, so no explicit switch here.
+}
+
+// Claude Generated 2026 - Auto-start the interactive simulation from the CLI
+// (-md / -opt). Called after loadFileFromArg() so the dock already holds the
+// loaded molecule. currentAtoms().isEmpty() mirrors onStartClicked()'s own
+// guard, so a failed load (or a dir positional) is a clean no-op. This is a
+// diagnostic lever: a direct onStartClicked() call is byte-for-byte identical
+// to a button click, so the release/AVX-512 crash reproduces faithfully.
+void MainWindow::autoStartSimulation(SimulationConfig::Mode mode)
+{
+    if (!m_simulationControlWidget)
+        return;
+    if (m_simulationControlWidget->currentAtoms().isEmpty())
+        return;  // load produced no molecule
+    qDebug() << "autoStartSimulation: mode=" << static_cast<int>(mode)
+             << "atoms=" << m_simulationControlWidget->currentAtoms().size();
+    m_simulationControlWidget->setMode(mode);
+    m_simulationControlWidget->onStartClicked();
+}
+
+// Claude Generated 2026: Switch the working directory to the file's parent dir
+// after a successful load. Extracted as a separate entry point so it can be
+// called from any place that loads a molecule file (CLI, File menu, drag-drop).
+void MainWindow::setWorkingDirFromArg(const QString& dir)
+{
+    QString target = dir.isEmpty() ? m_invocationDir : dir;
+    if (target.isEmpty() || !QDir(target).exists()) return;
+    if (target == m_workingDirectory) return;
+    switchWorkingDirectory(target);
+}
+
+// Claude Generated 2026: CLI entry point for `qurcuma <directory>`.
+// Switches the working directory without loading any file. Lets the user
+// launch qurcuma pointing at a project directory (e.g. `qurcuma .`).
+void MainWindow::loadDirFromArg(const QString& dir)
+{
+    if (dir.isEmpty()) return;
+    QString absDir = QFileInfo(dir).absoluteFilePath();
+    if (!QDir(absDir).exists()) {
+        qWarning() << "Command-line directory not found:" << absDir;
+        return;
+    }
+    if (absDir != m_workingDirectory) {
+        switchWorkingDirectory(absDir);
     }
 }

@@ -9,8 +9,11 @@
 #include <QComboBox>
 #include <QCompleter>
 #include <QDateTime>
+#include <QDockWidget>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QFileSystemModel>
+#include <QHash>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -29,7 +32,9 @@
 #include <QStatusBar>
 #include <QString>
 #include <QStringList>
+#include <QTabWidget>
 #include <QTextEdit>
+#include <QToolBar>
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -39,10 +44,20 @@
 #include "dialogs/nmrspectrumdialog.h"
 #include "modifiabletextedit.h"
 #include "widgets/breadcrumbbar.h"
+#include "snapshotswidget.h"  // Claude Generated 2026 - global MoleculeSnapshot + SnapshotsWidget
+#include "simulationworker.h"  // Claude Generated - for SimulationConfig
 class MoleculeViewer;
-class VisualizationSettingsDialog;  // Claude Generated - For shortcut synchronization
+class DisplayPanel;  // Claude Generated 2026 - docked viewer display options (replaces the modal dialog)
+class CommandPalette;  // Claude Generated 2026 - P3 Ctrl+K command palette
+class RMSDWidget;  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
+#ifdef USE_SFTP
+class SftpItemModel;  // Claude Generated - Remote Directory Mounting
+#endif
+class SimulationControlWidget;  // Claude Generated - Interactive Simulation Integration
+class SimulationChartWidget;    // Claude Generated 2026 - live MD temperature/energy charts
+class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog
 
 
 struct CalculationEntry {
@@ -71,8 +86,75 @@ public:
         CalculationError      // Process failed
     };
 
-    MainWindow(QWidget *parent = nullptr);
+    // Claude Generated - UI Restructuring: Layout presets for flexible dock arrangement
+    enum class LayoutPreset {
+        Visualization,  // 3D viewer focus with minimal UI
+        Editing,        // Editors and file browser focus
+        Calculation,    // Output view and calculation workflow
+        Analysis        // All panels visible, balanced layout
+    };
+
+    // Claude Generated 2026 - P2: top-level app mode. Explore = molecule viewer focus
+    // (calculation toolbar hidden); Compute = calculation workflow (toolbar shown).
+    enum class AppMode { Explore, Compute };
+
+    // Claude Generated 2026 - "Use Invocation Directory" preference
+    // invocationDir is captured from QDir::currentPath() in main.cpp BEFORE
+    // QApplication is created. When useInvocationDirectoryEnabled() is true,
+    // this directory becomes the active Working Directory.
+    MainWindow(const QString& invocationDir = QString(), QWidget *parent = nullptr);
     ~MainWindow();
+
+    /**
+     * @brief Load a molecule file after the event loop has started.
+     *
+     * Claude Generated (Apr 2026): Called from main.cpp via QTimer::singleShot
+     * to handle command-line file arguments. Must be called after the event loop
+     * starts so Qt3D is fully initialized.
+     *
+     * @param path  Absolute or relative path to the molecule file (.xyz, .vtf, .pdb, .mol2)
+     */
+    void loadFileFromArg(const QString& path);
+
+    /**
+     * @brief Auto-start the interactive simulation in the given mode after a
+     *        command-line file load (`qurcuma <file> -md` / `-opt`).
+     *
+     * Claude Generated 2026: Diagnostic lever for the release/AVX-512 crash —
+     * lets the interactive sim be launched from bash so the crash is
+     * reproducible under gdb/valgrind. No-op if no molecule was loaded.
+     * buildConfig() reflects the requested mode because setMode() drives the
+     * dock's mode combo. The workerStarted -> wireSimulationWorker connection
+     * is already in place, so the viewer lights up exactly as a button click.
+     *
+     * @param mode  MolecularDynamics or GeometryOptimization
+     */
+    void autoStartSimulation(SimulationConfig::Mode mode);
+
+    /**
+     * @brief Switch the working directory to the directory where the molecule file
+     *        resides, after it was loaded successfully.
+     *
+     * Claude Generated 2026: Wired to be called by loadMoleculeFile() so the user
+     * automatically lands in the file's parent directory after a successful load.
+     * No-op if the path is empty or does not exist.
+     *
+     * @param dir  Directory to switch to. If empty, falls back to the captured
+     *             invocation dir (m_invocationDir).
+     */
+    void setWorkingDirFromArg(const QString& dir);
+
+    /**
+     * @brief Switch the working directory to a directory given on the command line
+     *        (e.g. `qurcuma .`).
+     *
+     * Claude Generated 2026: Separate entry point from setWorkingDirFromArg() so
+     * the CLI '.' case never triggers a file load. Called from main.cpp after
+     * the event loop starts, so it has access to switchWorkingDirectory().
+     *
+     * @param dir  Absolute directory path. If empty, no-op.
+     */
+    void loadDirFromArg(const QString& dir);
 
 private slots:
     void runCommand();
@@ -90,8 +172,23 @@ private slots:
     void switchEditorTab();
     void saveCurrentEditor();
 
+    // Claude Generated 2026 - Save the (possibly MD/Opt-modified) molecule.
+    // Empty path → overwrite the current XYZ source if it's a .xyz file,
+    // otherwise open a Save-As dialog. Returns true on success.
+    bool saveCurrentStructure();
+    void saveCurrentStructureAs();
+
+    // Claude Generated 2026 - Reload the current file to discard simulation changes.
+    void reloadCurrentFile();
+
     // Claude Generated - Visualization settings
     void openVisualizationSettings();
+
+    // Claude Generated 2026 - RMSD / align / reorder tool (curcuma RMSDDriver),
+    // embedded in the Analysis dock. Raises the dock + RMSD tab, re-seeds the
+    // reference from the current viewer frame; an optional targetFile preloads
+    // the comparison structure (used by the file-manager context menu).
+    void showRMSDTool(const QString& targetFile = QString());
 
     // Claude Generated - Rendering shortcuts (1-4 for rendering modes)
     void setRenderingModeBallAndStick();
@@ -108,6 +205,7 @@ private slots:
     // Claude Generated - Focus & centering commands
     void fitMoleculeInView();
     void centerViewOnSelection();
+    void centerMoleculeAtOrigin();
 
     // Claude Generated - Phase 2A: Selection commands
     void selectAllAtoms();
@@ -119,6 +217,13 @@ private slots:
     // Claude Generated - Quick Win: Copy/Paste structures (moved from private to slots)
     void copyStructureToClipboard();
     void pasteStructureFromClipboard();
+
+    // Claude Generated 2026 - Merge a molecule from a file into the current scene
+    // (structure editing). addMoleculeToScene() opens a file dialog;
+    // mergeFileIntoScene() parses+appends a given path (also used by the browser
+    // right-click "Add to current scene").
+    void addMoleculeToScene();
+    void mergeFileIntoScene(const QString& filePath);
 
     // Claude Generated - Quick Win: Zoom to fit molecule (moved from private to slots)
     void zoomToMolecule();
@@ -135,13 +240,20 @@ private slots:
     // Claude Generated - Visual Polish: Dark mode
     void toggleDarkMode();
 
+    // Claude Generated 2026 - "Use Invocation Directory" preference
+    void toggleUseInvocationDirectory();
+
     // Claude Generated - Create new directory (moved from private to slots)
     void createNewDirectory();
 
 private:
     void setupUI();
     void createToolbars();
+    void createModeBar();                       // Claude Generated 2026 - P2 Explore/Compute switch
+    void setAppMode(AppMode mode, bool reflow = true);  // apply mode (toolbar + dock visibility)
+    void showCommandPalette();                  // Claude Generated 2026 - P3 Ctrl+K palette
     void createMenus();
+    void seedRMSDReference();  // Claude Generated 2026 - re-seed RMSD reference from viewer
     void setupProjectViewContextMenu();
     void setupConnections();
     void setupShortcuts();  // Claude Generated - Phase 1.2
@@ -157,6 +269,11 @@ private:
 
     // Claude Generated - SFTP: Load molecule file (local or remote)
     void loadMoleculeFile(const QString& filePath);
+
+    // Claude Generated 2026 - Parse just the first frame of a structure file (xyz/vtf/
+    // pdb/mol2) into viewer atoms/bonds; used by addMoleculeToScene() to merge.
+    bool parseFirstFrame(const QString& filePath, QVector<MoleculeViewer::Atom>& atoms,
+        QVector<MoleculeViewer::Bond>& bonds);
 
     void setupProgramSpecificDirectory(const QString &dirPath, const QString &program);
     void updateDirectoryContent();  // Claude Generated - removed unused path parameter
@@ -211,6 +328,14 @@ private:
     void updateWorkspaceList();
     void updateWorkspaceMenu(QMenu* menu);
 
+    // Claude Generated - UI Restructuring: Layout preset management
+    void applyLayoutPreset(LayoutPreset preset);
+    void applyVisualizationLayout();
+    void applyEditingLayout();
+    void applyCalculationLayout();
+    void applyAnalysisLayout();
+    void createDockWidgets();  // Helper to create all dock widgets
+
     QTreeWidget* m_bookmarkTreeView;  // Claude Generated Phase 3.2 - Replaced QListWidget
     QListWidget* m_workspaceListView;  // Claude Generated Phase 4.3
     QListView* m_projectListView;
@@ -231,18 +356,21 @@ private:
     Settings m_settings;
     QMap<QString, QStringList> m_programCommands;
 
-    // Claude Generated - For shortcut dialog synchronization
-    QPointer<VisualizationSettingsDialog> m_visualizationDialog;
+    // Claude Generated 2026 - Docked viewer display options (replaces the modal dialog)
+    DisplayPanel* m_displayPanel = nullptr;
+    QDockWidget* m_displayDock = nullptr;
+    CommandPalette* m_commandPalette = nullptr;  // Claude Generated 2026 - P3 Ctrl+K
     QCompleter* m_commandCompleter;
     QToolButton* m_bookmarkButton;
-    QSplitter* m_splitter;
     BreadcrumbBar* m_breadcrumbBar;  // Claude Generated Phase 1 - Clickable path navigation
     QLabel *m_currentProjectLabel;
     // Claude Generated - Phase 3.3: Visual state indicators
     QLabel *m_stateIcon, *m_stateIndicator;
     MoleculeViewer *m_moleculeView;
     NMRSpectrumDialog* m_nmrDialog;
+    RMSDWidget* m_rmsdWidget = nullptr;  // Claude Generated 2026 - RMSD/align panel (Editors dock tab)
     AtomListPanel* m_atomListPanel = nullptr;  // Claude Generated Phase 2C - Atom list panel
+    SnapshotsWidget* m_snapshotsWidget = nullptr;  // Claude Generated 2026 - Snapshot history
 
     // VTF/XYZ Parser
     VTFParser* m_vtfParser;
@@ -253,7 +381,6 @@ private:
 
     QString m_workingDirectory;
     QString m_currentCalculationDir; // Aktuelles Berechnungsverzeichnis
-    int m_lastLeftPanelWidth = 0;
     QVector<QPair<int, double>> m_frequencies;
 
     // Claude Generated - Phase 2.2: Workflow state
@@ -271,6 +398,40 @@ private:
     QMenu* m_recentFilesMenu = nullptr;
     QVector<Settings::RecentFileEntry> m_recentFiles;  // Claude Generated Phase 2 - Now with timestamps
 
+    // Claude Generated 2026 - Molecule save state. m_currentMoleculeFilePath
+    // is the path of the most recently *loaded* structure (XYZ/VTF/...). The
+    // save flow re-uses it as the default target if the extension is .xyz,
+    // otherwise it falls back to a Save-As dialog. m_structureModified tracks
+    // whether the in-memory geometry has diverged from that source (e.g. after
+    // an MD/Opt run) and is consulted by loadMoleculeFile() to prompt the
+    // user with Save/Discard/Cancel.
+    QString m_currentMoleculeFilePath;
+    bool m_structureModified = false;
+    bool m_centerOnLoad = true;  // shift COM to origin after loading (from VisualizationSettings)
+    QAction* m_saveAction = nullptr;
+    QAction* m_saveAsAction = nullptr;
+    bool saveStructure(const QString& path = QString());
+
+    // Claude Generated 2026 - Snapshot history. m_snapshots[0] is always the
+    // geometry as it was when the molecule was loaded (or the editor was last
+    // applied). Higher indices are user-managed or auto-stride snapshots. The
+    // policy is intentionally simple for now (manual add/reset, no automatic limit).
+    // MoleculeSnapshot is defined globally in snapshotswidget.h so the widget and
+    // MainWindow share one type.
+    QVector<MoleculeSnapshot> m_snapshots;
+    void takeSnapshot(const QString& name = QString());
+    void restoreSnapshot(const MoleculeSnapshot& snapshot);
+    void resetToOriginalSnapshot();
+    void captureInitialSnapshot(const QString& filePath,
+        const QVector<MoleculeViewer::Atom>& atoms,
+        const QVector<MoleculeViewer::Bond>& bonds);
+
+#ifdef USE_SFTP
+    QMenu* m_recentConnectionsMenu = nullptr;
+    void updateRecentConnectionsMenu();
+    void openRecentConnection(const QString& profileId);
+#endif
+
     // Claude Generated Phase 4 - Workspace management
     WorkspaceManager* m_workspaceManager = nullptr;
     QMenu* m_workspaceMenu = nullptr;
@@ -285,8 +446,63 @@ private:
     QAction* m_darkModeAction = nullptr;  // Store checkbox reference
     void applyStylesheet(bool darkMode);
 
+    // Claude Generated 2026 - "Use Invocation Directory" preference
+    QString m_invocationDir;                       // captured from QDir::currentPath() in main()
+    bool m_useInvocationDirectoryEnabled = false;  // mirror of the QSettings bool
+    QAction* m_useInvocationDirAction = nullptr;   // settings-menu checkable action
+    void applyUseInvocationDirectoryState(bool enabled);
+
+    // Claude Generated - Remote Directory Mounting
+    QTreeWidget* m_remoteDirectoriesView = nullptr;
+#ifdef USE_SFTP
+    QMap<QString, SftpItemModel*> m_remoteSftpModels;
+    QString m_currentRemoteMountId;
+#endif
+
+    // Claude Generated - Dock architecture rewrite (2026-04): 5 docks rahmen MoleculeViewer (CentralWidget)
+    QDockWidget* m_projectDock = nullptr;           // Left: working dir + calculation files
+    QDockWidget* m_navigationDock = nullptr;        // Left (tabbed): bookmarks / workspaces / remote
+    QDockWidget* m_editorsDock = nullptr;           // Right: structure + input editors (internal QTabWidget)
+    QDockWidget* m_atomsSimulationDock = nullptr;   // Right: atom list + simulation (internal QTabWidget)
+    QDockWidget* m_outputViewDock = nullptr;        // Bottom: output log
+    QDialog* m_simulationChartDialog = nullptr;     // Modeless dialog: live MD temperature/energy charts
+    QTabWidget* m_editorsTabs = nullptr;            // Internal tabs inside m_editorsDock (Structure/Input/RMSD)
+    QTabWidget* m_atomsSimulationTabs = nullptr;    // Internal tabs inside m_atomsSimulationDock
+    QTabWidget* m_navigationTabs = nullptr;         // Internal tabs inside m_navigationDock
+    QByteArray m_defaultDockState;                  // Baseline after createDockWidgets
+    QHash<int, QByteArray> m_presetStates;          // keyed by LayoutPreset enum
+
+    // Claude Generated 2026 - P2: Explore/Compute mode switch
+    AppMode m_appMode = AppMode::Explore;
+    QToolBar* m_modeToolbar = nullptr;          // top row: [Explore | Compute]
+    QToolBar* m_calculationToolbar = nullptr;   // 2nd row: program/command/threads (Compute only)
+    QToolButton* m_exploreButton = nullptr;
+    QToolButton* m_computeButton = nullptr;
+    SimulationControlWidget* m_simulationControlWidget = nullptr;  // Claude Generated
+    SimulationChartWidget* m_simulationChartWidget = nullptr;     // Claude Generated 2026 - live T/energy charts
+    SimulationConfig m_simulationConfig;             // Claude Generated - Shared config, edited from dock
+
+    // Claude Generated - Interactive Simulation Integration
+    QElapsedTimer m_simStatusBarTimer;  // Throttle status bar updates to ~5 Hz
+    void wireSimulationWorker(SimulationWorker* worker);  // Claude Generated - Direct worker->view wiring
+    void onSimulationConfigChanged(SimulationConfig cfg);
+
+#ifdef USE_SFTP
+    void updateRemoteDirectoriesView();
+    void onRemoteDirectoryClicked(QTreeWidgetItem* item, int column);
+    void onAddRemoteDirectoryClicked();
+    void onRemoteFileDoubleClicked(const QModelIndex& index);
+    void downloadAndLoadRemoteFile(const QString& filePath);
+#endif
+
 protected:
     // Claude Generated - Quick Win: Drag & Drop support
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dropEvent(QDropEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
+    // Claude Generated 2026 - Application-level key filter: WASD = pitch/yaw, QE = roll
+    // rotate the 3D scene (and Shift+WASDQE nudges the selection). Only active in the
+    // viewer's Edit mode, so the keys stay free everywhere else; also skipped while a
+    // text-entry widget has focus or Ctrl/Alt/Meta is held. Installed on qApp.
+    bool eventFilter(QObject* obj, QEvent* event) override;
 };

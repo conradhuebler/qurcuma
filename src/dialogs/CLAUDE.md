@@ -21,15 +21,24 @@ Specialized dialog windows and analysis tools for molecular visualization.
 
 ### SFTP Remote File Dialog (sftpdialog.*)
 - **Purpose**: Connect to HPC clusters and open remote molecular structure files via SFTP
-- **Status**: Production-ready for VTF/XYZ files
+- **Status**: ✅ Production-ready with full authentication & caching (Phase SFTP Integration complete)
 - **Features**:
-  - SSH/SFTP connection with password authentication (libssh 0.11.3)
-  - Remote directory browsing with tree view
-  - File download to local temp cache (`/tmp/qurcuma_sftp/`)
-  - Automatic parsing and visualization of downloaded files
+  - **Authentication**: Password + SSH key auto-detection (id_rsa, id_ed25519)
+  - **SSH Config Integration**: Parses ~/.ssh/config for host aliases, ports, users
+  - **Connection Profiles**: Save/load connection settings (like bookmarks)
+  - **Recent Connections**: Menu with last 5 connections + timestamps
+  - **Intelligent Caching**: SHA-256 hash-based file cache with hit detection
+  - **Lazy Loading**: Remote directories load on-demand (QAbstractItemModel::fetchMore)
+  - **Progress Feedback**: QProgressDialog for connect/download operations
+  - **Error Reporting**: Detailed SSH error messages from libssh
   - Keyboard shortcut: Ctrl+Shift+R
-- **Dependencies**: libssh (must be installed system-wide)
-- **Model**: Uses `sftpmodel.hpp` (QAbstractItemModel) for directory tree
+- **Dependencies**: libssh 0.11.3+ (system-wide installation required)
+- **Architecture**:
+  - `sftpdialog.cpp/h` - Main dialog with profile/SSH config dropdowns
+  - `sftpmodel.hpp` - QAbstractItemModel with lazy loading + key auth
+  - `sshconfig.cpp/h` - Parser for ~/.ssh/config files
+  - `sftpcache.cpp/h` - Cache manager (/tmp/qurcuma_sftp/)
+  - `Settings` - SftpConnectionProfile persistence (QSettings)
 
 ## Architecture
 

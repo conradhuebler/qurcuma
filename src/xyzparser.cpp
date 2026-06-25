@@ -96,46 +96,7 @@ bool XYZParser::parseAsciiFormat(const QString& filePath, QVector<XYZFrame>& fra
 
     file.close();
 
-    // Claude Generated - Auto-detect unit (Ångström vs Bohr)
-    // DISABLED: XYZ files are assumed to be in Ångström
-    // if (!frames.isEmpty()) {
-    //     detectAndScaleUnits(frames);
-    // }
-
     return !frames.isEmpty();
-}
-
-void XYZParser::detectAndScaleUnits(QVector<XYZFrame>& frames)
-{
-    // Claude Generated - Check if coordinates are in Bohr (atomic units) or Ångström
-    // Bohr coordinates are typically 2x smaller than Ångström for similar molecules
-
-    // Find max coordinate
-    float maxCoord = 0.0f;
-    for (const auto& frame : frames) {
-        for (const auto& atom : frame.atoms) {
-            maxCoord = qMax(maxCoord, qAbs(atom.x));
-            maxCoord = qMax(maxCoord, qAbs(atom.y));
-            maxCoord = qMax(maxCoord, qAbs(atom.z));
-        }
-    }
-
-    // Heuristic: If max coordinate > 50, likely in Bohr units (since typical molecules are < 50 Ångström)
-    // Bohr to Ångström conversion: multiply by 0.529177
-    const float BOHR_TO_ANGSTROM = 0.529177f;
-    const float COORD_THRESHOLD = 50.0f;
-
-    if (maxCoord > COORD_THRESHOLD) {
-        qDebug() << "XYZ Parser: Detected Bohr units (max coord:" << maxCoord << "), converting to Ångström";
-
-        for (auto& frame : frames) {
-            for (auto& atom : frame.atoms) {
-                atom.x *= BOHR_TO_ANGSTROM;
-                atom.y *= BOHR_TO_ANGSTROM;
-                atom.z *= BOHR_TO_ANGSTROM;
-            }
-        }
-    }
 }
 
 void XYZParser::convertToMoleculeViewer(const XYZFrame& xyzFrame,

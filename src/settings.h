@@ -61,6 +61,13 @@ public:
     bool darkModeEnabled() const;
     void setDarkMode(bool enabled);
 
+    // Claude Generated 2026 - "Use Invocation Directory" preference.
+    // When enabled, the directory from which qurcuma was launched
+    // (QDir::currentPath() at process start) becomes the active Working
+    // Directory. The captured path itself is never persisted.
+    bool useInvocationDirectoryEnabled() const;
+    void setUseInvocationDirectoryEnabled(bool enabled);
+
     // Claude Generated - Visualization Settings Persistence
     // Structure to hold all visualization parameters
     struct VisualizationSettings {
@@ -83,6 +90,14 @@ public:
         float bloomIntensity = 1.0f;
         bool hdrEnabled = true;
         float exposure = 1.0f;
+        // Claude Generated 2026 - Interaction / Performance
+        int rotationMode = 0;          // 0 = Model, 1 = CameraOrbit
+        int instancingThreshold = 500; // Atom count >= threshold switches to GPU instancing (picking disabled)
+        // Claude Generated 2026 - Confinement-wall wireframe show/hide override
+        // (the wall geometry itself comes from the Simulation config).
+        bool wallVisible = true;
+        qreal wallOpacity = 0.6;  // wireframe alpha 0..1
+        bool centerOnLoad = true;  // translate COM to origin after loading
     };
 
     VisualizationSettings getVisualizationSettings() const;
@@ -128,7 +143,7 @@ public:
         QString workingDirectory;        // Main working directory
         QStringList openCalculations;   // Selected calculation directories
         QByteArray windowGeometry;       // Window size/position
-        QByteArray splitterStates;       // Panel/splitter layout
+        QByteArray dockState;            // Claude Generated - UI Restructuring: Dock widget layout state
         QDateTime created;               // Creation timestamp
         QDateTime lastUsed;              // Last access time
 
@@ -149,6 +164,63 @@ public:
     bool restoreLastWorkspaceEnabled() const;
     void setRestoreLastWorkspace(bool enabled);
 
+#ifdef USE_SFTP
+    // Claude Generated - Phase SFTP Integration: Connection profile management
+    struct SftpConnectionProfile {
+        QString id;                  // Unique identifier (UUID)
+        QString name;                // User-friendly name "HPC Cluster 1"
+        QString host;                // Hostname or IP address
+        QString username;            // SSH username
+        int port;                    // SSH port (default 22)
+        bool useSSHConfig;           // If true, prefer settings from ~/.ssh/config
+        bool useKeyAuth;             // Use SSH key authentication instead of password
+        QString keyPath;             // Path to private key file (if useKeyAuth is true)
+        QDateTime created;           // Creation timestamp
+        QDateTime lastUsed;          // Last connection time
+
+        SftpConnectionProfile()
+            : port(22)
+            , useSSHConfig(false)
+            , useKeyAuth(false)
+        {
+        }
+
+        bool isValid() const { return !id.isEmpty() && !name.isEmpty() && !host.isEmpty(); }
+    };
+
+    QVector<SftpConnectionProfile> sftpProfiles() const;
+    void setSftpProfiles(const QVector<SftpConnectionProfile>& profiles);
+    void addSftpProfile(const SftpConnectionProfile& profile);
+    void removeSftpProfile(const QString& id);
+    void updateSftpProfile(const QString& id, const SftpConnectionProfile& profile);
+    void updateSftpProfileLastUsed(const QString& id);
+    QVector<SftpConnectionProfile> getRecentSftpConnections(int limit = 5) const;
+
+    // Claude Generated - Remote Directory Mounting
+    struct RemoteMountPoint {
+        QString id;                  // UUID
+        QString name;                // User-friendly name "HPC Cluster - MD Runs"
+        QString profileId;           // Reference to SftpConnectionProfile
+        QString remotePath;          // "/scratch/user/simulations"
+        QDateTime mounted;           // When added to workspace
+        QDateTime lastAccessed;      // Last browsed
+
+        RemoteMountPoint()
+        {
+        }
+
+        bool isValid() const {
+            return !id.isEmpty() && !profileId.isEmpty() && !remotePath.isEmpty();
+        }
+    };
+
+    QVector<RemoteMountPoint> remoteMounts() const;
+    void setRemoteMounts(const QVector<RemoteMountPoint>& mounts);
+    void addRemoteMount(const RemoteMountPoint& mount);
+    void removeRemoteMount(const QString& id);
+    void updateRemoteMountLastAccessed(const QString& id);
+#endif // USE_SFTP
+
 private:
     QSettings m_settings;
 
@@ -158,6 +230,7 @@ private:
     static const QString WORKING_DIRS_KEY;
     static const QString LAST_USED_DIR_KEY;
     static const QString VIZ_SETTINGS_PREFIX;
+    static const QString USE_INVOCATION_DIR_KEY;  // Claude Generated 2026 - "Use Invocation Directory" preference
 };
 
 #endif
