@@ -17,16 +17,17 @@ Quick3D
 REQUIRED
 )
 
-# Claude Generated - SFTP Support with libssh
-find_package(PkgConfig)
-if(PKG_CONFIG_FOUND)
-    pkg_check_modules(LIBSSH REQUIRED libssh)
-else()
-    # Fallback: Try to find libssh manually
-    find_library(LIBSSH_LIBRARIES NAMES ssh)
-    find_path(LIBSSH_INCLUDE_DIRS libssh/libssh.h)
-    if(NOT LIBSSH_LIBRARIES OR NOT LIBSSH_INCLUDE_DIRS)
-        message(FATAL_ERROR "libssh not found. Install libssh-dev (Debian/Ubuntu) or libssh-devel (Fedora/RHEL)")
+option(USE_SFTP "Enable SFTP remote file access (requires libssh)" OFF)
+if(USE_SFTP)
+    find_package(PkgConfig)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(LIBSSH REQUIRED libssh)
+    else()
+        find_library(LIBSSH_LIBRARIES NAMES ssh)
+        find_path(LIBSSH_INCLUDE_DIRS libssh/libssh.h)
+        if(NOT LIBSSH_LIBRARIES OR NOT LIBSSH_INCLUDE_DIRS)
+            message(FATAL_ERROR "libssh not found. Install libssh-dev (Debian/Ubuntu) or libssh-devel (Fedora/RHEL)")
+        endif()
     endif()
 endif()
 
@@ -100,9 +101,6 @@ set(SOURCES
     src/dialogs/nmrcontroller.cpp
     src/dialogs/nmrdatastore.cpp
     src/dialogs/nmrstructureproxymodel.cpp
-    src/dialogs/sftpdialog.cpp  # Claude Generated - SFTP remote file access
-    src/sshconfig.cpp  # Claude Generated - SSH config parser for SFTP integration
-    src/sftpcache.cpp  # Claude Generated - SFTP cache management for SFTP integration
     src/widgets/breadcrumbbar.cpp  # Claude Generated Phase 1
     src/workspacemanager.cpp  # Claude Generated Phase 4.2
     src/selectionmanager.cpp  # Claude Generated Phase 2A
@@ -138,10 +136,6 @@ set(HEADERS
     src/widgets/temperatureslider.h  # Claude Generated 2026 - vertical temperature-colored slider
     src/widgets/simulationchart.h  # Claude Generated 2026 - live MD temperature/energy charts
     src/dialogs/nmrspectrumdialog.h
-    src/dialogs/sftpdialog.h  # Claude Generated - SFTP remote file access
-    src/sftpmodel.hpp  # Claude Generated - SFTP model (header-only with Q_OBJECT)
-    src/sshconfig.h  # Claude Generated - SSH config parser for SFTP integration
-    src/sftpcache.h  # Claude Generated - SFTP cache management for SFTP integration
     src/widgets/breadcrumbbar.h  # Claude Generated Phase 1
     src/workspacemanager.h  # Claude Generated Phase 4.2
     src/selectionmanager.h  # Claude Generated Phase 2A
@@ -163,11 +157,27 @@ set(HEADERS
 
 )
 
+if(USE_SFTP)
+    list(APPEND SOURCES
+        src/dialogs/sftpdialog.cpp
+        src/sshconfig.cpp
+        src/sftpcache.cpp
+    )
+    list(APPEND HEADERS
+        src/dialogs/sftpdialog.h
+        src/sftpmodel.hpp
+        src/sshconfig.h
+        src/sftpcache.h
+    )
+endif()
+
 add_executable(qurcuma
     ${SOURCES}
     ${HEADERS}
     resources.qrc
 )
+
+target_compile_definitions(qurcuma PRIVATE $<$<BOOL:${USE_SFTP}>:USE_SFTP>)
 
 # Claude Generated 2026 - Match curcuma's CPU/SIMD flags on the qurcuma target.
 #
@@ -206,7 +216,7 @@ Qt6::Qml
 Qt6::Quick
 Qt6::Quick3D
 cutechart
-${LIBSSH_LIBRARIES}  # Claude Generated - SFTP support
+$<$<BOOL:${USE_SFTP}>:${LIBSSH_LIBRARIES}>
 curcuma_core  # Claude Generated - Curcuma simulation backend
 curcuma_cap   # Claude Generated - Curcuma capabilities (MD, Opt)
 $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>  # Claude Generated - OpenMP for curcuma
@@ -228,7 +238,7 @@ target_include_directories(qurcuma PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/external/cpp-d4/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/ulysses-main/src
     ${CMAKE_CURRENT_SOURCE_DIR}/external/CxxThreadPool/include
-    ${LIBSSH_INCLUDE_DIRS}
+    $<$<BOOL:${USE_SFTP}>:${LIBSSH_INCLUDE_DIRS}>
 )
 
 # VTF Parser Test

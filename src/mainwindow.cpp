@@ -1,8 +1,10 @@
 #include "settings.h"
 #include "selectionmanager.h"  // Claude Generated - Phase 2A
 #include "atomlistpanel.h"  // Claude Generated - Phase 2C
-#include "sftpmodel.hpp"  // Claude Generated - Remote Directory Mounting
-#include "dialogs/sftpdialog.h"  // Claude Generated - Remote Directory Mounting
+#ifdef USE_SFTP
+#include "sftpmodel.hpp"
+#include "dialogs/sftpdialog.h"
+#endif
 #include "simulationcontrolwidget.h"  // Claude Generated - Interactive Simulation Integration
 #include "snapshotswidget.h"  // Claude Generated 2026 - Snapshot history foundation
 // Claude Generated 2026 - Phase 6: SimulationDialog removed; the dock widget is the sole sim UI.
@@ -66,7 +68,9 @@
 
 #include "dialogs/nmrspectrumdialog.h"
 #include "rmsdwidget.h"  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
-#include "dialogs/sftpdialog.h"  // Claude Generated - SFTP remote file access
+#ifdef USE_SFTP
+#include "dialogs/sftpdialog.h"
+#endif
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "mainwindow.h"
 
@@ -191,7 +195,9 @@ void MainWindow::setupUI()
     setupContextMenu();
 
     // Update initial state
+#ifdef USE_SFTP
     updateRemoteDirectoriesView();
+#endif
 
     // Claude Generated - Rendering mode shortcuts (Keys 1-4)
     new QShortcut(Qt::Key_1, this, SLOT(setRenderingModeBallAndStick()));
@@ -777,7 +783,7 @@ void MainWindow::createMenus()
 
     fileMenu->addSeparator();
 
-    // Claude Generated - SFTP: Open Remote File
+#ifdef USE_SFTP
     QAction *openRemoteAction = fileMenu->addAction(QIcon::fromTheme("folder-remote"), tr("Open &Remote File..."));
     openRemoteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R));
     connect(openRemoteAction, &QAction::triggered, this, [this]() {
@@ -785,20 +791,16 @@ void MainWindow::createMenus()
         if (dialog.exec() == QDialog::Accepted) {
             QString localPath = dialog.getLocalPath();
             if (!localPath.isEmpty()) {
-                // Load the downloaded file using existing parsers
                 loadMoleculeFile(localPath);
                 statusBar()->showMessage(tr("Loaded remote file: %1").arg(QFileInfo(localPath).fileName()), 3000);
-
-                // Update recent connections menu (Claude Generated)
                 updateRecentConnectionsMenu();
             }
         }
     });
-
-    // Claude Generated - Phase SFTP Integration: Recent remote connections menu
     m_recentConnectionsMenu = fileMenu->addMenu(QIcon::fromTheme("network-server"), tr("Recent Remote &Connections"));
     m_recentConnectionsMenu->setEnabled(false);
     updateRecentConnectionsMenu();
+#endif
 
     fileMenu->addSeparator();
 
@@ -3936,6 +3938,7 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     }
 }
 
+#ifdef USE_SFTP
 // Claude Generated - Phase SFTP Integration: Recent remote connections menu management
 void MainWindow::updateRecentConnectionsMenu()
 {
@@ -4223,6 +4226,7 @@ void MainWindow::downloadAndLoadRemoteFile(const QString& filePath)
 
     statusBar()->showMessage(tr("Loaded: %1 (from %2)").arg(fileName, filePath));
 }
+#endif // USE_SFTP
 
 // Claude Generated (2026-04) - Dock architecture rewrite. Five focused docks rahmen
 // the MoleculeViewer (CentralWidget). Internal QTabWidgets replace fragile Qt
@@ -4312,7 +4316,9 @@ void MainWindow::createDockWidgets()
     m_directoryContentModel->setNameFilterDisables(false);
     m_directoryContentView->setModel(m_directoryContentModel);
     m_directoryContentView->setContextMenuPolicy(Qt::CustomContextMenu);
+#ifdef USE_SFTP
     connect(m_directoryContentView, &QListView::doubleClicked, this, &MainWindow::onRemoteFileDoubleClicked);
+#endif
     calcFilesLayout->addWidget(m_directoryContentView);
     projectSplitter->addWidget(calcFilesWidget);
 
@@ -4386,12 +4392,16 @@ void MainWindow::createDockWidgets()
     QPushButton* addRemoteBtn = new QPushButton("+");
     addRemoteBtn->setMaximumWidth(30);
     addRemoteBtn->setToolTip(tr("Add remote directory"));
+#ifdef USE_SFTP
     connect(addRemoteBtn, &QPushButton::clicked, this, &MainWindow::onAddRemoteDirectoryClicked);
+#endif
     remoteHeaderLayout->addWidget(addRemoteBtn);
     remoteLayout->addWidget(remoteHeader);
     m_remoteDirectoriesView = new QTreeWidget;
     m_remoteDirectoriesView->setHeaderHidden(true);
+#ifdef USE_SFTP
     connect(m_remoteDirectoriesView, &QTreeWidget::itemClicked, this, &MainWindow::onRemoteDirectoryClicked);
+#endif
     remoteLayout->addWidget(m_remoteDirectoriesView);
     m_navigationTabs->addTab(remoteWidget, tr("Remote"));
 

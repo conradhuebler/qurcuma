@@ -164,6 +164,7 @@ public:
     bool restoreLastWorkspaceEnabled() const;
     void setRestoreLastWorkspace(bool enabled);
 
+#ifdef USE_SFTP
     // Claude Generated - Phase SFTP Integration: Connection profile management
     struct SftpConnectionProfile {
         QString id;                  // Unique identifier (UUID)
@@ -218,6 +219,7 @@ public:
     void addRemoteMount(const RemoteMountPoint& mount);
     void removeRemoteMount(const QString& id);
     void updateRemoteMountLastAccessed(const QString& id);
+#endif // USE_SFTP
 
 private:
     QSettings m_settings;

@@ -684,6 +684,7 @@ void Settings::setRestoreLastWorkspace(bool enabled)
     m_settings.sync();
 }
 
+#ifdef USE_SFTP
 // Claude Generated - Phase SFTP Integration: Connection profile management
 QVector<Settings::SftpConnectionProfile> Settings::sftpProfiles() const
 {
@@ -906,3 +907,4 @@ void Settings::updateRemoteMountLastAccessed(const QString& id)
     }
     setRemoteMounts(mounts);
 }
+#endif // USE_SFTP

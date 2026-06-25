@@ -52,7 +52,9 @@ class CommandPalette;  // Claude Generated 2026 - P3 Ctrl+K command palette
 class RMSDWidget;  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
+#ifdef USE_SFTP
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
+#endif
 class SimulationControlWidget;  // Claude Generated - Interactive Simulation Integration
 class SimulationChartWidget;    // Claude Generated 2026 - live MD temperature/energy charts
 class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog
@@ -424,10 +426,11 @@ private:
         const QVector<MoleculeViewer::Atom>& atoms,
         const QVector<MoleculeViewer::Bond>& bonds);
 
-    // Claude Generated - Phase SFTP Integration: Recent remote connections
+#ifdef USE_SFTP
     QMenu* m_recentConnectionsMenu = nullptr;
-    void updateRecentConnectionsMenu();  // Populate recent connections menu
-    void openRecentConnection(const QString& profileId);  // Open SFTP dialog with profile pre-selected
+    void updateRecentConnectionsMenu();
+    void openRecentConnection(const QString& profileId);
+#endif
 
     // Claude Generated Phase 4 - Workspace management
     WorkspaceManager* m_workspaceManager = nullptr;
@@ -451,8 +454,10 @@ private:
 
     // Claude Generated - Remote Directory Mounting
     QTreeWidget* m_remoteDirectoriesView = nullptr;
+#ifdef USE_SFTP
     QMap<QString, SftpItemModel*> m_remoteSftpModels;
     QString m_currentRemoteMountId;
+#endif
 
     // Claude Generated - Dock architecture rewrite (2026-04): 5 docks rahmen MoleculeViewer (CentralWidget)
     QDockWidget* m_projectDock = nullptr;           // Left: working dir + calculation files
@@ -482,12 +487,13 @@ private:
     void wireSimulationWorker(SimulationWorker* worker);  // Claude Generated - Direct worker->view wiring
     void onSimulationConfigChanged(SimulationConfig cfg);
 
-    // Note: m_atomListPanel is already a dock widget (AtomListPanel inherits QDockWidget)
+#ifdef USE_SFTP
     void updateRemoteDirectoriesView();
     void onRemoteDirectoryClicked(QTreeWidgetItem* item, int column);
     void onAddRemoteDirectoryClicked();
     void onRemoteFileDoubleClicked(const QModelIndex& index);
     void downloadAndLoadRemoteFile(const QString& filePath);
+#endif
 
 protected:
     // Claude Generated - Quick Win: Drag & Drop support
