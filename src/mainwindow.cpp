@@ -383,6 +383,11 @@ void MainWindow::setupContextMenu()
                 connect(mergeAction, &QAction::triggered, this,
                     [this, filePath]() { mergeFileIntoScene(filePath); });
 
+                // Claude Generated 2026 - Add this file straight into the lesson.
+                QAction *lessonAction = contextMenu.addAction(tr("Add to Lesson"));
+                connect(lessonAction, &QAction::triggered, this,
+                    [this, filePath]() { addFileToLesson(filePath); });
+
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive))
             {
@@ -412,6 +417,11 @@ void MainWindow::setupContextMenu()
                 QAction *mergeAction = contextMenu.addAction(tr("Add to current scene"));
                 connect(mergeAction, &QAction::triggered, this,
                     [this, filePath]() { mergeFileIntoScene(filePath); });
+
+                // Claude Generated 2026 - Add this file straight into the lesson.
+                QAction *lessonAction = contextMenu.addAction(tr("Add to Lesson"));
+                connect(lessonAction, &QAction::triggered, this,
+                    [this, filePath]() { addFileToLesson(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".pdb", Qt::CaseInsensitive))
@@ -450,6 +460,11 @@ void MainWindow::setupContextMenu()
                 connect(mergeAction, &QAction::triggered, this,
                     [this, filePath]() { mergeFileIntoScene(filePath); });
 
+                // Claude Generated 2026 - Add this file straight into the lesson.
+                QAction *lessonAction = contextMenu.addAction(tr("Add to Lesson"));
+                connect(lessonAction, &QAction::triggered, this,
+                    [this, filePath]() { addFileToLesson(filePath); });
+
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".mol2", Qt::CaseInsensitive))
             {
@@ -486,6 +501,11 @@ void MainWindow::setupContextMenu()
                 QAction *mergeAction = contextMenu.addAction(tr("Add to current scene"));
                 connect(mergeAction, &QAction::triggered, this,
                     [this, filePath]() { mergeFileIntoScene(filePath); });
+
+                // Claude Generated 2026 - Add this file straight into the lesson.
+                QAction *lessonAction = contextMenu.addAction(tr("Add to Lesson"));
+                connect(lessonAction, &QAction::triggered, this,
+                    [this, filePath]() { addFileToLesson(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             }else if(filePath.endsWith(".gbw", Qt::CaseInsensitive) || filePath.endsWith(".loc", Qt::CaseInsensitive) || filePath.endsWith(".ges", Qt::CaseInsensitive))
@@ -3033,9 +3053,23 @@ bool MainWindow::saveLessonInteractive(bool forceDialog)
     return true;
 }
 
-// Capture the currently displayed structure + the dock's current simulation
-// conditions as a new lesson entry. No dialogs: it is added with a default name,
-// then selected so the user fills in name/notes/role in the inline detail editor.
+// Build a LessonStructure from atoms + the dock's current simulation conditions,
+// append it, and return its row. No UI changes — callers decide what to reveal.
+int MainWindow::appendLessonStructureFromAtoms(const QString& name,
+    const QVector<MoleculeViewer::Atom>& atoms)
+{
+    LessonStructure s;
+    s.name = name.isEmpty()
+        ? tr("Structure %1").arg(m_lesson.structures.size() + 1) : name;
+    s.xyz = atomsToXyz(atoms, s.name);
+    s.sim = m_simulationControlWidget ? m_simulationControlWidget->currentConfig() : SimulationConfig{};
+    m_lesson.structures.push_back(s);
+    return static_cast<int>(m_lesson.structures.size()) - 1;
+}
+
+// Capture the currently displayed structure as a new lesson entry. No dialogs: it
+// is added with a default name, then selected so the user fills in name/notes/role
+// in the inline detail editor.
 void MainWindow::addCurrentStructureToLesson()
 {
     if (!m_moleculeView)
@@ -3045,15 +3079,8 @@ void MainWindow::addCurrentStructureToLesson()
         statusBar()->showMessage(tr("No structure to add"), 3000);
         return;
     }
-
-    LessonStructure s;
     const QString defaultName = QFileInfo(m_currentMoleculeFilePath).completeBaseName();
-    s.name = defaultName.isEmpty()
-        ? tr("Structure %1").arg(m_lesson.structures.size() + 1) : defaultName;
-    s.xyz = atomsToXyz(atoms, s.name);
-    s.sim = m_simulationControlWidget ? m_simulationControlWidget->currentConfig() : SimulationConfig{};
-    m_lesson.structures.push_back(s);
-    const int row = static_cast<int>(m_lesson.structures.size()) - 1;
+    const int row = appendLessonStructureFromAtoms(defaultName, atoms);
 
     refreshLessonStructureView(/*autoShow=*/true);  // switch to Lesson mode + count
     if (m_directoryContentView && m_lessonStructureModel)
@@ -3065,6 +3092,25 @@ void MainWindow::addCurrentStructureToLesson()
     }
     statusBar()->showMessage(
         tr("Added structure — edit name/notes/role below, then Save Lesson"), 5000);
+}
+
+// Add a structure straight from the file browser (context menu / drag-drop) without
+// loading it into the viewer. Stays in the current browser mode (just bumps the
+// count) so the user can add several files in a row.
+void MainWindow::addFileToLesson(const QString& filePath)
+{
+    QVector<MoleculeViewer::Atom> atoms;
+    QVector<MoleculeViewer::Bond> bonds;
+    if (!parseFirstFrame(filePath, atoms, bonds) || atoms.isEmpty()) {
+        statusBar()->showMessage(
+            tr("Could not read structure: %1").arg(QFileInfo(filePath).fileName()), 3000);
+        return;
+    }
+    appendLessonStructureFromAtoms(QFileInfo(filePath).completeBaseName(), atoms);
+    refreshLessonStructureView(/*autoShow=*/false);  // bump count, keep current mode
+    statusBar()->showMessage(
+        tr("Added '%1' to lesson (%2). Switch to Lesson to edit details.")
+            .arg(QFileInfo(filePath).completeBaseName()).arg(m_lesson.structures.size()), 4000);
 }
 
 // Edit the lesson-level metadata (title, authors with ORCID/institution, ...).
@@ -4795,7 +4841,9 @@ void MainWindow::createDockWidgets()
     m_lessonModeBtn = new QToolButton;
     m_lessonModeBtn->setText(tr("Lesson (0)"));
     m_lessonModeBtn->setCheckable(true);
-    m_lessonModeBtn->setToolTip(tr("Show the in-memory lesson structures and metadata"));
+    m_lessonModeBtn->setToolTip(tr("Show the in-memory lesson structures and metadata.\n"
+                                   "Drop molecule files here to add them to the lesson."));
+    m_lessonModeBtn->setAcceptDrops(true);  // drop molecule files to add them (see eventFilter)
     browserModeGroup->addButton(m_filesModeBtn);
     browserModeGroup->addButton(m_lessonModeBtn);
     QWidget* browserModeWidget = new QWidget;
@@ -4822,6 +4870,7 @@ void MainWindow::createDockWidgets()
     m_directoryContentModel->setNameFilterDisables(false);
     m_directoryContentView->setModel(m_directoryContentModel);
     m_directoryContentView->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_directoryContentView->setDragEnabled(true);  // drag files onto the Lesson toggle to add them
 #ifdef USE_SFTP
     connect(m_directoryContentView, &QListView::doubleClicked, this, &MainWindow::onRemoteFileDoubleClicked);
 #endif
@@ -5384,6 +5433,45 @@ static bool isTextInputFocused()
 // and when Ctrl/Alt/Meta are held (so Ctrl+A etc. keep working).
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 {
+    // Claude Generated 2026 - Drag molecule files from the browser onto the Lesson
+    // toggle to add them to the lesson (this filter is installed on qApp, so it sees
+    // the button's drag events once the button has setAcceptDrops(true)).
+    if (obj == m_lessonModeBtn && m_lessonModeBtn) {
+        if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
+            auto* de = static_cast<QDragMoveEvent*>(event);
+            if (de->mimeData()->hasUrls()) {
+                de->acceptProposedAction();
+                return true;
+            }
+        } else if (event->type() == QEvent::Drop) {
+            auto* de = static_cast<QDropEvent*>(event);
+            if (de->mimeData()->hasUrls()) {
+                int added = 0;
+                for (const QUrl& url : de->mimeData()->urls()) {
+                    const QString path = url.toLocalFile();
+                    const QString suf = QFileInfo(path).suffix().toLower();
+                    if (suf != QLatin1String("xyz") && suf != QLatin1String("vtf")
+                        && suf != QLatin1String("pdb") && suf != QLatin1String("mol2"))
+                        continue;
+                    QVector<MoleculeViewer::Atom> atoms;
+                    QVector<MoleculeViewer::Bond> bonds;
+                    if (parseFirstFrame(path, atoms, bonds) && !atoms.isEmpty()) {
+                        appendLessonStructureFromAtoms(QFileInfo(path).completeBaseName(), atoms);
+                        ++added;
+                    }
+                }
+                if (added > 0) {
+                    refreshLessonStructureView(/*autoShow=*/false);
+                    statusBar()->showMessage(
+                        tr("Added %1 structure(s) to lesson (%2 total)")
+                            .arg(added).arg(m_lesson.structures.size()), 4000);
+                }
+                de->acceptProposedAction();
+                return true;
+            }
+        }
+    }
+
     if (event->type() == QEvent::KeyPress && m_moleculeView) {
         auto* ke = static_cast<QKeyEvent*>(event);
         // Auto-repeat allowed: holding a key keeps rotating.

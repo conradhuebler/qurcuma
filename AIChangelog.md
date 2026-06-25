@@ -14,6 +14,7 @@
 - **Überspeichern**: `Save Lesson` überschreibt die gemerkte `m_lessonFilePath` direkt (gesetzt von `openLesson`/`saveLesson`), `Save Lesson As…` fragt nach — beide über `saveLessonInteractive(forceDialog)`.
 - **In-Memory-Strukturen sichtbar**: `LessonStructureModel` (`src/lessonstructuremodel.*`) zeigt die noch nicht gespeicherten Lesson-Strukturen im **bestehenden** Datei-Browser via segmentiertem `[ Files | Lesson (N) ]`-Umschalter (Modell-Swap, kein zweiter View, Stil wie Explore/Compute); Klick lädt Inline-XYZ (`xyzToAtoms`) + `applyConfig`, Kontextmenü Load/Remove.
 - **Dialogfreies Authoring**: `addCurrentStructureToLesson` fügt mit Default-Namen hinzu (keine 3 QInputDialogs mehr) und fokussiert einen **Inline-Detail-Editor** (Name/Notes/Role) unter der Liste; darüber ein **Metadaten-Widget** (Titel/Beschreibung inline + Authors/License-Dialog), beide nur im Lesson-Modus sichtbar.
+- **Aus dem Datei-Browser hinzufügen**: Kontextmenü „Add to Lesson" (xyz/vtf/pdb/mol2) **und** Drag&Drop von Dateien auf den `Lesson`-Umschalter → `addFileToLesson` (`parseFirstFrame` + gemeinsamer `appendLessonStructureFromAtoms`); lädt die Datei nicht in den Viewer, fügt Mehrfachauswahl in einem Rutsch hinzu.
 - **Haber-Bosch-Kontext**: „Druck" wird über Box-/Wandvolumen (`wall*`-Felder) + Zusammensetzung kodiert; kein Barostat/NPT (separates Feature). Ergebnis-Felder im Schema reserviert, in v1 nicht implementiert.
 
 ## Juni 2026 - Wall Potential Parameters + Visual Potential Field

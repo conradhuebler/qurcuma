@@ -280,6 +280,13 @@ private:
     void openLesson(const QString& path);
     void saveLesson(const QString& path);
     void addCurrentStructureToLesson();
+    // Add a structure straight from the file browser (context menu / drag-drop):
+    // parse the file's first frame and append it without loading it into the viewer.
+    void addFileToLesson(const QString& filePath);
+    // Shared appender: build a LessonStructure from atoms + the dock's current sim
+    // config, push it, return its row (no UI mode switch). Claude Generated 2026.
+    int appendLessonStructureFromAtoms(const QString& name,
+        const QVector<MoleculeViewer::Atom>& atoms);
     void editLessonMetadata();
     void applyLessonConditions(const QString& filePath);
     // Refresh the optional in-memory lesson-structure list in the Project dock and
