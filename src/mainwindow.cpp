@@ -30,6 +30,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMimeData>
+#include <QFormLayout>
 #include <QInputDialog>
 #include <QScopeGuard>
 #include <QJsonArray>
@@ -347,6 +348,7 @@ void MainWindow::setupContextMenu()
                     const QString name = m_lesson.structures.at(index.row()).name;
                     m_lesson.structures.remove(index.row());
                     refreshLessonStructureView();
+                    showLessonStructureDetails(-1);  // rows shifted; reset the editor
                     statusBar()->showMessage(tr("Removed '%1' from lesson").arg(name), 3000);
                 }
                 return;
@@ -3032,7 +3034,8 @@ bool MainWindow::saveLessonInteractive(bool forceDialog)
 }
 
 // Capture the currently displayed structure + the dock's current simulation
-// conditions as a new lesson entry (with a name/description/role prompt).
+// conditions as a new lesson entry. No dialogs: it is added with a default name,
+// then selected so the user fills in name/notes/role in the inline detail editor.
 void MainWindow::addCurrentStructureToLesson()
 {
     if (!m_moleculeView)
@@ -3043,44 +3046,35 @@ void MainWindow::addCurrentStructureToLesson()
         return;
     }
 
-    bool ok = false;
-    const QString defaultName = QFileInfo(m_currentMoleculeFilePath).completeBaseName();
-    const QString name = QInputDialog::getText(this, tr("Add Structure to Lesson"),
-        tr("Structure name:"), QLineEdit::Normal,
-        defaultName.isEmpty() ? tr("Structure %1").arg(m_lesson.structures.size() + 1) : defaultName,
-        &ok);
-    if (!ok || name.trimmed().isEmpty())
-        return;
-    const QString description = QInputDialog::getText(this, tr("Add Structure to Lesson"),
-        tr("Short description (optional):"), QLineEdit::Normal, QString(), &ok);
-    if (!ok)
-        return;
-    const QStringList roles = { tr("(none)"), QStringLiteral("start"),
-        QStringLiteral("intermediate"), QStringLiteral("target") };
-    const QString roleChoice = QInputDialog::getItem(this, tr("Add Structure to Lesson"),
-        tr("Pedagogical role:"), roles, 0, false, &ok);
-    if (!ok)
-        return;
-
     LessonStructure s;
-    s.name = name.trimmed();
-    s.description = description.trimmed();
-    s.role = (roleChoice == roles.first()) ? QString() : roleChoice;
+    const QString defaultName = QFileInfo(m_currentMoleculeFilePath).completeBaseName();
+    s.name = defaultName.isEmpty()
+        ? tr("Structure %1").arg(m_lesson.structures.size() + 1) : defaultName;
     s.xyz = atomsToXyz(atoms, s.name);
     s.sim = m_simulationControlWidget ? m_simulationControlWidget->currentConfig() : SimulationConfig{};
     m_lesson.structures.push_back(s);
-    refreshLessonStructureView(/*autoShow=*/true);  // reveal it in the content view
+    const int row = static_cast<int>(m_lesson.structures.size()) - 1;
+
+    refreshLessonStructureView(/*autoShow=*/true);  // switch to Lesson mode + count
+    if (m_directoryContentView && m_lessonStructureModel)
+        m_directoryContentView->setCurrentIndex(m_lessonStructureModel->index(row, 0));
+    showLessonStructureDetails(row);
+    if (m_structNameEdit) {
+        m_structNameEdit->setFocus();
+        m_structNameEdit->selectAll();  // ready to rename immediately
+    }
     statusBar()->showMessage(
-        tr("Added '%1' to lesson (%2 total). Use 'Save as Lesson…' to write the file.")
-            .arg(s.name).arg(m_lesson.structures.size()), 5000);
+        tr("Added structure — edit name/notes/role below, then Save Lesson"), 5000);
 }
 
 // Edit the lesson-level metadata (title, authors with ORCID/institution, ...).
 void MainWindow::editLessonMetadata()
 {
     LessonMetadataDialog dlg(m_lesson.meta, this);
-    if (dlg.exec() == QDialog::Accepted)
+    if (dlg.exec() == QDialog::Accepted) {
         m_lesson.meta = dlg.metadata();
+        refreshLessonMetaWidget();  // reflect changes in the inline widget
+    }
 }
 
 // If the just-loaded file belongs to an unpacked lesson (a lesson.json sidecar in
@@ -3116,13 +3110,20 @@ void MainWindow::applyLessonConditions(const QString& filePath)
 }
 
 // Swap the content view between the filesystem model and the in-memory lesson
-// model (no second view). Restores the filesystem root index when returning.
+// model (no second view), and show/hide the lesson metadata + per-structure detail
+// widgets. Restores the filesystem root index when returning to Files mode.
 void MainWindow::setBrowserMode(bool lessonMode)
 {
     if (!m_directoryContentView)
         return;
     m_lessonBrowseMode = lessonMode;
+    if (m_filesModeBtn) m_filesModeBtn->setChecked(!lessonMode);
+    if (m_lessonModeBtn) m_lessonModeBtn->setChecked(lessonMode);
+    if (m_lessonMetaWidget) m_lessonMetaWidget->setVisible(lessonMode);
+    const bool haveSel = (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size());
+    if (m_lessonStructWidget) m_lessonStructWidget->setVisible(lessonMode && haveSel);
     if (lessonMode) {
+        refreshLessonMetaWidget();
         m_directoryContentView->setModel(m_lessonStructureModel);
         m_directoryContentView->setRootIndex(QModelIndex());  // flat list
     } else {
@@ -3131,18 +3132,54 @@ void MainWindow::setBrowserMode(bool lessonMode)
     }
 }
 
-// Refresh the in-memory lesson-structure model and the toggle's count label. With
-// autoShow, switch the content view to Lesson mode so the user sees the structure
-// they just added (it has no file on disk yet).
+// Refresh the in-memory lesson-structure model and the Lesson toggle's count. With
+// autoShow, switch to Lesson mode so the user sees a just-added structure.
 void MainWindow::refreshLessonStructureView(bool autoShow)
 {
     if (m_lessonStructureModel)
         m_lessonStructureModel->refresh();
     const int n = static_cast<int>(m_lesson.structures.size());
-    if (m_browserModeCombo)
-        m_browserModeCombo->setItemText(1, tr("Lesson (%1)").arg(n));
-    if (autoShow && n > 0 && m_browserModeCombo && m_browserModeCombo->currentIndex() != 1)
-        m_browserModeCombo->setCurrentIndex(1);  // currentIndexChanged -> setBrowserMode(true)
+    if (m_lessonModeBtn)
+        m_lessonModeBtn->setText(tr("Lesson (%1)").arg(n));
+    if (autoShow && n > 0 && !m_lessonBrowseMode)
+        setBrowserMode(true);
+}
+
+// Mirror the lesson-level metadata into the inline metadata widget.
+void MainWindow::refreshLessonMetaWidget()
+{
+    if (m_lessonTitleEdit) m_lessonTitleEdit->setText(m_lesson.meta.title);
+    if (m_lessonDescEdit) m_lessonDescEdit->setText(m_lesson.meta.description);
+    if (m_lessonAuthorsLabel) {
+        QStringList names;
+        for (const LessonAuthor& a : m_lesson.meta.authors)
+            names << (a.name.isEmpty() ? a.orcid : a.name);
+        m_lessonAuthorsLabel->setText(names.isEmpty() ? tr("(none)") : names.join(QStringLiteral(", ")));
+    }
+}
+
+// Populate the per-structure detail editor from structure @p row (or hide it when
+// the row is invalid). The role combo is signal-blocked so populating it doesn't
+// write back. Claude Generated 2026.
+void MainWindow::showLessonStructureDetails(int row)
+{
+    m_currentLessonRow = row;
+    const bool valid = (row >= 0 && row < m_lesson.structures.size());
+    if (m_lessonStructWidget)
+        m_lessonStructWidget->setVisible(valid && m_lessonBrowseMode);
+    if (!valid)
+        return;
+    const LessonStructure& s = m_lesson.structures.at(row);
+    if (m_structNameEdit) m_structNameEdit->setText(s.name);     // setText: no textEdited
+    if (m_structDescEdit) m_structDescEdit->setText(s.description);
+    if (m_structRoleCombo) {
+        QSignalBlocker blk(m_structRoleCombo);
+        int idx = 0;
+        if (s.role == QLatin1String("start")) idx = 1;
+        else if (s.role == QLatin1String("intermediate")) idx = 2;
+        else if (s.role == QLatin1String("target")) idx = 3;
+        m_structRoleCombo->setCurrentIndex(idx);
+    }
 }
 
 // Load an in-memory lesson structure: parse its embedded XYZ into the viewer and
@@ -3180,6 +3217,7 @@ void MainWindow::loadLessonStructureFromIndex(const QModelIndex& index)
     if (m_saveAsAction) m_saveAsAction->setEnabled(true);
     captureInitialSnapshot(s->name, m_moleculeView->getCurrentFrameAtoms(),
         m_moleculeView->getCurrentFrameBonds());
+    showLessonStructureDetails(index.row());  // bind the inline detail editor to it
     statusBar()->showMessage(tr("Loaded lesson structure: %1").arg(s->name), 4000);
 }
 
@@ -4745,15 +4783,34 @@ void MainWindow::createDockWidgets()
     m_stateIndicator = new QLabel(tr("No directory selected"));
     stateLayout->addWidget(m_stateIndicator);
     stateLayout->addStretch();
-    // Claude Generated 2026 - Files / Lesson toggle for the content view below.
-    // Swaps the model between the filesystem and the in-memory lesson structures.
-    m_browserModeCombo = new QComboBox;
-    m_browserModeCombo->addItem(tr("Files"));
-    m_browserModeCombo->addItem(tr("Lesson (0)"));
-    m_browserModeCombo->setToolTip(tr("Show files on disk, or the in-memory lesson structures"));
-    connect(m_browserModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this](int idx) { setBrowserMode(idx == 1); });
-    stateLayout->addWidget(m_browserModeCombo);
+    // Claude Generated 2026 - Segmented Files / Lesson toggle (mirrors the
+    // Explore/Compute mode bar). Swaps the content view's model between the
+    // filesystem and the in-memory lesson structures.
+    auto* browserModeGroup = new QButtonGroup(this);
+    browserModeGroup->setExclusive(true);
+    m_filesModeBtn = new QToolButton;
+    m_filesModeBtn->setText(tr("Files"));
+    m_filesModeBtn->setCheckable(true);
+    m_filesModeBtn->setChecked(true);
+    m_lessonModeBtn = new QToolButton;
+    m_lessonModeBtn->setText(tr("Lesson (0)"));
+    m_lessonModeBtn->setCheckable(true);
+    m_lessonModeBtn->setToolTip(tr("Show the in-memory lesson structures and metadata"));
+    browserModeGroup->addButton(m_filesModeBtn);
+    browserModeGroup->addButton(m_lessonModeBtn);
+    QWidget* browserModeWidget = new QWidget;
+    QHBoxLayout* bmLayout = new QHBoxLayout(browserModeWidget);
+    bmLayout->setContentsMargins(0, 0, 0, 0);
+    bmLayout->setSpacing(0);
+    bmLayout->addWidget(m_filesModeBtn);
+    bmLayout->addWidget(m_lessonModeBtn);
+    browserModeWidget->setStyleSheet(QStringLiteral(
+        "QToolButton { padding: 2px 10px; border: 1px solid palette(mid); }"
+        "QToolButton:checked { background: palette(highlight); color: palette(highlighted-text);"
+        " font-weight: bold; }"));
+    connect(m_filesModeBtn, &QToolButton::clicked, this, [this]() { setBrowserMode(false); });
+    connect(m_lessonModeBtn, &QToolButton::clicked, this, [this]() { setBrowserMode(true); });
+    stateLayout->addWidget(browserModeWidget);
     calcFilesLayout->addWidget(stateWidget);
 
     m_directoryContentView = new QListView;
@@ -4773,7 +4830,73 @@ void MainWindow::createDockWidgets()
     // clicked / context-menu handlers branch on m_lessonBrowseMode.
     m_lessonStructureModel = new LessonStructureModel(&m_lesson.structures, this);
 
+    // Lesson metadata widget — above the list, visible only in Lesson mode.
+    m_lessonMetaWidget = new QWidget;
+    QFormLayout* metaForm = new QFormLayout(m_lessonMetaWidget);
+    metaForm->setContentsMargins(2, 2, 2, 2);
+    m_lessonTitleEdit = new QLineEdit;
+    m_lessonTitleEdit->setPlaceholderText(tr("Lesson title"));
+    connect(m_lessonTitleEdit, &QLineEdit::textEdited, this,
+        [this](const QString& t) { m_lesson.meta.title = t.trimmed(); });
+    m_lessonDescEdit = new QLineEdit;
+    m_lessonDescEdit->setPlaceholderText(tr("Short description"));
+    connect(m_lessonDescEdit, &QLineEdit::textEdited, this,
+        [this](const QString& t) { m_lesson.meta.description = t.trimmed(); });
+    QWidget* authorsRow = new QWidget;
+    QHBoxLayout* authorsRowLayout = new QHBoxLayout(authorsRow);
+    authorsRowLayout->setContentsMargins(0, 0, 0, 0);
+    m_lessonAuthorsLabel = new QLabel(tr("(none)"));
+    m_lessonAuthorsLabel->setWordWrap(true);
+    QToolButton* editAuthorsBtn = new QToolButton;
+    editAuthorsBtn->setText(tr("Authors / License…"));
+    editAuthorsBtn->setToolTip(tr("Edit authors (ORCID/institution), license, keywords"));
+    connect(editAuthorsBtn, &QToolButton::clicked, this, &MainWindow::editLessonMetadata);
+    authorsRowLayout->addWidget(m_lessonAuthorsLabel, 1);
+    authorsRowLayout->addWidget(editAuthorsBtn);
+    metaForm->addRow(tr("Title:"), m_lessonTitleEdit);
+    metaForm->addRow(tr("Desc.:"), m_lessonDescEdit);
+    metaForm->addRow(tr("Authors:"), authorsRow);
+    m_lessonMetaWidget->setVisible(false);
+    calcFilesLayout->addWidget(m_lessonMetaWidget);
+
     calcFilesLayout->addWidget(m_directoryContentView);
+
+    // Per-structure inline detail editor — below the list, visible only in Lesson
+    // mode while a structure is selected. Replaces the old add-time dialog chain.
+    m_lessonStructWidget = new QWidget;
+    QFormLayout* structForm = new QFormLayout(m_lessonStructWidget);
+    structForm->setContentsMargins(2, 2, 2, 2);
+    m_structNameEdit = new QLineEdit;
+    m_structNameEdit->setPlaceholderText(tr("Structure name"));
+    connect(m_structNameEdit, &QLineEdit::textEdited, this, [this](const QString& t) {
+        if (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size()) {
+            m_lesson.structures[m_currentLessonRow].name = t;
+            m_lessonStructureModel->refresh();
+        }
+    });
+    m_structDescEdit = new QLineEdit;
+    m_structDescEdit->setPlaceholderText(tr("Notes for this structure"));
+    connect(m_structDescEdit, &QLineEdit::textEdited, this, [this](const QString& t) {
+        if (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size())
+            m_lesson.structures[m_currentLessonRow].description = t;
+    });
+    m_structRoleCombo = new QComboBox;
+    m_structRoleCombo->addItems({ tr("(none)"), QStringLiteral("start"),
+        QStringLiteral("intermediate"), QStringLiteral("target") });
+    connect(m_structRoleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int idx) {
+            if (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size()) {
+                m_lesson.structures[m_currentLessonRow].role =
+                    (idx <= 0) ? QString() : m_structRoleCombo->currentText();
+                m_lessonStructureModel->refresh();
+            }
+        });
+    structForm->addRow(tr("Name:"), m_structNameEdit);
+    structForm->addRow(tr("Notes:"), m_structDescEdit);
+    structForm->addRow(tr("Role:"), m_structRoleCombo);
+    m_lessonStructWidget->setVisible(false);
+    calcFilesLayout->addWidget(m_lessonStructWidget);
+
     projectSplitter->addWidget(calcFilesWidget);
 
     projectSplitter->setStretchFactor(0, 1);

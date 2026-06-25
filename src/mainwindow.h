@@ -442,12 +442,28 @@ private:
     QString m_lessonFilePath;
     bool saveLessonInteractive(bool forceDialog);  // resolve target + call saveLesson()
     // In-memory lesson-structure list. Shown in the EXISTING file browser
-    // (m_directoryContentView) by swapping its model — no second view. A small
-    // "Files | Lesson" combo in the project dock toggles the mode. Claude Generated 2026.
+    // (m_directoryContentView) by swapping its model — no second view. A segmented
+    // "Files | Lesson" toggle (like Explore/Compute) switches the mode; in Lesson
+    // mode a metadata widget + a per-structure detail editor appear. Claude Generated 2026.
     LessonStructureModel* m_lessonStructureModel = nullptr;
-    QComboBox* m_browserModeCombo = nullptr;
     bool m_lessonBrowseMode = false;  // true => content view shows the lesson model
+    int m_currentLessonRow = -1;      // structure row bound to the detail editor
     void setBrowserMode(bool lessonMode);
+    void showLessonStructureDetails(int row);  // populate the per-structure editor
+    void refreshLessonMetaWidget();            // sync the metadata widget from m_lesson.meta
+    // Segmented Files/Lesson toggle (project dock).
+    QToolButton* m_filesModeBtn = nullptr;
+    QToolButton* m_lessonModeBtn = nullptr;
+    // Lesson metadata widget (visible only in Lesson mode).
+    QWidget* m_lessonMetaWidget = nullptr;
+    QLineEdit* m_lessonTitleEdit = nullptr;
+    QLineEdit* m_lessonDescEdit = nullptr;
+    QLabel* m_lessonAuthorsLabel = nullptr;
+    // Per-structure inline detail editor (visible only in Lesson mode).
+    QWidget* m_lessonStructWidget = nullptr;
+    QLineEdit* m_structNameEdit = nullptr;
+    QLineEdit* m_structDescEdit = nullptr;
+    QComboBox* m_structRoleCombo = nullptr;
     bool m_centerOnLoad = true;  // shift COM to origin after loading (from VisualizationSettings)
     QAction* m_saveAction = nullptr;
     QAction* m_saveAsAction = nullptr;
