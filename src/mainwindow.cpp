@@ -31,6 +31,7 @@
 #include <QFileInfo>
 #include <QMimeData>
 #include <QInputDialog>
+#include <QScopeGuard>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -1323,6 +1324,47 @@ void MainWindow::setupConnections()
                             m_moleculeView->getAtomElements(),
                             m_moleculeView->getAtomCharges()
                         );
+                    }
+                });
+
+        // Claude Generated 2026 - Bidirectional structure sync. The viewer is the
+        // canonical store; on any geometry edit it re-emits moleculeUpdated, which
+        // refreshes the atom table + structure text. m_structSyncing prevents the
+        // edit we just applied (table/text source) from bouncing back; we also skip
+        // the live-MD path (updateSimulationFrame emits moleculeUpdated every step).
+        connect(m_moleculeView, &MoleculeViewer::moleculeUpdated, this,
+                [this](const QVector<MoleculeViewer::Atom>&, const QVector<MoleculeViewer::Bond>&) {
+                    if (m_structSyncing || m_moleculeView->simulationActive())
+                        return;
+                    updateAtomTableFromViewer();
+                    updateStructureTextFromViewer();
+                });
+
+        // Table edit → viewer (then refresh the text mirror; the table keeps its edit).
+        connect(m_atomListPanel, &AtomListPanel::atomEdited, this,
+                [this](int row, const QString& element, const QVector3D& position) {
+                    if (m_structSyncing || !m_moleculeView)
+                        return;
+                    m_structSyncing = true;
+                    m_moleculeView->setAtomInCurrentFrame(row, element, position);
+                    if (m_simulationControlWidget)
+                        m_simulationControlWidget->setMolecule(
+                            m_moleculeView->getCurrentFrameAtoms(),
+                            m_moleculeView->getCurrentFrameBonds());
+                    m_structureModified = true;
+                    updateStructureTextFromViewer();
+                    m_structSyncing = false;
+                });
+    }
+
+    // After a simulation run ends, refresh the table + text once (they were skipped
+    // live to avoid per-step churn). Claude Generated 2026.
+    if (m_simulationControlWidget) {
+        connect(m_simulationControlWidget, &SimulationControlWidget::simulationRunningChanged,
+                this, [this](bool running) {
+                    if (!running) {
+                        updateAtomTableFromViewer();
+                        updateStructureTextFromViewer();
                     }
                 });
     }
@@ -3141,6 +3183,67 @@ void MainWindow::loadLessonStructureFromIndex(const QModelIndex& index)
     statusBar()->showMessage(tr("Loaded lesson structure: %1").arg(s->name), 4000);
 }
 
+// ============================================================================
+// Bidirectional structure sync helpers (viewer <-> atom table <-> text editor).
+// Claude Generated 2026. The viewer is the canonical store; callers manage the
+// m_structSyncing re-entrancy guard.
+// ============================================================================
+
+// Push the viewer's current-frame geometry into the atom table.
+void MainWindow::updateAtomTableFromViewer()
+{
+    if (!m_atomListPanel || !m_moleculeView)
+        return;
+    m_atomListPanel->updateAtomList(
+        m_moleculeView->getAtomPositions(),
+        m_moleculeView->getAtomElements(),
+        m_moleculeView->getAtomCharges());
+}
+
+// Mirror the viewer's current-frame geometry into the structure text editor as XYZ.
+// Single-frame structures only (a trajectory's text stays the loaded file), and
+// never while the user is typing in the editor (focus) — that would fight them.
+void MainWindow::updateStructureTextFromViewer()
+{
+    if (!m_structureView || !m_moleculeView)
+        return;
+    if (!m_moleculeView->canEditStructure() || m_structureView->hasFocus())
+        return;
+    const QVector<MoleculeViewer::Atom> atoms = m_moleculeView->getCurrentFrameAtoms();
+    if (atoms.isEmpty())
+        return;
+    const QString comment = QFileInfo(m_currentMoleculeFilePath).fileName();
+    QSignalBlocker block(m_structureView);  // don't trip modificationChanged
+    m_structureView->setPlainText(atomsToXyz(atoms, comment));
+}
+
+// "Apply → Viewer": parse the editor text as XYZ and replace the current structure.
+void MainWindow::applyStructureTextToViewer()
+{
+    if (!m_structureView || !m_moleculeView)
+        return;
+    if (!m_moleculeView->canEditStructure()) {
+        statusBar()->showMessage(tr("Apply works on single-frame structures only"), 3000);
+        return;
+    }
+    QVector<MoleculeViewer::Atom> atoms;
+    if (!xyzToAtoms(m_structureView->toPlainText(), atoms)) {
+        statusBar()->showMessage(tr("Could not parse the editor text as XYZ"), 3000);
+        return;
+    }
+    m_structSyncing = true;
+    const bool ok = m_moleculeView->applyStructureFromAtoms(atoms);
+    if (ok) {
+        if (m_simulationControlWidget)
+            m_simulationControlWidget->setMolecule(m_moleculeView->getCurrentFrameAtoms(),
+                m_moleculeView->getCurrentFrameBonds());
+        updateAtomTableFromViewer();  // refresh table (text is the source, leave it)
+        m_structureModified = true;
+        statusBar()->showMessage(tr("Structure updated from editor (%1 atoms)").arg(atoms.size()), 3000);
+    }
+    m_structSyncing = false;
+}
+
 // Claude Generated 2026 - In-dock reset: reload the current source file to
 // discard any MD/Opt changes and start over from the original structure.
 void MainWindow::reloadCurrentFile()
@@ -4069,6 +4172,13 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
         return;
     }
 
+    // Claude Generated 2026 - Suppress the structure-sync text mirror during a file
+    // load: loadMoleculeFile sets m_structureView to the file's own text (which may
+    // be VTF, not XYZ), and the setTrajectoryData below emits moleculeUpdated. The
+    // guard keeps the loaded file text intact; edits after load start the mirroring.
+    m_structSyncing = true;
+    auto syncGuard = qScopeGuard([this]() { m_structSyncing = false; });
+
     // Claude Generated 2026 - If the user has modified the structure (e.g. by
     // running an MD/Opt), prompt before discarding those changes. Save runs
     // through the central saveStructure() helper which itself may show a
@@ -4770,6 +4880,13 @@ void MainWindow::createDockWidgets()
     m_structureFileEditExtension->setMaximumWidth(60);
     structureFileLayout->addWidget(m_structureFileEdit);
     structureFileLayout->addWidget(m_structureFileEditExtension);
+    // Claude Generated 2026 - Apply the editor text back into the 3D viewer (text ->
+    // viewer leg of the bidirectional structure sync; single-frame structures only).
+    QToolButton* applyStructBtn = new QToolButton;
+    applyStructBtn->setText(tr("Apply → Viewer"));
+    applyStructBtn->setToolTip(tr("Parse the editor text as XYZ and replace the current structure"));
+    connect(applyStructBtn, &QToolButton::clicked, this, &MainWindow::applyStructureTextToViewer);
+    structureFileLayout->addWidget(applyStructBtn);
     structureLayout->addLayout(structureFileLayout);
     m_structureView = new ModifiableTextEdit;
     m_structureView->setPlaceholderText("Structure data");

@@ -79,6 +79,55 @@ void AtomTableModel::clear()
     endResetModel();
 }
 
+// Claude Generated 2026 - Element (1) and X/Y/Z (2-4) are user-editable; index (0)
+// and charge (5) stay read-only.
+Qt::ItemFlags AtomTableModel::flags(const QModelIndex &index) const
+{
+    if (!index.isValid())
+        return Qt::NoItemFlags;
+    Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    const int col = index.column();
+    if (col == 1 || col == 2 || col == 3 || col == 4)
+        f |= Qt::ItemIsEditable;
+    return f;
+}
+
+// Claude Generated 2026 - Commit an edited element/coordinate and notify listeners
+// (MainWindow pushes the change into the 3D viewer). Coordinate edits that don't
+// parse as a number are rejected.
+bool AtomTableModel::setData(const QModelIndex &index, const QVariant &value, int role)
+{
+    if (role != Qt::EditRole || !index.isValid() || index.row() >= m_atoms.size())
+        return false;
+    AtomData& atom = m_atoms[index.row()];
+    switch (index.column()) {
+        case 1: {
+            const QString el = value.toString().trimmed();
+            if (el.isEmpty())
+                return false;
+            atom.element = el;
+            break;
+        }
+        case 2:
+        case 3:
+        case 4: {
+            bool ok = false;
+            const float v = value.toString().trimmed().toFloat(&ok);
+            if (!ok)
+                return false;
+            if (index.column() == 2) atom.x = v;
+            else if (index.column() == 3) atom.y = v;
+            else atom.z = v;
+            break;
+        }
+        default:
+            return false;
+    }
+    emit dataChanged(index, index, { Qt::DisplayRole, Qt::EditRole });
+    emit atomEdited(index.row(), atom);
+    return true;
+}
+
 // ==================== AtomListPanel ====================
 
 AtomListPanel::AtomListPanel(QWidget *parent)
@@ -140,6 +189,13 @@ void AtomListPanel::setupConnections()
 
     connect(m_tableView, &QTableView::doubleClicked,
             this, &AtomListPanel::onTableDoubleClicked);
+
+    // Claude Generated 2026 - Re-emit cell edits as a panel-level signal carrying
+    // the 0-based atom index + new element/position for the structure sync.
+    connect(m_model, &AtomTableModel::atomEdited, this,
+            [this](int row, const AtomTableModel::AtomData& d) {
+                emit atomEdited(row, d.element, QVector3D(d.x, d.y, d.z));
+            });
 }
 
 void AtomListPanel::updateAtomList(const QVector<QVector3D>& positions,

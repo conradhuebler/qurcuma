@@ -287,6 +287,13 @@ private:
     void refreshLessonStructureView(bool autoShow = false);
     void loadLessonStructureFromIndex(const QModelIndex& index);
 
+    // Claude Generated 2026 - Bidirectional structure sync (viewer <-> atom table
+    // <-> structure text editor). The viewer is the canonical store; m_structSyncing
+    // breaks feedback loops. See the connections in setupAtomListPanelConnections().
+    void updateAtomTableFromViewer();     // push viewer geometry -> atom table
+    void updateStructureTextFromViewer(); // push viewer geometry -> text editor (XYZ)
+    void applyStructureTextToViewer();    // parse editor text -> viewer ("Apply")
+
     // Claude Generated 2026 - Parse just the first frame of a structure file (xyz/vtf/
     // pdb/mol2) into viewer atoms/bonds; used by addMoleculeToScene() to merge.
     bool parseFirstFrame(const QString& filePath, QVector<MoleculeViewer::Atom>& atoms,
@@ -424,6 +431,7 @@ private:
     // user with Save/Discard/Cancel.
     QString m_currentMoleculeFilePath;
     bool m_structureModified = false;
+    bool m_structSyncing = false;  // Claude Generated 2026 - re-entrancy guard for viewer/table/text sync
 
     // Claude Generated 2026 - In-memory lesson being authored (Save as Lesson…).
     // Structures are appended via addCurrentStructureToLesson(); metadata via the

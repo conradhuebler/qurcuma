@@ -1588,6 +1588,52 @@ void MoleculeViewer::moveSelection(const QVector3D& modelDelta)
     computeCollisions();
 }
 
+// Claude Generated 2026 - Apply a single-atom edit coming from the atom table.
+// Position-only changes use the cheap updatePositions path; an element change
+// needs an atom rebuild (radius/colour), but keepView avoids any camera jump.
+void MoleculeViewer::setAtomInCurrentFrame(int index, const QString& element, const QVector3D& position)
+{
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (index < 0 || index >= atoms.size())
+        return;
+    const bool elementChanged = (atoms[index].element != element);
+    atoms[index].element = element;
+    atoms[index].position = position;
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false,
+        /*fullRebuild=*/elementChanged, /*keepView=*/true);
+    computeCollisions();
+    onStructureChanged();
+    emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
+}
+
+// Claude Generated 2026 - Replace the whole current-frame geometry from parsed
+// atoms (structure text-editor "Apply"). Single-frame only — editing a frame of a
+// trajectory would desync the other frames. Re-detects bonds; keepView preserves
+// the camera so an Apply does not jump the view.
+bool MoleculeViewer::applyStructureFromAtoms(const QVector<Atom>& atoms)
+{
+    if (!canEditStructure() || atoms.isEmpty())
+        return false;
+    if (m_trajectoryAtoms.isEmpty()) {
+        m_trajectoryAtoms.resize(1);
+        m_trajectoryBonds.resize(1);
+        m_frameCount = 1;
+        m_currentFrame = 0;
+    }
+    m_selectedAtoms.clear();  // indices may no longer be valid after a count change
+    m_trajectoryAtoms[m_currentFrame] = atoms;
+    m_trajectoryBonds[m_currentFrame] = detectBonds(atoms);
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false,
+        /*fullRebuild=*/true, /*keepView=*/true);
+    buildForceAdjacency();
+    computeCollisions();
+    onStructureChanged();
+    emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
+    return true;
+}
+
 // Flag atoms that overlap (centre distance < kClashFactor * (vdw_i + vdw_j)). Bonded
 // pairs and pairs entirely inside the moving selection (a rigid body) never clash.
 void MoleculeViewer::computeCollisions()

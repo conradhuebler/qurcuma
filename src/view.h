@@ -234,6 +234,16 @@ public slots:
         return {};
     }
 
+    // Claude Generated 2026 - External-edit entry points for structure sync
+    // (atom table / text editor). Both mutate the current frame, update the scene
+    // bounds-preservingly (no camera jump), and emit moleculeUpdated().
+    /** @brief Set one atom's element + position in the current frame (table edit). */
+    void setAtomInCurrentFrame(int index, const QString& element, const QVector3D& position);
+    /** @brief Replace the whole current-frame geometry from parsed atoms (text
+     *  "Apply"). Single-frame structures only (canEditStructure); re-detects bonds.
+     *  Returns false if rejected (multi-frame or empty). */
+    bool applyStructureFromAtoms(const QVector<Atom>& atoms);
+
     /**
      * @brief Update atom positions for live simulation. When dynamic bonds are enabled, the bond
      * graph is re-detected from the new geometry each frame so bond breaking/formation in MD/Opt

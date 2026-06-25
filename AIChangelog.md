@@ -1,5 +1,11 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - Struktur-Synchronisation (Viewer ↔ Tabelle ↔ Texteditor)
+
+- **Bidirektionale Sync**: Viewer ist kanonischer Speicher; `moleculeUpdated` spiegelt Geometrieänderungen in Atom-Tabelle + Struktur-Editor (XYZ via `atomsToXyz`). `MainWindow::m_structSyncing` verhindert Feedback-Loops; Text-Spiegel ausgesetzt während MD (`simulationActive()`) und beim Laden (qScopeGuard, erhält den Datei-Text z. B. VTF), Refresh nach `simulationRunningChanged(false)`.
+- **Tabelle editierbar**: `AtomTableModel::flags()`/`setData()` für Element + X/Y/Z (validiert), Signal `AtomListPanel::atomEdited` → `MoleculeViewer::setAtomInCurrentFrame` (keepView, kein Kamerasprung; Element-Wechsel = atom-rebuild).
+- **Text „Apply → Viewer"**: Button am Struktur-Editor → `xyzToAtoms` → `MoleculeViewer::applyStructureFromAtoms` (Single-Frame, `detectBonds` neu). Auswahl bleibt bidirektional (Phase 2C).
+
 ## Juni 2026 - Lehrszenarien (Lessons, OER) v1
 
 - **Lessons** (`src/lesson.{h,cpp}`): self-contained `*.qlesson.json` Lehrszenario — mehrere Strukturen, je mit voller `SimulationConfig` (verlustfreier `simConfigToJson`/`simConfigFromJson`-Roundtrip, eigene Feldnamen) + Lehr-Metadaten (Titel/Beschreibung/Lizenz/Sprache/Keywords + Autoren mit Name/ORCID/Einrichtung/E-Mail). Strukturen sind inline als XYZ eingebettet. `extractLesson()` entpackt beim Laden in ein Arbeitsverzeichnis (`<slug>.xyz` + Sidecar `lesson.json` mit `file`-Verweisen) → Strukturen erscheinen im bestehenden Datei-Browser.
