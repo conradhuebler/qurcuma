@@ -6,8 +6,7 @@
 - Each wrapper inherits `QDockWidget` and exposes its content widgets so existing logic can stay in `MainWindow` while construction moves here.
 
 ## Wrapper Classes
-- `ProjectDock` — working directory chooser, breadcrumb, calculation directory list, file/content browser, Files/Lesson toggle, lesson metadata + per-structure editor.
-- `NavigationDock` — tabbed bookmarks, workspaces, remote directories.
+- `ProjectDock` — working directory chooser, breadcrumb, segmented directory list (Files / Bookmarks / Workspaces / Remote), file/content browser with Files/Lesson toggle, lesson metadata + per-structure editor.
 - `EditorsDock` — tabbed Structure editor, Input editor, RMSD/Align widget.
 - `AtomsSimulationDock` — tabbed atom list, simulation controls, snapshots.
 - `DisplayDock` — viewer display options panel.
@@ -30,4 +29,5 @@
 ## Migration State
 - Phase 4 complete: `ProjectDock` extracted from `MainWindow`; all docks now live under `DockManager`.
 - Phase 5 complete: preset logic and app-mode dock handling moved to `DockManager`; `MainWindow` enums replaced by `DockConfig` enums.
-- Internal `QTabWidget`s are intentionally retained inside wrappers to keep the Qt drift workaround working.
+- Phase 6 complete: `NavigationDock` removed; bookmarks/workspaces/remote are now segment pages inside `ProjectDock`. Signals are forwarded by `ProjectDock` so `MainWindow` stays decoupled from internal widgets.
+- Internal `QTabWidget`s are intentionally retained inside the remaining wrappers to keep the Qt drift workaround working.

@@ -120,7 +120,6 @@ set(SOURCES
     src/docks/displaydock.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/editorsdock.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/atomssimulationdock.cpp  # Claude Generated 2026 - Dock system restructuring
-    src/docks/navigationdock.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/bookmarkwidget.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/workspacepanel.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/remotedirectoriespanel.cpp  # Claude Generated 2026 - Dock system restructuring

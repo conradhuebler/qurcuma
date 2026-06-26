@@ -3,7 +3,8 @@
 ## Juni 2026 - Dock-Architektur-Refactor
 
 - **`src/docks/`** zentrales Dock-Verzeichnis: `DockManager` besitzt alle `QDockWidget`-Shells, Platzierung, Layout-Presets und Explore/Compute-Modus; `MainWindow` koordiniert über Signale und holt interne Widgets per Getter aus den Wrappern.
-- **Wrapper-Klassen**: `ProjectDock`, `NavigationDock`, `EditorsDock`, `AtomsSimulationDock`, `DisplayDock`, `OutputDock`; jede erbt `QDockWidget` und kapselt ihren Inhalt. `BookmarkWidget` ist als eigenständiges Widget in `NavigationDock` wieder integriert.
+- **Wrapper-Klassen**: `ProjectDock`, `EditorsDock`, `AtomsSimulationDock`, `DisplayDock`, `OutputDock`; jede erbt `QDockWidget` und kapselt ihren Inhalt.
+- **ProjectDock-Segmente**: `NavigationDock` entfernt; Bookmarks, Workspaces und Remote sind jetzt direkte Segmente im `ProjectDock` (neben Files). Slim-Icon-Button für „Choose Working Directory“; Breadcrumb-Bar zeigt immer den aktuellen Pfad. Klick auf Bookmark/Workspace schaltet automatisch zurück auf die Files-Ansicht und wechselt das Arbeitsverzeichnis.
 - **`dockconfig.h`** hält stabile `objectName`s, Dock-Bereiche, `LayoutPreset` (Visualization/Editing/Calculation/Analysis/Teaching) und `AppMode` (Explore/Compute). Namen dürfen nicht ohne Migrationsplan geändert werden, weil sie in `QSettings` via `saveState()`/`restoreState()` persistiert werden.
 - **Presets in `DockManager`**: Lazy-Caching mit `saveState()`/`restoreState()` vermeidet Qt-Drift bei wiederholtem `tabifyDockWidget`/`splitDockWidget`; Tastenkürzel Ctrl+Alt+1..4 bleiben erhalten; Teaching-Layout für Lesson-/Demo-Workflow ergänzt.
 - **Explore/Compute-Modus**: `MainWindow::setAppMode` aktualisiert Buttons, persistiert `ui/appMode` und schaltet die Calculation-Toolbar; Sichtbarkeit/Reflow der Docks delegiert an `DockManager::setAppMode`.

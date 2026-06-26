@@ -18,20 +18,31 @@ class QFileSystemModel;
 class QLabel;
 class QLineEdit;
 class QListView;
-class NavigationDock;
 class QPushButton;
-class QTabWidget;
+class QStackedWidget;
 class QToolButton;
-class RemoteDirectoriesPanel;
 class QWidget;
 class WorkspacePanel;
+
+#ifdef USE_SFTP
+class RemoteDirectoriesPanel;
+#endif
+
+class Settings;
 
 class ProjectDock : public QDockWidget
 {
     Q_OBJECT
 
 public:
-    explicit ProjectDock(QWidget* parent = nullptr);
+    explicit ProjectDock(Settings* settings, QWidget* parent = nullptr);
+
+    enum class ProjectSegment {
+        Files,
+        Bookmarks,
+        Workspaces,
+        Remote
+    };
 
     // Working directory and breadcrumb
     QPushButton* chooseDirectoryButton() const;
@@ -69,11 +80,34 @@ public:
     QLineEdit* structDescEdit() const;
     QComboBox* structRoleCombo() const;
 
-    // Navigation tab embedded inside this dock
-    NavigationDock* navigationDock() const;
+    // Segment switcher for the upper list (Files / Bookmarks / Workspaces / Remote)
+    QToolButton* filesSegmentButton() const;
+    QToolButton* bookmarksSegmentButton() const;
+    QToolButton* workspacesSegmentButton() const;
+    QToolButton* remoteSegmentButton() const;
+    QStackedWidget* segmentStack() const;
+    ProjectSegment currentSegment() const;
+
+    // Navigation panels embedded inside the Project dock
     BookmarkWidget* bookmarkWidget() const;
     WorkspacePanel* workspacePanel() const;
+#ifdef USE_SFTP
     RemoteDirectoriesPanel* remotePanel() const;
+#endif
+
+signals:
+    // Forwarded from the embedded navigation panels so MainWindow can wire them
+    // without knowing whether they live inside a separate NavigationDock or directly
+    // in the Project dock's segment pages.
+    void bookmarkDirectorySelected(const QString& path);
+    void bookmarksChanged();
+    void saveWorkspaceRequested();
+#ifdef USE_SFTP
+    void addRemoteRequested();
+#endif
+
+public slots:
+    void setCurrentSegment(ProjectSegment segment);
 
 private:
     void setupUI();
@@ -101,6 +135,17 @@ private:
     QLineEdit* m_structDescEdit = nullptr;
     QComboBox* m_structRoleCombo = nullptr;
 
-    QTabWidget* m_mainTabs = nullptr;
-    NavigationDock* m_navigationDock = nullptr;
+    QToolButton* m_filesSegmentBtn = nullptr;
+    QToolButton* m_bookmarksSegmentBtn = nullptr;
+    QToolButton* m_workspacesSegmentBtn = nullptr;
+    QToolButton* m_remoteSegmentBtn = nullptr;
+    QStackedWidget* m_segmentStack = nullptr;
+
+    Settings* m_settings = nullptr;
+
+    BookmarkWidget* m_bookmarkWidget = nullptr;
+    WorkspacePanel* m_workspacePanel = nullptr;
+#ifdef USE_SFTP
+    RemoteDirectoriesPanel* m_remotePanel = nullptr;
+#endif
 };

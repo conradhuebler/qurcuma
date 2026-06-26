@@ -57,7 +57,6 @@ class DisplayDock;          // Claude Generated 2026 - Display dock wrapper
 class EditorsDock;          // Claude Generated 2026 - Editors dock wrapper
 class OutputDock;           // Claude Generated 2026 - Output dock wrapper
 class AtomsSimulationDock;  // Claude Generated 2026 - Atoms & Simulation dock wrapper
-class NavigationDock;         // Claude Generated 2026 - Navigation dock wrapper
 class ProjectDock;            // Claude Generated 2026 - Project dock wrapper
 #ifdef USE_SFTP
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
@@ -515,8 +514,7 @@ private:
 
     // Claude Generated - Dock architecture rewrite (2026-04): 5 docks rahmen MoleculeViewer (CentralWidget)
     // NOTE: these are being migrated into DockManager / src/docks/ wrappers.
-    ProjectDock* m_projectDock = nullptr;           // Left: Project tab + embedded Navigation tab
-    NavigationDock* m_navigationDock = nullptr;       // Container widget inside ProjectDock's Navigation tab
+    ProjectDock* m_projectDock = nullptr;           // Left: Project dock with Files/Bookmarks/Workspaces/Remote segments
     EditorsDock* m_editorsDock = nullptr;           // Right: structure + input editors (internal QTabWidget)
     AtomsSimulationDock* m_atomsSimulationDock = nullptr; // Right: atom list + simulation
     DisplayDock* m_displayDock = nullptr;           // Right: viewer display options

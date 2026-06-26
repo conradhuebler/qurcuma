@@ -11,7 +11,6 @@
 #include "atomssimulationdock.h"
 #include "displaydock.h"
 #include "editorsdock.h"
-#include "navigationdock.h"
 #include "outputdock.h"
 #include "projectdock.h"
 
@@ -94,13 +93,6 @@ EditorsDock* DockManager::editorsDockImpl() const
 AtomsSimulationDock* DockManager::atomsSimulationDockImpl() const
 {
     return qobject_cast<AtomsSimulationDock*>(m_atomsSimulationDock);
-}
-
-NavigationDock* DockManager::navigationDockImpl() const
-{
-    if (auto* pd = projectDockImpl())
-        return pd->navigationDock();
-    return nullptr;
 }
 
 ProjectDock* DockManager::projectDockImpl() const
@@ -220,10 +212,7 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
     m_displayDock = new DisplayDock(viewer, settings, m_mainWindow);
     m_editorsDock = new EditorsDock(m_mainWindow);
     m_atomsSimulationDock = new AtomsSimulationDock(m_mainWindow);
-    // Navigation is now embedded inside ProjectDock as a tab. ProjectDock creates
-    // its own NavigationDock instance; do NOT create another one here to avoid a
-    // parented-but-unmanaged floating widget showing up in the menu bar area.
-    m_projectDock = new ProjectDock(m_mainWindow);
+    m_projectDock = new ProjectDock(settings, m_mainWindow);
 }
 
 void DockManager::placeDocks()

@@ -7,9 +7,11 @@
 #include "projectdock.h"
 
 #include "bookmarkwidget.h"
-#include "navigationdock.h"
-#include "remotedirectoriespanel.h"
 #include "workspacepanel.h"
+#ifdef USE_SFTP
+#include "remotedirectoriespanel.h"
+#endif
+#include "settings.h"
 #include "widgets/breadcrumbbar.h"
 
 #include <QButtonGroup>
@@ -24,12 +26,13 @@
 #include <QListView>
 #include <QPushButton>
 #include <QSplitter>
-#include <QTabWidget>
+#include <QStackedWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
 
-ProjectDock::ProjectDock(QWidget* parent)
+ProjectDock::ProjectDock(Settings* settings, QWidget* parent)
     : QDockWidget(DockConfig::ProjectDockTitle, parent)
+    , m_settings(settings)
 {
     setObjectName(DockConfig::ProjectDockObjectName);
     setupUI();
@@ -42,34 +45,118 @@ void ProjectDock::setupUI()
     projectLayout->setContentsMargins(4, 4, 4, 4);
     projectLayout->setSpacing(4);
 
-    m_chooseDirectory = new QPushButton(tr("Choose Working Directory"));
+    // Top row: choose directory + segment switcher
+    QWidget* topRow = new QWidget;
+    QHBoxLayout* topLayout = new QHBoxLayout(topRow);
+    topLayout->setContentsMargins(0, 0, 0, 0);
+    topLayout->setSpacing(4);
+
+    m_chooseDirectory = new QPushButton;
     m_chooseDirectory->setIcon(QIcon::fromTheme("folder-open", QIcon(":/icons/folder.png")));
-    projectLayout->addWidget(m_chooseDirectory);
+    m_chooseDirectory->setToolTip(tr("Choose working directory"));
+    m_chooseDirectory->setMaximumWidth(34);
+    topLayout->addWidget(m_chooseDirectory);
+
+    QButtonGroup* segmentGroup = new QButtonGroup(this);
+    segmentGroup->setExclusive(true);
+    auto makeSegmentBtn = [this, segmentGroup](const QString& text, const QString& tip) {
+        QToolButton* btn = new QToolButton;
+        btn->setText(text);
+        btn->setCheckable(true);
+        btn->setToolTip(tip);
+        segmentGroup->addButton(btn);
+        return btn;
+    };
+    m_filesSegmentBtn = makeSegmentBtn(tr("Files"), tr("Show directories in the working directory"));
+    m_filesSegmentBtn->setChecked(true);
+    m_bookmarksSegmentBtn = makeSegmentBtn(tr("Bookmarks"), tr("Show bookmarked directories"));
+    m_workspacesSegmentBtn = makeSegmentBtn(tr("Workspaces"), tr("Show saved workspaces"));
+#ifdef USE_SFTP
+    m_remoteSegmentBtn = makeSegmentBtn(tr("Remote"), tr("Show remote (SFTP) directories"));
+#else
+    m_remoteSegmentBtn = nullptr;
+#endif
+
+    QWidget* segmentWidget = new QWidget;
+    QHBoxLayout* segmentLayout = new QHBoxLayout(segmentWidget);
+    segmentLayout->setContentsMargins(0, 0, 0, 0);
+    segmentLayout->setSpacing(0);
+    segmentLayout->addWidget(m_filesSegmentBtn);
+    segmentLayout->addWidget(m_bookmarksSegmentBtn);
+    segmentLayout->addWidget(m_workspacesSegmentBtn);
+#ifdef USE_SFTP
+    segmentLayout->addWidget(m_remoteSegmentBtn);
+#endif
+    segmentWidget->setStyleSheet(QStringLiteral(
+        "QToolButton { padding: 2px 10px; border: 1px solid palette(mid); }"
+        "QToolButton:checked { background: palette(highlight); color: palette(highlighted-text);"
+        " font-weight: bold; }"));
+    topLayout->addWidget(segmentWidget);
+    topLayout->addStretch();
+    projectLayout->addWidget(topRow);
 
     m_breadcrumbBar = new BreadcrumbBar;
     m_breadcrumbBar->setHomeDirectory(QDir::homePath());
     projectLayout->addWidget(m_breadcrumbBar);
 
-    // Splitter: upper = calculation directories list, lower = files inside selected dir
-    QSplitter* projectSplitter = new QSplitter(Qt::Vertical);
+    // Upper stacked widget: Files / Bookmarks / Workspaces / Remote
+    m_segmentStack = new QStackedWidget;
 
-    QWidget* calcDirsWidget = new QWidget;
-    QVBoxLayout* calcDirsLayout = new QVBoxLayout(calcDirsWidget);
-    calcDirsLayout->setContentsMargins(0, 0, 0, 0);
-    QLabel* dirListLabel = new QLabel(tr("Calculation Directories"));
-    dirListLabel->setStyleSheet("font-weight: bold;");
-    calcDirsLayout->addWidget(dirListLabel);
+    // Files page
+    QWidget* filesPage = new QWidget;
+    QVBoxLayout* filesPageLayout = new QVBoxLayout(filesPage);
+    filesPageLayout->setContentsMargins(0, 0, 0, 0);
     m_projectListView = new QListView;
     m_projectModel = new QFileSystemModel(this);
     m_projectModel->setFilter(QDir::AllDirs | QDir::NoDot);
     m_projectModel->setReadOnly(true);
     m_projectListView->setModel(m_projectModel);
-    calcDirsLayout->addWidget(m_projectListView);
+    filesPageLayout->addWidget(m_projectListView);
     m_newCalculationButton = new QPushButton(tr("+ New Calculation Directory"));
     m_newCalculationButton->setIcon(QIcon::fromTheme("folder-new", QIcon()));
     m_newCalculationButton->setToolTip(tr("Create a new calculation directory (Ctrl+N)"));
-    calcDirsLayout->addWidget(m_newCalculationButton);
-    projectSplitter->addWidget(calcDirsWidget);
+    filesPageLayout->addWidget(m_newCalculationButton);
+    m_segmentStack->addWidget(filesPage);
+
+    // Bookmarks page
+    m_bookmarkWidget = new BookmarkWidget(m_settings, this);
+    connect(m_bookmarkWidget, &BookmarkWidget::directorySelected,
+            this, [this](const QString& path) {
+                emit bookmarkDirectorySelected(path);
+                setCurrentSegment(ProjectSegment::Files);
+            });
+    connect(m_bookmarkWidget, &BookmarkWidget::bookmarksChanged,
+            this, &ProjectDock::bookmarksChanged);
+    m_segmentStack->addWidget(m_bookmarkWidget);
+
+    // Workspaces page
+    m_workspacePanel = new WorkspacePanel(this);
+    connect(m_workspacePanel, &WorkspacePanel::saveWorkspaceRequested,
+            this, &ProjectDock::saveWorkspaceRequested);
+    m_segmentStack->addWidget(m_workspacePanel);
+
+#ifdef USE_SFTP
+    // Remote page
+    m_remotePanel = new RemoteDirectoriesPanel(this);
+    connect(m_remotePanel, &RemoteDirectoriesPanel::addRemoteRequested,
+            this, &ProjectDock::addRemoteRequested);
+    m_segmentStack->addWidget(m_remotePanel);
+#endif
+
+    connect(m_filesSegmentBtn, &QToolButton::clicked, this,
+            [this]() { setCurrentSegment(ProjectSegment::Files); });
+    connect(m_bookmarksSegmentBtn, &QToolButton::clicked, this,
+            [this]() { setCurrentSegment(ProjectSegment::Bookmarks); });
+    connect(m_workspacesSegmentBtn, &QToolButton::clicked, this,
+            [this]() { setCurrentSegment(ProjectSegment::Workspaces); });
+#ifdef USE_SFTP
+    connect(m_remoteSegmentBtn, &QToolButton::clicked, this,
+            [this]() { setCurrentSegment(ProjectSegment::Remote); });
+#endif
+
+    // Splitter: upper = segment stack, lower = files inside selected dir
+    QSplitter* projectSplitter = new QSplitter(Qt::Vertical);
+    projectSplitter->addWidget(m_segmentStack);
 
     QWidget* calcFilesWidget = new QWidget;
     QVBoxLayout* calcFilesLayout = new QVBoxLayout(calcFilesWidget);
@@ -187,18 +274,47 @@ void ProjectDock::setupUI()
     projectSplitter->setStretchFactor(1, 2);
     projectLayout->addWidget(projectSplitter, 1);
 
-    // Navigation panel embedded as a tab so the left dock has one stable tab bar
-    // (Project, Bookmarks, Workspaces, Remote). Avoids the Qt tab-bar collapse that
-    // happens when two separate QDockWidgets are tabified and one is hidden.
-    m_navigationDock = new NavigationDock(nullptr, this);
+    setWidget(projectWidget);
+}
 
-    m_mainTabs = new QTabWidget(this);
-    m_mainTabs->setTabPosition(QTabWidget::North);
-    m_mainTabs->setDocumentMode(true);
-    m_mainTabs->addTab(projectWidget, tr("Project"));
-    m_mainTabs->addTab(m_navigationDock, tr("Navigation"));
+void ProjectDock::setCurrentSegment(ProjectSegment segment)
+{
+    if (!m_segmentStack)
+        return;
+    int index = 0;
+    switch (segment) {
+    case ProjectSegment::Files: index = 0; break;
+    case ProjectSegment::Bookmarks: index = 1; break;
+    case ProjectSegment::Workspaces: index = 2; break;
+#ifdef USE_SFTP
+    case ProjectSegment::Remote: index = 3; break;
+#else
+    case ProjectSegment::Remote: return;
+#endif
+    }
+    if (index < m_segmentStack->count()) {
+        m_segmentStack->setCurrentIndex(index);
+        if (m_filesSegmentBtn) m_filesSegmentBtn->setChecked(segment == ProjectSegment::Files);
+        if (m_bookmarksSegmentBtn) m_bookmarksSegmentBtn->setChecked(segment == ProjectSegment::Bookmarks);
+        if (m_workspacesSegmentBtn) m_workspacesSegmentBtn->setChecked(segment == ProjectSegment::Workspaces);
+#ifdef USE_SFTP
+        if (m_remoteSegmentBtn) m_remoteSegmentBtn->setChecked(segment == ProjectSegment::Remote);
+#endif
+    }
+}
 
-    setWidget(m_mainTabs);
+ProjectDock::ProjectSegment ProjectDock::currentSegment() const
+{
+    if (!m_segmentStack)
+        return ProjectSegment::Files;
+    switch (m_segmentStack->currentIndex()) {
+    case 1: return ProjectSegment::Bookmarks;
+    case 2: return ProjectSegment::Workspaces;
+#ifdef USE_SFTP
+    case 3: return ProjectSegment::Remote;
+#endif
+    default: return ProjectSegment::Files;
+    }
 }
 
 QPushButton* ProjectDock::chooseDirectoryButton() const { return m_chooseDirectory; }
@@ -218,18 +334,19 @@ QWidget* ProjectDock::lessonMetaWidget() const { return m_lessonMetaWidget; }
 QLineEdit* ProjectDock::lessonTitleEdit() const { return m_lessonTitleEdit; }
 QLineEdit* ProjectDock::lessonDescEdit() const { return m_lessonDescEdit; }
 QLabel* ProjectDock::lessonAuthorsLabel() const { return m_lessonAuthorsLabel; }
+QToolButton* ProjectDock::editAuthorsButton() const { return m_editAuthorsButton; }
 QWidget* ProjectDock::lessonStructWidget() const { return m_lessonStructWidget; }
 QLineEdit* ProjectDock::structNameEdit() const { return m_structNameEdit; }
 QLineEdit* ProjectDock::structDescEdit() const { return m_structDescEdit; }
 QComboBox* ProjectDock::structRoleCombo() const { return m_structRoleCombo; }
-QToolButton* ProjectDock::editAuthorsButton() const { return m_editAuthorsButton; }
-NavigationDock* ProjectDock::navigationDock() const { return m_navigationDock; }
-BookmarkWidget* ProjectDock::bookmarkWidget() const {
-    return m_navigationDock ? m_navigationDock->bookmarkWidget() : nullptr;
-}
-WorkspacePanel* ProjectDock::workspacePanel() const {
-    return m_navigationDock ? m_navigationDock->workspacePanel() : nullptr;
-}
-RemoteDirectoriesPanel* ProjectDock::remotePanel() const {
-    return m_navigationDock ? m_navigationDock->remotePanel() : nullptr;
-}
+
+QToolButton* ProjectDock::filesSegmentButton() const { return m_filesSegmentBtn; }
+QToolButton* ProjectDock::bookmarksSegmentButton() const { return m_bookmarksSegmentBtn; }
+QToolButton* ProjectDock::workspacesSegmentButton() const { return m_workspacesSegmentBtn; }
+QToolButton* ProjectDock::remoteSegmentButton() const { return m_remoteSegmentBtn; }
+QStackedWidget* ProjectDock::segmentStack() const { return m_segmentStack; }
+BookmarkWidget* ProjectDock::bookmarkWidget() const { return m_bookmarkWidget; }
+WorkspacePanel* ProjectDock::workspacePanel() const { return m_workspacePanel; }
+#ifdef USE_SFTP
+RemoteDirectoriesPanel* ProjectDock::remotePanel() const { return m_remotePanel; }
+#endif

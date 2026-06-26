@@ -80,7 +80,6 @@
 #include "docks/editorsdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/outputdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/atomssimulationdock.h"  // Claude Generated 2026 - Dock system restructuring
-#include "docks/navigationdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/bookmarkwidget.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/workspacepanel.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/remotedirectoriespanel.h"  // Claude Generated 2026 - Dock system restructuring
@@ -1245,8 +1244,8 @@ void MainWindow::setupConnections()
         });
 
     // Claude Generated Phase 3.2 - Tree widget signals
-    // Phase 3: BookmarkWidget now handles its own tree interactions and emits
-    // bookmarkDirectorySelected via NavigationDock. Keep only workspace signals.
+    // Phase 6: BookmarkWidget is embedded in ProjectDock and forwards
+    // bookmarkDirectorySelected through the ProjectDock. Keep workspace list signals.
 
     // Claude Generated Phase 4.3 - Workspace list signals
     if (m_workspaceListView) {
@@ -2395,8 +2394,8 @@ void MainWindow::loadCalculationInfo(const QString &path)
 // refreshes it after external changes (e.g. context-menu "Add to Bookmarks").
 void MainWindow::refreshBookmarkTree()
 {
-    if (m_navigationDock && m_navigationDock->bookmarkWidget())
-        m_navigationDock->bookmarkWidget()->refresh();
+    if (m_projectDock && m_projectDock->bookmarkWidget())
+        m_projectDock->bookmarkWidget()->refresh();
 }
 
 void MainWindow::updatePathLabel(const QString& path)
@@ -3992,6 +3991,8 @@ void MainWindow::restoreWorkspaceState(const Settings::Workspace& ws)
 
     if (!ws.workingDirectory.isEmpty()) {
         switchWorkingDirectory(ws.workingDirectory);
+        if (m_projectDock)
+            m_projectDock->setCurrentSegment(ProjectDock::ProjectSegment::Files);
     }
 
     if (!ws.windowGeometry.isEmpty()) {
@@ -4568,10 +4569,10 @@ void MainWindow::createDockWidgets()
     }
 
     // ==================== PROJECT DOCK (left) ====================
-    // Phase 6 redesign: ProjectDock contains the Project tab plus a Navigation tab
-    // (Bookmarks / Workspaces / Remote). Navigation is no longer a separate QDockWidget.
+    // Phase 6 redesign: ProjectDock owns a segmented upper panel
+    // (Files / Bookmarks / Workspaces / Remote) plus a lower file browser.
+    // NavigationDock no longer exists; MainWindow wires the panel widgets directly.
     m_projectDock = m_dockManager->projectDockImpl();
-    m_navigationDock = m_projectDock ? m_projectDock->navigationDock() : nullptr;
 
     if (m_projectDock) {
         m_chooseDirectory = m_projectDock->chooseDirectoryButton();
@@ -4594,6 +4595,15 @@ void MainWindow::createDockWidgets()
         m_structNameEdit = m_projectDock->structNameEdit();
         m_structDescEdit = m_projectDock->structDescEdit();
         m_structRoleCombo = m_projectDock->structRoleCombo();
+
+        if (auto* bw = m_projectDock->bookmarkWidget())
+            m_bookmarkTreeView = bw->treeView();
+        if (auto* wp = m_projectDock->workspacePanel())
+            m_workspaceListView = wp->listView();
+#ifdef USE_SFTP
+        if (auto* rp = m_projectDock->remotePanel())
+            m_remoteDirectoriesView = rp->treeView();
+#endif
 
         // Breadcrumb navigation
         connect(m_breadcrumbBar, &BreadcrumbBar::pathSelected,
@@ -4645,25 +4655,14 @@ void MainWindow::createDockWidgets()
                     m_lessonStructureModel->refresh();
                 }
             });
-    }
 
-    // ==================== NAVIGATION TAB (inside ProjectDock) ====================
-    // Phase 6 redesign: Navigation is embedded in ProjectDock. Wire its panel-level
-    // signals through the container widget.
-    if (m_navigationDock) {
-        if (auto* bw = m_navigationDock->bookmarkWidget())
-            m_bookmarkTreeView = bw->treeView();
-        if (auto* wp = m_navigationDock->workspacePanel())
-            m_workspaceListView = wp->listView();
-        if (auto* rp = m_navigationDock->remotePanel())
-            m_remoteDirectoriesView = rp->treeView();
-
-        connect(m_navigationDock, &NavigationDock::bookmarkDirectorySelected,
+        // Bookmark / workspace / remote panel signals
+        connect(m_projectDock, &ProjectDock::bookmarkDirectorySelected,
                 this, &MainWindow::switchWorkingDirectory);
-        connect(m_navigationDock, &NavigationDock::saveWorkspaceRequested,
+        connect(m_projectDock, &ProjectDock::saveWorkspaceRequested,
                 this, &MainWindow::saveCurrentWorkspace);
 #ifdef USE_SFTP
-        connect(m_navigationDock, &NavigationDock::addRemoteRequested,
+        connect(m_projectDock, &ProjectDock::addRemoteRequested,
                 this, &MainWindow::onAddRemoteDirectoryClicked);
 #endif
     }

@@ -32,7 +32,6 @@ enum class AppMode {
 // Stable object names used by QMainWindow::saveState()/restoreState().
 // Do NOT change these without a migration plan; they are persisted in QSettings.
 inline const QString ProjectDockObjectName = QStringLiteral("ProjectDock");
-inline const QString NavigationDockObjectName = QStringLiteral("NavigationDock");
 inline const QString EditorsDockObjectName = QStringLiteral("EditorsDock");
 inline const QString AtomsSimulationDockObjectName = QStringLiteral("AtomsSimulationDock");
 inline const QString DisplayDockObjectName = QStringLiteral("DisplayDock");
@@ -40,7 +39,6 @@ inline const QString OutputViewDockObjectName = QStringLiteral("OutputViewDock")
 
 // Default dock areas. Kept here so every wrapper class can declare its own.
 inline const Qt::DockWidgetArea ProjectDockArea = Qt::LeftDockWidgetArea;
-inline const Qt::DockWidgetArea NavigationDockArea = Qt::LeftDockWidgetArea;
 inline const Qt::DockWidgetArea EditorsDockArea = Qt::RightDockWidgetArea;
 inline const Qt::DockWidgetArea AtomsSimulationDockArea = Qt::RightDockWidgetArea;
 inline const Qt::DockWidgetArea DisplayDockArea = Qt::RightDockWidgetArea;
@@ -48,7 +46,6 @@ inline const Qt::DockWidgetArea OutputViewDockArea = Qt::BottomDockWidgetArea;
 
 // Tab labels / dock titles.
 inline const QString ProjectDockTitle = QStringLiteral("Project");
-inline const QString NavigationDockTitle = QStringLiteral("Navigation");
 inline const QString EditorsDockTitle = QStringLiteral("Editors");
 inline const QString AtomsSimulationDockTitle = QStringLiteral("Atoms && Simulation");
 inline const QString DisplayDockTitle = QStringLiteral("Display");

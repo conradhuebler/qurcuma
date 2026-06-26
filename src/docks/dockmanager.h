@@ -17,7 +17,6 @@
 class AtomsSimulationDock;
 class DisplayDock;
 class EditorsDock;
-class NavigationDock;
 class OutputDock;
 class ProjectDock;
 class Settings;
@@ -40,7 +39,6 @@ public:
     DisplayDock* displayDockImpl() const;
     EditorsDock* editorsDockImpl() const;
     AtomsSimulationDock* atomsSimulationDockImpl() const;
-    NavigationDock* navigationDockImpl() const;
     ProjectDock* projectDockImpl() const;
 
     // Accessors (return nullptr until the corresponding dock has been created).
@@ -98,7 +96,6 @@ private:
     QMainWindow* m_mainWindow = nullptr;
 
     QDockWidget* m_projectDock = nullptr;
-    QWidget* m_navigationDock = nullptr;
     QDockWidget* m_editorsDock = nullptr;
     QDockWidget* m_atomsSimulationDock = nullptr;
     QDockWidget* m_displayDock = nullptr;
@@ -106,7 +103,6 @@ private:
 
     QTabWidget* m_editorsTabs = nullptr;
     QTabWidget* m_atomsSimulationTabs = nullptr;
-    QTabWidget* m_navigationTabs = nullptr;
 
     QByteArray m_defaultState;
     QHash<int, QByteArray> m_presetStates;
