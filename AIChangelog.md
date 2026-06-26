@@ -1,5 +1,13 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - Dock-Architektur-Refactor
+
+- **`src/docks/`** zentrales Dock-Verzeichnis: `DockManager` besitzt alle `QDockWidget`-Shells, Platzierung, Layout-Presets und Explore/Compute-Modus; `MainWindow` koordiniert über Signale und holt interne Widgets per Getter aus den Wrappern.
+- **Wrapper-Klassen**: `ProjectDock`, `NavigationDock`, `EditorsDock`, `AtomsSimulationDock`, `DisplayDock`, `OutputDock`; jede erbt `QDockWidget` und kapselt ihren Inhalt. `BookmarkWidget` ist als eigenständiges Widget in `NavigationDock` wieder integriert.
+- **`dockconfig.h`** hält stabile `objectName`s, Dock-Bereiche, `LayoutPreset` (Visualization/Editing/Calculation/Analysis/Teaching) und `AppMode` (Explore/Compute). Namen dürfen nicht ohne Migrationsplan geändert werden, weil sie in `QSettings` via `saveState()`/`restoreState()` persistiert werden.
+- **Presets in `DockManager`**: Lazy-Caching mit `saveState()`/`restoreState()` vermeidet Qt-Drift bei wiederholtem `tabifyDockWidget`/`splitDockWidget`; Tastenkürzel Ctrl+Alt+1..4 bleiben erhalten; Teaching-Layout für Lesson-/Demo-Workflow ergänzt.
+- **Explore/Compute-Modus**: `MainWindow::setAppMode` aktualisiert Buttons, persistiert `ui/appMode` und schaltet die Calculation-Toolbar; Sichtbarkeit/Reflow der Docks delegiert an `DockManager::setAppMode`.
+
 ## Juni 2026 - Struktur-Synchronisation (Viewer ↔ Tabelle ↔ Texteditor)
 
 - **Bidirektionale Sync**: Viewer ist kanonischer Speicher; `moleculeUpdated` spiegelt Geometrieänderungen in Atom-Tabelle + Struktur-Editor (XYZ via `atomsToXyz`). `MainWindow::m_structSyncing` verhindert Feedback-Loops; Text-Spiegel ausgesetzt während MD (`simulationActive()`) und beim Laden (qScopeGuard, erhält den Datei-Text z. B. VTF), Refresh nach `simulationRunningChanged(false)`.

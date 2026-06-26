@@ -1,5 +1,6 @@
 #pragma once
 
+#include "docks/dockconfig.h"  // Claude Generated 2026 - Dock system restructuring
 #include "settings.h"
 #include "vtfparser.h"
 #include "xyzparser.h"
@@ -9,7 +10,6 @@
 #include <QComboBox>
 #include <QCompleter>
 #include <QDateTime>
-#include <QDockWidget>
 #include <QElapsedTimer>
 #include <QFileDialog>
 #include <QFileSystemModel>
@@ -28,7 +28,6 @@
 #include <QPushButton>
 #include <QSpinBox>
 #include <QProgressDialog>
-#include <QSplitter>
 #include <QStatusBar>
 #include <QString>
 #include <QStringList>
@@ -53,6 +52,13 @@ class CommandPalette;  // Claude Generated 2026 - P3 Ctrl+K command palette
 class RMSDWidget;  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
+class DockManager;          // Claude Generated 2026 - owns all docks and layout presets
+class DisplayDock;          // Claude Generated 2026 - Display dock wrapper
+class EditorsDock;          // Claude Generated 2026 - Editors dock wrapper
+class OutputDock;           // Claude Generated 2026 - Output dock wrapper
+class AtomsSimulationDock;  // Claude Generated 2026 - Atoms & Simulation dock wrapper
+class NavigationDock;         // Claude Generated 2026 - Navigation dock wrapper
+class ProjectDock;            // Claude Generated 2026 - Project dock wrapper
 #ifdef USE_SFTP
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
 #endif
@@ -87,18 +93,6 @@ public:
         CalculationComplete,  // Process finished successfully
         CalculationError      // Process failed
     };
-
-    // Claude Generated - UI Restructuring: Layout presets for flexible dock arrangement
-    enum class LayoutPreset {
-        Visualization,  // 3D viewer focus with minimal UI
-        Editing,        // Editors and file browser focus
-        Calculation,    // Output view and calculation workflow
-        Analysis        // All panels visible, balanced layout
-    };
-
-    // Claude Generated 2026 - P2: top-level app mode. Explore = molecule viewer focus
-    // (calculation toolbar hidden); Compute = calculation workflow (toolbar shown).
-    enum class AppMode { Explore, Compute };
 
     // Claude Generated 2026 - "Use Invocation Directory" preference
     // invocationDir is captured from QDir::currentPath() in main.cpp BEFORE
@@ -252,7 +246,7 @@ private:
     void setupUI();
     void createToolbars();
     void createModeBar();                       // Claude Generated 2026 - P2 Explore/Compute switch
-    void setAppMode(AppMode mode, bool reflow = true);  // apply mode (toolbar + dock visibility)
+    void setAppMode(DockConfig::AppMode mode, bool reflow = true);  // apply mode (toolbar + dock visibility)
     void showCommandPalette();                  // Claude Generated 2026 - P3 Ctrl+K palette
     void createMenus();
     void seedRMSDReference();  // Claude Generated 2026 - re-seed RMSD reference from viewer
@@ -349,9 +343,7 @@ private:
     void updateWorkflowState(WorkflowState state);  // Claude Generated - Phase 2.2
 
     // Claude Generated Phase 3.2 - Bookmark and workspace slots
-    void updateBookmarkTree();
-    void onBookmarkItemClicked(QTreeWidgetItem* item, int column);
-    void onBookmarkContextMenu(const QPoint& pos);
+    void refreshBookmarkTree();  // Phase 3: delegates to BookmarkWidget
     void saveCurrentWorkspace();
     void onWorkspaceItemClicked(QListWidgetItem* item);
     void onWorkspaceContextMenu(const QPoint& pos);
@@ -360,11 +352,7 @@ private:
     void updateWorkspaceMenu(QMenu* menu);
 
     // Claude Generated - UI Restructuring: Layout preset management
-    void applyLayoutPreset(LayoutPreset preset);
-    void applyVisualizationLayout();
-    void applyEditingLayout();
-    void applyCalculationLayout();
-    void applyAnalysisLayout();
+    void applyLayoutPreset(DockConfig::LayoutPreset preset);
     void createDockWidgets();  // Helper to create all dock widgets
 
     QTreeWidget* m_bookmarkTreeView;  // Claude Generated Phase 3.2 - Replaced QListWidget
@@ -389,10 +377,8 @@ private:
 
     // Claude Generated 2026 - Docked viewer display options (replaces the modal dialog)
     DisplayPanel* m_displayPanel = nullptr;
-    QDockWidget* m_displayDock = nullptr;
     CommandPalette* m_commandPalette = nullptr;  // Claude Generated 2026 - P3 Ctrl+K
     QCompleter* m_commandCompleter;
-    QToolButton* m_bookmarkButton;
     BreadcrumbBar* m_breadcrumbBar;  // Claude Generated Phase 1 - Clickable path navigation
     QLabel *m_currentProjectLabel;
     // Claude Generated - Phase 3.3: Visual state indicators
@@ -523,21 +509,24 @@ private:
     QString m_currentRemoteMountId;
 #endif
 
+    // Claude Generated 2026 - Dock system restructuring: manager owns all docks,
+    // layout presets and the Explore/Compute mode. MainWindow coordinates via signals.
+    DockManager* m_dockManager = nullptr;
+
     // Claude Generated - Dock architecture rewrite (2026-04): 5 docks rahmen MoleculeViewer (CentralWidget)
-    QDockWidget* m_projectDock = nullptr;           // Left: working dir + calculation files
-    QDockWidget* m_navigationDock = nullptr;        // Left (tabbed): bookmarks / workspaces / remote
-    QDockWidget* m_editorsDock = nullptr;           // Right: structure + input editors (internal QTabWidget)
-    QDockWidget* m_atomsSimulationDock = nullptr;   // Right: atom list + simulation (internal QTabWidget)
-    QDockWidget* m_outputViewDock = nullptr;        // Bottom: output log
+    // NOTE: these are being migrated into DockManager / src/docks/ wrappers.
+    ProjectDock* m_projectDock = nullptr;           // Left: Project tab + embedded Navigation tab
+    NavigationDock* m_navigationDock = nullptr;       // Container widget inside ProjectDock's Navigation tab
+    EditorsDock* m_editorsDock = nullptr;           // Right: structure + input editors (internal QTabWidget)
+    AtomsSimulationDock* m_atomsSimulationDock = nullptr; // Right: atom list + simulation
+    DisplayDock* m_displayDock = nullptr;           // Right: viewer display options
+    OutputDock* m_outputViewDock = nullptr;         // Bottom: output log
     QDialog* m_simulationChartDialog = nullptr;     // Modeless dialog: live MD temperature/energy charts
     QTabWidget* m_editorsTabs = nullptr;            // Internal tabs inside m_editorsDock (Structure/Input/RMSD)
     QTabWidget* m_atomsSimulationTabs = nullptr;    // Internal tabs inside m_atomsSimulationDock
-    QTabWidget* m_navigationTabs = nullptr;         // Internal tabs inside m_navigationDock
-    QByteArray m_defaultDockState;                  // Baseline after createDockWidgets
-    QHash<int, QByteArray> m_presetStates;          // keyed by LayoutPreset enum
 
     // Claude Generated 2026 - P2: Explore/Compute mode switch
-    AppMode m_appMode = AppMode::Explore;
+    DockConfig::AppMode m_appMode = DockConfig::AppMode::Explore;
     QToolBar* m_modeToolbar = nullptr;          // top row: [Explore | Compute]
     QToolBar* m_calculationToolbar = nullptr;   // 2nd row: program/command/threads (Compute only)
     QToolButton* m_exploreButton = nullptr;

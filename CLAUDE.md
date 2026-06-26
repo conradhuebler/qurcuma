@@ -9,6 +9,7 @@
 ## Module Documentation
 
 - **[src/CLAUDE.md](src/CLAUDE.md)** - VTF/XYZ parsers, 3D viewer, mouse interactions
+- **[src/docks/CLAUDE.md](src/docks/CLAUDE.md)** - dock architecture, `DockManager`, layout presets, app modes
 - **[src/dialogs/CLAUDE.md](src/dialogs/CLAUDE.md)** - NMR spectrum dialog and analysis
 
 ## Improvements Tracking

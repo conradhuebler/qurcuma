@@ -115,6 +115,16 @@ set(SOURCES
     src/simulationcontrolwidget.cpp  # Claude Generated - Interactive Simulation Integration
     src/snapshotswidget.cpp  # Claude Generated 2026 - Snapshot history foundation
     src/rmsdwidget.cpp  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
+    src/docks/dockmanager.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/outputdock.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/displaydock.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/editorsdock.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/atomssimulationdock.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/navigationdock.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/bookmarkwidget.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/workspacepanel.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/remotedirectoriespanel.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/projectdock.cpp  # Claude Generated 2026 - Dock system restructuring
     src/forceinjector.cpp  # Claude Generated 2026 - Topological force distribution (Phase 4)
     src/elementdata.cpp  # Claude Generated 2026 - Quick3D renderer: shared element tables
     src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing

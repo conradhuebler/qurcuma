@@ -30,7 +30,6 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMimeData>
-#include <QFormLayout>
 #include <QInputDialog>
 #include <QScopeGuard>
 #include <QJsonArray>
@@ -76,6 +75,16 @@
 #include "dialogs/sftpdialog.h"
 #endif
 #include "workspacemanager.h"  // Claude Generated Phase 4
+#include "docks/dockmanager.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/displaydock.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/editorsdock.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/outputdock.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/atomssimulationdock.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/navigationdock.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/bookmarkwidget.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/workspacepanel.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/remotedirectoriespanel.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/projectdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "mainwindow.h"
 
 // Claude Generated - Conditional debug logging
@@ -95,6 +104,11 @@ MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     m_invocationDir = invocationDir;
     // Claude Generated - Initialize m_currentProcess first (needed by setupConnections)
     m_currentProcess = new QProcess(this);
+
+    // Claude Generated 2026 - Dock system restructuring: manager owns all docks,
+    // presets and Explore/Compute mode. Construction happens before setupUI() so
+    // createDockWidgets() can delegate to it in later phases.
+    m_dockManager = new DockManager(this, this);
 
     // Claude Generated - Quick Fix: Set window title and version
     setWindowTitle("Qurcuma 1.0 - Molecular Visualization");
@@ -181,10 +195,8 @@ void MainWindow::setupUI()
     // Initialize available program commands before creating docks
     initializeProgramCommands();
 
-    // Claude Generated - UI Restructuring: Create all dock widgets
-    createDockWidgets();
-
-    // Claude Generated - UI Restructuring: Enable dock features AFTER dock creation
+    // Claude Generated 2026 - Dock refactor: set dock options and tab positions
+    // BEFORE creating/placing docks so tabify/split calls inherit the right config.
     setDockOptions(QMainWindow::AllowTabbedDocks |
                    QMainWindow::AnimatedDocks |
                    QMainWindow::AllowNestedDocks |
@@ -194,6 +206,9 @@ void MainWindow::setupUI()
     setTabPosition(Qt::RightDockWidgetArea, QTabWidget::North);
     setTabPosition(Qt::TopDockWidgetArea, QTabWidget::North);
     setTabPosition(Qt::BottomDockWidgetArea, QTabWidget::North);
+
+    // Claude Generated - UI Restructuring: Create all dock widgets
+    createDockWidgets();
 
     // Setup context menu for file list
     setupContextMenu();
@@ -235,7 +250,7 @@ void MainWindow::setupUI()
 
     // Initial updates
     updatePathLabel(m_workingDirectory);
-    updateBookmarkTree();
+    refreshBookmarkTree();
 
     // Window settings
     resize(1400, 900);  // Larger default size for flexible docking
@@ -243,22 +258,21 @@ void MainWindow::setupUI()
 
     // Claude Generated (2026-04) - Dock rewrite: capture baseline after Qt finished
     // placement, then prefer the globally persisted layout from QSettings. Falls
-    // back to applyAnalysisLayout() only on first run.
+    // back to Analysis layout only on first run. Phase 5: state capture/restore is
+    // owned by DockManager; geometry stays with MainWindow.
     QTimer::singleShot(0, this, [this]() {
-        m_defaultDockState = saveState();
+        if (m_dockManager)
+            m_dockManager->captureBaselineState();
         QSettings uiSettings;
         const QByteArray savedGeometry = uiSettings.value("ui/geometry").toByteArray();
-        const QByteArray savedState = uiSettings.value("ui/dockState").toByteArray();
-        if (!savedGeometry.isEmpty()) restoreGeometry(savedGeometry);
-        if (!savedState.isEmpty()) {
-            restoreState(savedState);
-        } else {
-            applyAnalysisLayout();
-        }
+        if (!savedGeometry.isEmpty())
+            restoreGeometry(savedGeometry);
+        if (m_dockManager)
+            m_dockManager->restoreSavedLayout();
         // Claude Generated 2026 - P2: enforce the saved Explore/Compute mode last so the
         // calculation toolbar + dock visibility match the mode (default Explore on first run).
-        const auto savedMode = static_cast<AppMode>(
-            uiSettings.value("ui/appMode", static_cast<int>(AppMode::Explore)).toInt());
+        const auto savedMode = static_cast<DockConfig::AppMode>(
+            uiSettings.value("ui/appMode", static_cast<int>(DockConfig::AppMode::Explore)).toInt());
         setAppMode(savedMode, /*reflow=*/false);
     });
 }
@@ -661,8 +675,8 @@ void MainWindow::createModeBar()
         "QToolButton:checked { background: palette(highlight); color: palette(highlighted-text);"
         " font-weight: bold; }"));
 
-    connect(m_exploreButton, &QToolButton::clicked, this, [this]() { setAppMode(AppMode::Explore); });
-    connect(m_computeButton, &QToolButton::clicked, this, [this]() { setAppMode(AppMode::Compute); });
+    connect(m_exploreButton, &QToolButton::clicked, this, [this]() { setAppMode(DockConfig::AppMode::Explore); });
+    connect(m_computeButton, &QToolButton::clicked, this, [this]() { setAppMode(DockConfig::AppMode::Compute); });
 
     if (menuBar())
         menuBar()->setCornerWidget(modeWidget, Qt::TopRightCorner);
@@ -670,10 +684,10 @@ void MainWindow::createModeBar()
 
 // Claude Generated 2026 - P2: apply a top-level mode. Sets the calculation toolbar +
 // dock visibility explicitly (deterministic); reflow=false keeps restored sizes on startup.
-void MainWindow::setAppMode(AppMode mode, bool reflow)
+void MainWindow::setAppMode(DockConfig::AppMode mode, bool reflow)
 {
     m_appMode = mode;
-    const bool explore = (mode == AppMode::Explore);
+    const bool explore = (mode == DockConfig::AppMode::Explore);
 
     for (QToolButton* b : { m_exploreButton, m_computeButton }) {
         if (!b)
@@ -687,29 +701,9 @@ void MainWindow::setAppMode(AppMode mode, bool reflow)
     if (m_calculationToolbar)
         m_calculationToolbar->setVisible(!explore);
 
-    auto vis = [](QDockWidget* d, bool on) { if (d) d->setVisible(on); };
-    vis(m_projectDock, true);
-    vis(m_navigationDock, false);
-    vis(m_editorsDock, !explore);
-    vis(m_displayDock, explore);
-    vis(m_atomsSimulationDock, explore);
-    vis(m_outputViewDock, !explore);
-    if (explore && m_displayDock)
-        m_displayDock->raise();
-
-    if (reflow) {
-        if (explore) {
-            if (width() > 0)
-                resizeDocks({ m_projectDock, m_atomsSimulationDock },
-                    { int(width() * 0.16), int(width() * 0.22) }, Qt::Horizontal);
-        } else {
-            if (width() > 0)
-                resizeDocks({ m_projectDock, m_editorsDock },
-                    { int(width() * 0.20), int(width() * 0.30) }, Qt::Horizontal);
-            if (height() > 0)
-                resizeDocks({ m_outputViewDock }, { int(height() * 0.32) }, Qt::Vertical);
-        }
-    }
+    // Phase 5: dock visibility and reflow are owned by DockManager.
+    if (m_dockManager)
+        m_dockManager->setAppMode(mode, reflow);
 
     statusBar()->showMessage(explore ? tr("Mode: Explore") : tr("Mode: Compute"), 2000);
 }
@@ -763,8 +757,8 @@ void MainWindow::showCommandPalette()
         c.run = std::move(run);
         cmds.append(c);
     };
-    add(tr("Explore Mode"), tr("Mode"), [this]() { setAppMode(AppMode::Explore); });
-    add(tr("Compute Mode"), tr("Mode"), [this]() { setAppMode(AppMode::Compute); });
+    add(tr("Explore Mode"), tr("Mode"), [this]() { setAppMode(DockConfig::AppMode::Explore); });
+    add(tr("Compute Mode"), tr("Mode"), [this]() { setAppMode(DockConfig::AppMode::Compute); });
     add(tr("Ball and Stick"), tr("Render"), [this]() { setRenderingModeBallAndStick(); });
     add(tr("Space Filling"), tr("Render"), [this]() { setRenderingModeSpaceFilling(); });
     add(tr("Wireframe"), tr("Render"), [this]() { setRenderingModeWireframe(); });
@@ -971,9 +965,9 @@ void MainWindow::createMenus()
 
     QMenu* modeMenu = viewMenu->addMenu(tr("&Mode"));
     QAction* exploreAct = modeMenu->addAction(QIcon::fromTheme("view-preview"), tr("&Explore"));
-    connect(exploreAct, &QAction::triggered, this, [this]() { setAppMode(AppMode::Explore); });
+    connect(exploreAct, &QAction::triggered, this, [this]() { setAppMode(DockConfig::AppMode::Explore); });
     QAction* computeAct = modeMenu->addAction(QIcon::fromTheme("system-run"), tr("&Compute"));
-    connect(computeAct, &QAction::triggered, this, [this]() { setAppMode(AppMode::Compute); });
+    connect(computeAct, &QAction::triggered, this, [this]() { setAppMode(DockConfig::AppMode::Compute); });
 
     viewMenu->addSeparator();
 
@@ -983,26 +977,30 @@ void MainWindow::createMenus()
     QAction *visualizationLayoutAction = layoutMenu->addAction(tr("&Visualization Mode"));
     visualizationLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_1));
     visualizationLayoutAction->setToolTip(tr("Focus on 3D viewer (Ctrl+Alt+1)"));
-    connect(visualizationLayoutAction, &QAction::triggered, this, &MainWindow::applyVisualizationLayout);
+    connect(visualizationLayoutAction, &QAction::triggered, this,
+            [this]() { applyLayoutPreset(DockConfig::LayoutPreset::Visualization); });
 
     QAction *editingLayoutAction = layoutMenu->addAction(tr("&Editing Mode"));
     editingLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_2));
     editingLayoutAction->setToolTip(tr("Focus on editors (Ctrl+Alt+2)"));
-    connect(editingLayoutAction, &QAction::triggered, this, &MainWindow::applyEditingLayout);
+    connect(editingLayoutAction, &QAction::triggered, this,
+            [this]() { applyLayoutPreset(DockConfig::LayoutPreset::Editing); });
 
     QAction *calculationLayoutAction = layoutMenu->addAction(tr("&Calculation Mode"));
     calculationLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_3));
     calculationLayoutAction->setToolTip(tr("Focus on calculation workflow (Ctrl+Alt+3)"));
-    connect(calculationLayoutAction, &QAction::triggered, this, &MainWindow::applyCalculationLayout);
+    connect(calculationLayoutAction, &QAction::triggered, this,
+            [this]() { applyLayoutPreset(DockConfig::LayoutPreset::Calculation); });
 
     QAction *analysisLayoutAction = layoutMenu->addAction(tr("&Analysis Mode (All Panels)"));
     analysisLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_4));
     analysisLayoutAction->setToolTip(tr("Balanced layout with all panels (Ctrl+Alt+4)"));
-    connect(analysisLayoutAction, &QAction::triggered, this, &MainWindow::applyAnalysisLayout);
+    connect(analysisLayoutAction, &QAction::triggered, this,
+            [this]() { applyLayoutPreset(DockConfig::LayoutPreset::Analysis); });
 
     viewMenu->addSeparator();
 
-    // Claude Generated (2026-04) - Dock rewrite: toggle actions for the 5-dock architecture.
+    // Claude Generated (2026-04) - Dock rewrite: toggle actions for the dock architecture.
     QMenu *docksMenu = viewMenu->addMenu(QIcon::fromTheme("view-split-left-right"), tr("&Dock Panels"));
 
     auto addDockToggle = [&docksMenu, this](QDockWidget* dock, const QString& label, const QKeySequence& shortcut = QKeySequence()) {
@@ -1016,7 +1014,6 @@ void MainWindow::createMenus()
     };
 
     addDockToggle(m_projectDock,          tr("&Project"),            QKeySequence(Qt::CTRL | Qt::Key_B));
-    addDockToggle(m_navigationDock,       tr("&Navigation"));
     addDockToggle(m_editorsDock,          tr("&Editors"));
     addDockToggle(m_displayDock,          tr("&Display"));
     addDockToggle(m_atomsSimulationDock,  tr("&Atoms && Simulation"));
@@ -1034,9 +1031,8 @@ void MainWindow::createMenus()
     QAction *resetLayoutAction = viewMenu->addAction(QIcon::fromTheme("view-restore"), tr("&Reset to Default Layout"));
     resetLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_0));
     connect(resetLayoutAction, &QAction::triggered, this, [this]() {
-        if (!m_defaultDockState.isEmpty()) {
-            m_presetStates.clear();
-            restoreState(m_defaultDockState);
+        if (m_dockManager) {
+            m_dockManager->resetToBaseline();
             statusBar()->showMessage(tr("Layout reset to default"), 2000);
         }
     });
@@ -1249,11 +1245,8 @@ void MainWindow::setupConnections()
         });
 
     // Claude Generated Phase 3.2 - Tree widget signals
-    connect(m_bookmarkTreeView, &QTreeWidget::itemClicked,
-        this, &MainWindow::onBookmarkItemClicked);
-
-    connect(m_bookmarkTreeView, &QTreeWidget::customContextMenuRequested,
-        this, &MainWindow::onBookmarkContextMenu);
+    // Phase 3: BookmarkWidget now handles its own tree interactions and emits
+    // bookmarkDirectorySelected via NavigationDock. Keep only workspace signals.
 
     // Claude Generated Phase 4.3 - Workspace list signals
     if (m_workspaceListView) {
@@ -1264,15 +1257,12 @@ void MainWindow::setupConnections()
             this, &MainWindow::onWorkspaceContextMenu);
     }
 
-    connect(m_bookmarkButton, &QToolButton::clicked, [this]() {
-        if (!m_workingDirectory.isEmpty()) {
-            m_settings.addWorkingDirectory(m_workingDirectory);
-            updateBookmarkTree();
-            statusBar()->showMessage(tr("Directory bookmarked: %1")
-                                         .arg(QDir(m_workingDirectory).dirName()),
-                3000);
-        }
-    });
+#ifdef USE_SFTP
+    if (m_remoteDirectoriesView) {
+        connect(m_remoteDirectoriesView, &QTreeWidget::itemClicked,
+                this, &MainWindow::onRemoteDirectoryClicked);
+    }
+#endif
 
     // Claude Generated - Removed duplicate click handler, using projectSelected() slot instead
     // Navigation is now handled in projectSelected() which calls updateDirectoryContent()
@@ -1427,8 +1417,15 @@ void MainWindow::setupProjectViewContextMenu()
 
             QAction* bookmarkAction = contextMenu.addAction(tr("Add to Bookmarks"));
             connect(bookmarkAction, &QAction::triggered, [this, path]() {
-                m_settings.addWorkingDirectory(path);
-                updateBookmarkTree();
+                Settings::BookmarkItem bm;
+                bm.id = QUuid::createUuid().toString();
+                bm.name = QDir(path).dirName();
+                bm.path = path;
+                bm.isFolder = false;
+                bm.parentId = "";
+                bm.created = QDateTime::currentDateTime();
+                m_settings.addBookmark(bm);
+                refreshBookmarkTree();
                 statusBar()->showMessage(tr("Directory bookmarked: %1")
                                              .arg(QDir(path).dirName()),
                     3000);
@@ -1438,7 +1435,6 @@ void MainWindow::setupProjectViewContextMenu()
             connect(setWorkDirAction, &QAction::triggered, [this, path]() {
                 switchWorkingDirectory(path);
                 m_settings.addWorkingDirectory(path);
-                updateBookmarkTree();
             });
 
             contextMenu.exec(m_projectListView->viewport()->mapToGlobal(pos));
@@ -2193,7 +2189,7 @@ void MainWindow::loadSettings()
     }
 
     // Load bookmarks and workspaces into UI
-    updateBookmarkTree();
+    refreshBookmarkTree();
     updateWorkspaceList();
 }
 
@@ -2395,224 +2391,12 @@ void MainWindow::loadCalculationInfo(const QString &path)
 }
 
 // Claude Generated Phase 3.2 - Build tree from BookmarkItem hierarchy
-void MainWindow::updateBookmarkTree()
+// Claude Generated 2026 - Phase 3: BookmarkWidget owns the tree. MainWindow only
+// refreshes it after external changes (e.g. context-menu "Add to Bookmarks").
+void MainWindow::refreshBookmarkTree()
 {
-    m_bookmarkTreeView->clear();
-
-    // Load bookmarks from settings
-    QVector<Settings::BookmarkItem> allBookmarks = m_settings.bookmarks();
-
-    // Build a map for quick parent lookup
-    QMap<QString, QTreeWidgetItem*> itemsById;
-    itemsById[""] = m_bookmarkTreeView->invisibleRootItem();  // Root
-
-    // First pass: Create all items
-    for (const auto& bm : allBookmarks) {
-        QTreeWidgetItem* item = new QTreeWidgetItem();
-        item->setText(0, bm.name);
-        item->setData(0, Qt::UserRole, bm.id);  // Store ID
-        item->setData(0, Qt::UserRole + 1, bm.path);  // Store path
-
-        // Set icons
-        if (bm.isFolder) {
-            item->setIcon(0, QIcon::fromTheme("folder", QIcon(":/icons/folder.png")));
-        } else {
-            item->setIcon(0, QIcon::fromTheme("bookmark", QIcon(":/icons/bookmark.png")));
-            // Claude Generated Phase 3.5 - Show path and tags in tooltip
-            QString tooltip = bm.path;
-            if (!bm.tags.isEmpty()) {
-                tooltip += "\nTags: " + bm.tags.join(", ");
-            }
-            item->setToolTip(0, tooltip);
-        }
-
-        // Set color if defined
-        if (bm.color.isValid()) {
-            item->setBackground(0, bm.color);
-        }
-
-        itemsById[bm.id] = item;
-    }
-
-    // Second pass: Add items to their parents
-    for (const auto& bm : allBookmarks) {
-        if (itemsById.contains(bm.id)) {
-            QTreeWidgetItem* parentItem = itemsById.value(bm.parentId, m_bookmarkTreeView->invisibleRootItem());
-            if (parentItem && parentItem != itemsById[bm.id]) {  // Avoid adding to self
-                parentItem->addChild(itemsById[bm.id]);
-            }
-        }
-    }
-
-    // Expand all folders by default
-    m_bookmarkTreeView->expandAll();
-}
-
-// Claude Generated Phase 3.2 - Handle bookmark tree item clicks
-void MainWindow::onBookmarkItemClicked(QTreeWidgetItem* item, int column)
-{
-    if (!item) return;
-
-    // Get path from item data
-    QString path = item->data(0, Qt::UserRole + 1).toString();
-
-    // Only navigate if it's a bookmark (has a path), not a folder
-    if (!path.isEmpty()) {
-        switchWorkingDirectory(path);
-    }
-}
-
-// Claude Generated Phase 3.2 - Handle bookmark context menu
-void MainWindow::onBookmarkContextMenu(const QPoint& pos)
-{
-    QTreeWidgetItem* item = m_bookmarkTreeView->itemAt(pos);
-
-    QMenu contextMenu(this);
-
-    if (!item) {
-        // Empty area context menu
-        QAction* addAction = contextMenu.addAction(tr("Add Current Directory as Bookmark"));
-        connect(addAction, &QAction::triggered, [this]() {
-            if (!m_workingDirectory.isEmpty()) {
-                Settings::BookmarkItem bm;
-                bm.id = QUuid::createUuid().toString();
-                bm.name = QDir(m_workingDirectory).dirName();
-                bm.path = m_workingDirectory;
-                bm.isFolder = false;
-                bm.parentId = "";
-                bm.created = QDateTime::currentDateTime();
-                m_settings.addBookmark(bm);
-                updateBookmarkTree();
-                statusBar()->showMessage(tr("Bookmark added"), 2000);
-            }
-        });
-
-        QAction* folderAction = contextMenu.addAction(tr("New Folder..."));
-        connect(folderAction, &QAction::triggered, [this]() {
-            QString name = QInputDialog::getText(this,
-                tr("New Bookmark Folder"),
-                tr("Folder name:"));
-            if (!name.isEmpty()) {
-                Settings::BookmarkItem folder;
-                folder.id = QUuid::createUuid().toString();
-                folder.name = name;
-                folder.path = "";
-                folder.isFolder = true;
-                folder.parentId = "";
-                folder.created = QDateTime::currentDateTime();
-                m_settings.addBookmark(folder);
-                updateBookmarkTree();
-            }
-        });
-    } else {
-        // Item-specific context menu
-        QString itemId = item->data(0, Qt::UserRole).toString();
-        Settings::BookmarkItem bm = [this, itemId]() {
-            for (const auto& b : m_settings.bookmarks()) {
-                if (b.id == itemId) return b;
-            }
-            return Settings::BookmarkItem();
-        }();
-
-        if (bm.isFolder) {
-            // Folder options
-            QAction* renameAction = contextMenu.addAction(tr("Rename..."));
-            connect(renameAction, &QAction::triggered, [this, itemId, item]() {
-                QString newName = QInputDialog::getText(this,
-                    tr("Rename Folder"),
-                    tr("New name:"),
-                    QLineEdit::Normal,
-                    item->text(0));
-                if (!newName.isEmpty()) {
-                    auto bookmarks = m_settings.bookmarks();
-                    for (auto& b : bookmarks) {
-                        if (b.id == itemId) {
-                            b.name = newName;
-                            m_settings.updateBookmark(itemId, b);
-                            break;
-                        }
-                    }
-                    updateBookmarkTree();
-                }
-            });
-
-            QAction* deleteAction = contextMenu.addAction(tr("Delete Folder"));
-            connect(deleteAction, &QAction::triggered, [this, itemId]() {
-                m_settings.removeBookmark(itemId);
-                updateBookmarkTree();
-            });
-        } else {
-            // Bookmark options
-            QAction* openAction = contextMenu.addAction(tr("Open"));
-            connect(openAction, &QAction::triggered, [this, bm]() {
-                if (!bm.path.isEmpty()) {
-                    switchWorkingDirectory(bm.path);
-                }
-            });
-
-            contextMenu.addSeparator();
-
-            QAction* renameAction = contextMenu.addAction(tr("Rename..."));
-            connect(renameAction, &QAction::triggered, [this, itemId, item]() {
-                QString newName = QInputDialog::getText(this,
-                    tr("Rename Bookmark"),
-                    tr("New name:"),
-                    QLineEdit::Normal,
-                    item->text(0));
-                if (!newName.isEmpty()) {
-                    auto bookmarks = m_settings.bookmarks();
-                    for (auto& b : bookmarks) {
-                        if (b.id == itemId) {
-                            b.name = newName;
-                            m_settings.updateBookmark(itemId, b);
-                            break;
-                        }
-                    }
-                    updateBookmarkTree();
-                }
-            });
-
-            // Claude Generated Phase 3.5 - Minimal tag system
-            QAction* tagsAction = contextMenu.addAction(tr("Edit Tags..."));
-            connect(tagsAction, &QAction::triggered, [this, itemId]() {
-                auto bookmarks = m_settings.bookmarks();
-                Settings::BookmarkItem* targetBm = nullptr;
-                for (auto& b : bookmarks) {
-                    if (b.id == itemId) {
-                        targetBm = &b;
-                        break;
-                    }
-                }
-
-                if (targetBm) {
-                    QString tagsStr = targetBm->tags.join(", ");
-                    QString newTagsStr = QInputDialog::getText(this,
-                        tr("Edit Bookmark Tags"),
-                        tr("Tags (comma-separated, e.g. #dft, #md):"),
-                        QLineEdit::Normal,
-                        tagsStr);
-
-                    if (!newTagsStr.isEmpty() || !tagsStr.isEmpty()) {
-                        targetBm->tags = newTagsStr.split(",", Qt::SkipEmptyParts);
-                        for (auto& tag : targetBm->tags) {
-                            tag = tag.trimmed();
-                        }
-                        m_settings.updateBookmark(itemId, *targetBm);
-                        updateBookmarkTree();
-                    }
-                }
-            });
-
-            QAction* removeAction = contextMenu.addAction(tr("Remove Bookmark"));
-            connect(removeAction, &QAction::triggered, [this, itemId]() {
-                m_settings.removeBookmark(itemId);
-                updateBookmarkTree();
-                statusBar()->showMessage(tr("Bookmark removed"), 2000);
-            });
-        }
-    }
-
-    contextMenu.exec(m_bookmarkTreeView->viewport()->mapToGlobal(pos));
+    if (m_navigationDock && m_navigationDock->bookmarkWidget())
+        m_navigationDock->bookmarkWidget()->refresh();
 }
 
 void MainWindow::updatePathLabel(const QString& path)
@@ -2649,17 +2433,16 @@ void MainWindow::switchWorkingDirectory(const QString& path)
 }
 
 // Claude Generated (2026-04) - Toggles Project dock (Ctrl+B). Navigation is tabbed
-// with Project so hiding the group hides both.
+// with Project so hiding the group hides both. Phase 6: routed through DockManager.
 void MainWindow::toggleLeftPanel()
 {
-    if (m_projectDock) {
-        const bool show = !m_projectDock->isVisible();
-        m_projectDock->setVisible(show);
-        if (m_navigationDock) m_navigationDock->setVisible(show);
-        statusBar()->showMessage(
-            show ? tr("Project panel shown") : tr("Project panel hidden"),
-            1500);
-    }
+    if (!m_dockManager)
+        return;
+    m_dockManager->toggleLeftPanel();
+    const bool show = m_dockManager->dockVisible(m_dockManager->projectDock());
+    statusBar()->showMessage(
+        show ? tr("Project panel shown") : tr("Project panel hidden"),
+        1500);
 }
 
 QPair<int, int> MainWindow::countImaginaryFrequencies(const QString& filename) {
@@ -4218,9 +4001,9 @@ void MainWindow::restoreWorkspaceState(const Settings::Workspace& ws)
     // Claude Generated - UI Restructuring: Restore dock widget layout
     if (!ws.dockState.isEmpty()) {
         restoreState(ws.dockState);
-    } else {
+    } else if (m_dockManager) {
         // Fallback: Apply default layout if no dock state saved (backward compatibility)
-        applyAnalysisLayout();
+        m_dockManager->applyPreset(DockConfig::LayoutPreset::Analysis);
     }
 
     if (m_workspaceManager) {
@@ -4758,374 +4541,165 @@ void MainWindow::downloadAndLoadRemoteFile(const QString& filePath)
 // drift bug where preset switches stacked redundant tab groupings.
 void MainWindow::createDockWidgets()
 {
+    // Claude Generated 2026 - Dock system restructuring: Phase 4. Create all
+    // wrapped docks via the DockManager and pull their internal widgets into
+    // MainWindow members so existing logic keeps working during the migration.
+    m_dockManager->initialize(m_moleculeView, &m_settings);
+    m_outputViewDock = m_dockManager->outputDockImpl();
+    m_displayDock = m_dockManager->displayDockImpl();
+    m_editorsDock = m_dockManager->editorsDockImpl();
+    m_atomsSimulationDock = m_dockManager->atomsSimulationDockImpl();
+    // Pull the wrapped internal widgets into MainWindow members so the rest of the
+    // code can keep using them during the migration.
+    m_editorsTabs = m_editorsDock ? m_editorsDock->editorsTabs() : nullptr;
+    m_structureView = m_editorsDock ? m_editorsDock->structureView() : nullptr;
+    m_inputView = m_editorsDock ? m_editorsDock->inputView() : nullptr;
+    m_structureFileEdit = m_editorsDock ? m_editorsDock->structureFileEdit() : nullptr;
+    m_structureFileEditExtension = m_editorsDock ? m_editorsDock->structureFileEditExtension() : nullptr;
+    m_inputFileEdit = m_editorsDock ? m_editorsDock->inputFileEdit() : nullptr;
+    m_inputFileEditExtension = m_editorsDock ? m_editorsDock->inputFileEditExtension() : nullptr;
+    m_rmsdWidget = m_editorsDock ? m_editorsDock->rmsdWidget() : nullptr;
+
+    if (m_atomsSimulationDock) {
+        m_atomsSimulationTabs = m_atomsSimulationDock->tabs();
+        m_atomListPanel = m_atomsSimulationDock->atomListPanel();
+        m_simulationControlWidget = m_atomsSimulationDock->simulationControlWidget();
+        m_snapshotsWidget = m_atomsSimulationDock->snapshotsWidget();
+    }
+
     // ==================== PROJECT DOCK (left) ====================
-    // Working dir + breadcrumb + calculation directory list + calculation file list
-    m_projectDock = new QDockWidget(tr("Project"), this);
-    m_projectDock->setObjectName("ProjectDock");
+    // Phase 6 redesign: ProjectDock contains the Project tab plus a Navigation tab
+    // (Bookmarks / Workspaces / Remote). Navigation is no longer a separate QDockWidget.
+    m_projectDock = m_dockManager->projectDockImpl();
+    m_navigationDock = m_projectDock ? m_projectDock->navigationDock() : nullptr;
 
-    QWidget* projectWidget = new QWidget;
-    QVBoxLayout* projectLayout = new QVBoxLayout(projectWidget);
-    projectLayout->setContentsMargins(4, 4, 4, 4);
-    projectLayout->setSpacing(4);
+    if (m_projectDock) {
+        m_chooseDirectory = m_projectDock->chooseDirectoryButton();
+        m_breadcrumbBar = m_projectDock->breadcrumbBar();
+        m_projectListView = m_projectDock->projectListView();
+        m_projectModel = m_projectDock->projectModel();
+        m_newCalculationButton = m_projectDock->newCalculationButton();
+        m_currentProjectLabel = m_projectDock->currentProjectLabel();
+        m_stateIcon = m_projectDock->stateIcon();
+        m_stateIndicator = m_projectDock->stateIndicator();
+        m_filesModeBtn = m_projectDock->filesModeButton();
+        m_lessonModeBtn = m_projectDock->lessonModeButton();
+        m_directoryContentView = m_projectDock->directoryContentView();
+        m_directoryContentModel = m_projectDock->directoryContentModel();
+        m_lessonMetaWidget = m_projectDock->lessonMetaWidget();
+        m_lessonTitleEdit = m_projectDock->lessonTitleEdit();
+        m_lessonDescEdit = m_projectDock->lessonDescEdit();
+        m_lessonAuthorsLabel = m_projectDock->lessonAuthorsLabel();
+        m_lessonStructWidget = m_projectDock->lessonStructWidget();
+        m_structNameEdit = m_projectDock->structNameEdit();
+        m_structDescEdit = m_projectDock->structDescEdit();
+        m_structRoleCombo = m_projectDock->structRoleCombo();
 
-    m_chooseDirectory = new QPushButton(tr("Choose Working Directory"));
-    m_chooseDirectory->setIcon(QIcon::fromTheme("folder-open", QIcon(":/icons/folder.png")));
-    projectLayout->addWidget(m_chooseDirectory);
+        // Breadcrumb navigation
+        connect(m_breadcrumbBar, &BreadcrumbBar::pathSelected,
+                this, &MainWindow::switchWorkingDirectory);
 
-    m_breadcrumbBar = new BreadcrumbBar;
-    m_breadcrumbBar->setHomeDirectory(QDir::homePath());
-    connect(m_breadcrumbBar, &BreadcrumbBar::pathSelected, this, &MainWindow::switchWorkingDirectory);
-    projectLayout->addWidget(m_breadcrumbBar);
+        // Copy current calculation path
+        connect(m_projectDock->copyPathButton(), &QPushButton::clicked,
+                this, &MainWindow::copyCurrentPath);
 
-    // Splitter: upper = calculation directories list, lower = files inside selected dir
-    QSplitter* projectSplitter = new QSplitter(Qt::Vertical);
+        // Files / Lesson browser toggle
+        connect(m_filesModeBtn, &QToolButton::clicked,
+                this, [this]() { setBrowserMode(false); });
+        connect(m_lessonModeBtn, &QToolButton::clicked,
+                this, [this]() { setBrowserMode(true); });
 
-    QWidget* calcDirsWidget = new QWidget;
-    QVBoxLayout* calcDirsLayout = new QVBoxLayout(calcDirsWidget);
-    calcDirsLayout->setContentsMargins(0, 0, 0, 0);
-    QLabel* dirListLabel = new QLabel(tr("Calculation Directories"));
-    dirListLabel->setStyleSheet("font-weight: bold;");
-    calcDirsLayout->addWidget(dirListLabel);
-    m_projectListView = new QListView;
-    m_projectModel = new QFileSystemModel(this);
-    m_projectModel->setRootPath(m_workingDirectory);
-    m_projectModel->setFilter(QDir::AllDirs | QDir::NoDot);
-    m_projectModel->setReadOnly(true);
-    m_projectListView->setModel(m_projectModel);
-    m_projectListView->setRootIndex(m_projectModel->index(m_workingDirectory));
-    calcDirsLayout->addWidget(m_projectListView);
-    m_newCalculationButton = new QPushButton(tr("+ New Calculation Directory"));
-    m_newCalculationButton->setIcon(QIcon::fromTheme("folder-new", QIcon()));
-    m_newCalculationButton->setToolTip(tr("Create a new calculation directory (Ctrl+N)"));
-    calcDirsLayout->addWidget(m_newCalculationButton);
-    projectSplitter->addWidget(calcDirsWidget);
-
-    QWidget* calcFilesWidget = new QWidget;
-    QVBoxLayout* calcFilesLayout = new QVBoxLayout(calcFilesWidget);
-    calcFilesLayout->setContentsMargins(0, 0, 0, 0);
-
-    QWidget* pathWidget = new QWidget;
-    QHBoxLayout* pathLayout = new QHBoxLayout(pathWidget);
-    pathLayout->setContentsMargins(0, 0, 0, 0);
-    m_currentProjectLabel = new QLabel(m_currentCalculationDir);
-    m_currentProjectLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_currentProjectLabel->setWordWrap(false);
-    pathLayout->addWidget(m_currentProjectLabel, 1);
-    QPushButton* copyPathButton = new QPushButton;
-    copyPathButton->setIcon(QIcon::fromTheme("edit-copy"));
-    copyPathButton->setToolTip(tr("Copy current path to clipboard"));
-    copyPathButton->setMaximumWidth(30);
-    connect(copyPathButton, &QPushButton::clicked, this, &MainWindow::copyCurrentPath);
-    pathLayout->addWidget(copyPathButton);
-    calcFilesLayout->addWidget(pathWidget);
-
-    QWidget* stateWidget = new QWidget;
-    QHBoxLayout* stateLayout = new QHBoxLayout(stateWidget);
-    stateLayout->setContentsMargins(0, 0, 0, 0);
-    m_stateIcon = new QLabel("●");
-    m_stateIcon->setStyleSheet("color: grey; font-size: 14px;");
-    m_stateIcon->setFixedWidth(20);
-    stateLayout->addWidget(m_stateIcon);
-    m_stateIndicator = new QLabel(tr("No directory selected"));
-    stateLayout->addWidget(m_stateIndicator);
-    stateLayout->addStretch();
-    // Claude Generated 2026 - Segmented Files / Lesson toggle (mirrors the
-    // Explore/Compute mode bar). Swaps the content view's model between the
-    // filesystem and the in-memory lesson structures.
-    auto* browserModeGroup = new QButtonGroup(this);
-    browserModeGroup->setExclusive(true);
-    m_filesModeBtn = new QToolButton;
-    m_filesModeBtn->setText(tr("Files"));
-    m_filesModeBtn->setCheckable(true);
-    m_filesModeBtn->setChecked(true);
-    m_lessonModeBtn = new QToolButton;
-    m_lessonModeBtn->setText(tr("Lesson (0)"));
-    m_lessonModeBtn->setCheckable(true);
-    m_lessonModeBtn->setToolTip(tr("Show the in-memory lesson structures and metadata.\n"
-                                   "Drop molecule files here to add them to the lesson."));
-    m_lessonModeBtn->setAcceptDrops(true);  // drop molecule files to add them (see eventFilter)
-    browserModeGroup->addButton(m_filesModeBtn);
-    browserModeGroup->addButton(m_lessonModeBtn);
-    QWidget* browserModeWidget = new QWidget;
-    QHBoxLayout* bmLayout = new QHBoxLayout(browserModeWidget);
-    bmLayout->setContentsMargins(0, 0, 0, 0);
-    bmLayout->setSpacing(0);
-    bmLayout->addWidget(m_filesModeBtn);
-    bmLayout->addWidget(m_lessonModeBtn);
-    browserModeWidget->setStyleSheet(QStringLiteral(
-        "QToolButton { padding: 2px 10px; border: 1px solid palette(mid); }"
-        "QToolButton:checked { background: palette(highlight); color: palette(highlighted-text);"
-        " font-weight: bold; }"));
-    connect(m_filesModeBtn, &QToolButton::clicked, this, [this]() { setBrowserMode(false); });
-    connect(m_lessonModeBtn, &QToolButton::clicked, this, [this]() { setBrowserMode(true); });
-    stateLayout->addWidget(browserModeWidget);
-    calcFilesLayout->addWidget(stateWidget);
-
-    m_directoryContentView = new QListView;
-    m_directoryContentModel = new QFileSystemModel(this);
-    m_directoryContentModel->setFilter(QDir::NoDotAndDotDot | QDir::Files);
-    m_directoryContentModel->setNameFilters(QStringList()
-        << "*.xyz" << "*.vtf" << "*.pdb" << "*.mol2" << "*.inp" << "*.log" << "*.out"
-        << "*.hess" << "*.gbw" << "*.txt" << "*.*" << "input");
-    m_directoryContentModel->setNameFilterDisables(false);
-    m_directoryContentView->setModel(m_directoryContentModel);
-    m_directoryContentView->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_directoryContentView->setDragEnabled(true);  // drag files onto the Lesson toggle to add them
+        // Content view remote-file handling
 #ifdef USE_SFTP
-    connect(m_directoryContentView, &QListView::doubleClicked, this, &MainWindow::onRemoteFileDoubleClicked);
+        connect(m_directoryContentView, &QListView::doubleClicked,
+                this, &MainWindow::onRemoteFileDoubleClicked);
 #endif
-    // Claude Generated 2026 - The same content view optionally shows the in-memory
-    // lesson structures instead of files on disk (model swap, no second view). The
-    // clicked / context-menu handlers branch on m_lessonBrowseMode.
-    m_lessonStructureModel = new LessonStructureModel(&m_lesson.structures, this);
 
-    // Lesson metadata widget — above the list, visible only in Lesson mode.
-    m_lessonMetaWidget = new QWidget;
-    QFormLayout* metaForm = new QFormLayout(m_lessonMetaWidget);
-    metaForm->setContentsMargins(2, 2, 2, 2);
-    m_lessonTitleEdit = new QLineEdit;
-    m_lessonTitleEdit->setPlaceholderText(tr("Lesson title"));
-    connect(m_lessonTitleEdit, &QLineEdit::textEdited, this,
-        [this](const QString& t) { m_lesson.meta.title = t.trimmed(); });
-    m_lessonDescEdit = new QLineEdit;
-    m_lessonDescEdit->setPlaceholderText(tr("Short description"));
-    connect(m_lessonDescEdit, &QLineEdit::textEdited, this,
-        [this](const QString& t) { m_lesson.meta.description = t.trimmed(); });
-    QWidget* authorsRow = new QWidget;
-    QHBoxLayout* authorsRowLayout = new QHBoxLayout(authorsRow);
-    authorsRowLayout->setContentsMargins(0, 0, 0, 0);
-    m_lessonAuthorsLabel = new QLabel(tr("(none)"));
-    m_lessonAuthorsLabel->setWordWrap(true);
-    QToolButton* editAuthorsBtn = new QToolButton;
-    editAuthorsBtn->setText(tr("Authors / License…"));
-    editAuthorsBtn->setToolTip(tr("Edit authors (ORCID/institution), license, keywords"));
-    connect(editAuthorsBtn, &QToolButton::clicked, this, &MainWindow::editLessonMetadata);
-    authorsRowLayout->addWidget(m_lessonAuthorsLabel, 1);
-    authorsRowLayout->addWidget(editAuthorsBtn);
-    metaForm->addRow(tr("Title:"), m_lessonTitleEdit);
-    metaForm->addRow(tr("Desc.:"), m_lessonDescEdit);
-    metaForm->addRow(tr("Authors:"), authorsRow);
-    m_lessonMetaWidget->setVisible(false);
-    calcFilesLayout->addWidget(m_lessonMetaWidget);
+        // In-memory lesson structures model (owned by MainWindow, installed into the dock's view)
+        m_lessonStructureModel = new LessonStructureModel(&m_lesson.structures, this);
 
-    calcFilesLayout->addWidget(m_directoryContentView);
+        // Lesson metadata editors
+        connect(m_lessonTitleEdit, &QLineEdit::textEdited, this,
+            [this](const QString& t) { m_lesson.meta.title = t.trimmed(); });
+        connect(m_lessonDescEdit, &QLineEdit::textEdited, this,
+            [this](const QString& t) { m_lesson.meta.description = t.trimmed(); });
+        connect(m_projectDock->editAuthorsButton(), &QToolButton::clicked,
+                this, &MainWindow::editLessonMetadata);
 
-    // Per-structure inline detail editor — below the list, visible only in Lesson
-    // mode while a structure is selected. Replaces the old add-time dialog chain.
-    m_lessonStructWidget = new QWidget;
-    QFormLayout* structForm = new QFormLayout(m_lessonStructWidget);
-    structForm->setContentsMargins(2, 2, 2, 2);
-    m_structNameEdit = new QLineEdit;
-    m_structNameEdit->setPlaceholderText(tr("Structure name"));
-    connect(m_structNameEdit, &QLineEdit::textEdited, this, [this](const QString& t) {
-        if (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size()) {
-            m_lesson.structures[m_currentLessonRow].name = t;
-            m_lessonStructureModel->refresh();
-        }
-    });
-    m_structDescEdit = new QLineEdit;
-    m_structDescEdit->setPlaceholderText(tr("Notes for this structure"));
-    connect(m_structDescEdit, &QLineEdit::textEdited, this, [this](const QString& t) {
-        if (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size())
-            m_lesson.structures[m_currentLessonRow].description = t;
-    });
-    m_structRoleCombo = new QComboBox;
-    m_structRoleCombo->addItems({ tr("(none)"), QStringLiteral("start"),
-        QStringLiteral("intermediate"), QStringLiteral("target") });
-    connect(m_structRoleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this](int idx) {
+        // Per-structure detail editors
+        connect(m_structNameEdit, &QLineEdit::textEdited, this, [this](const QString& t) {
             if (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size()) {
-                m_lesson.structures[m_currentLessonRow].role =
-                    (idx <= 0) ? QString() : m_structRoleCombo->currentText();
+                m_lesson.structures[m_currentLessonRow].name = t;
                 m_lessonStructureModel->refresh();
             }
         });
-    structForm->addRow(tr("Name:"), m_structNameEdit);
-    structForm->addRow(tr("Notes:"), m_structDescEdit);
-    structForm->addRow(tr("Role:"), m_structRoleCombo);
-    m_lessonStructWidget->setVisible(false);
-    calcFilesLayout->addWidget(m_lessonStructWidget);
+        connect(m_structDescEdit, &QLineEdit::textEdited, this, [this](const QString& t) {
+            if (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size())
+                m_lesson.structures[m_currentLessonRow].description = t;
+        });
+        connect(m_structRoleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int idx) {
+                if (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size()) {
+                    m_lesson.structures[m_currentLessonRow].role =
+                        (idx <= 0) ? QString() : m_structRoleCombo->currentText();
+                    m_lessonStructureModel->refresh();
+                }
+            });
+    }
 
-    projectSplitter->addWidget(calcFilesWidget);
+    // ==================== NAVIGATION TAB (inside ProjectDock) ====================
+    // Phase 6 redesign: Navigation is embedded in ProjectDock. Wire its panel-level
+    // signals through the container widget.
+    if (m_navigationDock) {
+        if (auto* bw = m_navigationDock->bookmarkWidget())
+            m_bookmarkTreeView = bw->treeView();
+        if (auto* wp = m_navigationDock->workspacePanel())
+            m_workspaceListView = wp->listView();
+        if (auto* rp = m_navigationDock->remotePanel())
+            m_remoteDirectoriesView = rp->treeView();
 
-    projectSplitter->setStretchFactor(0, 1);
-    projectSplitter->setStretchFactor(1, 2);
-    projectLayout->addWidget(projectSplitter, 1);
-
-    m_projectDock->setWidget(projectWidget);
-
-    // ==================== NAVIGATION DOCK (left, tabbed with Project) ====================
-    // Bookmarks / Workspaces / Remote Directories as internal tabs.
-    m_navigationDock = new QDockWidget(tr("Navigation"), this);
-    m_navigationDock->setObjectName("NavigationDock");
-    m_navigationTabs = new QTabWidget;
-    m_navigationTabs->setTabPosition(QTabWidget::North);
-    m_navigationTabs->setDocumentMode(true);
-
-    // Bookmarks tab
-    QWidget* bookmarksWidget = new QWidget;
-    QVBoxLayout* bookmarksLayout = new QVBoxLayout(bookmarksWidget);
-    bookmarksLayout->setContentsMargins(4, 4, 4, 4);
-    QWidget* bookmarkHeader = new QWidget;
-    QHBoxLayout* bookmarkHeaderLayout = new QHBoxLayout(bookmarkHeader);
-    bookmarkHeaderLayout->setContentsMargins(0, 0, 0, 0);
-    QLabel* bookmarksLabel = new QLabel(tr("Bookmarks"));
-    bookmarksLabel->setStyleSheet("font-weight: bold;");
-    bookmarkHeaderLayout->addWidget(bookmarksLabel, 1);
-    m_bookmarkButton = new QToolButton;
-    m_bookmarkButton->setIcon(QIcon::fromTheme("bookmark-new", QIcon(":/icons/bookmark.png")));
-    m_bookmarkButton->setToolTip(tr("Bookmark current directory"));
-    bookmarkHeaderLayout->addWidget(m_bookmarkButton);
-    bookmarksLayout->addWidget(bookmarkHeader);
-    m_bookmarkTreeView = new QTreeWidget;
-    m_bookmarkTreeView->setHeaderLabels(QStringList() << tr("Bookmarks"));
-    m_bookmarkTreeView->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_bookmarkTreeView->setDragDropMode(QAbstractItemView::InternalMove);
-    bookmarksLayout->addWidget(m_bookmarkTreeView);
-    m_navigationTabs->addTab(bookmarksWidget, tr("Bookmarks"));
-
-    // Workspaces tab
-    QWidget* workspacesWidget = new QWidget;
-    QVBoxLayout* workspacesLayout = new QVBoxLayout(workspacesWidget);
-    workspacesLayout->setContentsMargins(4, 4, 4, 4);
-    QWidget* workspaceHeader = new QWidget;
-    QHBoxLayout* wsHeaderLayout = new QHBoxLayout(workspaceHeader);
-    wsHeaderLayout->setContentsMargins(0, 0, 0, 0);
-    QLabel* workspacesLabel = new QLabel(tr("Workspaces"));
-    workspacesLabel->setStyleSheet("font-weight: bold;");
-    wsHeaderLayout->addWidget(workspacesLabel, 1);
-    QPushButton* newWorkspaceButton = new QPushButton("+");
-    newWorkspaceButton->setMaximumWidth(30);
-    newWorkspaceButton->setToolTip(tr("Save current state as workspace"));
-    connect(newWorkspaceButton, &QPushButton::clicked, this, &MainWindow::saveCurrentWorkspace);
-    wsHeaderLayout->addWidget(newWorkspaceButton);
-    workspacesLayout->addWidget(workspaceHeader);
-    m_workspaceListView = new QListWidget;
-    m_workspaceListView->setContextMenuPolicy(Qt::CustomContextMenu);
-    workspacesLayout->addWidget(m_workspaceListView);
-    m_navigationTabs->addTab(workspacesWidget, tr("Workspaces"));
-
-    // Remote tab
-    QWidget* remoteWidget = new QWidget;
-    QVBoxLayout* remoteLayout = new QVBoxLayout(remoteWidget);
-    remoteLayout->setContentsMargins(4, 4, 4, 4);
-    QWidget* remoteHeader = new QWidget;
-    QHBoxLayout* remoteHeaderLayout = new QHBoxLayout(remoteHeader);
-    remoteHeaderLayout->setContentsMargins(0, 0, 0, 0);
-    QLabel* remoteLabel = new QLabel(tr("Remote Directories"));
-    remoteLabel->setStyleSheet("font-weight: bold;");
-    remoteHeaderLayout->addWidget(remoteLabel, 1);
-    QPushButton* addRemoteBtn = new QPushButton("+");
-    addRemoteBtn->setMaximumWidth(30);
-    addRemoteBtn->setToolTip(tr("Add remote directory"));
+        connect(m_navigationDock, &NavigationDock::bookmarkDirectorySelected,
+                this, &MainWindow::switchWorkingDirectory);
+        connect(m_navigationDock, &NavigationDock::saveWorkspaceRequested,
+                this, &MainWindow::saveCurrentWorkspace);
 #ifdef USE_SFTP
-    connect(addRemoteBtn, &QPushButton::clicked, this, &MainWindow::onAddRemoteDirectoryClicked);
+        connect(m_navigationDock, &NavigationDock::addRemoteRequested,
+                this, &MainWindow::onAddRemoteDirectoryClicked);
 #endif
-    remoteHeaderLayout->addWidget(addRemoteBtn);
-    remoteLayout->addWidget(remoteHeader);
-    m_remoteDirectoriesView = new QTreeWidget;
-    m_remoteDirectoriesView->setHeaderHidden(true);
-#ifdef USE_SFTP
-    connect(m_remoteDirectoriesView, &QTreeWidget::itemClicked, this, &MainWindow::onRemoteDirectoryClicked);
-#endif
-    remoteLayout->addWidget(m_remoteDirectoriesView);
-    m_navigationTabs->addTab(remoteWidget, tr("Remote"));
-
-    m_navigationDock->setWidget(m_navigationTabs);
+    }
 
     // ==================== EDITORS DOCK (right, top) ====================
-    // Structure + Input as internal tabs — avoids Qt's fragile dock-tabify churn.
-    m_editorsDock = new QDockWidget(tr("Editors"), this);
-    m_editorsDock->setObjectName("EditorsDock");
-    m_editorsTabs = new QTabWidget;
-    m_editorsTabs->setTabPosition(QTabWidget::North);
-    m_editorsTabs->setDocumentMode(true);
+    // Phase 2: wrapper is created by DockManager. Only wire the signals here.
+    if (m_editorsDock) {
+        // "Apply → Viewer" button lives inside the wrapper now.
+        connect(m_editorsDock, &EditorsDock::structureApplyRequested,
+                this, &MainWindow::applyStructureTextToViewer);
 
-    QWidget* structureWidget = new QWidget;
-    QVBoxLayout* structureLayout = new QVBoxLayout(structureWidget);
-    structureLayout->setContentsMargins(4, 4, 4, 4);
-    QHBoxLayout* structureFileLayout = new QHBoxLayout;
-    structureFileLayout->addWidget(new QLabel(tr("Structure file:")));
-    m_structureFileEdit = new QLineEdit("input");
-    m_structureFileEdit->setToolTip(tr("Base name for structure file"));
-    m_structureFileEditExtension = new QLineEdit("xyz");
-    m_structureFileEditExtension->setMaximumWidth(60);
-    structureFileLayout->addWidget(m_structureFileEdit);
-    structureFileLayout->addWidget(m_structureFileEditExtension);
-    // Claude Generated 2026 - Apply the editor text back into the 3D viewer (text ->
-    // viewer leg of the bidirectional structure sync; single-frame structures only).
-    QToolButton* applyStructBtn = new QToolButton;
-    applyStructBtn->setText(tr("Apply → Viewer"));
-    applyStructBtn->setToolTip(tr("Parse the editor text as XYZ and replace the current structure"));
-    connect(applyStructBtn, &QToolButton::clicked, this, &MainWindow::applyStructureTextToViewer);
-    structureFileLayout->addWidget(applyStructBtn);
-    structureLayout->addLayout(structureFileLayout);
-    m_structureView = new ModifiableTextEdit;
-    m_structureView->setPlaceholderText("Structure data");
-    structureLayout->addWidget(m_structureView);
-    m_editorsTabs->addTab(structureWidget, tr("Structure"));
-
-    QWidget* inputWidget = new QWidget;
-    QVBoxLayout* inputLayout = new QVBoxLayout(inputWidget);
-    inputLayout->setContentsMargins(4, 4, 4, 4);
-    QHBoxLayout* inputFileLayout = new QHBoxLayout;
-    inputFileLayout->addWidget(new QLabel(tr("Input file:")));
-    m_inputFileEdit = new QLineEdit("input");
-    m_inputFileEdit->setToolTip(tr("Base name for input file"));
-    m_inputFileEditExtension = new QLineEdit("");
-    m_inputFileEditExtension->setMaximumWidth(60);
-    inputFileLayout->addWidget(m_inputFileEdit);
-    inputFileLayout->addWidget(m_inputFileEditExtension);
-    inputLayout->addLayout(inputFileLayout);
-    m_inputView = new ModifiableTextEdit;
-    m_inputView->setPlaceholderText("Input data");
-    inputLayout->addWidget(m_inputView);
-    m_editorsTabs->addTab(inputWidget, tr("Input"));
-
-    // Claude Generated 2026 - RMSD / align tool as a third Editors tab (folded
-    // here instead of its own dock, to keep the right side uncluttered).
-    // Backed by curcuma RMSDDriver; reference seeded by MainWindow.
-    m_rmsdWidget = new RMSDWidget(this);
-    m_editorsTabs->addTab(m_rmsdWidget, tr("RMSD / Align"));
-    // Overlay the aligned target onto the reference in the 3D viewer.
-    connect(m_rmsdWidget, &RMSDWidget::overlayRequested, this,
-        [this](const QVector<MoleculeViewer::Atom>& refAtoms,
-            const QVector<MoleculeViewer::Bond>& refBonds,
-            const QVector<MoleculeViewer::Atom>& targetAtoms) {
-            if (m_moleculeView)
-                m_moleculeView->showOverlay(refAtoms, refBonds, targetAtoms);
-        });
-    // "Use current as reference" button: re-seed from the current viewer frame.
-    connect(m_rmsdWidget, &RMSDWidget::seedReferenceRequested, this,
-        [this]() { seedRMSDReference(); });
-
-    m_editorsDock->setWidget(m_editorsTabs);
+        // RMSD / align tool signals.
+        if (m_rmsdWidget) {
+            connect(m_rmsdWidget, &RMSDWidget::overlayRequested, this,
+                [this](const QVector<MoleculeViewer::Atom>& refAtoms,
+                    const QVector<MoleculeViewer::Bond>& refBonds,
+                    const QVector<MoleculeViewer::Atom>& targetAtoms) {
+                    if (m_moleculeView)
+                        m_moleculeView->showOverlay(refAtoms, refBonds, targetAtoms);
+                });
+            connect(m_rmsdWidget, &RMSDWidget::seedReferenceRequested,
+                    this, &MainWindow::seedRMSDReference);
+        }
+    }
 
     // ==================== ATOMS & SIMULATION DOCK (right, below Editors) ====================
-    m_atomsSimulationDock = new QDockWidget(tr("Atoms && Simulation"), this);
-    m_atomsSimulationDock->setObjectName("AtomsSimulationDock");
-    m_atomsSimulationTabs = new QTabWidget;
-    m_atomsSimulationTabs->setTabPosition(QTabWidget::North);
-    m_atomsSimulationTabs->setDocumentMode(true);
-
-    m_atomListPanel = new AtomListPanel(this);
-    m_atomsSimulationTabs->addTab(m_atomListPanel, tr("Atoms"));
-
-    m_simulationControlWidget = new SimulationControlWidget(this);
-    m_atomsSimulationTabs->addTab(m_simulationControlWidget, tr("Simulation"));
-
-    m_snapshotsWidget = new SnapshotsWidget(this);
-    m_atomsSimulationTabs->addTab(m_snapshotsWidget, tr("Snapshots"));
-
-    m_atomsSimulationDock->setWidget(m_atomsSimulationTabs);
+    // Phase 3: wrapper is created by DockManager. Internal widgets were pulled above.
 
     // ==================== DISPLAY DOCK (right) ====================
-    // Single home for all 3D-viewer display options (style/effects/lighting/tools),
-    // replacing the former modal VisualizationSettingsDialog. Claude Generated 2026.
-    m_displayDock = new QDockWidget(tr("Display"), this);
-    m_displayDock->setObjectName("DisplayDock");
-    m_displayPanel = new DisplayPanel(m_moleculeView, &m_settings, this);
-    m_displayDock->setWidget(m_displayPanel);
+    // Phase 2: wrapper is created by DockManager. Pull the panel and wire signals.
+    if (m_displayDock)
+        m_displayPanel = m_displayDock->displayPanel();
+    if (!m_displayPanel) {
+        // Fallback if DockManager was not initialized; should not happen.
+        m_displayPanel = new DisplayPanel(m_moleculeView, &m_settings, this);
+    }
     connect(m_displayPanel, &DisplayPanel::centerOnLoadChanged, this, [this](bool on) {
         m_centerOnLoad = on;
         Settings::VisualizationSettings vs = m_settings.getVisualizationSettings();
@@ -5236,28 +4810,17 @@ void MainWindow::createDockWidgets()
         });
 
     // ==================== OUTPUT DOCK (bottom) ====================
-    m_outputViewDock = new QDockWidget(tr("Output"), this);
-    m_outputViewDock->setObjectName("OutputViewDock");
-    QWidget* outputWidget = new QWidget;
-    QVBoxLayout* outputLayout = new QVBoxLayout(outputWidget);
-    outputLayout->setContentsMargins(4, 4, 4, 4);
-    QHBoxLayout* outputHeaderLayout = new QHBoxLayout;
-    QLabel* outputLabel = new QLabel(tr("Output"));
-    outputLabel->setStyleSheet("font-weight: bold;");
-    outputHeaderLayout->addWidget(outputLabel);
-    outputHeaderLayout->addStretch();
-    QPushButton* clearOutputButton = new QPushButton;
-    clearOutputButton->setIcon(QIcon::fromTheme("edit-clear"));
-    clearOutputButton->setToolTip(tr("Clear output (Ctrl+L)"));
-    clearOutputButton->setMaximumWidth(30);
-    connect(clearOutputButton, &QPushButton::clicked, this, &MainWindow::clearOutputView);
-    outputHeaderLayout->addWidget(clearOutputButton);
-    outputLayout->addLayout(outputHeaderLayout);
-    m_outputView = new QTextEdit;
-    m_outputView->setPlaceholderText("Output");
-    m_outputView->setReadOnly(true);
-    outputLayout->addWidget(m_outputView);
-    m_outputViewDock->setWidget(outputWidget);
+    // Phase 2: wrapper is created by DockManager. Pull the log view and clear signal.
+    if (m_outputViewDock)
+        m_outputView = m_outputViewDock->outputView();
+    if (!m_outputView) {
+        // Fallback if DockManager was not initialized; should not happen.
+        m_outputView = new QTextEdit;
+        m_outputView->setPlaceholderText(tr("Output"));
+        m_outputView->setReadOnly(true);
+    }
+    connect(m_outputViewDock, &OutputDock::clearRequested,
+            this, &MainWindow::clearOutputView);
 
     // ==================== SIMULATION CHARTS DIALOG (modeless) ====================
     // Claude Generated 2026 - live temperature + energy time series for the running MD/Opt,
@@ -5276,133 +4839,29 @@ void MainWindow::createDockWidgets()
     chartDialogLayout->addWidget(m_simulationChartWidget);
 
     // ==================== INITIAL PLACEMENT ====================
-    // Baseline layout. addDockWidget called exactly once per dock. Project and
-    // Navigation share the left area via tabifyDockWidget (stable: only two
-    // peers). Editors and Atoms&Simulation split vertically on the right — not
-    // tabified, so clicking one never hides the other.
-    addDockWidget(Qt::LeftDockWidgetArea, m_projectDock);
-    addDockWidget(Qt::LeftDockWidgetArea, m_navigationDock);
-    tabifyDockWidget(m_projectDock, m_navigationDock);
-    m_projectDock->raise();
-
-    addDockWidget(Qt::RightDockWidgetArea, m_editorsDock);
-    addDockWidget(Qt::RightDockWidgetArea, m_atomsSimulationDock);
-    splitDockWidget(m_editorsDock, m_atomsSimulationDock, Qt::Vertical);
-
-    // Display dock shares the top-right area, tabified with the Editors dock.
-    addDockWidget(Qt::RightDockWidgetArea, m_displayDock);
-    tabifyDockWidget(m_editorsDock, m_displayDock);
-
-    addDockWidget(Qt::BottomDockWidgetArea, m_outputViewDock);
+    // Phase 4: all docks are now owned by DockManager. Ask it to place them in the
+    // default areas and tabify/split as configured.
+    m_dockManager->placeDocks();
 }
 
 // Claude Generated - UI Restructuring: Layout preset dispatcher
-void MainWindow::applyLayoutPreset(LayoutPreset preset)
+// Phase 5: all preset implementations live in DockManager; MainWindow only adds
+// the status-bar message here.
+void MainWindow::applyLayoutPreset(DockConfig::LayoutPreset preset)
 {
+    if (m_dockManager)
+        m_dockManager->applyPreset(preset);
+
+    QString msg;
     switch (preset) {
-        case LayoutPreset::Visualization: applyVisualizationLayout(); break;
-        case LayoutPreset::Editing:       applyEditingLayout();       break;
-        case LayoutPreset::Calculation:   applyCalculationLayout();   break;
-        case LayoutPreset::Analysis:      applyAnalysisLayout();      break;
+    case DockConfig::LayoutPreset::Visualization: msg = tr("Layout: Visualization Mode"); break;
+    case DockConfig::LayoutPreset::Editing:       msg = tr("Layout: Editing Mode"); break;
+    case DockConfig::LayoutPreset::Calculation:   msg = tr("Layout: Calculation Mode"); break;
+    case DockConfig::LayoutPreset::Analysis:      msg = tr("Layout: Analysis Mode (All Panels)"); break;
+    case DockConfig::LayoutPreset::Teaching:      msg = tr("Layout: Teaching Mode"); break;
     }
-}
-
-// Claude Generated (2026-04) - Preset lazy-cache: first call sets visibility and
-// caches saveState(); subsequent calls simply restoreState(). Eliminates the
-// drift caused by repeated tabify/split calls.
-static inline void applyPresetVisibility(QDockWidget* dock, bool visible) {
-    if (dock) dock->setVisible(visible);
-}
-
-void MainWindow::applyVisualizationLayout()
-{
-    const int key = static_cast<int>(LayoutPreset::Visualization);
-    auto it = m_presetStates.find(key);
-    if (it != m_presetStates.end()) {
-        restoreState(*it);
-    } else {
-        applyPresetVisibility(m_projectDock, true);
-        applyPresetVisibility(m_navigationDock, false);
-        applyPresetVisibility(m_editorsDock, false);
-        applyPresetVisibility(m_atomsSimulationDock, true);
-        applyPresetVisibility(m_outputViewDock, false);
-        if (m_atomsSimulationTabs) m_atomsSimulationTabs->setCurrentIndex(0);
-        if (width() > 0) {
-            resizeDocks({m_projectDock, m_atomsSimulationDock},
-                        {int(width() * 0.18), int(width() * 0.22)},
-                        Qt::Horizontal);
-        }
-        m_presetStates.insert(key, saveState());
-    }
-    statusBar()->showMessage(tr("Layout: Visualization Mode"), 2000);
-}
-
-void MainWindow::applyEditingLayout()
-{
-    const int key = static_cast<int>(LayoutPreset::Editing);
-    auto it = m_presetStates.find(key);
-    if (it != m_presetStates.end()) {
-        restoreState(*it);
-    } else {
-        applyPresetVisibility(m_projectDock, true);
-        applyPresetVisibility(m_navigationDock, true);
-        applyPresetVisibility(m_editorsDock, true);
-        applyPresetVisibility(m_atomsSimulationDock, false);
-        applyPresetVisibility(m_outputViewDock, false);
-        if (m_editorsTabs) m_editorsTabs->setCurrentIndex(0);
-        if (width() > 0) {
-            resizeDocks({m_projectDock, m_editorsDock},
-                        {int(width() * 0.22), int(width() * 0.32)},
-                        Qt::Horizontal);
-        }
-        m_presetStates.insert(key, saveState());
-    }
-    statusBar()->showMessage(tr("Layout: Editing Mode"), 2000);
-}
-
-void MainWindow::applyCalculationLayout()
-{
-    const int key = static_cast<int>(LayoutPreset::Calculation);
-    auto it = m_presetStates.find(key);
-    if (it != m_presetStates.end()) {
-        restoreState(*it);
-    } else {
-        applyPresetVisibility(m_projectDock, true);
-        applyPresetVisibility(m_navigationDock, false);
-        applyPresetVisibility(m_editorsDock, true);
-        applyPresetVisibility(m_atomsSimulationDock, false);
-        applyPresetVisibility(m_outputViewDock, true);
-        if (height() > 0) {
-            resizeDocks({m_outputViewDock}, {int(height() * 0.35)}, Qt::Vertical);
-        }
-        m_presetStates.insert(key, saveState());
-    }
-    statusBar()->showMessage(tr("Layout: Calculation Mode"), 2000);
-}
-
-void MainWindow::applyAnalysisLayout()
-{
-    const int key = static_cast<int>(LayoutPreset::Analysis);
-    auto it = m_presetStates.find(key);
-    if (it != m_presetStates.end()) {
-        restoreState(*it);
-    } else {
-        applyPresetVisibility(m_projectDock, true);
-        applyPresetVisibility(m_navigationDock, true);
-        applyPresetVisibility(m_editorsDock, true);
-        applyPresetVisibility(m_atomsSimulationDock, true);
-        applyPresetVisibility(m_outputViewDock, true);
-        if (width() > 0) {
-            resizeDocks({m_projectDock, m_editorsDock},
-                        {int(width() * 0.22), int(width() * 0.28)},
-                        Qt::Horizontal);
-        }
-        if (height() > 0) {
-            resizeDocks({m_outputViewDock}, {int(height() * 0.22)}, Qt::Vertical);
-        }
-        m_presetStates.insert(key, saveState());
-    }
-    statusBar()->showMessage(tr("Layout: Analysis Mode (All Panels)"), 2000);
+    if (!msg.isEmpty())
+        statusBar()->showMessage(msg, 2000);
 }
 
 // Claude Generated (2026-04) - Save global dock/geometry on close so next start
