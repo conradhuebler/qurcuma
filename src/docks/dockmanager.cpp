@@ -57,22 +57,29 @@ bool DockManager::dockVisible(QDockWidget* dock) const
     return dock && dock->isVisible();
 }
 
-static inline void applyPresetVisibility(QDockWidget* dock, bool visible)
+// Return every QDockWidget that is tabified with the given dock, including the
+// dock itself. Used to keep Qt's shared tab bar stable: tab group members must
+// always be toggled together, never individually.
+static QList<QDockWidget*> tabGroup(QMainWindow* mainWindow, QDockWidget* dock)
 {
-    if (dock)
-        dock->setVisible(visible);
+    QList<QDockWidget*> group;
+    if (!dock)
+        return group;
+    group.append(dock);
+    if (mainWindow)
+        group.append(mainWindow->tabifiedDockWidgets(dock));
+    return group;
 }
 
-// Phase 6 fix: tabified partners must share visibility. If one member of a tab
-// group is shown, show the whole group so the tab bar stays usable. If the group
-// is meant to be hidden, hide all members.
-static void applyGroupVisibility(QWidget* primary, QWidget* partner, bool visible)
+// Set visibility of a dock and all of its tab partners at once. This prevents
+// the Qt tab-bar collapse bug when one member of a tabified group is hidden
+// while the others stay visible.
+static void setDockGroupVisible(QMainWindow* mainWindow, QDockWidget* dock, bool visible)
 {
-    if (!primary)
+    if (!dock)
         return;
-    primary->setVisible(visible);
-    if (partner)
-        partner->setVisible(visible);
+    for (QDockWidget* member : tabGroup(mainWindow, dock))
+        member->setVisible(visible);
 }
 
 OutputDock* DockManager::outputDockImpl() const
@@ -129,15 +136,13 @@ void DockManager::setAppMode(DockConfig::AppMode mode, bool reflow)
 
     const bool explore = (mode == DockConfig::AppMode::Explore);
 
-    auto vis = [](QDockWidget* d, bool on) { if (d) d->setVisible(on); };
-    vis(m_projectDock, true);
-    // Phase 6 fix: tabified docks must stay visible in the mode switch, otherwise Qt
-    // can collapse the tab bar so the user can never switch back. Visibility of
-    // individual docks is governed by layout presets and View ▸ Dock Panels toggles.
-    vis(m_editorsDock, true);
-    vis(m_displayDock, true);
-    vis(m_atomsSimulationDock, explore);
-    vis(m_outputViewDock, !explore);
+    // Phase 6 fix, extended: tabified dock groups must be toggled together,
+    // otherwise Qt's shared tab bar can collapse when one member is hidden.
+    setDockGroupVisible(m_mainWindow, m_projectDock, true);
+    setDockGroupVisible(m_mainWindow, m_editorsDock, true);
+    setDockGroupVisible(m_mainWindow, m_displayDock, true);
+    setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, explore);
+    setDockGroupVisible(m_mainWindow, m_outputViewDock, !explore);
     if (explore && m_displayDock)
         m_displayDock->raise();
     if (!explore && m_editorsDock)
@@ -200,7 +205,7 @@ void DockManager::toggleLeftPanel()
     if (!m_projectDock)
         return;
     const bool show = !m_projectDock->isVisible();
-    m_projectDock->setVisible(show);
+    setDockGroupVisible(m_mainWindow, m_projectDock, show);
 }
 
 void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
@@ -253,11 +258,11 @@ void DockManager::applyVisualizationLayout()
     if (it != m_presetStates.end()) {
         m_mainWindow->restoreState(*it);
     } else {
-        applyPresetVisibility(m_projectDock, true);
+        setDockGroupVisible(m_mainWindow, m_projectDock, true);
         // Right group: hide Editors+Display together; show only Atoms&Simulation.
-        applyGroupVisibility(m_editorsDock, m_displayDock, false);
-        applyPresetVisibility(m_atomsSimulationDock, true);
-        applyPresetVisibility(m_outputViewDock, false);
+        setDockGroupVisible(m_mainWindow, m_editorsDock, false);
+        setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, true);
+        setDockGroupVisible(m_mainWindow, m_outputViewDock, false);
         if (auto* tabs = atomsSimulationTabs())
             tabs->setCurrentIndex(0);
         if (m_mainWindow && m_mainWindow->width() > 0) {
@@ -276,10 +281,10 @@ void DockManager::applyEditingLayout()
     if (it != m_presetStates.end()) {
         m_mainWindow->restoreState(*it);
     } else {
-        applyPresetVisibility(m_projectDock, true);
-        applyGroupVisibility(m_editorsDock, m_displayDock, true);
-        applyPresetVisibility(m_atomsSimulationDock, false);
-        applyPresetVisibility(m_outputViewDock, false);
+        setDockGroupVisible(m_mainWindow, m_projectDock, true);
+        setDockGroupVisible(m_mainWindow, m_editorsDock, true);
+        setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, false);
+        setDockGroupVisible(m_mainWindow, m_outputViewDock, false);
         if (auto* tabs = editorsTabs())
             tabs->setCurrentIndex(0);
         if (m_mainWindow && m_mainWindow->width() > 0) {
@@ -298,10 +303,10 @@ void DockManager::applyCalculationLayout()
     if (it != m_presetStates.end()) {
         m_mainWindow->restoreState(*it);
     } else {
-        applyPresetVisibility(m_projectDock, true);
-        applyGroupVisibility(m_editorsDock, m_displayDock, true);
-        applyPresetVisibility(m_atomsSimulationDock, false);
-        applyPresetVisibility(m_outputViewDock, true);
+        setDockGroupVisible(m_mainWindow, m_projectDock, true);
+        setDockGroupVisible(m_mainWindow, m_editorsDock, true);
+        setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, false);
+        setDockGroupVisible(m_mainWindow, m_outputViewDock, true);
         if (m_mainWindow && m_mainWindow->height() > 0) {
             m_mainWindow->resizeDocks({ m_outputViewDock },
                 { int(m_mainWindow->height() * 0.35) }, Qt::Vertical);
@@ -317,10 +322,10 @@ void DockManager::applyAnalysisLayout()
     if (it != m_presetStates.end()) {
         m_mainWindow->restoreState(*it);
     } else {
-        applyPresetVisibility(m_projectDock, true);
-        applyGroupVisibility(m_editorsDock, m_displayDock, true);
-        applyPresetVisibility(m_atomsSimulationDock, true);
-        applyPresetVisibility(m_outputViewDock, true);
+        setDockGroupVisible(m_mainWindow, m_projectDock, true);
+        setDockGroupVisible(m_mainWindow, m_editorsDock, true);
+        setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, true);
+        setDockGroupVisible(m_mainWindow, m_outputViewDock, true);
         if (m_mainWindow && m_mainWindow->width() > 0) {
             m_mainWindow->resizeDocks({ m_projectDock, m_editorsDock },
                 { int(m_mainWindow->width() * 0.22), int(m_mainWindow->width() * 0.28) },
@@ -341,10 +346,10 @@ void DockManager::applyTeachingLayout()
     if (it != m_presetStates.end()) {
         m_mainWindow->restoreState(*it);
     } else {
-        applyPresetVisibility(m_projectDock, true);
-        applyGroupVisibility(m_editorsDock, m_displayDock, true);
-        applyPresetVisibility(m_atomsSimulationDock, true);
-        applyPresetVisibility(m_outputViewDock, true);
+        setDockGroupVisible(m_mainWindow, m_projectDock, true);
+        setDockGroupVisible(m_mainWindow, m_editorsDock, true);
+        setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, true);
+        setDockGroupVisible(m_mainWindow, m_outputViewDock, true);
         if (auto* tabs = editorsTabs())
             tabs->setCurrentIndex(0);
         if (m_mainWindow && m_mainWindow->width() > 0) {

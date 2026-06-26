@@ -21,10 +21,12 @@
 - Implemented in `DockManager` using lazy `saveState()`/`restoreState()` caching to avoid Qt drift from repeated `tabifyDockWidget`/`splitDockWidget`.
 - MainWindow only adds status-bar messages and menu/shortcut dispatch.
 - Bound to Ctrl+Alt+1..4; Teaching is used by the Lesson / interactive-demo workflow.
+- View ▸ Dock Panels uses each dock's `QDockWidget::toggleViewAction()`, which is Qt's safe path for tabified groups.
 
 ## Explore / Compute Mode
 - `MainWindow::setAppMode` updates mode buttons, persists to `ui/appMode`, and toggles the calculation toolbar.
 - Dock visibility and reflow are delegated to `DockManager::setAppMode`.
+- Tab-bar stability: `DockManager` never toggles a single dock inside a tabified group; it uses `QMainWindow::tabifiedDockWidgets()` and changes visibility for the whole group at once.
 
 ## Migration State
 - Phase 4 complete: `ProjectDock` extracted from `MainWindow`; all docks now live under `DockManager`.

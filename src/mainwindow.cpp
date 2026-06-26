@@ -1002,14 +1002,15 @@ void MainWindow::createMenus()
     // Claude Generated (2026-04) - Dock rewrite: toggle actions for the dock architecture.
     QMenu *docksMenu = viewMenu->addMenu(QIcon::fromTheme("view-split-left-right"), tr("&Dock Panels"));
 
+    // Claude Generated 2026 - Use each dock's official toggleViewAction() instead of
+    // wiring setVisible() directly. Qt's toggle action knows about tabified groups
+    // and keeps the shared tab bar stable when the user hides/showes a dock.
     auto addDockToggle = [&docksMenu, this](QDockWidget* dock, const QString& label, const QKeySequence& shortcut = QKeySequence()) {
         if (!dock) return;
-        QAction* act = docksMenu->addAction(label);
-        act->setCheckable(true);
-        act->setChecked(dock->isVisible());
+        QAction* act = dock->toggleViewAction();
+        act->setText(label);
         if (!shortcut.isEmpty()) act->setShortcut(shortcut);
-        connect(act, &QAction::toggled, dock, &QDockWidget::setVisible);
-        connect(dock, &QDockWidget::visibilityChanged, act, &QAction::setChecked);
+        docksMenu->addAction(act);
     };
 
     addDockToggle(m_projectDock,          tr("&Project"),            QKeySequence(Qt::CTRL | Qt::Key_B));

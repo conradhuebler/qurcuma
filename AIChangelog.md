@@ -8,6 +8,7 @@
 - **`dockconfig.h`** hält stabile `objectName`s, Dock-Bereiche, `LayoutPreset` (Visualization/Editing/Calculation/Analysis/Teaching) und `AppMode` (Explore/Compute). Namen dürfen nicht ohne Migrationsplan geändert werden, weil sie in `QSettings` via `saveState()`/`restoreState()` persistiert werden.
 - **Presets in `DockManager`**: Lazy-Caching mit `saveState()`/`restoreState()` vermeidet Qt-Drift bei wiederholtem `tabifyDockWidget`/`splitDockWidget`; Tastenkürzel Ctrl+Alt+1..4 bleiben erhalten; Teaching-Layout für Lesson-/Demo-Workflow ergänzt.
 - **Explore/Compute-Modus**: `MainWindow::setAppMode` aktualisiert Buttons, persistiert `ui/appMode` und schaltet die Calculation-Toolbar; Sichtbarkeit/Reflow der Docks delegiert an `DockManager::setAppMode`.
+- **Tab-Bar-Kollaps-Fix**: `DockManager` schaltet tabifizierte Dock-Gruppen (via `QMainWindow::tabifiedDockWidgets()`) immer gemeinsam ein/aus; das View-Menü verwendet jetzt `QDockWidget::toggleViewAction()` statt direktem `setVisible()`. Damit bleibt die Tab-Bar stabil, auch wenn der Benutzer Docks manuell tabifiziert (z. B. Simulation auf Display zieht).
 
 ## Juni 2026 - Struktur-Synchronisation (Viewer ↔ Tabelle ↔ Texteditor)
 
