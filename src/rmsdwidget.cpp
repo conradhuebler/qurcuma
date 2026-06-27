@@ -411,17 +411,11 @@ bool RMSDWidget::alignToReference(Structure& s)
         driver.setTarget(tgt);
         driver.start();
         s.rules = driver.ReorderRules();
-        // Overlay geometry. When reordering ran, the permutation RMSD (the value reported in
-        // the "perm." column) belongs to the *reordered* target: curcuma's TargetReorderd()
-        // returns it reordered + Kabsch-aligned to the reference (= the reorder_xyz of the CLI
-        // JSON). TargetAligned() is the un-reordered plain best-fit — the rmsd_raw geometry —
-        // so drawing it overlaid the uncorrected structure while the table showed the
-        // corrected RMSD. Fall back to TargetAligned() when no reorder ran (TargetReorderd()
-        // is then empty). Claude Generated.
-        const auto reorderedTarget = driver.TargetReorderd();
-        s.aligned = moleculeToAtoms((reorder && reorderedTarget.AtomCount() > 0)
-                ? reorderedTarget
-                : driver.TargetAligned());
+        // Overlay geometry = the target whose deviation equals the reported RMSD. curcuma's
+        // TargetForRMSD() returns the reordered + aligned target when reordering ran, else the
+        // plain best-fit. Using TargetAligned() directly here drew the un-reordered (rmsd_raw)
+        // structure while the table showed the permutation RMSD — the original overlay bug.
+        s.aligned = moleculeToAtoms(driver.TargetForRMSD());
         // RMSD columns: plain (best-fit in the original order, local Kabsch above) is always
         // shown; perm. is curcuma's reordered best-fit, only meaningful when reordering ran.
         s.rmsdPlain = plainRmsd();
