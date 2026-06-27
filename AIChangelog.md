@@ -1,5 +1,9 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - Bild-Export (hi-res)
+
+- **File ▸ Export Image…** (Ctrl+Shift+E): echter Offscreen-Render in beliebiger Auflösung statt des alten Fake-Upscales. Via **`QQuickRenderControl` + `QRhi`** (`Qt6::GuiPrivate`, `<rhi/qrhi.h>`): QML-Szene in eine `QRhiTexture` rendern + zurücklesen (`grabWindow()` auf verstecktem Fenster liefert leer bei threaded render loop). Separate `SceneController` (`cloneStateFrom` — kein Teilen von Szenengraph-Knoten), Wiederverwendung der `QVulkanInstance` der Live-View; OpenGL braucht `mirrored()`. Dialog: Breite/Höhe (default 2× Viewport), Hintergrund (transparent default/weiß/Szene), SSAA-Schalter, Default-Ordner = Workspace. Export-Props `highQualityAA` (SSAA VeryHigh) + `transparentBackground` in `viewer3d.qml` gebunden; transiente Overlays werden nicht mitkopiert → sauberes Bild.
+
 ## Juni 2026 - RMSD-Overlay-Workspace
 
 - RMSD/Align komplett auf einen **`QTableWidget`-Workspace** umgestellt: Tabelle aller Strukturen mit Referenz-**Radiobutton** (welche ist Referenz/Primary), Show-Checkbox (einzelnes Ausblenden, auch der Referenz via `setPrimaryVisible`), **plain + permutation RMSD**, Farb-Tint-Swatch und Größen-Spinbox pro Struktur sowie Entfernen. Referenzwechsel richtet alle anderen neu aus.

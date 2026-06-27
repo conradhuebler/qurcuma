@@ -862,6 +862,92 @@ void SceneController::setPrimaryVisible(bool on)
     rebuildGeometry();
 }
 
+void SceneController::setHighQualityAA(bool on)
+{
+    if (m_highQualityAA == on)
+        return;
+    m_highQualityAA = on;
+    emit appearanceChanged();  // QML re-binds the SceneEnvironment AA mode/quality
+}
+
+void SceneController::setTransparentBackground(bool on)
+{
+    if (m_transparentBackground == on)
+        return;
+    m_transparentBackground = on;
+    emit appearanceChanged();  // QML re-binds the SceneEnvironment background mode
+}
+
+void SceneController::cloneStateFrom(const SceneController* src)
+{
+    if (!src)
+        return;
+    // Geometry + overlays (transient state — selection/hover/collision/measurement/force
+    // vectors — is intentionally NOT copied, for a clean export image).
+    m_atoms = src->m_atoms;
+    m_bonds = src->m_bonds;
+    m_overlays = src->m_overlays;
+
+    // Appearance
+    m_colorScheme = src->m_colorScheme;
+    m_renderingMode = src->m_renderingMode;
+    m_monochrome = src->m_monochrome;
+    m_background = src->m_background;
+    m_atomScaleFactor = src->m_atomScaleFactor;
+    m_bondRadius = src->m_bondRadius;
+    m_transparency = src->m_transparency;
+    m_atomsVisible = src->m_atomsVisible;
+    m_bondsVisible = src->m_bondsVisible;
+    m_primaryVisible = src->m_primaryVisible;
+
+    // Effects
+    m_ssao = src->m_ssao;
+    m_ssaoStrength = src->m_ssaoStrength;
+    m_bloom = src->m_bloom;
+    m_hdr = src->m_hdr;
+    m_exposure = src->m_exposure;
+    m_tonemap = src->m_tonemap;
+    m_fog = src->m_fog;
+    m_fogDensity = src->m_fogDensity;
+    m_fogDistance = src->m_fogDistance;
+    m_shadows = src->m_shadows;
+    for (int i = 0; i < 4; ++i)
+        m_corner[i] = src->m_corner[i];
+
+    // Camera / transform (copied directly so the export frames exactly as on screen)
+    m_sceneCenter = src->m_sceneCenter;
+    m_sceneExtent = src->m_sceneExtent;
+    m_rootRotation = src->m_rootRotation;
+    m_cameraDistance = src->m_cameraDistance;
+    m_pan = src->m_pan;
+    m_fov = src->m_fov;
+
+    // Confinement walls
+    m_wallVisible = src->m_wallVisible;
+    m_wallOpacity = src->m_wallOpacity;
+    m_wallGeom = src->m_wallGeom;
+    m_wallMin = src->m_wallMin;
+    m_wallMax = src->m_wallMax;
+    m_wallRadius = src->m_wallRadius;
+    m_wallColor = src->m_wallColor;
+    m_potVizEnabled = src->m_potVizEnabled;
+    m_wallHarmonic = src->m_wallHarmonic;
+    m_wallTemp = src->m_wallTemp;
+    m_wallBeta = src->m_wallBeta;
+    m_potArrowsEnabled = src->m_potArrowsEnabled;
+    m_potArrowResolution = src->m_potArrowResolution;
+
+    rebuildGeometry();          // atoms + bonds + overlays
+    rebuildWall();
+    rebuildWallVectorField();
+    emit appearanceChanged();
+    emit effectsChanged();
+    emit structureChanged();
+    emit transformChanged();
+    emit overlayChanged();
+    emit wallChanged();
+}
+
 void SceneController::setRenderingMode(int mode)
 {
     m_renderingMode = mode;

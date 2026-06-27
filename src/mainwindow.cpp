@@ -861,6 +861,19 @@ void MainWindow::createMenus()
 
     fileMenu->addSeparator();
 
+    // Claude Generated 2026 - High-quality image export: offscreen render of the 3D
+    // viewer at an arbitrary resolution (true supersampling), with white/transparent
+    // background options.
+    QAction* exportImageAction = fileMenu->addAction(
+        QIcon::fromTheme("camera-photo"), tr("&Export Image..."));
+    exportImageAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E));
+    connect(exportImageAction, &QAction::triggered, this, [this]() {
+        if (m_moleculeView)
+            m_moleculeView->exportImageDialog(m_workingDirectory);
+    });
+
+    fileMenu->addSeparator();
+
     // Claude Generated 2026 - Lesson (OER teaching scenario) menu. A lesson is a
     // self-contained *.qlesson.json: several structures, each with its full
     // simulation conditions, plus author/ORCID/institution metadata.

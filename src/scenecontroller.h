@@ -61,6 +61,9 @@ class SceneController : public QObject
     Q_PROPERTY(bool bondsVisible READ bondsVisible NOTIFY appearanceChanged)
     Q_PROPERTY(bool blendEnabled READ blendEnabled NOTIFY appearanceChanged)
     Q_PROPERTY(QColor backgroundColor READ backgroundColor NOTIFY appearanceChanged)
+    // Image export: SSAA VeryHigh (vs interactive MSAA) + transparent clear colour.
+    Q_PROPERTY(bool highQualityAA READ highQualityAA NOTIFY appearanceChanged)
+    Q_PROPERTY(bool transparentBackground READ transparentBackground NOTIFY appearanceChanged)
 
     // Post-processing (these finally do something, vs the old Qt3D stubs).
     Q_PROPERTY(bool ssaoEnabled READ ssaoEnabled NOTIFY effectsChanged)
@@ -187,6 +190,8 @@ public:
     bool bondsVisible() const { return m_bondsVisible; }
     bool blendEnabled() const { return m_transparency < 0.999f; }
     QColor backgroundColor() const { return m_background; }
+    bool highQualityAA() const { return m_highQualityAA; }
+    bool transparentBackground() const { return m_transparentBackground; }
     bool ssaoEnabled() const { return m_ssao; }
     float ssaoStrength() const { return m_ssaoStrength; }
     bool bloomEnabled() const { return m_bloom; }
@@ -224,6 +229,12 @@ public:
     void setColorScheme(int scheme);
     void setMonochromeColor(const QColor& c);
     void setPrimaryVisible(bool on);   // hide/show the primary (reference) structure
+    void setHighQualityAA(bool on);          // SSAA VeryHigh (image export)
+    void setTransparentBackground(bool on);  // transparent clear (image export)
+    /// Deep-copy the render state from @p src (geometry, overlays, appearance, effects,
+    /// camera, walls) into a fresh controller — used to render an offscreen export view
+    /// without sharing scene-graph nodes with the live viewer. Claude Generated 2026.
+    void cloneStateFrom(const SceneController* src);
     void setRenderingMode(int mode);
     void setAtomScaleFactor(float s);
     void setBondThickness(float r);
@@ -356,6 +367,8 @@ private:
     bool m_atomsVisible = true;
     bool m_bondsVisible = true;
     bool m_primaryVisible = true;   // primary (reference) structure shown? (RMSD workspace)
+    bool m_highQualityAA = false;        // SSAA VeryHigh (export) vs MSAA High (interactive)
+    bool m_transparentBackground = false; // transparent clear colour (export/compositing)
 
     // effects state
     bool m_ssao = true;

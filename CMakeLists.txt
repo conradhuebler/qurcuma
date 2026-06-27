@@ -9,6 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Qt6 COMPONENTS
 Core
 Gui
+GuiPrivate
 Widgets
 Charts
 Qml
@@ -224,6 +225,7 @@ find_package(OpenMP)
 target_link_libraries(qurcuma PRIVATE
 Qt6::Core
 Qt6::Gui
+Qt6::GuiPrivate
 Qt6::Widgets
 Qt6::Charts
 Qt6::Qml

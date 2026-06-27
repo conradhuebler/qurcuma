@@ -17,11 +17,16 @@
 #include "selectionmanager.h"
 #include "xyzparser.h"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
 #include <QCursor>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDir>
 #include <QFileDialog>
+#include <QFormLayout>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHash>
@@ -30,7 +35,18 @@
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QMessageBox>
+#include <QSpinBox>
 #include <QMouseEvent>
+// Offscreen high-resolution image export (QQuickRenderControl + QRhi).
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickRenderControl>
+#include <QQuickRenderTarget>
+#include <QQuickWindow>
+#include <QSGRendererInterface>
+#include <QVulkanInstance>
+#include <rhi/qrhi.h>
 #include <QPushButton>
 #include <QSet>
 #include <QQmlContext>
@@ -2016,6 +2032,177 @@ void MoleculeViewer::saveScreenshotDialog()
         return;
     saveScreenshot(filename, scaleFactor);
     QMessageBox::information(this, tr("Screenshot Saved"), tr("Screenshot saved to:\n%1").arg(filename));
+}
+
+bool MoleculeViewer::exportImage(const QString& path, int width, int height, int background,
+    bool ssaa)
+{
+    if (!m_scene || width < 1 || height < 1)
+        return false;
+
+    // A separate SceneController (deep copy) — the QQuick3DInstancing nodes belong to a
+    // single scene graph and cannot be shared with the live viewer.
+    SceneController ctrl;
+    ctrl.cloneStateFrom(m_scene);
+    ctrl.setHighQualityAA(ssaa);
+    const bool transparent = (background == 2);
+    if (background == 1) {
+        ctrl.setTransparentBackground(false);
+        ctrl.setBackgroundColor(Qt::white);
+    } else {
+        ctrl.setTransparentBackground(transparent);
+    }
+
+    // Offscreen render via QQuickRenderControl + QRhi. grabWindow() on a hidden window
+    // returns blank with the threaded render loop; the render control drives rendering
+    // synchronously on this thread into a texture we read back.
+    QQuickRenderControl renderControl;
+    QQuickWindow quickWindow(&renderControl);
+    quickWindow.setColor(transparent ? QColor(Qt::transparent) : ctrl.backgroundColor());
+    // Vulkan needs a QVulkanInstance; reuse the live view's so we don't create a second.
+    if (QQuickWindow::graphicsApi() == QSGRendererInterface::Vulkan && m_quickView
+        && m_quickView->vulkanInstance())
+        quickWindow.setVulkanInstance(m_quickView->vulkanInstance());
+
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty(QStringLiteral("controller"), &ctrl);
+    QQmlComponent component(&engine, QUrl(QStringLiteral("qrc:/qml/src/qml/viewer3d.qml")));
+    if (component.isError()) {
+        for (const QQmlError& e : component.errors())
+            qWarning() << "exportImage qml:" << e.toString();
+        return false;
+    }
+    QObject* rootObj = component.create(engine.rootContext());
+    auto* rootItem = qobject_cast<QQuickItem*>(rootObj);
+    if (!rootItem) {
+        delete rootObj;
+        return false;
+    }
+    rootItem->setParentItem(quickWindow.contentItem());
+    rootItem->setSize(QSizeF(width, height));
+    quickWindow.setGeometry(0, 0, width, height);
+
+    if (!renderControl.initialize()) {
+        qWarning() << "exportImage: QQuickRenderControl::initialize() failed";
+        delete rootObj;
+        return false;
+    }
+    QRhi* rhi = renderControl.rhi();
+    if (!rhi) {
+        delete rootObj;
+        return false;
+    }
+
+    const QSize pixelSize(width, height);
+    QScopedPointer<QRhiTexture> tex(rhi->newTexture(QRhiTexture::RGBA8, pixelSize, 1,
+        QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
+    QScopedPointer<QRhiRenderBuffer> ds(
+        rhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil, pixelSize, 1));
+    if (!tex->create() || !ds->create()) {
+        delete rootObj;
+        return false;
+    }
+    QRhiTextureRenderTargetDescription rtDesc(QRhiColorAttachment(tex.data()));
+    rtDesc.setDepthStencilBuffer(ds.data());
+    QScopedPointer<QRhiTextureRenderTarget> rt(rhi->newTextureRenderTarget(rtDesc));
+    QScopedPointer<QRhiRenderPassDescriptor> rp(rt->newCompatibleRenderPassDescriptor());
+    rt->setRenderPassDescriptor(rp.data());
+    if (!rt->create()) {
+        delete rootObj;
+        return false;
+    }
+
+    quickWindow.setRenderTarget(QQuickRenderTarget::fromRhiRenderTarget(rt.data()));
+
+    renderControl.polishItems();
+    renderControl.beginFrame();
+    renderControl.sync();
+    renderControl.render();
+
+    QImage result;
+    QRhiReadbackResult readback;
+    readback.completed = [&result, &readback]() {
+        const QImage img(reinterpret_cast<const uchar*>(readback.data.constData()),
+            readback.pixelSize.width(), readback.pixelSize.height(),
+            QImage::Format_RGBA8888_Premultiplied);
+        result = img.copy();  // deep copy: readback.data is freed after the callback
+    };
+    QRhiResourceUpdateBatch* batch = rhi->nextResourceUpdateBatch();
+    batch->readBackTexture(QRhiReadbackDescription(tex.data()), &readback);
+    renderControl.commandBuffer()->resourceUpdate(batch);
+    renderControl.endFrame();  // submits + runs the readback callback
+
+    if (rhi->isYUpInFramebuffer())
+        result = result.mirrored(false, true);  // OpenGL is bottom-up
+
+    delete rootObj;            // release the QML scene before engine/ctrl go away
+    renderControl.invalidate();
+
+    if (result.isNull())
+        return false;
+    result = transparent ? result.convertToFormat(QImage::Format_ARGB32)
+                         : result.convertToFormat(QImage::Format_RGB888);
+    return result.save(path);
+}
+
+void MoleculeViewer::exportImageDialog(const QString& startDir)
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Export Image"));
+    auto* form = new QFormLayout(&dlg);
+
+    // Default to 2x the current viewport size (true hi-res, keeps the on-screen aspect).
+    const QSize cur = m_container ? m_container->size() : QSize(1280, 960);
+    auto* wSpin = new QSpinBox(&dlg);
+    wSpin->setRange(64, 16384);
+    wSpin->setValue(qMax(64, cur.width() * 2));
+    wSpin->setSuffix(tr(" px"));
+    auto* hSpin = new QSpinBox(&dlg);
+    hSpin->setRange(64, 16384);
+    hSpin->setValue(qMax(64, cur.height() * 2));
+    hSpin->setSuffix(tr(" px"));
+    form->addRow(tr("Width:"), wSpin);
+    form->addRow(tr("Height:"), hSpin);
+
+    auto* bgCombo = new QComboBox(&dlg);
+    bgCombo->addItem(tr("Transparent"), 2);
+    bgCombo->addItem(tr("White"), 1);
+    bgCombo->addItem(tr("Scene background"), 0);
+    form->addRow(tr("Background:"), bgCombo);
+
+    auto* ssaaCheck = new QCheckBox(tr("High-quality antialiasing (SSAA)"), &dlg);
+    ssaaCheck->setChecked(true);
+    form->addRow(QString(), ssaaCheck);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dlg);
+    form->addRow(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+
+    const int bg = bgCombo->currentData().toInt();
+    const QString filter = (bg == 2)
+        ? tr("PNG Image (*.png)")  // alpha needs PNG
+        : tr("PNG Image (*.png);;JPEG Image (*.jpg *.jpeg)");
+    // Default to the current workspace directory (suggest a file name there).
+    const QString defaultPath = startDir.isEmpty()
+        ? QString()
+        : QDir(startDir).filePath(QStringLiteral("molecule.png"));
+    QString path = QFileDialog::getSaveFileName(this, tr("Export Image"), defaultPath, filter);
+    if (path.isEmpty())
+        return;
+    if (!path.contains(QLatin1Char('.')))
+        path += QStringLiteral(".png");
+
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const bool ok = exportImage(path, wSpin->value(), hSpin->value(), bg, ssaaCheck->isChecked());
+    QApplication::restoreOverrideCursor();
+    if (ok)
+        QMessageBox::information(this, tr("Export Image"), tr("Image saved to:\n%1").arg(path));
+    else
+        QMessageBox::warning(this, tr("Export Image"),
+            tr("Failed to export the image (the offscreen render returned no content)."));
 }
 
 // ---------------------------------------------------------------------------

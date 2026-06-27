@@ -199,6 +199,11 @@ public slots:
     // Claude Generated - Screenshot/Export functionality
     void saveScreenshot(const QString& filename, int scaleFactor = 1);
     void saveScreenshotDialog();
+    /// High-quality image export: render the scene offscreen at an arbitrary resolution
+    /// (true supersampling, not upscaling) and save it. @p background: 0 = scene colour,
+    /// 1 = white, 2 = transparent (alpha PNG). Claude Generated 2026.
+    bool exportImage(const QString& path, int width, int height, int background, bool ssaa);
+    void exportImageDialog(const QString& startDir = QString());
 
     // Claude Generated - Trajectory animation
     void startAnimation();

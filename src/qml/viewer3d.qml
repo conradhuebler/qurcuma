@@ -18,10 +18,18 @@ Item {
         camera: camera
 
         environment: ExtendedSceneEnvironment {
-            backgroundMode: SceneEnvironment.Color
+            // Transparent clear for image export/compositing; otherwise the scene colour.
+            backgroundMode: controller.transparentBackground
+                ? SceneEnvironment.Transparent
+                : SceneEnvironment.Color
             clearColor: controller.backgroundColor
-            antialiasingMode: SceneEnvironment.MSAA
-            antialiasingQuality: SceneEnvironment.High
+            // SSAA/VeryHigh for high-quality image export; MSAA/High interactively.
+            antialiasingMode: controller.highQualityAA
+                ? SceneEnvironment.SSAA
+                : SceneEnvironment.MSAA
+            antialiasingQuality: controller.highQualityAA
+                ? SceneEnvironment.VeryHigh
+                : SceneEnvironment.High
 
             aoEnabled: controller.ssaoEnabled
             aoStrength: controller.ssaoStrength * 90
