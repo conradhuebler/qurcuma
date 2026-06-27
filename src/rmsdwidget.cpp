@@ -380,17 +380,28 @@ bool RMSDWidget::alignToReference(Structure& s)
     curcuma::Molecule ref = atomsToMolecule(m_structures[refIdx].original);
     curcuma::Molecule tgt = atomsToMolecule(s.original);
 
-    // Fallback plain RMSD in the original atom order. curcuma's RMSDDriver populates
-    // RMSDRaw() when it actually reorders matching atom counts, but leaves it at 0 when
-    // reordering is off or atom counts differ. This local Kabsch computation ensures the
-    // plain-RMSD column always has a meaningful value without touching curcuma.
-    auto plainRmsd = [&ref, &tgt]() -> double {
-        curcuma::Molecule localRef = ref, localTgt = tgt;
-        localRef.Center();
-        localTgt.Center();
-        const Eigen::Matrix3d R = RMSDFunctions::BestFitRotation(localRef.getGeometry(), localTgt.getGeometry());
-        const Geometry aligned = RMSDFunctions::applyRotation(localTgt.getGeometry(), R);
-        return RMSDFunctions::getRMSD(localRef.getGeometry(), aligned);
+    // Plain RMSD = best-fit (Kabsch) in the original atom order. Computed locally so the
+    // column is always available and independent of whether curcuma populated its internal
+    // RMSDRaw() (it only does so on the reorder path, for matching atom multisets). Honours
+    // "Include hydrogens" so it stays consistent with the permutation RMSD, which depletes
+    // protons when disabled. Returns 0 on an atom-count mismatch (no meaningful same-order
+    // RMSD). Claude Generated.
+    const bool includeH = m_protonsCheck->isChecked();
+    auto plainRmsd = [&ref, &tgt, includeH]() -> double {
+        auto prep = [includeH](const curcuma::Molecule& m) {
+            curcuma::Molecule out;
+            for (std::size_t i = 0; i < m.AtomCount(); ++i)
+                if (includeH || m.Atom(i).first != 1)
+                    out.addPair(m.Atom(i));
+            out.Center();
+            return out;
+        };
+        curcuma::Molecule a = prep(ref), b = prep(tgt);
+        if (a.AtomCount() == 0 || a.AtomCount() != b.AtomCount())
+            return 0.0;
+        const Eigen::Matrix3d R = RMSDFunctions::BestFitRotation(a.getGeometry(), b.getGeometry());
+        const Geometry aligned = RMSDFunctions::applyRotation(b.getGeometry(), R);
+        return RMSDFunctions::getRMSD(a.getGeometry(), aligned);
     };
 
     bool ok = true;
@@ -411,14 +422,9 @@ bool RMSDWidget::alignToReference(Structure& s)
         s.aligned = moleculeToAtoms((reorder && reorderedTarget.AtomCount() > 0)
                 ? reorderedTarget
                 : driver.TargetAligned());
-        // Plain RMSD: prefer the value curcuma already computed, otherwise fall back to
-        // the local Kabsch calculation. RMSDDriver::RMSD() is the permuted RMSD when reorder
-        // ran, otherwise the same plain value.
-        if (driver.RMSDRaw() != 0.0) {
-            s.rmsdPlain = driver.RMSDRaw();
-        } else {
-            s.rmsdPlain = reorder ? driver.RMSD() : plainRmsd();
-        }
+        // RMSD columns: plain (best-fit in the original order, local Kabsch above) is always
+        // shown; perm. is curcuma's reordered best-fit, only meaningful when reordering ran.
+        s.rmsdPlain = plainRmsd();
         s.rmsdPerm = reorder ? driver.RMSD() : s.rmsdPlain;
         s.hasResult = true;
     } catch (const std::exception& e) {
