@@ -1,112 +1,163 @@
 // rmsdwidget.h
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
-// Claude Generated 2026 - RMSD / align / reorder tool widget, embedded in the
-// "Analysis" dock. Replaces the former RMSDDialog. Wraps curcuma's RMSDDriver:
-// aligns a target structure onto the reference (seeded from the viewer),
-// optionally reorders atoms (permutation) so chemically equivalent atoms match,
-// reports the RMSD + reorder mapping and emits the aligned target for 3D overlay.
+// Claude Generated 2026 - RMSD / align / reorder *workspace*, embedded in the
+// SimulationDock "RMSD / Align" tab. Wraps curcuma's RMSDDriver.
 //
-// The widget stays decoupled from the viewer: the reference is pushed in by
-// MainWindow (setReferenceStructure), and the "Use current as reference" button
-// only emits seedReferenceRequested() — MainWindow reads the viewer and reseeds.
+// The workspace is a table of structures. Exactly one is flagged the reference
+// (radio button) and shown as the primary molecule; every other structure is
+// aligned to it and drawn as a tinted overlay. Per structure the table shows the
+// plain and the permutation RMSD and offers a colour tint, a size and a
+// visibility toggle, plus removal. Changing the reference re-aligns all others.
+//
+// The widget stays decoupled from the viewer: it emits overlayWorkspaceChanged()
+// (full rebuild) plus cheap per-overlay live-edit signals, and MainWindow drives
+// the MoleculeViewer. seedReferenceRequested() asks MainWindow to (re-)seed the
+// reference from the current viewer frame.
 #ifndef RMSDWIDGET_H
 #define RMSDWIDGET_H
 
-#include <QWidget>
+#include <QColor>
 #include <QVector>
+#include <QWidget>
 
-#include "view.h"  // MoleculeViewer::Atom / Bond
+#include <vector>
 
-class QComboBox;
+#include "view.h"  // MoleculeViewer::Atom / Bond / OverlaySpec
+
+class QButtonGroup;
 class QCheckBox;
-class QLineEdit;
-class QSpinBox;
+class QComboBox;
+class QDoubleSpinBox;
 class QLabel;
+class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
+class QSpinBox;
+class QTableWidget;
 
-/**
- * @brief RMSD / align / reorder panel backed by curcuma's RMSDDriver.
- *
- * Reference = the structure currently displayed in the viewer (seeded by
- * MainWindow). Target = a second structure loaded from a file. On "Align" the
- * widget runs RMSDDriver with the chosen method/options, then emits
- * overlayRequested() so MainWindow can superimpose both structures in the 3D
- * viewer (aligned target in a distinct colour). seedReferenceRequested() asks
- * MainWindow to re-seed the reference from the current viewer frame.
- */
 class RMSDWidget : public QWidget {
     Q_OBJECT
 
 public:
     explicit RMSDWidget(QWidget* parent = nullptr);
 
-    /** Seed the reference structure (the currently displayed molecule). */
+    /** Seed (or refresh) the reference structure from the currently displayed molecule. */
     void setReferenceStructure(const QVector<MoleculeViewer::Atom>& atoms,
-        const QVector<MoleculeViewer::Bond>& bonds,
-        const QString& name);
+        const QVector<MoleculeViewer::Bond>& bonds, const QString& name);
 
-    /** Preload a target file (e.g. when launched from the file-manager context menu). */
-    void setTargetFile(const QString& path);
+    /** True once the workspace has a reference structure. */
+    bool hasReference() const { return referenceIndex() >= 0; }
+
+    /** Load a structure file, align it to the reference and add it to the workspace. */
+    bool addStructureFromFile(const QString& path);
 
     /**
-     * @brief Load a structure file into a viewer atom/bond list (no viewer side effects).
+     * @brief Load a structure file into viewer atom/bond lists (no viewer side effects).
      * Supports .xyz / .pdb / .mol2 / .vtf via the existing parsers. Claude Generated.
      */
     static bool loadStructureFile(const QString& path,
-        QVector<MoleculeViewer::Atom>& atoms,
-        QVector<MoleculeViewer::Bond>& bonds);
+        QVector<MoleculeViewer::Atom>& atoms, QVector<MoleculeViewer::Bond>& bonds);
+
+    /** Reset the whole workspace (e.g. when a new molecule is loaded). */
+    void clearWorkspace();
 
 signals:
-    /** Request MainWindow to overlay reference + aligned target in the 3D viewer. */
-    void overlayRequested(const QVector<MoleculeViewer::Atom>& refAtoms,
-        const QVector<MoleculeViewer::Bond>& refBonds,
-        const QVector<MoleculeViewer::Atom>& targetAtoms);
+    /**
+     * @brief Rebuild the viewer overlay set. The reference is drawn as the primary; each
+     * overlay carries its aligned coords + tint/size/visibility. @p resetView true => the
+     * reference changed (primary is reset, camera reframes); false => only the overlay set
+     * changed (primary/camera untouched).
+     */
+    void overlayWorkspaceChanged(const QVector<MoleculeViewer::Atom>& refAtoms,
+        const QVector<MoleculeViewer::Bond>& refBonds, bool refVisible,
+        const QVector<MoleculeViewer::OverlaySpec>& overlays, bool resetView);
 
-    /** Request MainWindow to re-seed the reference from the current viewer frame. */
+    /** Cheap per-overlay live edits (index into the current overlay set). */
+    void overlayTintChanged(int overlayIndex, const QColor& tint);
+    void overlaySizeChanged(int overlayIndex, float sizeScale);
+    void overlayVisibilityChanged(int overlayIndex, bool visible);
+    /** Reference (primary) structure visibility toggled. */
+    void referenceVisibilityChanged(bool visible);
+
+    /** A target was aligned + added to the workspace (status-bar feedback). */
+    void structureAligned(const QString& name, double rmsd);
+
+    /** Request MainWindow to (re-)seed the reference from the current viewer frame. */
     void seedReferenceRequested();
 
 private slots:
-    void onLoadTarget();
-    void onAlign();
-    void onSaveAligned();
-    void onMethodChanged(int index);
+    void onAddStructure();
     void onUseCurrentAsReference();
+    void onRealignAll();
+    void onMethodChanged(int index);
+    void onSelectionChanged();
 
 private:
+    // One structure in the workspace (the reference or an aligned target).
+    struct Structure {
+        int id = 0;
+        QString name;
+        QVector<MoleculeViewer::Atom> original;  // as loaded / seeded
+        QVector<MoleculeViewer::Bond> bonds;
+        QVector<MoleculeViewer::Atom> aligned;   // aligned to current reference (== original if reference)
+        bool isReference = false;
+        QColor tint;
+        float sizeScale = 0.8f;
+        bool visible = true;
+        bool hasResult = false;
+        bool reordered = false;   // was permutation/reordering applied for this result?
+        double rmsdPlain = 0.0;   // RMSDRaw (before reorder)
+        double rmsdPerm = 0.0;    // RMSD (after reorder)
+        std::vector<int> rules;   // reorder mapping (target index -> reference index)
+    };
+
     void setupUI();
-    void updateReferenceLabel();
-    void updateTargetLabel();
-    QString currentMethod() const;  // selected method string for RMSDDriver
+    void rebuildTable();
+    void updateButtons();
+    void pushWorkspace(bool referenceChanged);
 
-    // --- structures ---
-    QVector<MoleculeViewer::Atom> m_refAtoms;
-    QVector<MoleculeViewer::Bond> m_refBonds;
-    QString m_refName;
+    bool alignToReference(Structure& s);          // run RMSDDriver, fill aligned/rmsd/rules
+    void realignAll();                            // re-align every non-reference structure
+    bool addStructure(const QVector<MoleculeViewer::Atom>& atoms,
+        const QVector<MoleculeViewer::Bond>& bonds, const QString& name);
+    void setReferenceByIndex(int index);          // promote a structure to reference
+    void removeStructure(int index);
 
-    QVector<MoleculeViewer::Atom> m_targetAtoms;
-    QVector<MoleculeViewer::Bond> m_targetBonds;
-    QString m_targetName;
+    // per-row edit handlers (keyed by the structure's stable id)
+    void onColorClicked(int id);
+    void onSizeChanged(int id, double value);
+    void onVisibilityToggled(int id, bool on);
 
-    QVector<MoleculeViewer::Atom> m_alignedAtoms;  // result of last alignment
-    bool m_haveResult = false;
+    int referenceIndex() const;                    // index of the reference (-1 if none)
+    int indexOfId(int id) const;
+    // True if a structure with the same name (file name) is already in the workspace —
+    // guards against adding the very same file twice.
+    bool isDuplicateName(const QString& name) const;
+    int overlayIndexOf(int structureIndex) const;  // position among the non-reference structures
+    QColor nextDefaultTint();
+    QString currentMethod() const;
+    QWidget* centerCell(QWidget* inner);           // wrap a control centred in a table cell
+    static void setSwatchColor(QPushButton* b, const QColor& c);
+
+    // --- data ---
+    QVector<Structure> m_structures;
+    int m_nextId = 1;
+    int m_nextTint = 0;
 
     // --- UI ---
-    QLabel* m_referenceLabel = nullptr;
     QPushButton* m_useReferenceButton = nullptr;
-    QLabel* m_targetLabel = nullptr;
-    QPushButton* m_loadTargetButton = nullptr;
+    QPushButton* m_addButton = nullptr;
+    QPushButton* m_realignButton = nullptr;
     QComboBox* m_methodCombo = nullptr;
     QCheckBox* m_protonsCheck = nullptr;
-    QCheckBox* m_forceReorderCheck = nullptr;
-    QCheckBox* m_noReorderCheck = nullptr;
+    QCheckBox* m_reorderCheck = nullptr;
     QLineEdit* m_elementEdit = nullptr;
     QSpinBox* m_threadsSpin = nullptr;
-    QPushButton* m_alignButton = nullptr;
-    QLabel* m_rmsdLabel = nullptr;
+    QTableWidget* m_table = nullptr;
+    QButtonGroup* m_refGroup = nullptr;
+    QLabel* m_reorderLabel = nullptr;
     QPlainTextEdit* m_reorderText = nullptr;
-    QPushButton* m_saveButton = nullptr;
 };
 
 #endif // RMSDWIDGET_H

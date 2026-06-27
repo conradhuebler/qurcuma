@@ -956,18 +956,37 @@ void MoleculeViewer::appendMolecule(const QVector<Atom>& newAtoms, const QVector
     emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
 }
 
-void MoleculeViewer::showOverlay(const QVector<Atom>& refAtoms, const QVector<Bond>& refBonds,
-    const QVector<Atom>& targetAtoms, const QVector<Bond>& targetBonds)
+void MoleculeViewer::setOverlayWorkspace(const QVector<Atom>& refAtoms,
+    const QVector<Bond>& refBonds, bool refVisible, const QVector<OverlaySpec>& overlays,
+    bool resetView)
 {
-    if (refAtoms.isEmpty()) {
-        qWarning() << "showOverlay: empty reference structure";
+    if (!m_scene)
         return;
+    if (resetView) {
+        if (refAtoms.isEmpty()) {
+            clearOverlays();
+            return;
+        }
+        // Reference changed: make it the primary structure (reframes the camera, and the
+        // structure reset clears any existing overlays).
+        addMolecule(refAtoms, refBonds);
+    } else {
+        // Only the overlay set changed: keep the current primary + camera.
+        clearOverlays();
     }
-    // Reference = normal solid structure (CPK). Target = translucent CPK ghost on
-    // top, so both keep correct element colours yet stay tellable apart.
-    addMolecule(refAtoms, refBonds);
+    setPrimaryVisible(refVisible);
+    for (const OverlaySpec& o : overlays) {
+        const int idx = addOverlay(o.atoms, o.tint, o.sizeScale);
+        if (idx >= 0 && !o.visible)
+            m_scene->setOverlayVisible(idx, false);
+    }
+}
+
+int MoleculeViewer::addOverlay(const QVector<Atom>& targetAtoms, const QColor& tint,
+    float sizeScale, const QVector<Bond>& targetBonds)
+{
     if (targetAtoms.isEmpty() || !m_scene)
-        return;
+        return -1;
 
     const QVector<Bond> tBonds = targetBonds.isEmpty() ? detectBonds(targetAtoms) : targetBonds;
     QVector<SceneController::AtomDatum> ta;
@@ -978,7 +997,42 @@ void MoleculeViewer::showOverlay(const QVector<Atom>& refAtoms, const QVector<Bo
     tb.reserve(tBonds.size());
     for (const Bond& b : tBonds)
         tb.append({ b.atom1, b.atom2, b.bondOrder });
-    m_scene->setOverlayStructure(ta, tb);
+    return m_scene->addOverlayStructure(ta, tb, tint, sizeScale);
+}
+
+void MoleculeViewer::setOverlayTint(int index, const QColor& tint)
+{
+    if (m_scene)
+        m_scene->setOverlayTint(index, tint);
+}
+
+void MoleculeViewer::setOverlaySize(int index, float sizeScale)
+{
+    if (m_scene)
+        m_scene->setOverlaySize(index, sizeScale);
+}
+
+void MoleculeViewer::setOverlayVisible(int index, bool visible)
+{
+    if (m_scene)
+        m_scene->setOverlayVisible(index, visible);
+}
+
+void MoleculeViewer::setPrimaryVisible(bool visible)
+{
+    if (m_scene)
+        m_scene->setPrimaryVisible(visible);
+}
+
+void MoleculeViewer::clearOverlays()
+{
+    if (m_scene)
+        m_scene->clearOverlay();
+}
+
+int MoleculeViewer::overlayCount() const
+{
+    return m_scene ? m_scene->overlayCount() : 0;
 }
 
 void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, const QVector<QVector<Bond>>& bonds)

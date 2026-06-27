@@ -3428,13 +3428,13 @@ void MainWindow::showRMSDTool(const QString& targetFile)
     if (!m_rmsdWidget)
         return;  // tab not built yet (should not happen post-construction)
 
-    // Auto-seed the reference from the currently displayed structure.
-    seedRMSDReference();
+    // Auto-seed the reference from the currently displayed structure, but only if the
+    // workspace has no reference yet (don't clobber a user-chosen reference on re-open).
+    if (!m_rmsdWidget->hasReference())
+        seedRMSDReference();
 
-    if (!targetFile.isEmpty())
-        m_rmsdWidget->setTargetFile(targetFile);
-
-    // Focus the Simulation dock and switch to the RMSD / Align tab.
+    // Focus the Simulation dock and switch to the RMSD / Align tab first, so the new
+    // overlay row + status feedback are visible when the alignment runs.
     if (m_simulationDock) {
         m_simulationDock->show();
         m_simulationDock->raise();
@@ -3442,6 +3442,12 @@ void MainWindow::showRMSDTool(const QString& targetFile)
     }
     if (m_simulationTabs)
         m_simulationTabs->setCurrentIndex(2);  // Simulation=0, Snapshots=1, RMSD=2, Input=3
+
+    // From the file-manager context menu: load the structure, align it against the
+    // current reference and add it to the workspace in one step (structureAligned()
+    // drives the status-bar feedback). The user can still re-align with other options.
+    if (!targetFile.isEmpty())
+        m_rmsdWidget->addStructureFromFile(targetFile);
 }
 
 // Claude Generated 2026 - Re-seed the RMSD reference from the current viewer
@@ -4238,6 +4244,10 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
         if (!fileDir.isEmpty() && QDir(fileDir).exists() && fileDir != m_workingDirectory) {
             switchWorkingDirectory(fileDir);
         }
+        // A fresh molecule resets the scene (clears any RMSD overlays); reset the RMSD
+        // workspace too so it does not keep stale aligned structures.
+        if (m_rmsdWidget)
+            m_rmsdWidget->clearWorkspace();
         // Claude Generated 2026 - If this file belongs to an unpacked lesson (a
         // lesson.json sidecar in its directory references it), restore the stored
         // simulation conditions into the dock. No-op for ordinary files.
@@ -4677,14 +4687,45 @@ void MainWindow::createDockWidgets()
     // ==================== SIMULATION DOCK (right) ====================
     // Phase 8: dock with Simulation/Snapshots/RMSD/Input tabs, tabified with Structure&Display.
     if (m_simulationDock) {
-        // RMSD / align tool signals.
+        // RMSD / align workspace signals. The widget owns a table of structures (one is
+        // the reference, the rest are aligned overlays) and drives the viewer through a
+        // full-rebuild signal + cheap per-overlay live edits.
         if (m_rmsdWidget) {
-            connect(m_rmsdWidget, &RMSDWidget::overlayRequested, this,
+            connect(m_rmsdWidget, &RMSDWidget::overlayWorkspaceChanged, this,
                 [this](const QVector<MoleculeViewer::Atom>& refAtoms,
-                    const QVector<MoleculeViewer::Bond>& refBonds,
-                    const QVector<MoleculeViewer::Atom>& targetAtoms) {
+                    const QVector<MoleculeViewer::Bond>& refBonds, bool refVisible,
+                    const QVector<MoleculeViewer::OverlaySpec>& overlays, bool resetView) {
                     if (m_moleculeView)
-                        m_moleculeView->showOverlay(refAtoms, refBonds, targetAtoms);
+                        m_moleculeView->setOverlayWorkspace(refAtoms, refBonds, refVisible,
+                            overlays, resetView);
+                });
+            connect(m_rmsdWidget, &RMSDWidget::overlayTintChanged, this,
+                [this](int i, const QColor& c) {
+                    if (m_moleculeView)
+                        m_moleculeView->setOverlayTint(i, c);
+                });
+            connect(m_rmsdWidget, &RMSDWidget::overlaySizeChanged, this,
+                [this](int i, float s) {
+                    if (m_moleculeView)
+                        m_moleculeView->setOverlaySize(i, s);
+                });
+            connect(m_rmsdWidget, &RMSDWidget::overlayVisibilityChanged, this,
+                [this](int i, bool v) {
+                    if (m_moleculeView)
+                        m_moleculeView->setOverlayVisible(i, v);
+                });
+            connect(m_rmsdWidget, &RMSDWidget::referenceVisibilityChanged, this,
+                [this](bool v) {
+                    if (m_moleculeView)
+                        m_moleculeView->setPrimaryVisible(v);
+                });
+            // Direct feedback when a structure is aligned + added to the workspace.
+            connect(m_rmsdWidget, &RMSDWidget::structureAligned, this,
+                [this](const QString& name, double rmsd) {
+                    statusBar()->showMessage(
+                        tr("Added '%1' to the RMSD workspace — RMSD %2 Å")
+                            .arg(name).arg(rmsd, 0, 'f', 3),
+                        5000);
                 });
             connect(m_rmsdWidget, &RMSDWidget::seedReferenceRequested,
                     this, &MainWindow::seedRMSDReference);

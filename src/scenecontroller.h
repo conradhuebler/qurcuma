@@ -101,6 +101,17 @@ public:
         int order = 1;
     };
 
+    // One aligned overlay structure (RMSD target). Holds the geometry plus the
+    // per-structure modifiers; the global display styles are applied at rebuild time.
+    // Claude Generated 2026.
+    struct OverlayStructure {
+        QVector<AtomDatum> atoms;
+        QVector<BondDatum> bonds;
+        QColor tint{ Qt::green };   // per-structure colour modifier (hue/sat shift over the base scheme)
+        float sizeScale = 0.8f;     // size relative to the reference's effective scale (1.0 = identical)
+        bool visible = true;
+    };
+
     enum ColorScheme { CPK = 0, Monochrome = 1, ByCharge = 2, Custom = 3 };
     enum RenderingMode { BallAndStick = 0, Wireframe = 1, SpaceFilling = 2, SticksOnly = 3 };
 
@@ -127,14 +138,23 @@ public:
     /// World-space measurement lines (consecutive selected atoms) + result label.
     void setMeasurement(const QVector<QPair<QVector3D, QVector3D>>& lines, const QString& text);
 
-    // RMSD overlay structure (second structure under moleculeRoot). Opaque, but its
-    // element colours are HSV-shifted (hue rotate + tint/darken) so it reads as the
-    // "other" molecule while staying element-identifiable.
+    // RMSD overlay structures: a list of aligned targets drawn under moleculeRoot. Each
+    // inherits the global display styles (rendering mode, atom scale, bond thickness,
+    // transparency, base colour scheme) but carries an individual colour tint (hue/sat
+    // shift over the base, element identity preserved) and an individual size scale. All
+    // visible overlays are packed into the two combined overlay instancing buffers.
     QQuick3DInstancing* overlayAtomInstancing() const;
     QQuick3DInstancing* overlayBondInstancing() const;
     bool overlayVisible() const { return m_overlayVisible; }
-    void setOverlayStructure(const QVector<AtomDatum>& atoms, const QVector<BondDatum>& bonds);
-    void clearOverlay();
+    int overlayCount() const { return m_overlays.size(); }
+    /// Append an aligned overlay structure; returns its index. @p bonds may be empty.
+    int addOverlayStructure(const QVector<AtomDatum>& atoms, const QVector<BondDatum>& bonds,
+        const QColor& tint, float sizeScale = 0.8f);
+    void setOverlayTint(int index, const QColor& tint);
+    void setOverlaySize(int index, float sizeScale);
+    void setOverlayVisible(int index, bool visible);
+    void removeOverlayStructure(int index);
+    void clearOverlay();   // clears the whole overlay list
 
     // Confinement-wall wireframe. Geometry is supplied in intrinsic atom
     // coordinates; the Model lives under moleculeRoot so it rotates with the
@@ -203,6 +223,7 @@ public:
     // --- appearance ---
     void setColorScheme(int scheme);
     void setMonochromeColor(const QColor& c);
+    void setPrimaryVisible(bool on);   // hide/show the primary (reference) structure
     void setRenderingMode(int mode);
     void setAtomScaleFactor(float s);
     void setBondThickness(float r);
@@ -278,8 +299,12 @@ signals:
 private:
     void rebuildGeometry();        // recompute atom items + bond segments
     void rebuildAtoms();           // recompute only atom items (selection/hover)
+    void rebuildOverlays();        // repack the overlay list into the overlay buffers
     void recomputeBounds();
     QColor atomColor(int index) const;
+    // Base scheme colour for an element/charge (CPK/Monochrome/ByCharge), ignoring the
+    // transient selection/hover/collision state — used as the tint base for overlays.
+    QColor schemeColor(const QString& element, float charge) const;
 
     AtomInstancing* m_atomInstancing = nullptr;
     BondInstancing* m_bondInstancing = nullptr;
@@ -306,9 +331,10 @@ private:
     int  m_potArrowResolution = 4;
     void rebuildWall();            // regenerate segments from m_wallGeom + m_wallColor
     void rebuildWallVectorField(); // regenerate force arrows
-    AtomInstancing* m_overlayAtoms = nullptr; // RMSD overlay structure spheres
-    BondInstancing* m_overlayBonds = nullptr; // RMSD overlay structure cylinders
-    bool m_overlayVisible = false;
+    AtomInstancing* m_overlayAtoms = nullptr; // combined overlay spheres (all structures)
+    BondInstancing* m_overlayBonds = nullptr; // combined overlay cylinders (all structures)
+    bool m_overlayVisible = false;            // true if any overlay structure is visible
+    QVector<OverlayStructure> m_overlays;     // aligned RMSD targets (per-structure tint/size)
 
     QVector<AtomDatum> m_atoms;
     QVector<BondDatum> m_bonds;
@@ -329,6 +355,7 @@ private:
     float m_transparency = 1.0f;
     bool m_atomsVisible = true;
     bool m_bondsVisible = true;
+    bool m_primaryVisible = true;   // primary (reference) structure shown? (RMSD workspace)
 
     // effects state
     bool m_ssao = true;

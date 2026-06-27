@@ -17,18 +17,32 @@ constexpr float kSphereBaseRadius = 50.0f; // #Sphere base radius
 constexpr float kCylBaseHalfHeight = 50.0f; // #Cylinder half height (100 tall)
 constexpr float kCylBaseRadius = 50.0f; // #Cylinder base radius
 
-/// "Shift" a CPK element colour for the RMSD overlay: rotate the hue and add a
-/// tint + slight darkening, so the second structure is clearly distinct yet still
-/// element-coloured. Works on greys/whites too (they get a base hue + saturation).
-QColor shiftOverlayColor(const QColor& base)
+/// Apply a per-structure colour @p tint to a base scheme colour for an overlay atom.
+/// The whole structure reads in the tint's colour family while element identity stays
+/// visible: achromatic atoms (carbon grey, hydrogen white) adopt the tint hue directly;
+/// chromatic atoms (O/N/...) rotate part-way toward the tint hue so they stay distinct.
+/// The base brightness is preserved (so O stays darker than C) and only slightly dimmed
+/// so the overlay reads as the secondary set. Claude Generated 2026.
+QColor shiftOverlayColor(const QColor& base, const QColor& tint)
 {
-    int h, s, v, a;
-    base.getHsv(&h, &s, &v, &a);
-    if (h < 0)
-        h = 30;                       // achromatic (C grey, H white) -> warm base hue
-    h = (h + 30) % 360;               // rotate hue
-    s = qBound(70, s + 60, 255);      // ensure a visible tint, even on near-greys
-    v = int(v * 0.88f);               // slightly darker -> reads as the secondary set
+    int hb, sb, vb, ab;
+    base.getHsv(&hb, &sb, &vb, &ab);
+    int ht, st, vt, at;
+    tint.getHsv(&ht, &st, &vt, &at);
+    if (ht < 0)
+        ht = 0; // achromatic tint (shouldn't happen for a picked colour) -> red anchor
+
+    int h;
+    if (hb < 0) {
+        h = ht; // achromatic base -> take the tint hue directly (e.g. "green" carbons)
+    } else {
+        // Rotate the element hue 60% of the way toward the tint hue (shortest path), so
+        // heteroatoms shift into the tint family yet keep a distinct hue.
+        const int dh = ((ht - hb + 540) % 360) - 180;
+        h = (hb + int(0.6f * dh) + 360) % 360;
+    }
+    const int s = qBound(80, qMax(sb, st), 255);    // ensure a visible tint, even on greys
+    const int v = qBound(40, int(vb * 0.95f), 255); // keep brightness identity, read as secondary
     return QColor::fromHsv(h, s, v);
 }
 
@@ -104,58 +118,133 @@ void SceneController::setMeasurement(const QVector<QPair<QVector3D, QVector3D>>&
     emit measurementChanged();
 }
 
-void SceneController::setOverlayStructure(const QVector<AtomDatum>& atoms,
-    const QVector<BondDatum>& bonds)
+int SceneController::addOverlayStructure(const QVector<AtomDatum>& atoms,
+    const QVector<BondDatum>& bonds, const QColor& tint, float sizeScale)
 {
-    // Second structure (RMSD target) under moleculeRoot: opaque, with HSV-shifted
-    // element colours so it is clearly the "other" molecule yet element-coded.
-    // Slightly smaller spheres so it nests inside the solid reference atoms.
-    auto tinted = [&](const QString& element) {
-        return shiftOverlayColor(elem::cpkColor(element));
-    };
+    OverlayStructure ov;
+    ov.atoms = atoms;
+    ov.bonds = bonds;
+    ov.tint = tint;
+    ov.sizeScale = sizeScale;
+    ov.visible = true;
+    m_overlays.append(ov);
+    rebuildOverlays();
+    return m_overlays.size() - 1;
+}
 
-    QVector<AtomInstancing::Item> items;
-    items.reserve(atoms.size());
-    for (const AtomDatum& a : atoms) {
-        AtomInstancing::Item it;
-        it.position = a.position;
-        it.scale = 0.27f * m_atomScaleFactor * elem::vdwRadius(a.element);
-        it.color = tinted(a.element);
-        items.append(it);
-    }
-    m_overlayAtoms->setItems(items);
+void SceneController::setOverlayTint(int index, const QColor& tint)
+{
+    if (index < 0 || index >= m_overlays.size())
+        return;
+    m_overlays[index].tint = tint;
+    rebuildOverlays();
+}
 
-    QVector<BondInstancing::Segment> segs;
-    const float sxz = m_bondRadius / kCylBaseRadius;
-    for (const BondDatum& b : bonds) {
-        if (b.a < 0 || b.b < 0 || b.a >= atoms.size() || b.b >= atoms.size())
-            continue;
-        const QVector3D posA = atoms[b.a].position;
-        const QVector3D posB = atoms[b.b].position;
-        const QVector3D dir = posB - posA;
-        const float length = dir.length();
-        if (length < 1e-4f)
-            continue;
-        const QQuaternion rot = bondRotation(dir / length);
-        const QVector3D mid = 0.5f * (posA + posB);
-        const float halfLength = length * 0.25f;
-        const QVector3D scale(sxz, halfLength / kCylBaseHalfHeight, sxz);
-        segs.append({ 0.5f * (posA + mid), scale, rot, tinted(atoms[b.a].element) });
-        segs.append({ 0.5f * (mid + posB), scale, rot, tinted(atoms[b.b].element) });
-    }
-    m_overlayBonds->setSegments(segs);
+void SceneController::setOverlaySize(int index, float sizeScale)
+{
+    if (index < 0 || index >= m_overlays.size())
+        return;
+    m_overlays[index].sizeScale = sizeScale;
+    rebuildOverlays();
+}
 
-    m_overlayVisible = !atoms.isEmpty();
-    emit overlayChanged();
+void SceneController::setOverlayVisible(int index, bool visible)
+{
+    if (index < 0 || index >= m_overlays.size())
+        return;
+    m_overlays[index].visible = visible;
+    rebuildOverlays();
+}
+
+void SceneController::removeOverlayStructure(int index)
+{
+    if (index < 0 || index >= m_overlays.size())
+        return;
+    m_overlays.removeAt(index);
+    rebuildOverlays();
 }
 
 void SceneController::clearOverlay()
 {
-    if (!m_overlayVisible)
+    if (m_overlays.isEmpty() && !m_overlayVisible)
         return;
+    m_overlays.clear();
     m_overlayAtoms->setItems({});
     m_overlayBonds->setSegments({});
     m_overlayVisible = false;
+    emit overlayChanged();
+}
+
+// Repack every visible overlay structure into the two combined overlay instancing
+// buffers. Overlays inherit the global display styles (rendering-mode visibility, the
+// sphere radius factor, atom scale, bond thickness, transparency, base colour scheme)
+// and apply each structure's individual colour tint + size scale. Called by the list
+// mutators and at the end of rebuildGeometry() so global style changes propagate.
+void SceneController::rebuildOverlays()
+{
+    if (m_overlays.isEmpty()) {
+        if (m_overlayVisible) {
+            m_overlayAtoms->setItems({});
+            m_overlayBonds->setSegments({});
+            m_overlayVisible = false;
+            emit overlayChanged();
+        }
+        return;
+    }
+
+    const float radiusFactor = (m_renderingMode == SpaceFilling) ? 1.0f : 0.30f;
+    const float bondRadius = (m_renderingMode == Wireframe) ? qMin(m_bondRadius, 0.06f) : m_bondRadius;
+    const float sxz = bondRadius / kCylBaseRadius;
+
+    QVector<AtomInstancing::Item> items;
+    QVector<BondInstancing::Segment> segs;
+    bool anyVisible = false;
+
+    for (const OverlayStructure& ov : m_overlays) {
+        if (!ov.visible || ov.atoms.isEmpty())
+            continue;
+        anyVisible = true;
+
+        auto tinted = [&](const QString& element, float charge) {
+            QColor c = shiftOverlayColor(schemeColor(element, charge), ov.tint);
+            c.setAlphaF(m_transparency);
+            return c;
+        };
+
+        if (m_atomsVisible) {
+            items.reserve(items.size() + ov.atoms.size());
+            for (const AtomDatum& a : ov.atoms) {
+                AtomInstancing::Item it;
+                it.position = a.position;
+                it.scale = radiusFactor * ov.sizeScale * m_atomScaleFactor * elem::vdwRadius(a.element);
+                it.color = tinted(a.element, a.charge);
+                items.append(it);
+            }
+        }
+
+        if (m_bondsVisible) {
+            for (const BondDatum& b : ov.bonds) {
+                if (b.a < 0 || b.b < 0 || b.a >= ov.atoms.size() || b.b >= ov.atoms.size())
+                    continue;
+                const QVector3D posA = ov.atoms[b.a].position;
+                const QVector3D posB = ov.atoms[b.b].position;
+                const QVector3D dir = posB - posA;
+                const float length = dir.length();
+                if (length < 1e-4f)
+                    continue;
+                const QQuaternion rot = bondRotation(dir / length);
+                const QVector3D mid = 0.5f * (posA + posB);
+                const float halfLength = length * 0.25f;
+                const QVector3D scale(sxz, halfLength / kCylBaseHalfHeight, sxz);
+                segs.append({ 0.5f * (posA + mid), scale, rot, tinted(ov.atoms[b.a].element, ov.atoms[b.a].charge) });
+                segs.append({ 0.5f * (mid + posB), scale, rot, tinted(ov.atoms[b.b].element, ov.atoms[b.b].charge) });
+            }
+        }
+    }
+
+    m_overlayAtoms->setItems(items);
+    m_overlayBonds->setSegments(segs);
+    m_overlayVisible = anyVisible;
     emit overlayChanged();
 }
 
@@ -632,6 +721,25 @@ void SceneController::recomputeBounds()
     m_sceneExtent = qMax(2.0f, 0.5f * (hi - lo).length());
 }
 
+// Base colour for an element/charge under the current scheme, ignoring the transient
+// selection/hover/collision state. Shared by atomColor() and the overlay tint path.
+QColor SceneController::schemeColor(const QString& element, float charge) const
+{
+    switch (m_colorScheme) {
+    case Monochrome:
+        return m_monochrome;
+    case ByCharge: {
+        const float q = qBound(-1.0f, charge, 1.0f);
+        return (q >= 0) ? QColor::fromRgbF(1.0, 1.0 - q, 1.0 - q)  // white -> red
+                        : QColor::fromRgbF(1.0 + q, 1.0 + q, 1.0); // white -> blue
+    }
+    case CPK:
+    case Custom:
+    default:
+        return elem::cpkColor(element);
+    }
+}
+
 QColor SceneController::atomColor(int index) const
 {
     // Collision wins over everything (red), then selection (magenta); otherwise
@@ -646,7 +754,6 @@ QColor SceneController::atomColor(int index) const
         h.setAlphaF(1.0f);
         return h;
     }
-    QColor c;
     const AtomDatum& a = m_atoms[index];
     // Hover feedback: brighten the atom under the cursor (below selection).
     if (index == m_hoverAtom) {
@@ -655,24 +762,7 @@ QColor SceneController::atomColor(int index) const
         hl.setAlphaF(m_transparency);
         return hl;
     }
-    switch (m_colorScheme) {
-    case Monochrome:
-        c = m_monochrome;
-        break;
-    case ByCharge: {
-        const float q = qBound(-1.0f, a.charge, 1.0f);
-        if (q >= 0)
-            c = QColor::fromRgbF(1.0, 1.0 - q, 1.0 - q); // white -> red
-        else
-            c = QColor::fromRgbF(1.0 + q, 1.0 + q, 1.0); // white -> blue
-        break;
-    }
-    case CPK:
-    case Custom:
-    default:
-        c = elem::cpkColor(a.element);
-        break;
-    }
+    QColor c = schemeColor(a.element, a.charge);
     c.setAlphaF(m_transparency);
     return c;
 }
@@ -681,7 +771,7 @@ QColor SceneController::atomColor(int index) const
 void SceneController::rebuildAtoms()
 {
     QVector<AtomInstancing::Item> items;
-    if (m_atomsVisible) {
+    if (m_atomsVisible && m_primaryVisible) {
         // Ball-and-stick shrinks spheres; space-filling uses full vdW radius.
         const float radiusFactor = (m_renderingMode == SpaceFilling) ? 1.0f : 0.30f;
         items.reserve(m_atoms.size());
@@ -712,7 +802,7 @@ void SceneController::rebuildGeometry()
 
     // --- bonds (two half-cylinders, coloured per atom) ---
     QVector<BondInstancing::Segment> segs;
-    if (m_bondsVisible) {
+    if (m_bondsVisible && m_primaryVisible) {
         const float bondRadius = (m_renderingMode == Wireframe)
             ? qMin(m_bondRadius, 0.06f)
             : m_bondRadius;
@@ -742,6 +832,10 @@ void SceneController::rebuildGeometry()
         }
     }
     m_bondInstancing->setSegments(segs);
+
+    // Overlays inherit the global styles just touched here; repack them too (cheap
+    // early-return when there are none, so the MD updatePositions path stays fast).
+    rebuildOverlays();
 }
 
 // ---- appearance setters ----
@@ -758,6 +852,14 @@ void SceneController::setMonochromeColor(const QColor& c)
     m_monochrome = c;
     if (m_colorScheme == Monochrome)
         rebuildGeometry();
+}
+
+void SceneController::setPrimaryVisible(bool on)
+{
+    if (m_primaryVisible == on)
+        return;
+    m_primaryVisible = on;
+    rebuildGeometry();
 }
 
 void SceneController::setRenderingMode(int mode)

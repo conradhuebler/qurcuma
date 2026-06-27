@@ -73,11 +73,41 @@ public:
     /// only): append its atoms/bonds, select them, and start placement (no camera jump).
     void appendMolecule(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
 
+    /// Per-structure overlay descriptor for setOverlayWorkspace() (RMSD workspace). Claude Generated 2026.
+    struct OverlaySpec {
+        QVector<Atom> atoms;
+        QColor tint;
+        float sizeScale = 0.8f;
+        bool visible = true;
+    };
+
     /**
-     * @brief Overlay two structures simultaneously (RMSD/align comparison view).
+     * @brief Replace the whole RMSD overlay set in one call (workspace rebuild).
+     *
+     * The reference structure is drawn as the primary molecule; every entry in
+     * @p overlays is an aligned structure that inherits the global display styles plus
+     * its own colour tint / size / visibility. @p refVisible hides/shows the primary.
+     * @p resetView true => the reference changed: the primary is reset to @p refAtoms
+     * (camera reframes). false => only the overlay set changed: the primary is left
+     * untouched (no camera jump). Empty @p refAtoms with resetView=false just clears the
+     * overlays (keeps the current primary).
      */
-    void showOverlay(const QVector<Atom>& refAtoms, const QVector<Bond>& refBonds,
-        const QVector<Atom>& targetAtoms, const QVector<Bond>& targetBonds = {});
+    void setOverlayWorkspace(const QVector<Atom>& refAtoms, const QVector<Bond>& refBonds,
+        bool refVisible, const QVector<OverlaySpec>& overlays, bool resetView);
+
+    // Cheap per-overlay live edits (index into the current overlay set; no geometry rebuild).
+    void setOverlayTint(int index, const QColor& tint);
+    void setOverlaySize(int index, float sizeScale);
+    void setOverlayVisible(int index, bool visible);
+    void setPrimaryVisible(bool visible);   // hide/show the reference (primary) structure
+    void clearOverlays();
+    int overlayCount() const;
+
+private:
+    int addOverlay(const QVector<Atom>& targetAtoms, const QColor& tint, float sizeScale,
+        const QVector<Bond>& targetBonds = {});
+
+public:
 
     void resetSimDirty() { m_moleculeDirty = false; }
 

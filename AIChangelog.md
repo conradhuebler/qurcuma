@@ -1,5 +1,13 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juni 2026 - RMSD-Overlay-Workspace
+
+- RMSD/Align komplett auf einen **`QTableWidget`-Workspace** umgestellt: Tabelle aller Strukturen mit Referenz-**Radiobutton** (welche ist Referenz/Primary), Show-Checkbox (einzelnes Ausblenden, auch der Referenz via `setPrimaryVisible`), **plain + permutation RMSD**, Farb-Tint-Swatch und Größen-Spinbox pro Struktur sowie Entfernen. Referenzwechsel richtet alle anderen neu aus.
+- Overlays sind eine **Liste** ausgerichteter Strukturen; jede erbt die globalen Display-Styles (Modus/Größe/Bindungen/Transparenz/Farbschema) und hat einen editierbaren Farb-**Tint** (Hue/Sat-Shift über CPK, Element-Identität bleibt) + **Größe**. `SceneController::rebuildOverlays()` (in `rebuildGeometry()` eingehängt) sorgt dafür, dass Display-Änderungen auf die Overlays durchschlagen.
+- Entkopplung Viewer↔Widget über `overlayWorkspaceChanged` (Voll-Rebuild, `resetView` nur bei Referenzwechsel → kein Kamerasprung beim Hinzufügen) + günstige Tint/Size/Visibility-Index-Signale; Zeilen-Controls über stabile Struktur-`id` statt Pointer/Index (behebt die früheren Manual-Row-Design-Debts). Kontextmenü „Overlay onto current" + `addStructureFromFile` richten direkt aus und geben Statusbar-Feedback (`structureAligned`).
+- **Dubletten-Check** (`isDuplicateName`, case-insensitiv): dieselbe Datei/derselbe Name wird nicht doppelt in den Workspace aufgenommen.
+- Reorder-Logik korrigiert: die zwei verwirrenden Checkboxen (Force/Disable reorder) ersetzt durch **eine** „Reorder atoms" (default **aus** — Permutation ist teuer; an → `force_reorder`, sonst würde die Methodenwahl Konformere in gleicher Atomreihenfolge nicht permutieren). Default-Methode = **inertia** (template-free, schnell). Buttons logisch in **eine** Aktionszeile unter der Tabelle konsolidiert; der Reorder-Haken sitzt direkt vor „Re-align all". perm.-RMSD-Spalte nur befüllt, wenn reordert wurde.
+
 ## Juni 2026 - Dock-Architektur-Refactor
 
 - **`src/docks/`** zentrales Dock-Verzeichnis: `DockManager` besitzt alle `QDockWidget`-Shells, Platzierung, Layout-Presets und Explore/Compute-Modus; `MainWindow` koordiniert über Signale und holt interne Widgets per Getter aus den Wrappern.
