@@ -16,6 +16,7 @@
 #include "xyzparser.h"
 
 #include <src/capabilities/rmsd.h>
+#include <src/capabilities/rmsd/rmsd_functions.h>
 
 #include "external/json.hpp"
 using json = nlohmann::json;
@@ -131,9 +132,11 @@ void RMSDWidget::setupUI()
     // Reorder is off by default (permutation search is expensive); the user enables it
     // here right next to "Re-align all".
     auto* actionRow = new QHBoxLayout();
-    m_addButton = new QPushButton(tr("Add structure…"), this);
+    m_addButton = new QPushButton(QIcon::fromTheme(QStringLiteral("document-open")),
+        tr("Add structure…"), this);
     m_addButton->setToolTip(tr("Load a structure file and align it to the reference."));
-    m_useReferenceButton = new QPushButton(tr("Use current view as reference"), this);
+    m_useReferenceButton = new QPushButton(QIcon::fromTheme(QStringLiteral("snap-orthogonal")),
+        tr("Use current view as reference"), this);
     m_useReferenceButton->setToolTip(
         tr("Take the structure shown in the viewer as the alignment reference."));
     m_reorderCheck = new QCheckBox(tr("Reorder atoms"), this);
@@ -142,7 +145,8 @@ void RMSDWidget::setupUI()
         tr("Find the optimal atom mapping with the chosen method before computing the RMSD\n"
            "(permutation RMSD). Off (default): rigid alignment in the given atom order only —\n"
            "the permutation search is expensive."));
-    m_realignButton = new QPushButton(tr("Re-align all"), this);
+    m_realignButton = new QPushButton(QIcon::fromTheme(QStringLiteral("view-refresh")),
+        tr("Re-align all"), this);
     m_realignButton->setToolTip(
         tr("Re-run the alignment for every structure with the current options."));
     actionRow->addWidget(m_addButton);
@@ -323,7 +327,8 @@ void RMSDWidget::rebuildTable()
         m_table->setCellWidget(row, ColSize, size);
 
         // Remove
-        auto* del = new QPushButton(QStringLiteral("✕"));
+        auto* del = new QPushButton(QIcon::fromTheme(QStringLiteral("list-remove")),
+            QString());
         del->setFixedWidth(26);
         del->setToolTip(tr("Remove this structure"));
         connect(del, &QPushButton::clicked, this, [this, id] {
@@ -374,16 +379,47 @@ bool RMSDWidget::alignToReference(Structure& s)
 
     curcuma::Molecule ref = atomsToMolecule(m_structures[refIdx].original);
     curcuma::Molecule tgt = atomsToMolecule(s.original);
+
+    // Fallback plain RMSD in the original atom order. curcuma's RMSDDriver populates
+    // RMSDRaw() when it actually reorders matching atom counts, but leaves it at 0 when
+    // reordering is off or atom counts differ. This local Kabsch computation ensures the
+    // plain-RMSD column always has a meaningful value without touching curcuma.
+    auto plainRmsd = [&ref, &tgt]() -> double {
+        curcuma::Molecule localRef = ref, localTgt = tgt;
+        localRef.Center();
+        localTgt.Center();
+        const Eigen::Matrix3d R = RMSDFunctions::BestFitRotation(localRef.getGeometry(), localTgt.getGeometry());
+        const Geometry aligned = RMSDFunctions::applyRotation(localTgt.getGeometry(), R);
+        return RMSDFunctions::getRMSD(localRef.getGeometry(), aligned);
+    };
+
     bool ok = true;
     try {
         RMSDDriver driver(controller, true);
         driver.setReference(ref);
         driver.setTarget(tgt);
         driver.start();
-        s.rmsdPerm = driver.RMSD();
-        s.rmsdPlain = driver.RMSDRaw();
         s.rules = driver.ReorderRules();
-        s.aligned = moleculeToAtoms(driver.TargetAligned());
+        // Overlay geometry. When reordering ran, the permutation RMSD (the value reported in
+        // the "perm." column) belongs to the *reordered* target: curcuma's TargetReorderd()
+        // returns it reordered + Kabsch-aligned to the reference (= the reorder_xyz of the CLI
+        // JSON). TargetAligned() is the un-reordered plain best-fit — the rmsd_raw geometry —
+        // so drawing it overlaid the uncorrected structure while the table showed the
+        // corrected RMSD. Fall back to TargetAligned() when no reorder ran (TargetReorderd()
+        // is then empty). Claude Generated.
+        const auto reorderedTarget = driver.TargetReorderd();
+        s.aligned = moleculeToAtoms((reorder && reorderedTarget.AtomCount() > 0)
+                ? reorderedTarget
+                : driver.TargetAligned());
+        // Plain RMSD: prefer the value curcuma already computed, otherwise fall back to
+        // the local Kabsch calculation. RMSDDriver::RMSD() is the permuted RMSD when reorder
+        // ran, otherwise the same plain value.
+        if (driver.RMSDRaw() != 0.0) {
+            s.rmsdPlain = driver.RMSDRaw();
+        } else {
+            s.rmsdPlain = reorder ? driver.RMSD() : plainRmsd();
+        }
+        s.rmsdPerm = reorder ? driver.RMSD() : s.rmsdPlain;
         s.hasResult = true;
     } catch (const std::exception& e) {
         ok = false;

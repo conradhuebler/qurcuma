@@ -386,7 +386,9 @@ void MainWindow::setupContextMenu()
 
                 // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
                 contextMenu.addSeparator();
-                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                QAction *rmsdAction = contextMenu.addAction(
+                    QIcon::fromTheme("view-object-histogram-linear"),
+                    tr("Overlay onto current (RMSD/Align)…"));
                 connect(rmsdAction, &QAction::triggered,
                     [this, filePath]() { showRMSDTool(filePath); });
 
@@ -421,7 +423,9 @@ void MainWindow::setupContextMenu()
 
                 // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
                 contextMenu.addSeparator();
-                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                QAction *rmsdAction = contextMenu.addAction(
+                    QIcon::fromTheme("view-object-histogram-linear"),
+                    tr("Overlay onto current (RMSD/Align)…"));
                 connect(rmsdAction, &QAction::triggered,
                     [this, filePath]() { showRMSDTool(filePath); });
 
@@ -463,7 +467,9 @@ void MainWindow::setupContextMenu()
 
                 // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
                 contextMenu.addSeparator();
-                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                QAction *rmsdAction = contextMenu.addAction(
+                    QIcon::fromTheme("view-object-histogram-linear"),
+                    tr("Overlay onto current (RMSD/Align)…"));
                 connect(rmsdAction, &QAction::triggered,
                     [this, filePath]() { showRMSDTool(filePath); });
 
@@ -505,7 +511,9 @@ void MainWindow::setupContextMenu()
 
                 // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
                 contextMenu.addSeparator();
-                QAction *rmsdAction = contextMenu.addAction(tr("Overlay onto current (RMSD/Align)…"));
+                QAction *rmsdAction = contextMenu.addAction(
+                    QIcon::fromTheme("view-object-histogram-linear"),
+                    tr("Overlay onto current (RMSD/Align)…"));
                 connect(rmsdAction, &QAction::triggered,
                     [this, filePath]() { showRMSDTool(filePath); });
 

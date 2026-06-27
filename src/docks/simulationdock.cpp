@@ -12,6 +12,7 @@
 #include "snapshotswidget.h"
 
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
 #include <QTabWidget>
@@ -37,7 +38,9 @@ void SimulationDock::setupUI()
     m_tabs->addTab(m_snapshotsWidget, tr("Snapshots"));
 
     m_rmsdWidget = new RMSDWidget(this);
-    m_tabs->addTab(m_rmsdWidget, tr("RMSD / Align"));
+    m_tabs->addTab(m_rmsdWidget,
+        QIcon::fromTheme(QStringLiteral("view-object-histogram-linear")),
+        tr("RMSD / Align"));
 
     QWidget* inputPage = new QWidget;
     QVBoxLayout* inputLayout = new QVBoxLayout(inputPage);
