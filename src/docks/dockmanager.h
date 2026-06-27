@@ -14,9 +14,8 @@
 #include <QHash>
 #include <QObject>
 
-class AtomsSimulationDock;
+class SimulationDock;
 class DisplayDock;
-class EditorsDock;
 class OutputDock;
 class ProjectDock;
 class Settings;
@@ -37,21 +36,18 @@ public:
     // Typed accessors for the docks already migrated into wrappers.
     OutputDock* outputDockImpl() const;
     DisplayDock* displayDockImpl() const;
-    EditorsDock* editorsDockImpl() const;
-    AtomsSimulationDock* atomsSimulationDockImpl() const;
+    SimulationDock* simulationDockImpl() const;
     ProjectDock* projectDockImpl() const;
 
     // Accessors (return nullptr until the corresponding dock has been created).
     QDockWidget* projectDock() const;
-    QDockWidget* editorsDock() const;
-    QDockWidget* atomsSimulationDock() const;
     QDockWidget* displayDock() const;
+    QDockWidget* simulationDock() const;
     QDockWidget* outputDock() const;
 
     // Internal tab widgets, exposed so callers can switch tabs without knowing
     // whether the content lives in a dock wrapper.
-    QTabWidget* editorsTabs() const;
-    QTabWidget* atomsSimulationTabs() const;
+    QTabWidget* simulationTabs() const;
     QTabWidget* navigationTabs() const;  // Returns nullptr: navigation is now a tab inside ProjectDock.
 
     // State
@@ -96,13 +92,11 @@ private:
     QMainWindow* m_mainWindow = nullptr;
 
     QDockWidget* m_projectDock = nullptr;
-    QDockWidget* m_editorsDock = nullptr;
-    QDockWidget* m_atomsSimulationDock = nullptr;
     QDockWidget* m_displayDock = nullptr;
+    QDockWidget* m_simulationDock = nullptr;
     QDockWidget* m_outputViewDock = nullptr;
 
-    QTabWidget* m_editorsTabs = nullptr;
-    QTabWidget* m_atomsSimulationTabs = nullptr;
+    QTabWidget* m_simulationTabs = nullptr;
 
     QByteArray m_defaultState;
     QHash<int, QByteArray> m_presetStates;

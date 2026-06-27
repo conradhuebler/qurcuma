@@ -53,10 +53,9 @@ class RMSDWidget;  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
 class DockManager;          // Claude Generated 2026 - owns all docks and layout presets
-class DisplayDock;          // Claude Generated 2026 - Display dock wrapper
-class EditorsDock;          // Claude Generated 2026 - Editors dock wrapper
 class OutputDock;           // Claude Generated 2026 - Output dock wrapper
-class AtomsSimulationDock;  // Claude Generated 2026 - Atoms & Simulation dock wrapper
+class SimulationDock;       // Claude Generated 2026 - Simulation dock wrapper
+class DisplayDock; // Claude Generated 2026 - Structure & Display dock wrapper
 class ProjectDock;            // Claude Generated 2026 - Project dock wrapper
 #ifdef USE_SFTP
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
@@ -515,13 +514,11 @@ private:
     // Claude Generated - Dock architecture rewrite (2026-04): 5 docks rahmen MoleculeViewer (CentralWidget)
     // NOTE: these are being migrated into DockManager / src/docks/ wrappers.
     ProjectDock* m_projectDock = nullptr;           // Left: Project dock with Files/Bookmarks/Workspaces/Remote segments
-    EditorsDock* m_editorsDock = nullptr;           // Right: structure + input editors (internal QTabWidget)
-    AtomsSimulationDock* m_atomsSimulationDock = nullptr; // Right: atom list + simulation
-    DisplayDock* m_displayDock = nullptr;           // Right: viewer display options
+    DisplayDock* m_displayDock = nullptr; // Right: [Structure | Atoms] segment + Display panel
+    SimulationDock* m_simulationDock = nullptr;     // Right: Simulation/Snapshots/RMSD/Input tabs (tabified with Structure&Display)
     OutputDock* m_outputViewDock = nullptr;         // Bottom: output log
     QDialog* m_simulationChartDialog = nullptr;     // Modeless dialog: live MD temperature/energy charts
-    QTabWidget* m_editorsTabs = nullptr;            // Internal tabs inside m_editorsDock (Structure/Input/RMSD)
-    QTabWidget* m_atomsSimulationTabs = nullptr;    // Internal tabs inside m_atomsSimulationDock
+    QTabWidget* m_simulationTabs = nullptr;         // Internal tabs inside m_simulationDock
 
     // Claude Generated 2026 - P2: Explore/Compute mode switch
     DockConfig::AppMode m_appMode = DockConfig::AppMode::Explore;

@@ -117,9 +117,8 @@ set(SOURCES
     src/rmsdwidget.cpp  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/docks/dockmanager.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/outputdock.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/simulationdock.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/displaydock.cpp  # Claude Generated 2026 - Dock system restructuring
-    src/docks/editorsdock.cpp  # Claude Generated 2026 - Dock system restructuring
-    src/docks/atomssimulationdock.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/bookmarkwidget.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/workspacepanel.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/remotedirectoriespanel.cpp  # Claude Generated 2026 - Dock system restructuring

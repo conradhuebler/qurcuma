@@ -1,18 +1,16 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
-// DockManager implementation. Phase 3: OutputDock, DisplayDock, EditorsDock,
-// AtomsSimulationDock and NavigationDock are owned here; ProjectDock is still
-// adopted from MainWindow during the migration.
+// DockManager implementation. Owns all QDockWidget shells, their initial placement,
+// layout presets and the Explore/Compute application mode.
 //
 // Claude Generated 2026 - Dock system restructuring.
 
 #include "dockmanager.h"
 
-#include "atomssimulationdock.h"
-#include "displaydock.h"
-#include "editorsdock.h"
 #include "outputdock.h"
 #include "projectdock.h"
+#include "simulationdock.h"
+#include "displaydock.h"
 
 #include <QDockWidget>
 #include <QMainWindow>
@@ -26,22 +24,14 @@ DockManager::DockManager(QMainWindow* mainWindow, QObject* parent)
 }
 
 QDockWidget* DockManager::projectDock() const { return m_projectDock; }
-QDockWidget* DockManager::editorsDock() const { return m_editorsDock; }
-QDockWidget* DockManager::atomsSimulationDock() const { return m_atomsSimulationDock; }
 QDockWidget* DockManager::displayDock() const { return m_displayDock; }
+QDockWidget* DockManager::simulationDock() const { return m_simulationDock; }
 QDockWidget* DockManager::outputDock() const { return m_outputViewDock; }
 
-QTabWidget* DockManager::editorsTabs() const
+QTabWidget* DockManager::simulationTabs() const
 {
-    if (auto* ed = qobject_cast<EditorsDock*>(m_editorsDock))
-        return ed->editorsTabs();
-    return nullptr;
-}
-
-QTabWidget* DockManager::atomsSimulationTabs() const
-{
-    if (auto* ad = qobject_cast<AtomsSimulationDock*>(m_atomsSimulationDock))
-        return ad->tabs();
+    if (auto* sd = qobject_cast<SimulationDock*>(m_simulationDock))
+        return sd->tabs();
     return nullptr;
 }
 
@@ -92,14 +82,9 @@ DisplayDock* DockManager::displayDockImpl() const
     return qobject_cast<DisplayDock*>(m_displayDock);
 }
 
-EditorsDock* DockManager::editorsDockImpl() const
+SimulationDock* DockManager::simulationDockImpl() const
 {
-    return qobject_cast<EditorsDock*>(m_editorsDock);
-}
-
-AtomsSimulationDock* DockManager::atomsSimulationDockImpl() const
-{
-    return qobject_cast<AtomsSimulationDock*>(m_atomsSimulationDock);
+    return qobject_cast<SimulationDock*>(m_simulationDock);
 }
 
 ProjectDock* DockManager::projectDockImpl() const
@@ -139,25 +124,24 @@ void DockManager::setAppMode(DockConfig::AppMode mode, bool reflow)
     // Phase 6 fix, extended: tabified dock groups must be toggled together,
     // otherwise Qt's shared tab bar can collapse when one member is hidden.
     setDockGroupVisible(m_mainWindow, m_projectDock, true);
-    setDockGroupVisible(m_mainWindow, m_editorsDock, true);
     setDockGroupVisible(m_mainWindow, m_displayDock, true);
-    setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, explore);
+    setDockGroupVisible(m_mainWindow, m_simulationDock, !explore);
     setDockGroupVisible(m_mainWindow, m_outputViewDock, !explore);
     if (explore && m_displayDock)
         m_displayDock->raise();
-    if (!explore && m_editorsDock)
-        m_editorsDock->raise();
+    if (!explore && m_simulationDock)
+        m_simulationDock->raise();
 
     if (reflow) {
         if (explore) {
             if (m_mainWindow->width() > 0)
-                m_mainWindow->resizeDocks({ m_projectDock, m_atomsSimulationDock },
+                m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
                                           { int(m_mainWindow->width() * 0.16),
                                             int(m_mainWindow->width() * 0.22) },
                                           Qt::Horizontal);
         } else {
             if (m_mainWindow->width() > 0)
-                m_mainWindow->resizeDocks({ m_projectDock, m_editorsDock },
+                m_mainWindow->resizeDocks({ m_projectDock, m_simulationDock },
                                           { int(m_mainWindow->width() * 0.20),
                                             int(m_mainWindow->width() * 0.30) },
                                           Qt::Horizontal);
@@ -215,8 +199,7 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
 
     m_outputViewDock = new OutputDock(m_mainWindow);
     m_displayDock = new DisplayDock(viewer, settings, m_mainWindow);
-    m_editorsDock = new EditorsDock(m_mainWindow);
-    m_atomsSimulationDock = new AtomsSimulationDock(m_mainWindow);
+    m_simulationDock = new SimulationDock(m_mainWindow);
     m_projectDock = new ProjectDock(settings, m_mainWindow);
 }
 
@@ -231,21 +214,20 @@ void DockManager::placeDocks()
         m_projectDock->raise();
     }
 
-    if (m_editorsDock && m_atomsSimulationDock) {
-        // Keep both editors and sim dock in the right area so the vertical splitter
-        // does not drift to another area on drag.
-        m_editorsDock->setAllowedAreas(Qt::RightDockWidgetArea);
-        m_atomsSimulationDock->setAllowedAreas(Qt::RightDockWidgetArea);
-        m_mainWindow->addDockWidget(DockConfig::EditorsDockArea, m_editorsDock);
-        m_mainWindow->addDockWidget(DockConfig::AtomsSimulationDockArea, m_atomsSimulationDock);
-        m_mainWindow->splitDockWidget(m_editorsDock, m_atomsSimulationDock, Qt::Vertical);
+    if (m_displayDock) {
+        m_displayDock->setAllowedAreas(Qt::RightDockWidgetArea);
+        m_mainWindow->addDockWidget(DockConfig::DisplayDockArea, m_displayDock);
     }
 
-    if (m_displayDock && m_editorsDock) {
-        // Same area constraint: Display and Editors are tabified; prevent drift.
-        m_displayDock->setAllowedAreas(Qt::RightDockWidgetArea);
-        m_mainWindow->tabifyDockWidget(m_editorsDock, m_displayDock);
+    if (m_simulationDock) {
+        m_simulationDock->setAllowedAreas(Qt::RightDockWidgetArea);
+        m_mainWindow->addDockWidget(DockConfig::SimulationDockArea, m_simulationDock);
     }
+
+    // The two right-side docks (Structure&Display and Simulation) are tabified
+    // so the user can switch between them via a single tab bar.
+    if (m_simulationDock && m_displayDock)
+        m_mainWindow->tabifyDockWidget(m_displayDock, m_simulationDock);
 
     if (m_outputViewDock)
         m_mainWindow->addDockWidget(DockConfig::OutputViewDockArea, m_outputViewDock);
@@ -259,14 +241,12 @@ void DockManager::applyVisualizationLayout()
         m_mainWindow->restoreState(*it);
     } else {
         setDockGroupVisible(m_mainWindow, m_projectDock, true);
-        // Right group: hide Editors+Display together; show only Atoms&Simulation.
-        setDockGroupVisible(m_mainWindow, m_editorsDock, false);
-        setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, true);
+        // Right area: show Structure&Display, hide Simulation.
+        setDockGroupVisible(m_mainWindow, m_displayDock, true);
+        setDockGroupVisible(m_mainWindow, m_simulationDock, false);
         setDockGroupVisible(m_mainWindow, m_outputViewDock, false);
-        if (auto* tabs = atomsSimulationTabs())
-            tabs->setCurrentIndex(0);
         if (m_mainWindow && m_mainWindow->width() > 0) {
-            m_mainWindow->resizeDocks({ m_projectDock, m_atomsSimulationDock },
+            m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
                 { int(m_mainWindow->width() * 0.18), int(m_mainWindow->width() * 0.22) },
                 Qt::Horizontal);
         }
@@ -282,13 +262,14 @@ void DockManager::applyEditingLayout()
         m_mainWindow->restoreState(*it);
     } else {
         setDockGroupVisible(m_mainWindow, m_projectDock, true);
-        setDockGroupVisible(m_mainWindow, m_editorsDock, true);
-        setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, false);
+        // Right area: show Structure&Display, hide Simulation.
+        setDockGroupVisible(m_mainWindow, m_displayDock, true);
+        setDockGroupVisible(m_mainWindow, m_simulationDock, false);
         setDockGroupVisible(m_mainWindow, m_outputViewDock, false);
-        if (auto* tabs = editorsTabs())
-            tabs->setCurrentIndex(0);
+        if (auto* sdd = displayDockImpl())
+            sdd->setCurrentTopSegment(DisplayDock::TopSegment::Structure);
         if (m_mainWindow && m_mainWindow->width() > 0) {
-            m_mainWindow->resizeDocks({ m_projectDock, m_editorsDock },
+            m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
                 { int(m_mainWindow->width() * 0.22), int(m_mainWindow->width() * 0.32) },
                 Qt::Horizontal);
         }
@@ -304,9 +285,12 @@ void DockManager::applyCalculationLayout()
         m_mainWindow->restoreState(*it);
     } else {
         setDockGroupVisible(m_mainWindow, m_projectDock, true);
-        setDockGroupVisible(m_mainWindow, m_editorsDock, true);
-        setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, false);
+        // Right area: show Simulation, hide Structure&Display.
+        setDockGroupVisible(m_mainWindow, m_displayDock, false);
+        setDockGroupVisible(m_mainWindow, m_simulationDock, true);
         setDockGroupVisible(m_mainWindow, m_outputViewDock, true);
+        if (auto* sd = simulationDockImpl())
+            sd->setCurrentTab(0); // Simulation tab
         if (m_mainWindow && m_mainWindow->height() > 0) {
             m_mainWindow->resizeDocks({ m_outputViewDock },
                 { int(m_mainWindow->height() * 0.35) }, Qt::Vertical);
@@ -323,11 +307,11 @@ void DockManager::applyAnalysisLayout()
         m_mainWindow->restoreState(*it);
     } else {
         setDockGroupVisible(m_mainWindow, m_projectDock, true);
-        setDockGroupVisible(m_mainWindow, m_editorsDock, true);
-        setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, true);
+        setDockGroupVisible(m_mainWindow, m_displayDock, true);
+        setDockGroupVisible(m_mainWindow, m_simulationDock, true);
         setDockGroupVisible(m_mainWindow, m_outputViewDock, true);
         if (m_mainWindow && m_mainWindow->width() > 0) {
-            m_mainWindow->resizeDocks({ m_projectDock, m_editorsDock },
+            m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
                 { int(m_mainWindow->width() * 0.22), int(m_mainWindow->width() * 0.28) },
                 Qt::Horizontal);
         }
@@ -347,14 +331,14 @@ void DockManager::applyTeachingLayout()
         m_mainWindow->restoreState(*it);
     } else {
         setDockGroupVisible(m_mainWindow, m_projectDock, true);
-        setDockGroupVisible(m_mainWindow, m_editorsDock, true);
-        setDockGroupVisible(m_mainWindow, m_atomsSimulationDock, true);
+        setDockGroupVisible(m_mainWindow, m_displayDock, true);
+        setDockGroupVisible(m_mainWindow, m_simulationDock, true);
         setDockGroupVisible(m_mainWindow, m_outputViewDock, true);
-        if (auto* tabs = editorsTabs())
+        if (auto* tabs = simulationTabs())
             tabs->setCurrentIndex(0);
         if (m_mainWindow && m_mainWindow->width() > 0) {
-            m_mainWindow->resizeDocks({ m_projectDock, m_editorsDock, m_atomsSimulationDock },
-                { int(m_mainWindow->width() * 0.18), int(m_mainWindow->width() * 0.26), int(m_mainWindow->width() * 0.22) },
+            m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
+                { int(m_mainWindow->width() * 0.18), int(m_mainWindow->width() * 0.26) },
                 Qt::Horizontal);
         }
         if (m_mainWindow && m_mainWindow->height() > 0) {

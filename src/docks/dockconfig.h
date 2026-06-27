@@ -16,11 +16,11 @@ namespace DockConfig {
 // Layout presets supported by DockManager. The first four are bound to
 // Ctrl+Alt+1..4; Teaching is used by the Lesson / interactive-demo workflow.
 enum class LayoutPreset {
-    Visualization = 0,  // 3D viewer focus: Project + Atoms&Simulation + Display
-    Editing,            // Structure editing: Project + Navigation + Editors
-    Calculation,        // Job setup/run: Project + Editors + Output
+    Visualization = 0,  // 3D viewer focus: Project + Structure&Display + Simulation
+    Editing,            // Structure editing: Project + Structure&Display
+    Calculation,        // Job setup/run: Project + Simulation + Output
     Analysis,           // Balanced: all panels visible
-    Teaching            // Interactive demo: Project + Editors + Atoms&Simulation + Output
+    Teaching            // Interactive demo: Project + Structure&Display + Simulation + Output
 };
 
 // Top-level application mode. Explore = viewer focus; Compute = calculation workflow.
@@ -32,23 +32,20 @@ enum class AppMode {
 // Stable object names used by QMainWindow::saveState()/restoreState().
 // Do NOT change these without a migration plan; they are persisted in QSettings.
 inline const QString ProjectDockObjectName = QStringLiteral("ProjectDock");
-inline const QString EditorsDockObjectName = QStringLiteral("EditorsDock");
-inline const QString AtomsSimulationDockObjectName = QStringLiteral("AtomsSimulationDock");
 inline const QString DisplayDockObjectName = QStringLiteral("DisplayDock");
+inline const QString SimulationDockObjectName = QStringLiteral("SimulationDock");
 inline const QString OutputViewDockObjectName = QStringLiteral("OutputViewDock");
 
 // Default dock areas. Kept here so every wrapper class can declare its own.
 inline const Qt::DockWidgetArea ProjectDockArea = Qt::LeftDockWidgetArea;
-inline const Qt::DockWidgetArea EditorsDockArea = Qt::RightDockWidgetArea;
-inline const Qt::DockWidgetArea AtomsSimulationDockArea = Qt::RightDockWidgetArea;
 inline const Qt::DockWidgetArea DisplayDockArea = Qt::RightDockWidgetArea;
+inline const Qt::DockWidgetArea SimulationDockArea = Qt::RightDockWidgetArea;
 inline const Qt::DockWidgetArea OutputViewDockArea = Qt::BottomDockWidgetArea;
 
 // Tab labels / dock titles.
 inline const QString ProjectDockTitle = QStringLiteral("Project");
-inline const QString EditorsDockTitle = QStringLiteral("Editors");
-inline const QString AtomsSimulationDockTitle = QStringLiteral("Atoms && Simulation");
 inline const QString DisplayDockTitle = QStringLiteral("Display");
+inline const QString SimulationDockTitle = QStringLiteral("Simulation");
 inline const QString OutputDockTitle = QStringLiteral("Output");
 
 } // namespace DockConfig

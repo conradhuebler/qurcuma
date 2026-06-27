@@ -7,9 +7,8 @@
 
 ## Wrapper Classes
 - `ProjectDock` — working directory chooser, breadcrumb, segmented directory list (Files / Bookmarks / Workspaces / Remote), file/content browser with Files/Lesson toggle, lesson metadata + per-structure editor.
-- `EditorsDock` — tabbed Structure editor, Input editor, RMSD/Align widget.
-- `AtomsSimulationDock` — tabbed atom list, simulation controls, snapshots.
-- `DisplayDock` — viewer display options panel.
+- `DisplayDock` — right-side dock with segmented top area [Structure | Atoms] and the viewer Display panel below it.
+- `SimulationDock` — right-side dock with tabs [Simulation | Snapshots | RMSD / Align | Input].
 - `OutputDock` — output log + clear button.
 
 ## Shared Config (`dockconfig.h`)
@@ -32,4 +31,5 @@
 - Phase 4 complete: `ProjectDock` extracted from `MainWindow`; all docks now live under `DockManager`.
 - Phase 5 complete: preset logic and app-mode dock handling moved to `DockManager`; `MainWindow` enums replaced by `DockConfig` enums.
 - Phase 6 complete: `NavigationDock` removed; bookmarks/workspaces/remote are now segment pages inside `ProjectDock`. Signals are forwarded by `ProjectDock` so `MainWindow` stays decoupled from internal widgets.
+- Phase 8 complete: `EditorsDock` and `AtomsSimulationDock` removed; content split into `DisplayDock` (Structure/Atoms segment + Display panel) and `SimulationDock` (Simulation/Snapshots/RMSD/Input tabs). The two right-side docks are tabified.
 - Internal `QTabWidget`s are intentionally retained inside the remaining wrappers to keep the Qt drift workaround working.

@@ -76,10 +76,9 @@
 #endif
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "docks/dockmanager.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/simulationdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/displaydock.h"  // Claude Generated 2026 - Dock system restructuring
-#include "docks/editorsdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/outputdock.h"  // Claude Generated 2026 - Dock system restructuring
-#include "docks/atomssimulationdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/bookmarkwidget.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/workspacepanel.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/remotedirectoriespanel.h"  // Claude Generated 2026 - Dock system restructuring
@@ -1014,9 +1013,8 @@ void MainWindow::createMenus()
     };
 
     addDockToggle(m_projectDock,          tr("&Project"),            QKeySequence(Qt::CTRL | Qt::Key_B));
-    addDockToggle(m_editorsDock,          tr("&Editors"));
-    addDockToggle(m_displayDock,          tr("&Display"));
-    addDockToggle(m_atomsSimulationDock,  tr("&Atoms && Simulation"));
+    addDockToggle(m_displayDock, tr("Structure & Display"));
+    addDockToggle(m_simulationDock,       tr("&Simulation"));
     addDockToggle(m_outputViewDock,       tr("&Output"));
 
     // Display options (raises the Display dock) — moved here from Settings (P4).
@@ -1067,10 +1065,10 @@ void MainWindow::createMenus()
 
     // Menu entries focus the simulation dock/tab instead of opening a dialog.
     auto showSimDock = [this](SimulationConfig::Mode mode) {
-        if (!m_atomsSimulationDock) return;
-        m_atomsSimulationDock->show();
-        m_atomsSimulationDock->raise();
-        if (m_atomsSimulationTabs) m_atomsSimulationTabs->setCurrentIndex(1);
+        if (!m_simulationDock) return;
+        m_simulationDock->show();
+        m_simulationDock->raise();
+        if (m_simulationTabs) m_simulationTabs->setCurrentIndex(0);  // Simulation tab
         if (m_simulationControlWidget) {
             SimulationConfig cfg = m_simulationControlWidget->currentConfig();
             cfg.mode = mode;
@@ -3436,14 +3434,14 @@ void MainWindow::showRMSDTool(const QString& targetFile)
     if (!targetFile.isEmpty())
         m_rmsdWidget->setTargetFile(targetFile);
 
-    // Focus the Editors dock and switch to the RMSD / Align tab (index 2).
-    if (m_editorsDock) {
-        m_editorsDock->show();
-        m_editorsDock->raise();
-        m_editorsDock->activateWindow();
+    // Focus the Simulation dock and switch to the RMSD / Align tab.
+    if (m_simulationDock) {
+        m_simulationDock->show();
+        m_simulationDock->raise();
+        m_simulationDock->activateWindow();
     }
-    if (m_editorsTabs)
-        m_editorsTabs->setCurrentIndex(2);  // Structure=0, Input=1, RMSD / Align=2
+    if (m_simulationTabs)
+        m_simulationTabs->setCurrentIndex(2);  // Simulation=0, Snapshots=1, RMSD=2, Input=3
 }
 
 // Claude Generated 2026 - Re-seed the RMSD reference from the current viewer
@@ -4549,24 +4547,24 @@ void MainWindow::createDockWidgets()
     m_dockManager->initialize(m_moleculeView, &m_settings);
     m_outputViewDock = m_dockManager->outputDockImpl();
     m_displayDock = m_dockManager->displayDockImpl();
-    m_editorsDock = m_dockManager->editorsDockImpl();
-    m_atomsSimulationDock = m_dockManager->atomsSimulationDockImpl();
+    m_simulationDock = m_dockManager->simulationDockImpl();
     // Pull the wrapped internal widgets into MainWindow members so the rest of the
     // code can keep using them during the migration.
-    m_editorsTabs = m_editorsDock ? m_editorsDock->editorsTabs() : nullptr;
-    m_structureView = m_editorsDock ? m_editorsDock->structureView() : nullptr;
-    m_inputView = m_editorsDock ? m_editorsDock->inputView() : nullptr;
-    m_structureFileEdit = m_editorsDock ? m_editorsDock->structureFileEdit() : nullptr;
-    m_structureFileEditExtension = m_editorsDock ? m_editorsDock->structureFileEditExtension() : nullptr;
-    m_inputFileEdit = m_editorsDock ? m_editorsDock->inputFileEdit() : nullptr;
-    m_inputFileEditExtension = m_editorsDock ? m_editorsDock->inputFileEditExtension() : nullptr;
-    m_rmsdWidget = m_editorsDock ? m_editorsDock->rmsdWidget() : nullptr;
-
-    if (m_atomsSimulationDock) {
-        m_atomsSimulationTabs = m_atomsSimulationDock->tabs();
-        m_atomListPanel = m_atomsSimulationDock->atomListPanel();
-        m_simulationControlWidget = m_atomsSimulationDock->simulationControlWidget();
-        m_snapshotsWidget = m_atomsSimulationDock->snapshotsWidget();
+    if (m_displayDock) {
+        m_structureView = m_displayDock->structureView();
+        m_structureFileEdit = m_displayDock->structureFileEdit();
+        m_structureFileEditExtension = m_displayDock->structureFileEditExtension();
+        m_atomListPanel = m_displayDock->atomListPanel();
+        m_displayPanel = m_displayDock->displayPanel();
+    }
+    if (m_simulationDock) {
+        m_simulationTabs = m_simulationDock->tabs();
+        m_inputView = m_simulationDock->inputView();
+        m_inputFileEdit = m_simulationDock->inputFileEdit();
+        m_inputFileEditExtension = m_simulationDock->inputFileEditExtension();
+        m_simulationControlWidget = m_simulationDock->simulationControlWidget();
+        m_snapshotsWidget = m_simulationDock->snapshotsWidget();
+        m_rmsdWidget = m_simulationDock->rmsdWidget();
     }
 
     // ==================== PROJECT DOCK (left) ====================
@@ -4668,13 +4666,17 @@ void MainWindow::createDockWidgets()
 #endif
     }
 
-    // ==================== EDITORS DOCK (right, top) ====================
-    // Phase 2: wrapper is created by DockManager. Only wire the signals here.
-    if (m_editorsDock) {
+    // ==================== STRUCTURE & DISPLAY DOCK (right) ====================
+    // Phase 8: dock with [Structure | Atoms] segment toggle on top and Display panel below.
+    if (m_displayDock) {
         // "Apply → Viewer" button lives inside the wrapper now.
-        connect(m_editorsDock, &EditorsDock::structureApplyRequested,
+        connect(m_displayDock, &DisplayDock::structureApplyRequested,
                 this, &MainWindow::applyStructureTextToViewer);
+    }
 
+    // ==================== SIMULATION DOCK (right) ====================
+    // Phase 8: dock with Simulation/Snapshots/RMSD/Input tabs, tabified with Structure&Display.
+    if (m_simulationDock) {
         // RMSD / align tool signals.
         if (m_rmsdWidget) {
             connect(m_rmsdWidget, &RMSDWidget::overlayRequested, this,
@@ -4689,13 +4691,8 @@ void MainWindow::createDockWidgets()
         }
     }
 
-    // ==================== ATOMS & SIMULATION DOCK (right, below Editors) ====================
-    // Phase 3: wrapper is created by DockManager. Internal widgets were pulled above.
-
-    // ==================== DISPLAY DOCK (right) ====================
-    // Phase 2: wrapper is created by DockManager. Pull the panel and wire signals.
-    if (m_displayDock)
-        m_displayPanel = m_displayDock->displayPanel();
+    // ==================== DISPLAY PANEL (inside Structure & Display dock) ====================
+    // Phase 8: DisplayPanel is now embedded in DisplayDock. Pull it from there.
     if (!m_displayPanel) {
         // Fallback if DockManager was not initialized; should not happen.
         m_displayPanel = new DisplayPanel(m_moleculeView, &m_settings, this);
