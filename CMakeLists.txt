@@ -58,7 +58,7 @@ set(Helper OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(curcuma
     GIT_REPOSITORY https://github.com/conradhuebler/curcuma
-    GIT_TAG        feature/vulkan_rocm
+    GIT_TAG        master
     SOURCE_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma
 )
 
