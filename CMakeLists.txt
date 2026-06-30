@@ -9,7 +9,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Qt6 COMPONENTS
 Core
 Gui
-GuiPrivate
 Widgets
 Charts
 Qml
@@ -17,6 +16,28 @@ Quick
 Quick3D
 REQUIRED
 )
+
+# Claude Generated 2026 - GuiPrivate (needed for the QRhi-based high-res image export,
+# src/view.cpp) is requested separately and non-fatally: official Qt installer builds
+# (aqt/install-qt-action, used by CI) don't ship a standalone Qt6GuiPrivateConfig.cmake,
+# only distro packages (e.g. Arch, used locally) do. The private headers themselves are
+# present in both cases -- only the small CMake package descriptor is sometimes missing.
+# When find_package can't locate it, build the INTERFACE IMPORTED target by hand from
+# Qt6Gui's own include dir, using the same <QtGui include>/<version>/QtGui layout that
+# Qt6GuiPrivateConfig.cmake would have pointed at.
+find_package(Qt6GuiPrivate QUIET)
+if(NOT TARGET Qt6::GuiPrivate)
+    message(STATUS "qurcuma: Qt6GuiPrivateConfig.cmake not found - constructing Qt6::GuiPrivate manually")
+    # Qt6Gui_INCLUDE_DIRS is a list (QtGui dir, QtCore dir, ...) -- only the first
+    # entry is the QtGui-specific include dir the private headers live under.
+    list(GET Qt6Gui_INCLUDE_DIRS 0 _qt6gui_include_dir)
+    add_library(Qt6::GuiPrivate INTERFACE IMPORTED)
+    target_include_directories(Qt6::GuiPrivate INTERFACE
+        ${_qt6gui_include_dir}/${Qt6Gui_VERSION}
+        ${_qt6gui_include_dir}/${Qt6Gui_VERSION}/QtGui
+    )
+    unset(_qt6gui_include_dir)
+endif()
 
 option(USE_SFTP "Enable SFTP remote file access (requires libssh)" OFF)
 if(USE_SFTP)
