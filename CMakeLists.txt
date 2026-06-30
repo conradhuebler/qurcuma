@@ -84,6 +84,16 @@ FetchContent_MakeAvailable(CuteChart curcuma)
 set_target_properties(curcuma PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(curcuma_helper PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
+# Claude Generated 2026 - curcuma's own CMakeLists.txt unconditionally adds its full
+# test suite (test_cases/, incl. sqm_reference). qurcuma only links curcuma_core/
+# curcuma_cap and never needs those test executables; building them wastes CI time
+# and at least one of them (test_xtb_coulomb.cpp) compiles pathologically slowly
+# with Apple Clang, which is what stalls the macOS CI job. Excluding the whole
+# directory from the default `all` target is supported retroactively by CMake
+# (>=3.18) even though add_subdirectory(test_cases) already ran inside curcuma's
+# own CMakeLists.txt.
+set_property(DIRECTORY ${curcuma_SOURCE_DIR}/test_cases PROPERTY EXCLUDE_FROM_ALL TRUE)
+
 # Quelldateien
 set(SOURCES
     src/view.cpp
