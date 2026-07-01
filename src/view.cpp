@@ -45,7 +45,9 @@
 #include <QQuickRenderTarget>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
+#if QT_CONFIG(vulkan)
 #include <QVulkanInstance>
+#endif
 #include <rhi/qrhi.h>
 #include <QPushButton>
 #include <QSet>

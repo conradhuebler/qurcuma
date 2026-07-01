@@ -7,7 +7,9 @@
 #include <QSGRendererInterface>
 #include <QSurfaceFormat>
 #include <QTimer>
+#if QT_CONFIG(vulkan)
 #include <QVulkanInstance>
+#endif
 
 #include "mainwindow.h"
 
@@ -38,6 +40,7 @@ int main(int argc, char *argv[])
     // before the first QQuickWindow (MainWindow builds the viewer). Antialiasing is
     // handled by the scene's ExtendedSceneEnvironment (MSAA), not the surface format.
     if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND")) {
+#if QT_CONFIG(vulkan)
         QVulkanInstance vk;
         if (vk.create()) {
             vk.destroy(); // Qt Quick creates its own instance for the window
@@ -46,6 +49,13 @@ int main(int argc, char *argv[])
             QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
             qInfo("qurcuma: Vulkan unavailable — using the OpenGL RHI backend.");
         }
+#else
+        // Claude Generated 2026 - this Qt kit was built without Vulkan support
+        // (QT_CONFIG(vulkan) is off, e.g. some macOS Qt distributions); fall back
+        // to OpenGL directly instead of probing for a QVulkanInstance that can't exist.
+        QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+        qInfo("qurcuma: built without Vulkan support — using the OpenGL RHI backend.");
+#endif
     }
 
     // Claude Generated 2026 - CLI option parsing for auto-starting the
