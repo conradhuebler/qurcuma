@@ -361,3 +361,51 @@ target_include_directories(test_vtf_full PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/external/
 )
+
+# Claude Generated 2026 - install()/CPack were never configured: the CI workflow's
+# "Package with CPack" step (windows/macos, `cpack -G ZIP`) always failed with
+# "Cannot find CPack config file" because include(CPack) was simply never called.
+# This wires up a minimal package: the qurcuma binary plus its Qt runtime
+# dependencies (DLLs/frameworks and, critically, the QML/platform plugins that a
+# plain link-dependency walk misses -- windeployqt/macdeployqt understand Qt's
+# plugin system, generic tools don't).
+if(APPLE)
+    # MACOSX_BUNDLE is the idiomatic packaging for a Qt GUI app on macOS and is
+    # what macdeployqt expects to deploy frameworks/plugins into.
+    set_target_properties(qurcuma PROPERTIES MACOSX_BUNDLE TRUE)
+endif()
+
+install(TARGETS qurcuma
+    BUNDLE  DESTINATION .
+    RUNTIME DESTINATION .
+)
+
+if(WIN32)
+    get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BIN_DIR}")
+    if(WINDEPLOYQT_EXECUTABLE)
+        install(CODE "
+            execute_process(COMMAND \"${WINDEPLOYQT_EXECUTABLE}\" --qmldir \"${CMAKE_SOURCE_DIR}/src/qml\" \"\${CMAKE_INSTALL_PREFIX}/qurcuma.exe\")
+        ")
+    else()
+        message(WARNING "qurcuma: windeployqt not found - packaged ZIP will be missing Qt runtime DLLs")
+    endif()
+elseif(APPLE)
+    get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
+    find_program(MACDEPLOYQT_EXECUTABLE macdeployqt HINTS "${QT_BIN_DIR}")
+    if(MACDEPLOYQT_EXECUTABLE)
+        install(CODE "
+            execute_process(COMMAND \"${MACDEPLOYQT_EXECUTABLE}\" \"\${CMAKE_INSTALL_PREFIX}/qurcuma.app\" -qmldir=\"${CMAKE_SOURCE_DIR}/src/qml\")
+        ")
+    else()
+        message(WARNING "qurcuma: macdeployqt not found - packaged ZIP will be missing the Qt runtime")
+    endif()
+endif()
+
+set(CPACK_PACKAGE_NAME "qurcuma")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_GENERATOR "ZIP")
+set(CPACK_PACKAGE_FILE_NAME "qurcuma-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}")
+include(CPack)
