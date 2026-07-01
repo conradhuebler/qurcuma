@@ -105,6 +105,16 @@ FetchContent_MakeAvailable(CuteChart curcuma)
 set_target_properties(curcuma PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(curcuma_helper PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
+# Claude Generated 2026 - CuteChart's own demo executable ("example") is not needed
+# by qurcuma (only the cutechart library is linked, see further below) and fails to
+# link on current macOS CI runners: `ld: framework 'AGL' not found` -- AGL is a
+# pre-Metal OpenGL framework Apple finally dropped from recent macOS SDKs (Xcode 26),
+# and CuteChart's Qt Charts dependency chain still probes for it. Exclude it from the
+# default build the same way curcuma's own demo executables are excluded above.
+if(TARGET example)
+    set_target_properties(example PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endif()
+
 # Claude Generated 2026 - curcuma's own CMakeLists.txt unconditionally adds its full
 # test suite (test_cases/, incl. sqm_reference). qurcuma only links curcuma_core/
 # curcuma_cap and never needs those test executables; building them wastes CI time

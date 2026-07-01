@@ -45,6 +45,16 @@ jobs:
           modules: qtquick3d qtcharts qtshadertools
           cache: true
 
+      # Claude Generated 2026 - main.cpp probes Vulkan via QVulkanInstance before
+      # falling back to OpenGL. Without the system Vulkan headers, Qt's own
+      # QVulkanInstance stays an incomplete type ("Could NOT find WrapVulkanHeaders"
+      # at Configure) and `QVulkanInstance vk;` fails to compile.
+      - name: Install Vulkan headers (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev
+
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
