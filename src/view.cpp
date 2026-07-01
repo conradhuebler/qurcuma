@@ -2061,10 +2061,12 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
     QQuickRenderControl renderControl;
     QQuickWindow quickWindow(&renderControl);
     quickWindow.setColor(transparent ? QColor(Qt::transparent) : ctrl.backgroundColor());
+#if QT_CONFIG(vulkan)
     // Vulkan needs a QVulkanInstance; reuse the live view's so we don't create a second.
     if (QQuickWindow::graphicsApi() == QSGRendererInterface::Vulkan && m_quickView
         && m_quickView->vulkanInstance())
         quickWindow.setVulkanInstance(m_quickView->vulkanInstance());
+#endif
 
     QQmlEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("controller"), &ctrl);
