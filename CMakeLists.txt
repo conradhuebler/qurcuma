@@ -1,6 +1,30 @@
 cmake_minimum_required(VERSION 3.20)
 project(qurcuma VERSION 1.0 LANGUAGES CXX)
 
+# Claude Generated 2026 - Qt/QtCharts's exported CMake targets still list
+# AGL.framework (legacy pre-Metal OpenGL entry points) as a link dependency on
+# macOS, even though nothing in the RHI-based rendering path ever calls into
+# it. macOS SDKs from Xcode 26 onward dropped AGL.framework entirely, so the
+# final link of the qurcuma executable fails with "framework 'AGL' not found"
+# despite every translation unit compiling cleanly. Since no AGL symbol is
+# ever referenced, satisfy the linker with an empty stub dylib built at
+# configure time instead of patching Qt's own CMake exports.
+if(APPLE)
+    set(AGL_STUB_DIR "${CMAKE_BINARY_DIR}/agl_stub")
+    if(NOT EXISTS "${AGL_STUB_DIR}/AGL.framework/AGL")
+        file(MAKE_DIRECTORY "${AGL_STUB_DIR}/AGL.framework")
+        file(WRITE "${CMAKE_BINARY_DIR}/agl_stub.cpp" "")
+        execute_process(
+            COMMAND ${CMAKE_CXX_COMPILER} -dynamiclib -o "${AGL_STUB_DIR}/AGL.framework/AGL" "${CMAKE_BINARY_DIR}/agl_stub.cpp"
+            RESULT_VARIABLE AGL_STUB_RESULT
+        )
+        if(NOT AGL_STUB_RESULT EQUAL 0)
+            message(WARNING "qurcuma: failed to build AGL.framework stub; link may fail on macOS SDKs without AGL")
+        endif()
+    endif()
+    add_link_options("-F${AGL_STUB_DIR}")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)  # Wichtig für Q_OBJECT
