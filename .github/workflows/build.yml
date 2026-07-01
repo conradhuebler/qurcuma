@@ -168,6 +168,13 @@ jobs:
     if: ${{ !cancelled() }}
 
     steps:
+      # Claude Generated 2026 - this job never had a checkout step, so the later
+      # git tag/push commands failed with "fatal: not in a git directory". Never
+      # caught before because the release job was always previously skipped (some
+      # platform always failed, and needs:build skips on any failure by default).
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
