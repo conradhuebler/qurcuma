@@ -55,8 +55,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libvulkan-dev
 
+      # Claude Generated 2026 - Apple Clang ships no OpenMP runtime/headers at all
+      # (`omp.h` not found building gfnff_method.cpp); Homebrew's libomp is keg-only
+      # (not on default include/lib paths), so point CMake's find_package(OpenMP) at it.
+      - name: Install OpenMP (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install libomp
+          echo "OPENMP_ROOT=$(brew --prefix libomp)" >> "$GITHUB_ENV"
+
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ runner.os == 'macOS' && '-DOpenMP_ROOT=$OPENMP_ROOT' || '' }}
 
       - name: Build
         # Claude Generated 2026 - explicit job count: unbounded --parallel on the
