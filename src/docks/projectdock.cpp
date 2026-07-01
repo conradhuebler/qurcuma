@@ -24,11 +24,82 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
+#include <QMenu>
 #include <QPushButton>
+#include <QSet>
+#include <QSortFilterProxyModel>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
+
+/** @brief Proxy model that combines a live name search with an extension
+ *  include/exclude filter. Owned and used only by ProjectDock.
+ *  Claude Generated 2026. */
+class DirectoryFilterProxyModel : public QSortFilterProxyModel
+{
+    Q_OBJECT
+public:
+    explicit DirectoryFilterProxyModel(QObject* parent = nullptr)
+        : QSortFilterProxyModel(parent)
+    {
+    }
+
+    void setExtensionPatterns(const QStringList& patterns, bool hasSelection)
+    {
+        m_patterns = patterns;
+        m_hasExtensionSelection = hasSelection;
+        invalidate();
+    }
+
+    void setNamePattern(const QString& pattern)
+    {
+        m_namePattern = pattern.trimmed();
+        invalidate();
+    }
+
+protected:
+    bool filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const override
+    {
+        auto* fsModel = qobject_cast<QFileSystemModel*>(sourceModel());
+        if (!fsModel)
+            return QSortFilterProxyModel::filterAcceptsRow(sourceRow, sourceParent);
+
+        const QModelIndex index = fsModel->index(sourceRow, 0, sourceParent);
+        if (!index.isValid())
+            return false;
+
+        const QFileInfo info = fsModel->fileInfo(index);
+
+        // Always keep directories in the proxy mapping; they are needed for
+        // the view root index and are not shown as list items anyway (the
+        // source QFileSystemModel is set to QDir::Files). Claude Generated 2026.
+        if (info.isDir())
+            return true;
+
+        const QString suffix = info.suffix().toLower();
+
+        // Extension subset filter: if the user made a selection (even an empty
+        // one), only files whose suffix is in the selected set are kept. When
+        // no selection exists at all, every file passes. Claude Generated 2026.
+        if (m_hasExtensionSelection && !m_patterns.contains(suffix))
+            return false;
+
+        // Live name search (substring, case-insensitive)
+        if (!m_namePattern.isEmpty()) {
+            const QString name = fsModel->fileName(index).toLower();
+            if (!name.contains(m_namePattern.toLower()))
+                return false;
+        }
+
+        return true;
+    }
+
+private:
+    QStringList m_patterns;
+    QString m_namePattern;
+    bool m_hasExtensionSelection = false;
+};
 
 ProjectDock::ProjectDock(Settings* settings, QWidget* parent)
     : QDockWidget(DockConfig::ProjectDockTitle, parent)
@@ -214,14 +285,52 @@ void ProjectDock::setupUI()
     stateLayout->addWidget(browserModeWidget);
     calcFilesLayout->addWidget(stateWidget);
 
+    // Filter / search panel above the content list (session-only, no persistence).
+    QWidget* filterWidget = new QWidget;
+    QHBoxLayout* filterLayout = new QHBoxLayout(filterWidget);
+    filterLayout->setContentsMargins(0, 0, 0, 0);
+    filterLayout->setSpacing(4);
+
+    // Compact filter bar: search field + extension popup + clear button.
+    // No labels or large list widgets to keep the dock clean. Claude Generated 2026.
+    m_fileSearchEdit = new QLineEdit;
+    m_fileSearchEdit->setPlaceholderText(tr("Search files…"));
+    m_fileSearchEdit->setClearButtonEnabled(true);
+    m_fileSearchEdit->setToolTip(tr("Filter files by name (substring, case-insensitive)"));
+    m_fileSearchEdit->setMinimumWidth(200);
+    filterLayout->addWidget(m_fileSearchEdit, 1);
+
+    // Extension filter as a compact popup menu: all suffixes in the current
+    // directory are shown as checkable actions. Checked = visible.
+    m_extensionFilterButton = new QToolButton;
+    m_extensionFilterButton->setText(tr("Extensions"));
+    m_extensionFilterButton->setPopupMode(QToolButton::InstantPopup);
+    m_extensionFilterButton->setToolTip(tr("Show/hide file extensions in the current directory"));
+    m_extensionFilterButton->setMinimumWidth(90);
+
+    m_extensionMenu = new QMenu(m_extensionFilterButton);
+    m_extensionFilterButton->setMenu(m_extensionMenu);
+    filterLayout->addWidget(m_extensionFilterButton);
+
+    m_clearFilterButton = new QToolButton;
+    m_clearFilterButton->setIcon(QIcon::fromTheme(QStringLiteral("edit-clear")));
+    m_clearFilterButton->setToolTip(tr("Clear search and extension filter"));
+    m_clearFilterButton->setAutoRaise(true);
+    filterLayout->addWidget(m_clearFilterButton);
+
+    calcFilesLayout->addWidget(filterWidget);
+
     m_directoryContentView = new QListView;
     m_directoryContentModel = new QFileSystemModel(this);
     m_directoryContentModel->setFilter(QDir::NoDotAndDotDot | QDir::Files);
-    m_directoryContentModel->setNameFilters(QStringList()
-        << "*.xyz" << "*.vtf" << "*.pdb" << "*.mol2" << "*.inp" << "*.log" << "*.out"
-        << "*.hess" << "*.gbw" << "*.txt" << "*.*" << "input");
+    // All files are read from the source model; the visible subset is decided
+    // by the DirectoryFilterProxyModel (search + extension chooser).
+    m_directoryContentModel->setNameFilters(QStringList() << "*");
     m_directoryContentModel->setNameFilterDisables(false);
-    m_directoryContentView->setModel(m_directoryContentModel);
+
+    m_directoryContentProxyModel = new DirectoryFilterProxyModel(this);
+    m_directoryContentProxyModel->setSourceModel(m_directoryContentModel);
+    m_directoryContentView->setModel(m_directoryContentProxyModel);
     m_directoryContentView->setContextMenuPolicy(Qt::CustomContextMenu);
     m_directoryContentView->setDragEnabled(true); // drag files onto the Lesson toggle to add them
     calcFilesLayout->addWidget(m_directoryContentView);
@@ -268,6 +377,22 @@ void ProjectDock::setupUI()
     m_lessonStructWidget->setVisible(false);
     calcFilesLayout->addWidget(m_lessonStructWidget);
 
+    // Wire up the filter / search panel (session-only).
+    connect(m_directoryContentModel, &QFileSystemModel::directoryLoaded,
+            this, &ProjectDock::refreshExtensionMenu);
+
+    connect(m_fileSearchEdit, &QLineEdit::textChanged,
+            this, [this](const QString& text) {
+                if (auto* proxy = qobject_cast<DirectoryFilterProxyModel*>(m_directoryContentProxyModel)) {
+                    proxy->setNamePattern(text);
+                    resetContentRoot();
+                }
+            });
+    connect(m_clearFilterButton, &QToolButton::clicked, this, [this]() {
+        m_fileSearchEdit->clear();
+        setAllExtensionsChecked(true);
+    });
+
     projectSplitter->addWidget(calcFilesWidget);
 
     projectSplitter->setStretchFactor(0, 1);
@@ -275,6 +400,116 @@ void ProjectDock::setupUI()
     projectLayout->addWidget(projectSplitter, 1);
 
     setWidget(projectWidget);
+}
+
+void ProjectDock::resetContentRoot()
+{
+    if (!m_directoryContentProxyModel || !m_directoryContentModel || !m_directoryContentView)
+        return;
+    const QString rootPath = m_directoryContentModel->rootPath();
+    const QModelIndex sourceRoot = m_directoryContentModel->setRootPath(rootPath);
+    const QModelIndex proxyRoot = m_directoryContentProxyModel->mapFromSource(sourceRoot);
+    m_directoryContentView->setRootIndex(proxyRoot);
+}
+
+void ProjectDock::refreshExtensionMenu()
+{
+    if (!m_directoryContentModel || !m_extensionMenu)
+        return;
+
+    const QString rootPath = m_directoryContentModel->rootPath();
+    const QModelIndex rootIndex = m_directoryContentModel->index(rootPath);
+    QSet<QString> suffixes;
+    const int rowCount = m_directoryContentModel->rowCount(rootIndex);
+    for (int row = 0; row < rowCount; ++row) {
+        const QModelIndex idx = m_directoryContentModel->index(row, 0, rootIndex);
+        const QFileInfo info = m_directoryContentModel->fileInfo(idx);
+        if (info.isDir())
+            continue;
+        QString suffix = info.suffix().toLower();
+        if (suffix.isEmpty())
+            suffix = tr("<no extension>");
+        suffixes.insert(suffix);
+    }
+
+    // Remember newly discovered suffixes as checked unless the user previously
+    // unchecked them. Suffixes that disappear are dropped from both sets.
+    for (const QString& suffix : suffixes) {
+        if (!m_uncheckedExtensions.contains(suffix))
+            m_checkedExtensions.insert(suffix);
+    }
+    m_checkedExtensions.intersect(suffixes);
+    m_uncheckedExtensions.intersect(suffixes);
+
+    m_extensionMenu->clear();
+
+    auto* allAction = m_extensionMenu->addAction(tr("Select all"));
+    auto* noneAction = m_extensionMenu->addAction(tr("Select none"));
+    m_extensionMenu->addSeparator();
+
+    connect(allAction, &QAction::triggered, this, [this]() { setAllExtensionsChecked(true); });
+    connect(noneAction, &QAction::triggered, this, [this]() { setAllExtensionsChecked(false); });
+
+    QStringList sorted = suffixes.values();
+    std::sort(sorted.begin(), sorted.end());
+    for (const QString& suffix : sorted) {
+        const bool checked = m_checkedExtensions.contains(suffix);
+        QAction* action = m_extensionMenu->addAction(suffix);
+        action->setCheckable(true);
+        action->setChecked(checked);
+        action->setData(suffix);
+        connect(action, &QAction::toggled, this, &ProjectDock::updateExtensionFilterFromMenu);
+    }
+
+    updateExtensionFilterFromMenu();
+}
+
+void ProjectDock::updateExtensionFilterFromMenu()
+{
+    if (!m_extensionMenu || !m_directoryContentProxyModel)
+        return;
+
+    QStringList patterns;
+    const bool menuHasCheckableActions = std::any_of(
+        m_extensionMenu->actions().cbegin(), m_extensionMenu->actions().cend(),
+        [](const QAction* a) { return a && a->isCheckable(); });
+
+    for (QAction* action : m_extensionMenu->actions()) {
+        if (!action->isCheckable())
+            continue;
+        const QString suffix = action->data().toString();
+        if (suffix.isEmpty())
+            continue;
+        if (action->isChecked()) {
+            patterns << suffix;
+            m_checkedExtensions.insert(suffix);
+            m_uncheckedExtensions.remove(suffix);
+        } else {
+            m_uncheckedExtensions.insert(suffix);
+            m_checkedExtensions.remove(suffix);
+        }
+    }
+
+    if (auto* proxy = qobject_cast<DirectoryFilterProxyModel*>(m_directoryContentProxyModel)) {
+        proxy->setExtensionPatterns(patterns, menuHasCheckableActions);
+        resetContentRoot();
+    }
+
+    const int visible = patterns.size();
+    const int total = qMax(0, m_extensionMenu->actions().size() - 3); // header actions + separator
+    m_extensionFilterButton->setText(tr("Extensions (%1/%2)").arg(visible).arg(total));
+}
+
+void ProjectDock::setAllExtensionsChecked(bool checked)
+{
+    if (!m_extensionMenu)
+        return;
+
+    for (QAction* action : m_extensionMenu->actions()) {
+        if (action->isCheckable())
+            action->setChecked(checked);
+    }
+    // updateExtensionFilterFromMenu is triggered by the toggled signals.
 }
 
 void ProjectDock::setCurrentSegment(ProjectSegment segment)
@@ -330,6 +565,7 @@ QToolButton* ProjectDock::filesModeButton() const { return m_filesModeBtn; }
 QToolButton* ProjectDock::lessonModeButton() const { return m_lessonModeBtn; }
 QListView* ProjectDock::directoryContentView() const { return m_directoryContentView; }
 QFileSystemModel* ProjectDock::directoryContentModel() const { return m_directoryContentModel; }
+QSortFilterProxyModel* ProjectDock::directoryContentProxyModel() const { return m_directoryContentProxyModel; }
 QWidget* ProjectDock::lessonMetaWidget() const { return m_lessonMetaWidget; }
 QLineEdit* ProjectDock::lessonTitleEdit() const { return m_lessonTitleEdit; }
 QLineEdit* ProjectDock::lessonDescEdit() const { return m_lessonDescEdit; }
@@ -350,3 +586,5 @@ WorkspacePanel* ProjectDock::workspacePanel() const { return m_workspacePanel; }
 #ifdef USE_SFTP
 RemoteDirectoriesPanel* ProjectDock::remotePanel() const { return m_remotePanel; }
 #endif
+
+#include "projectdock.moc"

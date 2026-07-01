@@ -1,5 +1,11 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juli 2026 - ProjectDock Datei-Filter
+
+- **Filter-/Suchpanel im Datei-Browser** (`ProjectDock`): über der Dateiliste eingebettet — Live-Suche nach Dateinamen plus Endungs-Filter als **popup-Menü mit allen Suffixen des aktuellen Verzeichnisses** (Include-Filter: angehakt = sichtbar); „Select all“/„Select none“ + Reset-Button. Knopf zeigt `Extensions (x/y)` an.
+- **`DirectoryFilterProxyModel`** (`src/docks/projectdock.cpp`) sitzt zwischen `QFileSystemModel` und `QListView`; `MainWindow` löst View-Indizes über `filePathFromContentIndex()` zurück in Source-Indizes auf. Nur für den lokalen Files-Modus aktiv, Lesson/SFTP bleiben unberührt.
+- Filtereinstellungen sind **session-only** (kein `QSettings`-Persistieren); Startverhalten des Browsers bleibt unverändert.
+
 ## Juni 2026 - Bild-Export (hi-res)
 
 - **File ▸ Export Image…** (Ctrl+Shift+E): echter Offscreen-Render in beliebiger Auflösung statt des alten Fake-Upscales. Via **`QQuickRenderControl` + `QRhi`** (`Qt6::GuiPrivate`, `<rhi/qrhi.h>`): QML-Szene in eine `QRhiTexture` rendern + zurücklesen (`grabWindow()` auf verstecktem Fenster liefert leer bei threaded render loop). Separate `SceneController` (`cloneStateFrom` — kein Teilen von Szenengraph-Knoten), Wiederverwendung der `QVulkanInstance` der Live-View; OpenGL braucht `mirrored()`. Dialog: Breite/Höhe (default 2× Viewport), Hintergrund (transparent default/weiß/Szene), SSAA-Schalter, Default-Ordner = Workspace. Export-Props `highQualityAA` (SSAA VeryHigh) + `transparentBackground` in `viewer3d.qml` gebunden; transiente Overlays werden nicht mitkopiert → sauberes Bild.

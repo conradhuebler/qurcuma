@@ -57,6 +57,7 @@ class OutputDock;           // Claude Generated 2026 - Output dock wrapper
 class SimulationDock;       // Claude Generated 2026 - Simulation dock wrapper
 class DisplayDock; // Claude Generated 2026 - Structure & Display dock wrapper
 class ProjectDock;            // Claude Generated 2026 - Project dock wrapper
+class QSortFilterProxyModel;  // Claude Generated 2026 - ProjectDock file filter proxy
 #ifdef USE_SFTP
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
 #endif
@@ -369,6 +370,7 @@ private:
     QSpinBox* m_threads;
     QFileSystemModel* m_projectModel;
     QFileSystemModel* m_directoryContentModel;
+    QSortFilterProxyModel* m_directoryContentProxyModel = nullptr;
     QProcess* m_currentProcess;
     Settings m_settings;
     QMap<QString, QStringList> m_programCommands;
@@ -423,6 +425,10 @@ private:
     QString m_currentMoleculeFilePath;
     bool m_structureModified = false;
     bool m_structSyncing = false;  // Claude Generated 2026 - re-entrancy guard for viewer/table/text sync
+
+    // Resolves a view index from the content list to a filesystem path. Handles
+    // the QSortFilterProxyModel introduced by ProjectDock. Claude Generated 2026.
+    QString filePathFromContentIndex(const QModelIndex& viewIndex) const;
 
     // Claude Generated 2026 - In-memory lesson being authored (Save as Lesson…).
     // Structures are appended via addCurrentStructureToLesson(); metadata via the

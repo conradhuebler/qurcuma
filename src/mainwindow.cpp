@@ -49,6 +49,7 @@
 #include <QButtonGroup>
 #include <QSettings>
 #include <QShortcut>
+#include <QSortFilterProxyModel>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QStringListModel>
@@ -366,7 +367,7 @@ void MainWindow::setupContextMenu()
                 return;
             }
 
-            QString filePath = m_directoryContentModel->filePath(index);
+            QString filePath = filePathFromContentIndex(index);
             if (filePath.endsWith(".xyz", Qt::CaseInsensitive))
             {    
                 QMenu contextMenu(this);
@@ -1235,7 +1236,7 @@ void MainWindow::setupConnections()
                 loadLessonStructureFromIndex(index);
                 return;
             }
-            QString filePath = m_directoryContentModel->filePath(index);
+            QString filePath = filePathFromContentIndex(index);
             QString suffix = QFileInfo(filePath).suffix().toLower();
             QString basename = QFileInfo(filePath).baseName();
             if (suffix == "xyz" || suffix == "vtf") {
@@ -2240,18 +2241,26 @@ void MainWindow::startNewCalculation()
 void MainWindow::updateDirectoryContent()
 {
     // Claude Generated - Handle empty calculation directory
-    if (!isValidCalculationDir()) {
-        // Show working directory itself if no calculation dir selected
-        QString fullPath = m_workingDirectory;
-        QModelIndex rootIndex = m_directoryContentModel->setRootPath(fullPath);
-        m_directoryContentView->setRootIndex(rootIndex);
-    } else {
-        QString fullPath = currentCalculationDir();
-        QModelIndex rootIndex = m_directoryContentModel->setRootPath(fullPath);
-        m_directoryContentView->setRootIndex(rootIndex);
-    }
+    QString fullPath = m_workingDirectory;
+    if (isValidCalculationDir())
+        fullPath = currentCalculationDir();
+
+    const QModelIndex sourceRoot = m_directoryContentModel->setRootPath(fullPath);
+    const QModelIndex proxyRoot = m_directoryContentProxyModel
+        ? m_directoryContentProxyModel->mapFromSource(sourceRoot)
+        : sourceRoot;
+    m_directoryContentView->setRootIndex(proxyRoot);
 }
 
+QString MainWindow::filePathFromContentIndex(const QModelIndex& viewIndex) const
+{
+    if (!viewIndex.isValid())
+        return QString();
+    if (m_directoryContentProxyModel && m_directoryContentView &&
+        m_directoryContentView->model() == m_directoryContentProxyModel)
+        return m_directoryContentModel->filePath(m_directoryContentProxyModel->mapToSource(viewIndex));
+    return m_directoryContentModel->filePath(viewIndex);
+}
 
 void MainWindow::syncRightView()
 {
@@ -2975,7 +2984,9 @@ void MainWindow::setBrowserMode(bool lessonMode)
         m_directoryContentView->setModel(m_lessonStructureModel);
         m_directoryContentView->setRootIndex(QModelIndex());  // flat list
     } else {
-        m_directoryContentView->setModel(m_directoryContentModel);
+        m_directoryContentView->setModel(m_directoryContentProxyModel
+            ? static_cast<QAbstractItemModel*>(m_directoryContentProxyModel)
+            : static_cast<QAbstractItemModel*>(m_directoryContentModel));
         updateDirectoryContent();  // restore the filesystem root index
     }
 }
@@ -4617,6 +4628,7 @@ void MainWindow::createDockWidgets()
         m_lessonModeBtn = m_projectDock->lessonModeButton();
         m_directoryContentView = m_projectDock->directoryContentView();
         m_directoryContentModel = m_projectDock->directoryContentModel();
+        m_directoryContentProxyModel = m_projectDock->directoryContentProxyModel();
         m_lessonMetaWidget = m_projectDock->lessonMetaWidget();
         m_lessonTitleEdit = m_projectDock->lessonTitleEdit();
         m_lessonDescEdit = m_projectDock->lessonDescEdit();

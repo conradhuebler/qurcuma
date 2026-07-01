@@ -15,10 +15,13 @@ class BreadcrumbBar;
 class BookmarkWidget;
 class QComboBox;
 class QFileSystemModel;
+class QMenu;
 class QLabel;
 class QLineEdit;
 class QListView;
+class QListWidget;
 class QPushButton;
+class QSortFilterProxyModel;
 class QStackedWidget;
 class QToolButton;
 class QWidget;
@@ -66,6 +69,7 @@ public:
     // Content list and its filesystem model
     QListView* directoryContentView() const;
     QFileSystemModel* directoryContentModel() const;
+    QSortFilterProxyModel* directoryContentProxyModel() const;
 
     // Lesson metadata widget (visible in Lesson mode)
     QWidget* lessonMetaWidget() const;
@@ -111,6 +115,10 @@ public slots:
 
 private:
     void setupUI();
+    void resetContentRoot();
+    void refreshExtensionMenu();
+    void updateExtensionFilterFromMenu();
+    void setAllExtensionsChecked(bool checked);
 
     QPushButton* m_chooseDirectory = nullptr;
     BreadcrumbBar* m_breadcrumbBar = nullptr;
@@ -125,7 +133,17 @@ private:
     QToolButton* m_lessonModeBtn = nullptr;
     QListView* m_directoryContentView = nullptr;
     QFileSystemModel* m_directoryContentModel = nullptr;
+    QSortFilterProxyModel* m_directoryContentProxyModel = nullptr;
+    QLineEdit* m_fileSearchEdit = nullptr;
+    QToolButton* m_extensionFilterButton = nullptr;
+    QMenu* m_extensionMenu = nullptr;
+    QToolButton* m_clearFilterButton = nullptr;
     QWidget* m_lessonMetaWidget = nullptr;
+
+    // Session-only extension filter state (remembers checked/unchecked suffixes
+    // across directory changes). Claude Generated 2026.
+    QSet<QString> m_checkedExtensions;
+    QSet<QString> m_uncheckedExtensions;
     QLineEdit* m_lessonTitleEdit = nullptr;
     QLineEdit* m_lessonDescEdit = nullptr;
     QLabel* m_lessonAuthorsLabel = nullptr;

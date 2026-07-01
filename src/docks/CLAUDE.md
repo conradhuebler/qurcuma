@@ -22,6 +22,11 @@
 - Bound to Ctrl+Alt+1..4; Teaching is used by the Lesson / interactive-demo workflow.
 - View ▸ Dock Panels uses each dock's `QDockWidget::toggleViewAction()`, which is Qt's safe path for tabified groups.
 
+## ProjectDock File Browser Filter
+- `DirectoryFilterProxyModel` sits between `QFileSystemModel` and `QListView`; combines live name search with extension subset filtering.
+- Embedded compact bar above the content list: search field + `Extensions` popup menu with all suffixes in the current directory + clear button; session-only (resets on restart).
+- `MainWindow` resolves view indices back to source indices via `filePathFromContentIndex()`; Lesson/SFTP modes bypass the proxy.
+
 ## Explore / Compute Mode
 - `MainWindow::setAppMode` updates mode buttons, persists to `ui/appMode`, and toggles the calculation toolbar.
 - Dock visibility and reflow are delegated to `DockManager::setAppMode`.
