@@ -41,7 +41,11 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.6.3"
+          # Claude Generated 2026 - bumped from 6.6.3: src/dialogs/nmrspectrumdialog.cpp
+          # uses QCheckBox::checkStateChanged, added in Qt 6.7 (replacing the
+          # tristate-unsafe stateChanged(int)); 6.6.3 failed with "not a member of
+          # QCheckBox". Matches the Qt version used in local development (6.11.x).
+          version: "6.8.2"
           modules: qtquick3d qtcharts qtshadertools
           cache: true
 
