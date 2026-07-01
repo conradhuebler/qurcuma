@@ -161,6 +161,11 @@ jobs:
     name: Publish nightly prerelease
     runs-on: ubuntu-latest
     needs: build
+    # Claude Generated 2026 - by default a failing matrix entry (e.g. Windows,
+    # which has known unported portability issues) would skip this job entirely
+    # even though Linux/macOS built successfully. Publish whatever artifacts did
+    # get produced instead of blocking the whole nightly release on one platform.
+    if: ${{ !cancelled() }}
 
     steps:
       - name: Download artifacts
