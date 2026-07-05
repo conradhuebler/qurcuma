@@ -11,6 +11,7 @@ const QString Settings::WORKING_DIRS_KEY = "workingDirectories";
 const QString Settings::LAST_USED_DIR_KEY = "lastUsedWorkingDirectory";
 const QString Settings::VIZ_SETTINGS_PREFIX = "visualization/";
 const QString Settings::USE_INVOCATION_DIR_KEY = "useInvocationDirectory";  // Claude Generated 2026
+const QString Settings::VIEW_PRESETS_PREFIX = "viewPresets/";  // Claude Generated 2026
 
 Settings::Settings(QObject* parent)
     : QObject(parent)
@@ -332,6 +333,183 @@ void Settings::initializeDefaultPresets()
     presentSettings.fogEnabled = true;
     presentSettings.fogIntensity = 0.3f;
     savePreset("Presentation", presentSettings);
+}
+
+namespace {
+// Helpers to serialize Qt value types that QSettings cannot store directly.
+QString vec3ToString(const QVector3D& v)
+{
+    return QStringLiteral("%1,%2,%3").arg(v.x()).arg(v.y()).arg(v.z());
+}
+QVector3D vec3FromString(const QString& s)
+{
+    const QStringList parts = s.split(QLatin1Char(','));
+    if (parts.size() >= 3)
+        return QVector3D(parts[0].toFloat(), parts[1].toFloat(), parts[2].toFloat());
+    return QVector3D();
+}
+QString quatToString(const QQuaternion& q)
+{
+    return QStringLiteral("%1,%2,%3,%4").arg(q.scalar()).arg(q.x()).arg(q.y()).arg(q.z());
+}
+QQuaternion quatFromString(const QString& s)
+{
+    const QStringList parts = s.split(QLatin1Char(','));
+    if (parts.size() >= 4)
+        return QQuaternion(parts[0].toFloat(), parts[1].toFloat(), parts[2].toFloat(), parts[3].toFloat());
+    return QQuaternion();
+}
+QString colorToString(const QColor& c)
+{
+    return QStringLiteral("%1,%2,%3,%4").arg(c.red()).arg(c.green()).arg(c.blue()).arg(c.alpha());
+}
+QColor colorFromString(const QString& s)
+{
+    const QStringList parts = s.split(QLatin1Char(','));
+    if (parts.size() >= 3)
+        return QColor(parts[0].toInt(), parts[1].toInt(), parts[2].toInt(), parts.value(3, QStringLiteral("255")).toInt());
+    return QColor(32, 36, 44);
+}
+}
+
+// Claude Generated 2026 - Reproducible camera + display view presets
+QVector<ViewPreset> Settings::viewPresets()
+{
+    QVector<ViewPreset> presets;
+    m_settings.beginGroup(VIEW_PRESETS_PREFIX);
+    const QStringList groups = m_settings.childGroups();
+    for (const QString& name : groups) {
+        m_settings.beginGroup(name);
+        ViewPreset p;
+        p.name = name;
+        p.rootRotation = quatFromString(m_settings.value(QStringLiteral("rootRotation")).toString());
+        p.cameraDistance = m_settings.value(QStringLiteral("cameraDistance"), 0.0f).toFloat();
+        p.pan = vec3FromString(m_settings.value(QStringLiteral("pan")).toString());
+        p.fieldOfView = m_settings.value(QStringLiteral("fieldOfView"), 45.0f).toFloat();
+        p.sceneExtent = m_settings.value(QStringLiteral("sceneExtent"), 0.0f).toFloat();
+        p.zoomFactor = m_settings.value(QStringLiteral("zoomFactor"), 3.0f).toFloat();
+        p.zoomMode = static_cast<ZoomMode>(m_settings.value(QStringLiteral("zoomMode"), 0).toInt());
+
+        p.renderingMode = m_settings.value(QStringLiteral("renderingMode"), 0).toInt();
+        p.colorScheme = m_settings.value(QStringLiteral("colorScheme"), 0).toInt();
+        p.atomTransparency = m_settings.value(QStringLiteral("atomTransparency"), 1.0f).toFloat();
+        p.atomShininess = m_settings.value(QStringLiteral("atomShininess"), 80.0f).toFloat();
+        p.atomScaleFactor = m_settings.value(QStringLiteral("atomScaleFactor"), 1.0f).toFloat();
+        p.bondThickness = m_settings.value(QStringLiteral("bondThickness"), 0.15f).toFloat();
+        p.fogEnabled = m_settings.value(QStringLiteral("fogEnabled"), false).toBool();
+        p.fogIntensity = m_settings.value(QStringLiteral("fogIntensity"), 0.5f).toFloat();
+        p.fogDistance = m_settings.value(QStringLiteral("fogDistance"), 0.2f).toFloat();
+        p.ssaoEnabled = m_settings.value(QStringLiteral("ssaoEnabled"), true).toBool();
+        p.ssaoIntensity = m_settings.value(QStringLiteral("ssaoIntensity"), 1.0f).toFloat();
+        p.ssaoRadius = m_settings.value(QStringLiteral("ssaoRadius"), 0.05f).toFloat();
+        p.ssaoBias = m_settings.value(QStringLiteral("ssaoBias"), 0.025f).toFloat();
+        p.bloomEnabled = m_settings.value(QStringLiteral("bloomEnabled"), true).toBool();
+        p.bloomThreshold = m_settings.value(QStringLiteral("bloomThreshold"), 0.8f).toFloat();
+        p.bloomIntensity = m_settings.value(QStringLiteral("bloomIntensity"), 1.0f).toFloat();
+        p.hdrEnabled = m_settings.value(QStringLiteral("hdrEnabled"), true).toBool();
+        p.exposure = m_settings.value(QStringLiteral("exposure"), 1.0f).toFloat();
+        p.rotationMode = m_settings.value(QStringLiteral("rotationMode"), 0).toInt();
+        p.wallVisible = m_settings.value(QStringLiteral("wallVisible"), true).toBool();
+        p.wallOpacity = m_settings.value(QStringLiteral("wallOpacity"), 0.6).toDouble();
+        p.backgroundColor = colorFromString(m_settings.value(QStringLiteral("backgroundColor")).toString());
+        for (int i = 0; i < 4; ++i)
+            p.cornerLightEnabled[i] = m_settings.value(QStringLiteral("cornerLight%1").arg(i), i < 2).toBool();
+
+        presets.append(p);
+        m_settings.endGroup();
+    }
+    m_settings.endGroup();
+    return presets;
+}
+
+void Settings::saveViewPreset(const ViewPreset& preset)
+{
+    if (preset.name.isEmpty())
+        return;
+    const QString path = VIEW_PRESETS_PREFIX + preset.name + QLatin1Char('/');
+    m_settings.setValue(path + QStringLiteral("rootRotation"), quatToString(preset.rootRotation));
+    m_settings.setValue(path + QStringLiteral("cameraDistance"), preset.cameraDistance);
+    m_settings.setValue(path + QStringLiteral("pan"), vec3ToString(preset.pan));
+    m_settings.setValue(path + QStringLiteral("fieldOfView"), preset.fieldOfView);
+    m_settings.setValue(path + QStringLiteral("sceneExtent"), preset.sceneExtent);
+    m_settings.setValue(path + QStringLiteral("zoomFactor"), preset.zoomFactor);
+    m_settings.setValue(path + QStringLiteral("zoomMode"), static_cast<int>(preset.zoomMode));
+
+    m_settings.setValue(path + QStringLiteral("renderingMode"), preset.renderingMode);
+    m_settings.setValue(path + QStringLiteral("colorScheme"), preset.colorScheme);
+    m_settings.setValue(path + QStringLiteral("atomTransparency"), preset.atomTransparency);
+    m_settings.setValue(path + QStringLiteral("atomShininess"), preset.atomShininess);
+    m_settings.setValue(path + QStringLiteral("atomScaleFactor"), preset.atomScaleFactor);
+    m_settings.setValue(path + QStringLiteral("bondThickness"), preset.bondThickness);
+    m_settings.setValue(path + QStringLiteral("fogEnabled"), preset.fogEnabled);
+    m_settings.setValue(path + QStringLiteral("fogIntensity"), preset.fogIntensity);
+    m_settings.setValue(path + QStringLiteral("fogDistance"), preset.fogDistance);
+    m_settings.setValue(path + QStringLiteral("ssaoEnabled"), preset.ssaoEnabled);
+    m_settings.setValue(path + QStringLiteral("ssaoIntensity"), preset.ssaoIntensity);
+    m_settings.setValue(path + QStringLiteral("ssaoRadius"), preset.ssaoRadius);
+    m_settings.setValue(path + QStringLiteral("ssaoBias"), preset.ssaoBias);
+    m_settings.setValue(path + QStringLiteral("bloomEnabled"), preset.bloomEnabled);
+    m_settings.setValue(path + QStringLiteral("bloomThreshold"), preset.bloomThreshold);
+    m_settings.setValue(path + QStringLiteral("bloomIntensity"), preset.bloomIntensity);
+    m_settings.setValue(path + QStringLiteral("hdrEnabled"), preset.hdrEnabled);
+    m_settings.setValue(path + QStringLiteral("exposure"), preset.exposure);
+    m_settings.setValue(path + QStringLiteral("rotationMode"), preset.rotationMode);
+    m_settings.setValue(path + QStringLiteral("wallVisible"), preset.wallVisible);
+    m_settings.setValue(path + QStringLiteral("wallOpacity"), preset.wallOpacity);
+    m_settings.setValue(path + QStringLiteral("backgroundColor"), colorToString(preset.backgroundColor));
+    for (int i = 0; i < 4; ++i)
+        m_settings.setValue(path + QStringLiteral("cornerLight%1").arg(i), preset.cornerLightEnabled[i]);
+
+    m_settings.sync();
+}
+
+void Settings::deleteViewPreset(const QString& name)
+{
+    m_settings.remove(VIEW_PRESETS_PREFIX + name);
+    m_settings.sync();
+}
+
+bool Settings::viewPresetExists(const QString& name) const
+{
+    return m_settings.contains(VIEW_PRESETS_PREFIX + name + QStringLiteral("/cameraDistance"));
+}
+
+// Claude Generated 2026 - Operator metadata (name/ORCID/institution/license)
+QString Settings::operatorName() const
+{
+    return m_settings.value(QStringLiteral("operator/name")).toString();
+}
+void Settings::setOperatorName(const QString& name)
+{
+    m_settings.setValue(QStringLiteral("operator/name"), name);
+    m_settings.sync();
+}
+QString Settings::operatorOrcid() const
+{
+    return m_settings.value(QStringLiteral("operator/orcid")).toString();
+}
+void Settings::setOperatorOrcid(const QString& orcid)
+{
+    m_settings.setValue(QStringLiteral("operator/orcid"), orcid);
+    m_settings.sync();
+}
+QString Settings::operatorInstitution() const
+{
+    return m_settings.value(QStringLiteral("operator/institution")).toString();
+}
+void Settings::setOperatorInstitution(const QString& institution)
+{
+    m_settings.setValue(QStringLiteral("operator/institution"), institution);
+    m_settings.sync();
+}
+QString Settings::operatorLicense() const
+{
+    return m_settings.value(QStringLiteral("operator/license")).toString();
+}
+void Settings::setOperatorLicense(const QString& license)
+{
+    m_settings.setValue(QStringLiteral("operator/license"), license);
+    m_settings.sync();
 }
 
 // Claude Generated Phase 2 - Enhanced recent files with timestamps

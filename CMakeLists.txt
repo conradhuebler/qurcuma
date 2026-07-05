@@ -152,6 +152,7 @@ set_property(DIRECTORY ${curcuma_SOURCE_DIR}/test_cases PROPERTY EXCLUDE_FROM_AL
 # Quelldateien
 set(SOURCES
     src/view.cpp
+    src/viewpresetwidget.cpp  # Claude Generated 2026 - view preset UI
     src/main.cpp
     src/mainwindow.cpp
     src/settings.cpp
@@ -257,7 +258,9 @@ add_executable(qurcuma
     resources.qrc
 )
 
-target_compile_definitions(qurcuma PRIVATE $<$<BOOL:${USE_SFTP}>:USE_SFTP>)
+target_compile_definitions(qurcuma PRIVATE
+    $<$<BOOL:${USE_SFTP}>:USE_SFTP>
+    QURCUMA_VERSION="${PROJECT_VERSION}")
 
 # Claude Generated 2026 - Match curcuma's CPU/SIMD flags on the qurcuma target.
 #

@@ -274,6 +274,10 @@ public:
     void setCameraDistance(float d);
     void setPan(const QVector3D& pan);
     QVector3D pan() const { return m_pan; }
+    /// Set all camera transform parameters atomically (single transformChanged).
+    void setCameraTransform(const QQuaternion& rotation, const QVector3D& pan, float distance);
+    /// Set only the rotation (Quick orientation buttons); pan and distance stay.
+    void setRootRotationOnly(const QQuaternion& rotation);
     void resetView();              // frame the whole molecule
     void centerAtOrigin();         // shift atoms to COM=origin, reset view
     void fitToBounds(const QVector3D& center, float radius);

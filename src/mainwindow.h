@@ -158,6 +158,7 @@ private slots:
     void processOutput();
     void processError();
     void configurePrograms();
+    void configureOperatorMetadata();  // Claude Generated 2026 - operator name/ORCID/institution/license
     void runSimulation();
     void startNewCalculation();  // Neue Funktion
 

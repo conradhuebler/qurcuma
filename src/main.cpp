@@ -7,7 +7,7 @@
 #include <QSGRendererInterface>
 #include <QSurfaceFormat>
 #include <QTimer>
-#if QT_CONFIG(vulkan)
+#if QT_CONFIG(vulkan) && __has_include(<vulkan/vulkan.h>)
 #include <QVulkanInstance>
 #endif
 
@@ -31,6 +31,7 @@ int main(int argc, char *argv[])
     }
 
     QApplication app(argc, argv);
+    QCoreApplication::setApplicationVersion(QStringLiteral(QURCUMA_VERSION));
 
     // Claude Generated 2026 - Renderer migration: prefer the Vulkan RHI backend for
     // Qt Quick 3D. Vulkan is cross-vendor (NVIDIA proprietary, AMD/RADV, Intel ANV),
@@ -40,7 +41,7 @@ int main(int argc, char *argv[])
     // before the first QQuickWindow (MainWindow builds the viewer). Antialiasing is
     // handled by the scene's ExtendedSceneEnvironment (MSAA), not the surface format.
     if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND")) {
-#if QT_CONFIG(vulkan)
+#if QT_CONFIG(vulkan) && __has_include(<vulkan/vulkan.h>)
         QVulkanInstance vk;
         if (vk.create()) {
             vk.destroy(); // Qt Quick creates its own instance for the window
@@ -50,9 +51,11 @@ int main(int argc, char *argv[])
             qInfo("qurcuma: Vulkan unavailable — using the OpenGL RHI backend.");
         }
 #else
-        // Claude Generated 2026 - this Qt kit was built without Vulkan support
-        // (QT_CONFIG(vulkan) is off, e.g. some macOS Qt distributions); fall back
-        // to OpenGL directly instead of probing for a QVulkanInstance that can't exist.
+        // Claude Generated 2026 - either this Qt kit was built without Vulkan support
+        // (QT_CONFIG(vulkan) off, e.g. some macOS Qt distributions) or the Vulkan
+        // headers (<vulkan/vulkan.h>) are absent at build time (Windows CI without the
+        // Vulkan SDK -> QVulkanInstance stays an incomplete type). Fall back to OpenGL
+        // directly instead of probing for a QVulkanInstance that can't exist.
         QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
         qInfo("qurcuma: built without Vulkan support — using the OpenGL RHI backend.");
 #endif

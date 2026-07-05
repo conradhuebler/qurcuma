@@ -18,6 +18,8 @@
 #include <QCompleter>
 #include <QDialog>
 #include <QDir>
+#include <QFormLayout>
+#include <QLineEdit>
 #include <QDateTime>
 #include <QDialogButtonBox>
 #include <QDirIterator>
@@ -878,7 +880,7 @@ void MainWindow::createMenus()
     exportImageAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E));
     connect(exportImageAction, &QAction::triggered, this, [this]() {
         if (m_moleculeView)
-            m_moleculeView->exportImageDialog(m_workingDirectory);
+            m_moleculeView->exportImageDialog(m_workingDirectory, &m_settings);
     });
 
     fileMenu->addSeparator();
@@ -1081,6 +1083,13 @@ void MainWindow::createMenus()
     settingsMenu->addSeparator();
     QAction *configAction = settingsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure Programs..."));
     connect(configAction, &QAction::triggered, this, &MainWindow::configurePrograms);
+
+    // Claude Generated 2026 - Operator metadata (name/ORCID/institution/license),
+    // reused as default authorship for image exports and lessons.
+    QAction *operatorAction = settingsMenu->addAction(QIcon::fromTheme("user-identity"), tr("Operator Metadata..."));
+    operatorAction->setToolTip(tr("Set your name, ORCID, institution and default license. "
+                                  "Used as authorship for exported images and lessons."));
+    connect(operatorAction, &QAction::triggered, this, &MainWindow::configureOperatorMetadata);
 
     // Claude Generated 2026 - P4: "Molecule" menu merges Simulation (MD/Opt) + Analysis (RMSD).
     QMenu *moleculeMenu = menuBar->addMenu(tr("&Molecule"));
@@ -1608,6 +1617,54 @@ void MainWindow::configurePrograms()
     connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 
     dialog.exec();
+}
+
+// Claude Generated 2026 - Operator metadata (name/ORCID/institution/license),
+// stored once and reused as default authorship for image exports and lessons.
+void MainWindow::configureOperatorMetadata()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Operator Metadata"));
+    auto* form = new QFormLayout(&dialog);
+
+    auto* nameEdit = new QLineEdit(m_settings.operatorName(), &dialog);
+    nameEdit->setPlaceholderText(tr("Your name"));
+    form->addRow(tr("Name:"), nameEdit);
+
+    auto* orcidEdit = new QLineEdit(m_settings.operatorOrcid(), &dialog);
+    orcidEdit->setPlaceholderText(tr("0000-0000-0000-0000"));
+    form->addRow(tr("ORCID:"), orcidEdit);
+
+    auto* institutionEdit = new QLineEdit(m_settings.operatorInstitution(), &dialog);
+    institutionEdit->setPlaceholderText(tr("Institution / affiliation"));
+    form->addRow(tr("Institution:"), institutionEdit);
+
+    auto* licenseCombo = new QComboBox(&dialog);
+    licenseCombo->setEditable(true);
+    licenseCombo->addItems({ QStringLiteral("CC-BY-4.0"), QStringLiteral("CC0-1.0"),
+                             QStringLiteral("CC-BY-SA-4.0"), QStringLiteral("CC-BY-ND-4.0"),
+                             QStringLiteral("CC-BY-NC-4.0") });
+    const QString currentLicense = m_settings.operatorLicense();
+    int licIdx = licenseCombo->findText(currentLicense);
+    if (licIdx >= 0)
+        licenseCombo->setCurrentIndex(licIdx);
+    else if (!currentLicense.isEmpty())
+        licenseCombo->setEditText(currentLicense);
+    licenseCombo->setToolTip(tr("Default license embedded into exported images."));
+    form->addRow(tr("License:"), licenseCombo);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    form->addRow(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    m_settings.setOperatorName(nameEdit->text().trimmed());
+    m_settings.setOperatorOrcid(orcidEdit->text().trimmed());
+    m_settings.setOperatorInstitution(institutionEdit->text().trimmed());
+    m_settings.setOperatorLicense(licenseCombo->currentText().trimmed());
 }
 
 // In mainwindow.cpp:

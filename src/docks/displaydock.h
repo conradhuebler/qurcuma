@@ -20,6 +20,7 @@ class QStackedWidget;
 class QToolButton;
 class MoleculeViewer;
 class Settings;
+class ViewPresetWidget;
 
 class DisplayDock : public QDockWidget
 {
@@ -51,6 +52,9 @@ public:
     // Display panel
     DisplayPanel* displayPanel() const;
 
+    // Camera + display preset widget
+    ViewPresetWidget* viewPresetWidget() const;
+
 signals:
     /// "Apply → Viewer" was clicked in the structure editor.
     void structureApplyRequested();
@@ -70,4 +74,5 @@ private:
 
     AtomListPanel* m_atomListPanel = nullptr;
     DisplayPanel* m_displayPanel = nullptr;
+    ViewPresetWidget* m_viewPresetWidget = nullptr;
 };

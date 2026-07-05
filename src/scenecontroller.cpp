@@ -1054,6 +1054,14 @@ void SceneController::setRootRotation(const QQuaternion& q)
     m_rootRotation = q;
     emit transformChanged();
 }
+
+void SceneController::setRootRotationOnly(const QQuaternion& rotation)
+{
+    if (m_rootRotation == rotation)
+        return;
+    m_rootRotation = rotation;
+    emit transformChanged();
+}
 void SceneController::setCameraDistance(float d)
 {
     m_cameraDistance = qMax(0.5f, d);
@@ -1064,6 +1072,27 @@ void SceneController::setPan(const QVector3D& pan)
     m_pan = pan;
     emit transformChanged();
 }
+
+void SceneController::setCameraTransform(const QQuaternion& rotation, const QVector3D& pan, float distance)
+{
+    bool changed = false;
+    if (m_rootRotation != rotation) {
+        m_rootRotation = rotation;
+        changed = true;
+    }
+    if (m_pan != pan) {
+        m_pan = pan;
+        changed = true;
+    }
+    const float clampedDistance = qMax(0.5f, distance);
+    if (qAbs(m_cameraDistance - clampedDistance) > 1e-6f) {
+        m_cameraDistance = clampedDistance;
+        changed = true;
+    }
+    if (changed)
+        emit transformChanged();
+}
+
 void SceneController::resetView()
 {
     m_rootRotation = QQuaternion();

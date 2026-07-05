@@ -10,6 +10,8 @@
 #include <QColor>
 #include <QUuid>
 
+#include "viewpreset.h"
+
 class Settings : public QObject
 {
     Q_OBJECT
@@ -114,6 +116,23 @@ public:
     void deletePreset(const QString& name);
     bool presetExists(const QString& name) const;
     void initializeDefaultPresets();  // Create built-in presets
+
+    // Claude Generated 2026 - Reproducible camera + display view presets
+    QVector<ViewPreset> viewPresets();  // non-const due to QSettings::beginGroup
+    void saveViewPreset(const ViewPreset& preset);
+    void deleteViewPreset(const QString& name);
+    bool viewPresetExists(const QString& name) const;
+
+    // Claude Generated 2026 - Operator metadata (name/ORCID/institution/license),
+    // configured once and reused as default authorship for image exports, lessons, etc.
+    QString operatorName() const;
+    void setOperatorName(const QString& name);
+    QString operatorOrcid() const;
+    void setOperatorOrcid(const QString& orcid);
+    QString operatorInstitution() const;
+    void setOperatorInstitution(const QString& institution);
+    QString operatorLicense() const;
+    void setOperatorLicense(const QString& license);
 
     // Claude Generated Phase 3 - Organized bookmarks with hierarchical folder support
     struct BookmarkItem {
@@ -231,6 +250,7 @@ private:
     static const QString LAST_USED_DIR_KEY;
     static const QString VIZ_SETTINGS_PREFIX;
     static const QString USE_INVOCATION_DIR_KEY;  // Claude Generated 2026 - "Use Invocation Directory" preference
+    static const QString VIEW_PRESETS_PREFIX;      // Claude Generated 2026 - camera + display view presets
 };
 
 #endif

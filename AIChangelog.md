@@ -1,5 +1,22 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juli 2026 - Reproduzierbare Metadaten in exportierten Abbildungen
+
+- **Operator-Metadaten** (Settings ▸ „Operator Metadata…"): Name, ORCID, Institution, Lizenz einmal konfigurierbar; gespeichert unter `operator/` in QSettings. Werden als Default-Autorenschaft für Bildexport (und künftig Lessons) verwendet.
+- **PNG-Text-Chunks** im Bildexport (`Molecule ▸ Export Image…`): `QImage::setText` schreibt Software/Quranuma-Version, Export-Zeitstempel, Quelldatei, Kamera-Parameter (Rotation als Quaternion, Distanz, Pan, ZoomMode/ZoomFactor), Display-Einstellungen (Modus, Farbschema, Größen, Transparenz, Hintergrund, Effekte), Operator (Name/ORCID/Institution/Lizenz) und optional den angewandten View-Preset-Namen.
+- **Export-Dialog erweitert**: Checkbox „Embed metadata (PNG)" (default an) + Combo „View preset (optional)" — wendet das Preset vor dem Export an und schreibt dessen Namen in die Metadaten.
+- **Application-Version**: `QURCUMA_VERSION` via CMake compile definition + `QCoreApplication::setApplicationVersion` in `main.cpp` (vorher leer).
+- JPEG/TIFF-Export ohne Metadaten (Qt6 kann kein EXIF schreiben); PNG ist der empfohlene Format.
+
+## Juli 2026 - View-Presets für einheitliche Moleküldarstellungen (Redesign)
+
+- **Ein Preset = Kamera + Display** im `DisplayDock` (`ViewPresetWidget`): Save-Dialog mit Namen + Zoom-Modus, Load per Klick/Doppelklick, Delete. Presets unter `viewPresets/` in `QSettings` persistiert; Liste startet leer.
+- **Zoom in zwei Modi** (`ZoomMode` in `src/viewpreset.h`): **Absolute** wendet die gespeicherte `cameraDistance` direkt an (identisch nur bei gleich großen Strukturen); **Relative** rekonstruiert `cameraDistance = zoomFactor * sceneExtent` des aktuell geladenen Moleküls → gleiche Bildschirmgröße über unterschiedlich große Moleküle hinweg.
+- **`SceneController::setCameraTransform`** (atomar, einzelnes `transformChanged`) + `m_quickView->update()` sorgen für sofort konsistente Kamera-Updates ohne Maus-Bewegung.
+- **Quick-Buttons** `Front`/`Top`/`Side` rufen `MoleculeViewer::setCameraOrientation()` auf — nur Rotation, Zoom/Display bleiben unverändert.
+- **Display-Sync ohne Dock-Raise**: `MoleculeViewer::viewPresetApplied()` → `DisplayPanel::loadCurrentSettings()` (statt Umweg über `displayOptionsRequested`/`openVisualizationSettings`).
+- Checkbox **„Include display settings“** (im Save-Dialog und beim Load) erlaubt reine Kamera-Presets.
+
 ## Juli 2026 - ProjectDock Datei-Filter
 
 - **Filter-/Suchpanel im Datei-Browser** (`ProjectDock`): über der Dateiliste eingebettet — Live-Suche nach Dateinamen plus Endungs-Filter als **popup-Menü mit allen Suffixen des aktuellen Verzeichnisses** (Include-Filter: angehakt = sichtbar); „Select all“/„Select none“ + Reset-Button. Knopf zeigt `Extensions (x/y)` an.

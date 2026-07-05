@@ -16,12 +16,15 @@
 #include <QVector3D>
 #include <QVector>
 #include "simulationframe.h"  // Claude Generated - Zero-copy simulation payload
+#include "viewpreset.h"  // Claude Generated 2026 - reproducible camera/display presets
+#include "imagemetadata.h"  // Claude Generated 2026 - export image provenance
 
 class SelectionManager;  // Forward declaration
 class MeasurementOverlay;  // Claude Generated - Phase 2B (Quick3D port pending, M2)
 class BondEditor;  // Claude Generated - Phase 4B - Forward declaration
 class PerformanceOptimizer;  // Claude Generated - LOD wire-up
 class SceneController;  // Claude Generated 2026 - Qt Quick 3D scene view-model
+class Settings;  // Claude Generated 2026 - operator metadata + view presets for export
 class QQuickView;
 
 class MoleculeViewer : public QWidget
@@ -202,8 +205,13 @@ public slots:
     /// High-quality image export: render the scene offscreen at an arbitrary resolution
     /// (true supersampling, not upscaling) and save it. @p background: 0 = scene colour,
     /// 1 = white, 2 = transparent (alpha PNG). Claude Generated 2026.
-    bool exportImage(const QString& path, int width, int height, int background, bool ssaa);
-    void exportImageDialog(const QString& startDir = QString());
+    /// High-quality image export: render the scene offscreen at an arbitrary resolution
+    /// (true supersampling, not upscaling) and save it. @p background: 0 = scene colour,
+    /// 1 = white, 2 = transparent (alpha PNG). @p metadata is written as PNG text chunks.
+    /// Claude Generated 2026.
+    bool exportImage(const QString& path, int width, int height, int background, bool ssaa,
+                     const ImageMetadata& metadata);
+    void exportImageDialog(const QString& startDir = QString(), Settings* settings = nullptr);
 
     // Claude Generated - Trajectory animation
     void startAnimation();
@@ -303,6 +311,12 @@ public slots:
     void fitAllInView();
     void getSelectedBounds(QVector3D& center, float& radius);  // Helper for focus commands
 
+    // Claude Generated 2026 - Reproducible view presets (camera + display).
+    ViewPreset currentViewPreset(ZoomMode zoomMode = ZoomMode::Absolute) const;
+    void applyViewPreset(const ViewPreset& preset, bool applyCamera = true, bool applyDisplay = true);
+    /// Set only the camera rotation (Quick orientation buttons).
+    void setCameraOrientation(const QQuaternion& rotation);
+
 signals:
     void frameChanged(int frameIndex);
     void trajectoryLoaded(int frameCount);
@@ -331,6 +345,9 @@ signals:
     // Claude Generated 2026 - confinement-wall boundary violations for the
     // current frame. Emitted when the count changes; 0 = all atoms inside.
     void wallViolationChanged(int count);
+    // Claude Generated 2026 - emitted after applyViewPreset() so the DisplayPanel
+    // can re-sync its controls without the dock being raised.
+    void viewPresetApplied();
 
 public slots:
     void setSimulationActive(bool on);

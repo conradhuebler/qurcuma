@@ -36,6 +36,12 @@ DisplayPanel::DisplayPanel(MoleculeViewer* viewer, Settings* settings, QWidget* 
         m_settings->initializeDefaultPresets();
     loadCurrentSettings();
     refreshPresetList();
+
+    // Claude Generated 2026 - re-sync controls after a view preset is applied
+    // (camera+display) without the dock being raised.
+    if (m_viewer)
+        connect(m_viewer, &MoleculeViewer::viewPresetApplied,
+                this, [this]() { loadCurrentSettings(); });
 }
 
 void DisplayPanel::setupUI()

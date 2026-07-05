@@ -9,6 +9,7 @@
 
 #include "bondeditor.h"
 #include "elementdata.h"
+#include "settings.h"
 
 #include "src/core/elements.h"
 #include "forceinjector.h"
@@ -22,6 +23,7 @@
 #include <QColorDialog>
 #include <QComboBox>
 #include <QCursor>
+#include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -45,7 +47,7 @@
 #include <QQuickRenderTarget>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
-#if QT_CONFIG(vulkan)
+#if QT_CONFIG(vulkan) && __has_include(<vulkan/vulkan.h>)
 #include <QVulkanInstance>
 #endif
 #include <rhi/qrhi.h>
@@ -2008,6 +2010,117 @@ QVector<MoleculeViewer::Bond> MoleculeViewer::detectBondsHysteresis(
 // ---------------------------------------------------------------------------
 // Screenshot
 // ---------------------------------------------------------------------------
+// Claude Generated 2026 - Reproducible view presets (camera + display).
+ViewPreset MoleculeViewer::currentViewPreset(ZoomMode zoomMode) const
+{
+    ViewPreset p;
+    p.zoomMode = zoomMode;
+    if (m_scene) {
+        p.rootRotation = m_scene->rootRotation();
+        p.pan = m_scene->pan();
+        p.cameraDistance = m_scene->cameraDistance();
+        p.fieldOfView = m_scene->fieldOfView();
+        p.sceneExtent = m_scene->sceneExtent();
+        const float extent = qMax(p.sceneExtent, 1e-3f);
+        p.zoomFactor = p.cameraDistance / extent;
+    }
+
+    p.renderingMode = static_cast<int>(m_renderingMode);
+    p.colorScheme = static_cast<int>(m_colorScheme);
+    p.atomTransparency = m_atomTransparency;
+    p.atomShininess = m_atomShininess;
+    p.atomScaleFactor = m_atomScaleFactor;
+    p.bondThickness = m_bondThickness;
+    p.fogEnabled = m_fogEnabled;
+    p.fogIntensity = m_fogIntensity;
+    p.fogDistance = m_fogDistance;
+    p.ssaoEnabled = m_ssaoEnabled;
+    p.ssaoIntensity = m_ssaoIntensity;
+    p.ssaoRadius = m_ssaoRadius;
+    p.ssaoBias = m_ssaoBias;
+    p.bloomEnabled = m_bloomEnabled;
+    p.bloomThreshold = m_bloomThreshold;
+    p.bloomIntensity = m_bloomIntensity;
+    p.hdrEnabled = m_hdrEnabled;
+    p.exposure = m_exposure;
+    p.rotationMode = static_cast<int>(m_rotationMode);
+    p.wallVisible = m_wallVisibleOverride;
+    p.wallOpacity = getWallOpacity();
+    p.backgroundColor = m_backgroundColor;
+    for (int i = 0; i < 4; ++i)
+        p.cornerLightEnabled[i] = m_cornerLightEnabled[i];
+
+    return p;
+}
+
+void MoleculeViewer::applyViewPreset(const ViewPreset& preset, bool applyCamera, bool applyDisplay)
+{
+    if (applyCamera && m_scene) {
+        float distance = preset.cameraDistance;
+        if (preset.zoomMode == ZoomMode::Relative) {
+            const float extent = qMax(m_scene->sceneExtent(), 1e-3f);
+            distance = preset.zoomFactor * extent;
+        }
+        // Keep m_modelRotation in sync so mouse rotation continues from the
+        // preset instead of snapping back to the pre-preset orientation.
+        m_modelRotation = preset.rootRotation.normalized();
+        if (distance > 0.0f)
+            m_scene->setCameraTransform(preset.rootRotation, preset.pan, distance);
+        else
+            m_scene->resetView(); // no usable zoom -> frame molecule cleanly
+        if (m_quickView)
+            m_quickView->update();
+    }
+
+    if (!applyDisplay) {
+        emit viewPresetApplied();
+        return;
+    }
+
+    setRenderingMode(static_cast<RenderingMode>(preset.renderingMode));
+    setColorScheme(static_cast<ColorScheme>(preset.colorScheme));
+    setAtomTransparency(preset.atomTransparency);
+    setAtomShininess(preset.atomShininess);
+    setAtomScaleFactor(preset.atomScaleFactor);
+    setBondThickness(preset.bondThickness);
+    setFogEnabled(preset.fogEnabled);
+    setFogIntensity(preset.fogIntensity);
+    setFogDistance(preset.fogDistance);
+    setSSAOEnabled(preset.ssaoEnabled);
+    setSSAOIntensity(preset.ssaoIntensity);
+    setSSAORadius(preset.ssaoRadius);
+    setSSAOBias(preset.ssaoBias);
+    setBloomEnabled(preset.bloomEnabled);
+    setBloomThreshold(preset.bloomThreshold);
+    setBloomIntensity(preset.bloomIntensity);
+    setHDREnabled(preset.hdrEnabled);
+    setExposure(preset.exposure);
+    setRotationMode(preset.rotationMode);
+    setWallVisibleOverride(preset.wallVisible);
+    setWallOpacity(preset.wallOpacity);
+    setBackgroundColor(preset.backgroundColor);
+    for (int i = 0; i < 4; ++i)
+        setCornerLightEnabled(i, preset.cornerLightEnabled[i]);
+
+    applyAppearanceToController();
+
+    emit renderingModeChanged(m_renderingMode);
+    emit colorSchemeChanged(m_colorScheme);
+    emit viewPresetApplied(); // DisplayPanel re-syncs its controls (no dock raise)
+}
+
+void MoleculeViewer::setCameraOrientation(const QQuaternion& rotation)
+{
+    if (!m_scene)
+        return;
+    // Keep m_modelRotation in sync so mouse rotation continues from this
+    // orientation instead of snapping back to the previous one.
+    m_modelRotation = rotation.normalized();
+    m_scene->setRootRotationOnly(rotation);
+    if (m_quickView)
+        m_quickView->update();
+}
+
 void MoleculeViewer::saveScreenshot(const QString& filename, int scaleFactor)
 {
     if (!m_quickView) {
@@ -2037,7 +2150,7 @@ void MoleculeViewer::saveScreenshotDialog()
 }
 
 bool MoleculeViewer::exportImage(const QString& path, int width, int height, int background,
-    bool ssaa)
+    bool ssaa, const ImageMetadata& metadata)
 {
     if (!m_scene || width < 1 || height < 1)
         return false;
@@ -2061,7 +2174,7 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
     QQuickRenderControl renderControl;
     QQuickWindow quickWindow(&renderControl);
     quickWindow.setColor(transparent ? QColor(Qt::transparent) : ctrl.backgroundColor());
-#if QT_CONFIG(vulkan)
+#if QT_CONFIG(vulkan) && __has_include(<vulkan/vulkan.h>)
     // Vulkan needs a QVulkanInstance; reuse the live view's so we don't create a second.
     if (QQuickWindow::graphicsApi() == QSGRendererInterface::Vulkan && m_quickView
         && m_quickView->vulkanInstance())
@@ -2137,7 +2250,7 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
     renderControl.endFrame();  // submits + runs the readback callback
 
     if (rhi->isYUpInFramebuffer())
-        result = result.mirrored(false, true);  // OpenGL is bottom-up
+        result = result.flipped(Qt::Vertical);  // OpenGL is bottom-up
 
     delete rootObj;            // release the QML scene before engine/ctrl go away
     renderControl.invalidate();
@@ -2146,10 +2259,61 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
         return false;
     result = transparent ? result.convertToFormat(QImage::Format_ARGB32)
                          : result.convertToFormat(QImage::Format_RGB888);
+
+    // Claude Generated 2026 - embed reproducibility/authorship as PNG text chunks.
+    if (metadata.embed) {
+        auto quat = metadata.cameraRotation;
+        result.setText(QStringLiteral("Software"),
+                       QStringLiteral("Quranuma %1").arg(metadata.qurcumaVersion));
+        result.setText(QStringLiteral("ExportTimestamp"), metadata.exportTimestamp);
+        result.setText(QStringLiteral("ImageWidth"), QString::number(metadata.width));
+        result.setText(QStringLiteral("ImageHeight"), QString::number(metadata.height));
+
+        for (int i = 0; i < metadata.sourceFiles.size(); ++i) {
+            const QString key = (i == 0) ? QStringLiteral("SourceFile")
+                                          : QStringLiteral("SourceFile%1").arg(i + 1);
+            result.setText(key, metadata.sourceFiles[i]);
+        }
+
+        result.setText(QStringLiteral("CameraRotation"),
+                       QStringLiteral("%1,%2,%3,%4").arg(quat.scalar()).arg(quat.x()).arg(quat.y()).arg(quat.z()));
+        result.setText(QStringLiteral("CameraDistance"), QString::number(metadata.cameraDistance));
+        result.setText(QStringLiteral("CameraPan"),
+                       QStringLiteral("%1,%2,%3").arg(metadata.cameraPan.x()).arg(metadata.cameraPan.y()).arg(metadata.cameraPan.z()));
+        result.setText(QStringLiteral("ZoomMode"),
+                       metadata.zoomMode == ZoomMode::Relative ? QStringLiteral("Relative")
+                                                               : QStringLiteral("Absolute"));
+        result.setText(QStringLiteral("ZoomFactor"), QString::number(metadata.zoomFactor));
+
+        result.setText(QStringLiteral("RenderingMode"), QString::number(metadata.renderingMode));
+        result.setText(QStringLiteral("ColorScheme"), QString::number(metadata.colorScheme));
+        result.setText(QStringLiteral("AtomScale"), QString::number(metadata.atomScaleFactor));
+        result.setText(QStringLiteral("BondThickness"), QString::number(metadata.bondThickness));
+        result.setText(QStringLiteral("AtomTransparency"), QString::number(metadata.atomTransparency));
+        result.setText(QStringLiteral("BackgroundColor"),
+                       QStringLiteral("%1,%2,%3,%4")
+                           .arg(metadata.backgroundColor.red()).arg(metadata.backgroundColor.green())
+                           .arg(metadata.backgroundColor.blue()).arg(metadata.backgroundColor.alpha()));
+        if (!metadata.effects.isEmpty())
+            result.setText(QStringLiteral("Effects"), metadata.effects);
+
+        if (!metadata.authorName.isEmpty())
+            result.setText(QStringLiteral("Author"), metadata.authorName);
+        if (!metadata.authorOrcid.isEmpty())
+            result.setText(QStringLiteral("AuthorORCID"), metadata.authorOrcid);
+        if (!metadata.authorInstitution.isEmpty())
+            result.setText(QStringLiteral("AuthorInstitution"), metadata.authorInstitution);
+        if (!metadata.license.isEmpty())
+            result.setText(QStringLiteral("License"), metadata.license);
+
+        if (!metadata.viewPresetName.isEmpty())
+            result.setText(QStringLiteral("ViewPreset"), metadata.viewPresetName);
+    }
+
     return result.save(path);
 }
 
-void MoleculeViewer::exportImageDialog(const QString& startDir)
+void MoleculeViewer::exportImageDialog(const QString& startDir, Settings* settings)
 {
     QDialog dlg(this);
     dlg.setWindowTitle(tr("Export Image"));
@@ -2178,6 +2342,22 @@ void MoleculeViewer::exportImageDialog(const QString& startDir)
     ssaaCheck->setChecked(true);
     form->addRow(QString(), ssaaCheck);
 
+    // Claude Generated 2026 - reproducibility metadata + optional view preset.
+    auto* embedCheck = new QCheckBox(tr("Embed metadata (PNG)"), &dlg);
+    embedCheck->setChecked(true);
+    embedCheck->setToolTip(tr("Write source file, camera, display settings and operator "
+                              "authorship as PNG text chunks. JPEG/TIFF get no metadata (Qt6 cannot write EXIF)."));
+    form->addRow(QString(), embedCheck);
+
+    auto* presetCombo = new QComboBox(&dlg);
+    presetCombo->addItem(tr("(none)"), QString());
+    if (settings) {
+        for (const ViewPreset& p : settings->viewPresets())
+            presetCombo->addItem(p.name, p.name);
+    }
+    presetCombo->setToolTip(tr("Apply a view preset before exporting; its name is stored in the image metadata."));
+    form->addRow(tr("View preset:"), presetCombo);
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dlg);
     form->addRow(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
@@ -2186,6 +2366,56 @@ void MoleculeViewer::exportImageDialog(const QString& startDir)
         return;
 
     const int bg = bgCombo->currentData().toInt();
+    // Apply an optional view preset before rendering so the figure matches it.
+    QString presetName;
+    if (settings) {
+        const QString sel = presetCombo->currentData().toString();
+        if (!sel.isEmpty()) {
+            for (const ViewPreset& p : settings->viewPresets()) {
+                if (p.name == sel) {
+                    applyViewPreset(p, true, true);
+                    presetName = sel;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Build the metadata to embed.
+    ImageMetadata meta;
+    meta.embed = embedCheck->isChecked();
+    if (meta.embed) {
+        if (settings) {
+            meta.authorName = settings->operatorName();
+            meta.authorOrcid = settings->operatorOrcid();
+            meta.authorInstitution = settings->operatorInstitution();
+            meta.license = settings->operatorLicense();
+        }
+        if (!m_currentFilePath.isEmpty())
+            meta.sourceFiles << m_currentFilePath;
+
+        const ViewPreset cam = currentViewPreset(ZoomMode::Absolute);
+        meta.cameraRotation = cam.rootRotation;
+        meta.cameraPan = cam.pan;
+        meta.cameraDistance = cam.cameraDistance;
+        meta.zoomMode = cam.zoomMode;
+        meta.zoomFactor = cam.zoomFactor;
+
+        meta.renderingMode = static_cast<int>(m_renderingMode);
+        meta.colorScheme = static_cast<int>(m_colorScheme);
+        meta.atomScaleFactor = m_atomScaleFactor;
+        meta.bondThickness = m_bondThickness;
+        meta.atomTransparency = m_atomTransparency;
+        meta.backgroundColor = m_backgroundColor;
+        meta.effects = QStringLiteral("SSAO=%1,Bloom=%2,HDR=%3,Fog=%4")
+                           .arg(m_ssaoEnabled ? 1 : 0).arg(m_bloomEnabled ? 1 : 0)
+                           .arg(m_hdrEnabled ? 1 : 0).arg(m_fogEnabled ? 1 : 0);
+
+        meta.qurcumaVersion = QCoreApplication::applicationVersion();
+        meta.exportTimestamp = QDateTime::currentDateTime().toString(Qt::ISODate);
+        meta.viewPresetName = presetName;
+    }
+
     const QString filter = (bg == 2)
         ? tr("PNG Image (*.png)")  // alpha needs PNG
         : tr("PNG Image (*.png);;JPEG Image (*.jpg *.jpeg)");
@@ -2199,8 +2429,11 @@ void MoleculeViewer::exportImageDialog(const QString& startDir)
     if (!path.contains(QLatin1Char('.')))
         path += QStringLiteral(".png");
 
+    meta.width = wSpin->value();
+    meta.height = hSpin->value();
+
     QApplication::setOverrideCursor(Qt::WaitCursor);
-    const bool ok = exportImage(path, wSpin->value(), hSpin->value(), bg, ssaaCheck->isChecked());
+    const bool ok = exportImage(path, wSpin->value(), hSpin->value(), bg, ssaaCheck->isChecked(), meta);
     QApplication::restoreOverrideCursor();
     if (ok)
         QMessageBox::information(this, tr("Export Image"), tr("Image saved to:\n%1").arg(path));

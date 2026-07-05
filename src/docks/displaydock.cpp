@@ -11,6 +11,7 @@
 #include "modifiabletextedit.h"
 #include "settings.h"
 #include "view.h"
+#include "viewpresetwidget.h"
 
 #include <QButtonGroup>
 #include <QHBoxLayout>
@@ -74,15 +75,20 @@ void DisplayDock::setupUI(MoleculeViewer* viewer, Settings* settings)
     m_topStack->addWidget(createStructurePage());
     m_topStack->addWidget(createAtomsPage());
 
-    // Display panel (bottom)
+    // Display panel (middle)
     m_displayPanel = new DisplayPanel(viewer, settings, this);
 
-    // Splitter: top = Structure/Atoms, bottom = Display
+    // View presets (bottom) - compact widget for reproducible camera + display.
+    m_viewPresetWidget = new ViewPresetWidget(viewer, settings, this);
+
+    // Splitter: top = Structure/Atoms, middle = Display, bottom = Presets
     QSplitter* splitter = new QSplitter(Qt::Vertical);
     splitter->addWidget(m_topStack);
     splitter->addWidget(m_displayPanel);
+    splitter->addWidget(m_viewPresetWidget);
     splitter->setStretchFactor(0, 1);
-    splitter->setStretchFactor(1, 1);
+    splitter->setStretchFactor(1, 2);
+    splitter->setStretchFactor(2, 1);
     centralLayout->addWidget(splitter, 1);
 
     connect(m_structureSegmentBtn, &QToolButton::clicked,
@@ -163,3 +169,4 @@ QLineEdit* DisplayDock::structureFileEditExtension() const { return m_structureF
 
 AtomListPanel* DisplayDock::atomListPanel() const { return m_atomListPanel; }
 DisplayPanel* DisplayDock::displayPanel() const { return m_displayPanel; }
+ViewPresetWidget* DisplayDock::viewPresetWidget() const { return m_viewPresetWidget; }
