@@ -2249,8 +2249,16 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
     renderControl.commandBuffer()->resourceUpdate(batch);
     renderControl.endFrame();  // submits + runs the readback callback
 
-    if (rhi->isYUpInFramebuffer())
-        result = result.flipped(Qt::Vertical);  // OpenGL is bottom-up
+    if (rhi->isYUpInFramebuffer()) {  // OpenGL is bottom-up
+        // Claude Generated 2026 - QImage::flipped() is Qt 6.9+; CI pins 6.8.2, so
+        // fall back to the (now-deprecated) mirrored() there. mirrored(false, true)
+        // == flipped(Qt::Vertical).
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+        result = result.flipped(Qt::Vertical);
+#else
+        result = result.mirrored(false, true);
+#endif
+    }
 
     delete rootObj;            // release the QML scene before engine/ctrl go away
     renderControl.invalidate();
