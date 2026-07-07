@@ -42,9 +42,13 @@ class RMSDWidget : public QWidget {
 public:
     explicit RMSDWidget(QWidget* parent = nullptr);
 
-    /** Seed (or refresh) the reference structure from the currently displayed molecule. */
+    /** Seed (or refresh) the reference structure from the currently displayed molecule.
+     * @p filePath is the canonical full path of the source file (empty if the structure
+     * was not loaded from a file) so the duplicate check can catch a target that is the
+     * very same file as the reference. */
     void setReferenceStructure(const QVector<MoleculeViewer::Atom>& atoms,
-        const QVector<MoleculeViewer::Bond>& bonds, const QString& name);
+        const QVector<MoleculeViewer::Bond>& bonds, const QString& name,
+        const QString& filePath = QString());
 
     /** True once the workspace has a reference structure. */
     bool hasReference() const { return referenceIndex() >= 0; }
@@ -98,6 +102,7 @@ private:
     struct Structure {
         int id = 0;
         QString name;
+        QString filePath;  // canonical full path of the source file (empty if seeded from the viewer)
         QVector<MoleculeViewer::Atom> original;  // as loaded / seeded
         QVector<MoleculeViewer::Bond> bonds;
         QVector<MoleculeViewer::Atom> aligned;   // aligned to current reference (== original if reference)
@@ -120,7 +125,8 @@ private:
     bool alignToReference(Structure& s);          // run RMSDDriver, fill aligned/rmsd/rules
     void realignAll();                            // re-align every non-reference structure
     bool addStructure(const QVector<MoleculeViewer::Atom>& atoms,
-        const QVector<MoleculeViewer::Bond>& bonds, const QString& name);
+        const QVector<MoleculeViewer::Bond>& bonds, const QString& name,
+        const QString& filePath = QString());
     void setReferenceByIndex(int index);          // promote a structure to reference
     void removeStructure(int index);
 
@@ -131,9 +137,11 @@ private:
 
     int referenceIndex() const;                    // index of the reference (-1 if none)
     int indexOfId(int id) const;
-    // True if a structure with the same name (file name) is already in the workspace —
-    // guards against adding the very same file twice.
+    // True if a structure with the same display name is already in the workspace.
     bool isDuplicateName(const QString& name) const;
+    // True if a structure sourced from the same file (by canonical full path) is already
+    // in the workspace — guards against comparing a file with itself. Claude Generated.
+    bool isDuplicatePath(const QString& filePath) const;
     int overlayIndexOf(int structureIndex) const;  // position among the non-reference structures
     QColor nextDefaultTint();
     QString currentMethod() const;

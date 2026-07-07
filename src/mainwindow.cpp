@@ -3556,7 +3556,16 @@ void MainWindow::seedRMSDReference()
     const QString refName = m_currentMoleculeFilePath.isEmpty()
         ? tr("current structure")
         : QFileInfo(m_currentMoleculeFilePath).fileName();
-    m_rmsdWidget->setReferenceStructure(refAtoms, m_moleculeView->getCurrentFrameBonds(), refName);
+    // Carry the canonical path so the workspace's duplicate check catches a target
+    // file that is the very same file as the reference (e.g. "Overlay onto current"
+    // invoked on the loaded molecule's own file).
+    QString refPath = m_currentMoleculeFilePath;
+    if (!refPath.isEmpty()) {
+        const QString canonical = QFileInfo(refPath).canonicalFilePath();
+        if (!canonical.isEmpty())
+            refPath = canonical;
+    }
+    m_rmsdWidget->setReferenceStructure(refAtoms, m_moleculeView->getCurrentFrameBonds(), refName, refPath);
 }
 
 // Claude Generated - Quick Fix: Show about dialog

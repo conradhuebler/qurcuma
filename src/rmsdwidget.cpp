@@ -215,6 +215,17 @@ bool RMSDWidget::isDuplicateName(const QString& name) const
     return false;
 }
 
+bool RMSDWidget::isDuplicatePath(const QString& filePath) const
+{
+    // Compare by canonical full path so the very same file is detected even when
+    // reached via different relative paths or symlinks. Empty filePath (structure
+    // seeded from the viewer, not a file) never matches here.
+    for (const Structure& s : m_structures)
+        if (!s.filePath.isEmpty() && s.filePath.compare(filePath, Qt::CaseInsensitive) == 0)
+            return true;
+    return false;
+}
+
 int RMSDWidget::overlayIndexOf(int structureIndex) const
 {
     // Overlay index = position among the non-reference structures (the order in which
@@ -452,20 +463,35 @@ void RMSDWidget::realignAll()
 // ---- workspace mutations ----
 
 bool RMSDWidget::addStructure(const QVector<MoleculeViewer::Atom>& atoms,
-    const QVector<MoleculeViewer::Bond>& bonds, const QString& name)
+    const QVector<MoleculeViewer::Bond>& bonds, const QString& name,
+    const QString& filePath)
 {
     if (atoms.isEmpty())
         return false;
 
-    if (isDuplicateName(name)) {
+    // Dedup by full path when available: the same file must not be compared with itself.
+    if (!filePath.isEmpty() && isDuplicatePath(filePath)) {
         QMessageBox::information(this, tr("RMSD"),
-            tr("A structure named \"%1\" is already in the workspace.").arg(name));
+            tr("The file \"%1\" is already in the workspace.").arg(filePath));
         return false;
+    }
+
+    // Display name: keep the base name, but disambiguate via the full path when another
+    // structure already shows the same base name (different file, same name).
+    QString displayName = name;
+    if (isDuplicateName(name)) {
+        if (filePath.isEmpty()) {
+            QMessageBox::information(this, tr("RMSD"),
+                tr("A structure named \"%1\" is already in the workspace.").arg(name));
+            return false;
+        }
+        displayName = filePath;
     }
 
     Structure s;
     s.id = m_nextId++;
-    s.name = name;
+    s.name = displayName;
+    s.filePath = filePath;
     s.original = atoms;
     s.bonds = bonds;
     s.aligned = atoms;
@@ -509,11 +535,18 @@ bool RMSDWidget::addStructureFromFile(const QString& path)
             tr("Could not load structure:\n%1").arg(path));
         return false;
     }
-    return addStructure(atoms, bonds, QFileInfo(path).fileName());
+    const QFileInfo info(path);
+    // canonicalFilePath resolves ".", "..", and symlinks to a unique absolute form,
+    // so the duplicate check matches the same file regardless of how it was addressed.
+    QString canonical = info.canonicalFilePath();
+    if (canonical.isEmpty())
+        canonical = info.absoluteFilePath();  // fallback if the file vanished between pick and read
+    return addStructure(atoms, bonds, info.fileName(), canonical);
 }
 
 void RMSDWidget::setReferenceStructure(const QVector<MoleculeViewer::Atom>& atoms,
-    const QVector<MoleculeViewer::Bond>& bonds, const QString& name)
+    const QVector<MoleculeViewer::Bond>& bonds, const QString& name,
+    const QString& filePath)
 {
     if (atoms.isEmpty())
         return;
@@ -524,11 +557,13 @@ void RMSDWidget::setReferenceStructure(const QVector<MoleculeViewer::Atom>& atom
         r.original = atoms;
         r.bonds = bonds;
         r.name = name;
+        r.filePath = filePath;
         r.aligned = atoms;
     } else {
         Structure s;
         s.id = m_nextId++;
         s.name = name;
+        s.filePath = filePath;
         s.original = atoms;
         s.bonds = bonds;
         s.aligned = atoms;
