@@ -121,6 +121,12 @@ public slots:
 
 private:
     void setupUI();
+    // Claude Generated 2026 - per-QGroupBox builders extracted from setupUI().
+    // Each creates its group (populating the m_* members it owns) and returns it
+    // for setupUI() to add to the scroll layout.
+    QGroupBox* createMdGroup();
+    QGroupBox* createRmsdMtdGroup();
+    QGroupBox* createWallGroup();
     void setRunning(bool running);
     void setState(const QString& label, const QString& color);  // Claude Generated 2026 - state pill
     void onStepButtonEnableToggled();  // Claude Generated 2026 - re-arm Step after throttle

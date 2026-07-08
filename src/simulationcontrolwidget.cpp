@@ -42,6 +42,353 @@ void SimulationControlWidget::setMolecule(
     m_bonds = bonds;
 }
 
+// Claude Generated 2026 - MD Parameters group (extracted from setupUI).
+QGroupBox* SimulationControlWidget::createMdGroup()
+{
+    m_mdGroup = new QGroupBox(tr("MD Parameters"), this);
+    auto* mdOuter = new QHBoxLayout(m_mdGroup);
+    mdOuter->setSpacing(8);
+
+    // Vertical temperature-colored slider, live-adjustable during a run. Claude Generated 2026.
+    m_tempSlider = new TemperatureSlider(this);
+    m_tempSlider->setRange(1.0, 1000.0);
+    m_tempSlider->setValue(300.0);
+    m_tempSlider->setToolTip(tr("Thermostat target temperature. Editable min/max; the handle stays\n"
+                                "live during a run — drag it to change the temperature on the fly\n"
+                                "(a drag cancels an active global ramp)."));
+    auto* tempCol = new QVBoxLayout;
+    tempCol->setSpacing(2);
+    auto* tempCaption = new QLabel(tr("Temperature"), this);
+    tempCaption->setAlignment(Qt::AlignHCenter);
+    tempCol->addWidget(tempCaption);
+    tempCol->addWidget(m_tempSlider, 1);
+    mdOuter->addLayout(tempCol);
+
+    auto* mdForm = new QFormLayout;
+    mdForm->setContentsMargins(0, 0, 0, 0);
+    mdOuter->addLayout(mdForm, 1);
+
+    // Thermostat selection (Claude Generated 2026 - curcuma SimpleMD "Thermostat" PARAMs).
+    m_thermostatCombo = new QComboBox(this);
+    m_thermostatCombo->addItem(tr("CSVR (velocity rescaling)"), "csvr");
+    m_thermostatCombo->addItem(tr("Berendsen"), "berendsen");
+    m_thermostatCombo->addItem(tr("Andersen (stochastic)"), "andersen");
+    m_thermostatCombo->addItem(tr("Nosé-Hoover"), "nosehover");
+    m_thermostatCombo->addItem(tr("None (NVE)"), "none");
+    m_thermostatCombo->setToolTip(tr("Thermostat algorithm. CSVR is a solid default for molecules;\n"
+                                     "Andersen (stochastic velocity reassignment) thermalizes single\n"
+                                     "atoms / gas-phase systems better than CSVR."));
+    mdForm->addRow(tr("Thermostat:"), m_thermostatCombo);
+
+    m_couplingSpin = new QDoubleSpinBox(this);
+    m_couplingSpin->setRange(0.1, 10000.0);
+    m_couplingSpin->setDecimals(1);
+    m_couplingSpin->setValue(10.0);
+    m_couplingSpin->setSuffix(" fs");
+    m_couplingSpin->setToolTip(tr("Thermostat coupling time τ (fs). Larger = weaker/looser coupling."));
+    mdForm->addRow(tr("Coupling:"), m_couplingSpin);
+
+    m_andersenProbSpin = new QDoubleSpinBox(this);
+    m_andersenProbSpin->setRange(0.0, 1.0);
+    m_andersenProbSpin->setDecimals(4);
+    m_andersenProbSpin->setSingleStep(0.001);
+    m_andersenProbSpin->setValue(0.001);
+    m_andersenProbSpin->setToolTip(tr("Andersen thermostat: per-step probability that an atom's velocity\n"
+                                      "is redrawn from the Maxwell-Boltzmann distribution at the target T."));
+    mdForm->addRow(tr("Andersen p:"), m_andersenProbSpin);
+
+    m_noseChainSpin = new QSpinBox(this);
+    m_noseChainSpin->setRange(1, 10);
+    m_noseChainSpin->setValue(3);
+    m_noseChainSpin->setToolTip(tr("Nosé-Hoover thermostat chain length."));
+    mdForm->addRow(tr("NH chain:"), m_noseChainSpin);
+
+    m_timestepSpin = new QDoubleSpinBox(this);
+    m_timestepSpin->setRange(0.1, 10.0);
+    m_timestepSpin->setValue(1.0);
+    m_timestepSpin->setSuffix(" fs");
+    m_timestepSpin->setDecimals(1);
+    mdForm->addRow(tr("Time step:"), m_timestepSpin);
+
+    m_stepsSpin = new QSpinBox(this);
+    m_stepsSpin->setRange(10, 10000000);
+    m_stepsSpin->setValue(10000);
+    m_stepsSpin->setSuffix(tr(" steps"));
+    mdForm->addRow(tr("Total steps:"), m_stepsSpin);
+
+    // Claude Generated 2026 - Speed (fpsLimit) is now a top-level control visible
+    // in both MD and Opt modes; the in-MD-group copy has been removed.
+
+    m_hmassSpin = new QDoubleSpinBox(this);
+    m_hmassSpin->setRange(1.0, 5.0);
+    m_hmassSpin->setValue(1.0);
+    m_hmassSpin->setDecimals(1);
+    m_hmassSpin->setSingleStep(0.5);
+    m_hmassSpin->setSuffix(" amu");
+    m_hmassSpin->setToolTip(tr("Hydrogen mass scaling: increases H mass to allow larger time steps\n"
+                               "1.0 = normal mass, 2.0-3.0 = common values for faster MD"));
+    mdForm->addRow(tr("H mass:"), m_hmassSpin);
+
+    return m_mdGroup;
+}
+
+// Claude Generated 2026 - RMSD Metadynamics group (extracted from setupUI).
+// Exposes curcuma's RMSD-MTD bias (external/curcuma/src/capabilities/simplemd.h,
+// "RMSD-MTD" PARAM category). Shown only in MD mode; details reveal on enable.
+QGroupBox* SimulationControlWidget::createRmsdMtdGroup()
+{
+    m_rmsdMtdGroup = new QGroupBox(tr("RMSD Metadynamics"), this);
+    auto* rmsdOuterLayout = new QVBoxLayout(m_rmsdMtdGroup);
+    rmsdOuterLayout->setSpacing(4);
+    rmsdOuterLayout->setContentsMargins(4, 4, 4, 4);
+
+    m_rmsdMtdEnableCheck = new QCheckBox(tr("Enable RMSD-MTD bias"), this);
+    m_rmsdMtdEnableCheck->setToolTip(tr("Add a bias potential in RMSD-to-reference space "
+        "during the MD run, driving exploration away from already-sampled geometries "
+        "(curcuma SimpleMD rmsd_mtd)."));
+    rmsdOuterLayout->addWidget(m_rmsdMtdEnableCheck);
+
+    m_rmsdMtdDetails = new QWidget(m_rmsdMtdGroup);
+    auto* rmsdForm = new QFormLayout(m_rmsdMtdDetails);
+    rmsdForm->setContentsMargins(0, 0, 0, 0);
+
+    m_rmsdMtdKSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdKSpin->setRange(0.0, 1000.0);
+    m_rmsdMtdKSpin->setDecimals(4);
+    m_rmsdMtdKSpin->setSingleStep(0.01);
+    m_rmsdMtdKSpin->setValue(0.01);
+    m_rmsdMtdKSpin->setSuffix(" Eh");
+    m_rmsdMtdKSpin->setToolTip(tr("Hill height constant: W_i = k * counter_i (Eh). "
+        "Force is the exact gradient of the bias, so k is ~100x smaller than the "
+        "pre-2026 value."));
+    rmsdForm->addRow(tr("k (height):"), m_rmsdMtdKSpin);
+
+    m_rmsdMtdAlphaSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdAlphaSpin->setRange(0.0, 1e6);
+    m_rmsdMtdAlphaSpin->setDecimals(2);
+    m_rmsdMtdAlphaSpin->setSingleStep(1.0);
+    m_rmsdMtdAlphaSpin->setValue(10.0);
+    m_rmsdMtdAlphaSpin->setToolTip(tr("Width parameter for the RMSD Gaussians."));
+    rmsdForm->addRow(tr("α (width):"), m_rmsdMtdAlphaSpin);
+
+    m_rmsdMtdAtomsEdit = new QLineEdit(QStringLiteral("-1"), this);
+    m_rmsdMtdAtomsEdit->setToolTip(tr("Atom indices used for the RMSD calculation, "
+        "e.g. \"1-50\". \"-1\" = all atoms."));
+    rmsdForm->addRow(tr("RMSD atoms:"), m_rmsdMtdAtomsEdit);
+
+    // Reference structures file: line edit + browse button in a row.
+    auto* refRow = new QWidget(this);
+    auto* refRowLayout = new QHBoxLayout(refRow);
+    refRowLayout->setContentsMargins(0, 0, 0, 0);
+    m_rmsdMtdRefFileEdit = new QLineEdit(QStringLiteral("none"), refRow);
+    m_rmsdMtdRefFileEdit->setToolTip(tr("File with reference structures for RMSD-MTD. "
+        "\"none\" = derive bias structures from the running geometry."));
+    auto* refBrowseBtn = new QPushButton(tr("…"), refRow);
+    refBrowseBtn->setMaximumWidth(30);
+    refBrowseBtn->setToolTip(tr("Browse for a reference structures file"));
+    refRowLayout->addWidget(m_rmsdMtdRefFileEdit, 1);
+    refRowLayout->addWidget(refBrowseBtn);
+    rmsdForm->addRow(tr("Ref. file:"), refRow);
+    connect(refBrowseBtn, &QPushButton::clicked, this, [this]() {
+        const QString path = QFileDialog::getOpenFileName(this,
+            tr("RMSD-MTD reference structures"),
+            QString(), tr("Molecular structures (*.xyz *.pdb *.mol2 *.vtf);;All files (*)"));
+        if (!path.isEmpty())
+            m_rmsdMtdRefFileEdit->setText(path);
+    });
+
+    m_rmsdMtdMaxGaussiansSpin = new QSpinBox(this);
+    m_rmsdMtdMaxGaussiansSpin->setRange(-1, 1000000);
+    m_rmsdMtdMaxGaussiansSpin->setValue(-1);
+    m_rmsdMtdMaxGaussiansSpin->setToolTip(tr("Maximum number of stored bias structures. "
+        "-1 = unlimited."));
+    rmsdForm->addRow(tr("Max Gaussians:"), m_rmsdMtdMaxGaussiansSpin);
+
+    m_rmsdMtdMaxHeightSpin = new QSpinBox(this);
+    m_rmsdMtdMaxHeightSpin->setRange(0, 1000000);
+    m_rmsdMtdMaxHeightSpin->setValue(0);
+    m_rmsdMtdMaxHeightSpin->setToolTip(tr("Cap on per-structure hill counter: "
+        "W_i = k * min(counter_i, cap). 0 = unbounded (legacy)."));
+    rmsdForm->addRow(tr("Max height cap:"), m_rmsdMtdMaxHeightSpin);
+
+    m_rmsdMtdEconvSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdEconvSpin->setRange(0.0, 1e12);
+    m_rmsdMtdEconvSpin->setDecimals(0);
+    m_rmsdMtdEconvSpin->setSingleStep(1e7);
+    m_rmsdMtdEconvSpin->setValue(1e8);
+    m_rmsdMtdEconvSpin->setToolTip(tr("Bias-deposition convergence threshold (rmsd_econv). "
+        "Gates when a region is considered biased enough to stop depositing hills; "
+        "passed to curcuma via setEnergyConv()."));
+    rmsdForm->addRow(tr("Conv. threshold:"), m_rmsdMtdEconvSpin);
+
+    m_rmsdMtdPaceSpin = new QSpinBox(this);
+    m_rmsdMtdPaceSpin->setRange(1, 1000000);
+    m_rmsdMtdPaceSpin->setValue(1);
+    m_rmsdMtdPaceSpin->setToolTip(tr("Deposition pace. UNUSED in the counter-based "
+        "scheme (kept for compatibility) — deposition is gated by bias level."));
+    rmsdForm->addRow(tr("Pace (unused):"), m_rmsdMtdPaceSpin);
+
+    m_rmsdMtdWtmtdCheck = new QCheckBox(tr("Well-tempered reporting"), this);
+    m_rmsdMtdWtmtdCheck->setToolTip(tr("Switch on well-tempered reporting. Only then "
+        "does ΔT below take effect (it only affects the reported well-tempered "
+        "energy, not the force or exploration)."));
+    rmsdForm->addRow(QString(), m_rmsdMtdWtmtdCheck);
+
+    m_rmsdMtdDtSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdDtSpin->setRange(0.0, 1e9);
+    m_rmsdMtdDtSpin->setDecimals(1);
+    m_rmsdMtdDtSpin->setSingleStep(100.0);
+    m_rmsdMtdDtSpin->setValue(2000.0);
+    m_rmsdMtdDtSpin->setSuffix(" K");
+    m_rmsdMtdDtSpin->setEnabled(false);
+    m_rmsdMtdDtSpin->setToolTip(tr("Well-tempered bias temperature ΔT (K). "
+        "Only used when well-tempered reporting is on."));
+    rmsdForm->addRow(tr("ΔT (wtmtd):"), m_rmsdMtdDtSpin);
+
+    m_rmsdMtdFreezeCheck = new QCheckBox(tr("Freeze inherited hills"), this);
+    m_rmsdMtdFreezeCheck->setToolTip(tr("Freeze hill heights of bias structures present "
+        "at MD run start; only structures deposited during this run gain height. "
+        "Bounds cumulative bias force across successive shared-pool runs."));
+    rmsdForm->addRow(QString(), m_rmsdMtdFreezeCheck);
+
+    rmsdOuterLayout->addWidget(m_rmsdMtdDetails);
+    m_rmsdMtdDetails->setVisible(false);  // hidden until enabled
+    return m_rmsdMtdGroup;
+}
+
+// Claude Generated 2026 - Confinement Walls group (extracted from setupUI).
+// Exposes curcuma's confinement walls (wall_type/wall_potential/wall_*_min|max/
+// wall_radius, "Walls" PARAM category). MD only; details reveal on enable. The
+// box wireframe is drawn live in the 3D viewer as bounds are typed (MainWindow
+// forwards configChanged to MoleculeViewer::setConfinementBox).
+QGroupBox* SimulationControlWidget::createWallGroup()
+{
+    m_wallGroup = new QGroupBox(tr("Confinement Walls"), this);
+    auto* wallOuterLayout = new QVBoxLayout(m_wallGroup);
+    wallOuterLayout->setSpacing(4);
+    wallOuterLayout->setContentsMargins(4, 4, 4, 4);
+
+    m_wallEnableCheck = new QCheckBox(tr("Enable confinement walls"), this);
+    m_wallEnableCheck->setToolTip(tr("Add a harmonic/logfermi confinement potential "
+        "that pushes atoms back inside the defined region during MD. The wall "
+        "geometry is drawn live in the 3D viewer; explicit bounds are required for "
+        "the preview (zeros = curcuma auto-size, not previewable)."));
+    wallOuterLayout->addWidget(m_wallEnableCheck);
+
+    m_wallDetails = new QWidget(m_wallGroup);
+    auto* wallForm = new QFormLayout(m_wallDetails);
+
+    m_wallTypeCombo = new QComboBox(this);
+    m_wallTypeCombo->addItem(tr("None"), 0);
+    m_wallTypeCombo->addItem(tr("Spherical"), 1);
+    m_wallTypeCombo->addItem(tr("Rectangular"), 2);
+    m_wallTypeCombo->setToolTip(tr("Wall geometry. Spherical is origin-centred; "
+        "rectangular is the axis-aligned cuboid [x/y/z min .. max]."));
+    wallForm->addRow(tr("Geometry:"), m_wallTypeCombo);
+
+    m_wallPotentialCombo = new QComboBox(this);
+    m_wallPotentialCombo->addItem(tr("Harmonic"), 0);
+    m_wallPotentialCombo->addItem(tr("LogFermi"), 1);
+    m_wallPotentialCombo->setToolTip(tr("Wall potential function. Harmonic: "
+        "V = ½k·d² (unbounded force); LogFermi: soft, temperature-dependent wall."));
+    wallForm->addRow(tr("Potential:"), m_wallPotentialCombo);
+
+    // Claude Generated 2026 - wall_temp (force/energy scale) + wall_beta (steepness).
+    // Both sliders stay live during the run (wallTempChanged / wallBetaChanged signals).
+    {
+        m_wallTempSlider = new TemperatureSlider(this);
+        m_wallTempSlider->setRange(1.0, 5000.0);
+        m_wallTempSlider->setValue(298.15);
+        m_wallTempSlider->setToolTip(tr(
+            "Wall potential energy scale (wall_temp, K).\n"
+            "Harmonic: spring constant k = wall_temp × kB.\n"
+            "LogFermi: thermal energy kBT for the Fermi function.\n"
+            "Draggable during the run."));
+
+        m_wallBetaSlider = new TemperatureSlider(this);
+        m_wallBetaSlider->setRange(0.1, 50.0);
+        m_wallBetaSlider->setValue(6.0);
+        m_wallBetaSlider->setToolTip(tr(
+            "Wall steepness β (wall_beta).\n"
+            "LogFermi: Å⁻¹ — larger = sharper wall.\n"
+            "Harmonic: secondary scaling of the gradient correction.\n"
+            "Draggable during the run."));
+
+        auto* wallSliderRow = new QHBoxLayout;
+        auto* twCol = new QVBoxLayout;
+        auto* twCap = new QLabel(tr("Strength (K)"), this);
+        twCap->setAlignment(Qt::AlignHCenter);
+        twCol->addWidget(twCap);
+        twCol->addWidget(m_wallTempSlider, 1);
+
+        auto* bCol = new QVBoxLayout;
+        auto* bCap = new QLabel(tr("Steepness β"), this);
+        bCap->setAlignment(Qt::AlignHCenter);
+        bCol->addWidget(bCap);
+        bCol->addWidget(m_wallBetaSlider, 1);
+
+        wallSliderRow->addLayout(twCol);
+        wallSliderRow->addLayout(bCol);
+        wallForm->addRow(wallSliderRow);
+    }
+
+    auto makeBoundSpin = [this](const QString& suffix) {
+        auto* s = new QDoubleSpinBox(this);
+        s->setRange(-1e5, 1e5);
+        s->setDecimals(3);
+        s->setSingleStep(0.1);
+        s->setSuffix(suffix);
+        s->setValue(0.0);
+        return s;
+    };
+    // Pack two spin boxes side by side into a single QWidget for a QFormLayout row.
+    auto makeRowPair = [](QWidget* a, QWidget* b) {
+        auto* row = new QWidget;
+        auto* h = new QHBoxLayout(row);
+        h->setContentsMargins(0, 0, 0, 0);
+        h->addWidget(a);
+        h->addWidget(b);
+        return row;
+    };
+    const QString angstrom = QStringLiteral(" Å");
+    m_wallXminSpin = makeBoundSpin(angstrom);
+    m_wallXmaxSpin = makeBoundSpin(angstrom);
+    m_wallYminSpin = makeBoundSpin(angstrom);
+    m_wallYmaxSpin = makeBoundSpin(angstrom);
+    m_wallZminSpin = makeBoundSpin(angstrom);
+    m_wallZmaxSpin = makeBoundSpin(angstrom);
+    // Sane symmetric ±10 Å default so the rectangular preview is visible immediately.
+    m_wallXminSpin->setValue(-10.0);  m_wallXmaxSpin->setValue(10.0);
+    m_wallYminSpin->setValue(-10.0);  m_wallYmaxSpin->setValue(10.0);
+    m_wallZminSpin->setValue(-10.0);  m_wallZmaxSpin->setValue(10.0);
+    wallForm->addRow(tr("x min / max:"), makeRowPair(m_wallXminSpin, m_wallXmaxSpin));
+    wallForm->addRow(tr("y min / max:"), makeRowPair(m_wallYminSpin, m_wallYmaxSpin));
+    wallForm->addRow(tr("z min / max:"), makeRowPair(m_wallZminSpin, m_wallZmaxSpin));
+
+    m_wallRadiusSpin = new QDoubleSpinBox(this);
+    m_wallRadiusSpin->setRange(0.0, 1e5);
+    m_wallRadiusSpin->setDecimals(3);
+    m_wallRadiusSpin->setSingleStep(0.1);
+    m_wallRadiusSpin->setSuffix(angstrom);
+    m_wallRadiusSpin->setValue(8.0);
+    m_wallRadiusSpin->setToolTip(tr("Spherical wall radius (origin-centred). "
+        "0 = curcuma auto-size from molecule geometry (not previewable)."));
+    wallForm->addRow(tr("Sphere radius:"), m_wallRadiusSpin);
+
+    wallOuterLayout->addWidget(m_wallDetails);
+    m_wallDetails->setVisible(false);  // hidden until enabled
+
+    // Claude Generated 2026 - Live boundary-violation feedback: shown when walls
+    // are enabled; updated from MoleculeViewer::wallViolationChanged via
+    // MainWindow. The 3D wireframe also turns red when any atom is outside.
+    m_wallStatusLabel = new QLabel(m_wallGroup);
+    m_wallStatusLabel->setWordWrap(true);
+    m_wallStatusLabel->setVisible(false);
+    wallOuterLayout->addWidget(m_wallStatusLabel);
+
+    return m_wallGroup;
+}
+
 void SimulationControlWidget::setupUI()
 {
     auto* outer = new QVBoxLayout(this);
@@ -218,91 +565,7 @@ void SimulationControlWidget::setupUI()
     innerLayout->addWidget(potentialGroup);
 
     // ---- MD Parameters ----
-    m_mdGroup = new QGroupBox(tr("MD Parameters"), this);
-    auto* mdOuter = new QHBoxLayout(m_mdGroup);
-    mdOuter->setSpacing(8);
-
-    // Vertical temperature-colored slider, live-adjustable during a run. Claude Generated 2026.
-    m_tempSlider = new TemperatureSlider(this);
-    m_tempSlider->setRange(1.0, 1000.0);
-    m_tempSlider->setValue(300.0);
-    m_tempSlider->setToolTip(tr("Thermostat target temperature. Editable min/max; the handle stays\n"
-                                "live during a run — drag it to change the temperature on the fly\n"
-                                "(a drag cancels an active global ramp)."));
-    auto* tempCol = new QVBoxLayout;
-    tempCol->setSpacing(2);
-    auto* tempCaption = new QLabel(tr("Temperature"), this);
-    tempCaption->setAlignment(Qt::AlignHCenter);
-    tempCol->addWidget(tempCaption);
-    tempCol->addWidget(m_tempSlider, 1);
-    mdOuter->addLayout(tempCol);
-
-    auto* mdForm = new QFormLayout;
-    mdForm->setContentsMargins(0, 0, 0, 0);
-    mdOuter->addLayout(mdForm, 1);
-
-    // Thermostat selection (Claude Generated 2026 - curcuma SimpleMD "Thermostat" PARAMs).
-    m_thermostatCombo = new QComboBox(this);
-    m_thermostatCombo->addItem(tr("CSVR (velocity rescaling)"), "csvr");
-    m_thermostatCombo->addItem(tr("Berendsen"), "berendsen");
-    m_thermostatCombo->addItem(tr("Andersen (stochastic)"), "andersen");
-    m_thermostatCombo->addItem(tr("Nosé-Hoover"), "nosehover");
-    m_thermostatCombo->addItem(tr("None (NVE)"), "none");
-    m_thermostatCombo->setToolTip(tr("Thermostat algorithm. CSVR is a solid default for molecules;\n"
-                                     "Andersen (stochastic velocity reassignment) thermalizes single\n"
-                                     "atoms / gas-phase systems better than CSVR."));
-    mdForm->addRow(tr("Thermostat:"), m_thermostatCombo);
-
-    m_couplingSpin = new QDoubleSpinBox(this);
-    m_couplingSpin->setRange(0.1, 10000.0);
-    m_couplingSpin->setDecimals(1);
-    m_couplingSpin->setValue(10.0);
-    m_couplingSpin->setSuffix(" fs");
-    m_couplingSpin->setToolTip(tr("Thermostat coupling time τ (fs). Larger = weaker/looser coupling."));
-    mdForm->addRow(tr("Coupling:"), m_couplingSpin);
-
-    m_andersenProbSpin = new QDoubleSpinBox(this);
-    m_andersenProbSpin->setRange(0.0, 1.0);
-    m_andersenProbSpin->setDecimals(4);
-    m_andersenProbSpin->setSingleStep(0.001);
-    m_andersenProbSpin->setValue(0.001);
-    m_andersenProbSpin->setToolTip(tr("Andersen thermostat: per-step probability that an atom's velocity\n"
-                                      "is redrawn from the Maxwell-Boltzmann distribution at the target T."));
-    mdForm->addRow(tr("Andersen p:"), m_andersenProbSpin);
-
-    m_noseChainSpin = new QSpinBox(this);
-    m_noseChainSpin->setRange(1, 10);
-    m_noseChainSpin->setValue(3);
-    m_noseChainSpin->setToolTip(tr("Nosé-Hoover thermostat chain length."));
-    mdForm->addRow(tr("NH chain:"), m_noseChainSpin);
-
-    m_timestepSpin = new QDoubleSpinBox(this);
-    m_timestepSpin->setRange(0.1, 10.0);
-    m_timestepSpin->setValue(1.0);
-    m_timestepSpin->setSuffix(" fs");
-    m_timestepSpin->setDecimals(1);
-    mdForm->addRow(tr("Time step:"), m_timestepSpin);
-
-    m_stepsSpin = new QSpinBox(this);
-    m_stepsSpin->setRange(10, 10000000);
-    m_stepsSpin->setValue(10000);
-    m_stepsSpin->setSuffix(tr(" steps"));
-    mdForm->addRow(tr("Total steps:"), m_stepsSpin);
-
-    // Claude Generated 2026 - Speed (fpsLimit) is now a top-level control visible
-    // in both MD and Opt modes; the in-MD-group copy has been removed.
-
-    m_hmassSpin = new QDoubleSpinBox(this);
-    m_hmassSpin->setRange(1.0, 5.0);
-    m_hmassSpin->setValue(1.0);
-    m_hmassSpin->setDecimals(1);
-    m_hmassSpin->setSingleStep(0.5);
-    m_hmassSpin->setSuffix(" amu");
-    m_hmassSpin->setToolTip(tr("Hydrogen mass scaling: increases H mass to allow larger time steps\n"
-                               "1.0 = normal mass, 2.0-3.0 = common values for faster MD"));
-    mdForm->addRow(tr("H mass:"), m_hmassSpin);
-
-    innerLayout->addWidget(m_mdGroup);
+    innerLayout->addWidget(createMdGroup());
 
     // ---- Temperature Ramp (global setpoint schedule, curcuma temp_ramp/temp_schedule) ----
     // Claude Generated 2026 - drive the global setpoint through a multi-stage schedule.
@@ -471,258 +734,10 @@ void SimulationControlWidget::setupUI()
     innerLayout->addWidget(m_rattleGroup);
 
     // ---- RMSD Metadynamics (MD bias, curcuma SimpleMD rmsd_mtd) ----
-    // Claude Generated 2026 - exposes curcuma's RMSD-MTD bias option with all
-    // relevant parameters (see external/curcuma/src/capabilities/simplemd.h,
-    // "RMSD-MTD" PARAM category). Shown only in MD mode; details reveal on enable.
-    m_rmsdMtdGroup = new QGroupBox(tr("RMSD Metadynamics"), this);
-    auto* rmsdOuterLayout = new QVBoxLayout(m_rmsdMtdGroup);
-    rmsdOuterLayout->setSpacing(4);
-    rmsdOuterLayout->setContentsMargins(4, 4, 4, 4);
-
-    m_rmsdMtdEnableCheck = new QCheckBox(tr("Enable RMSD-MTD bias"), this);
-    m_rmsdMtdEnableCheck->setToolTip(tr("Add a bias potential in RMSD-to-reference space "
-        "during the MD run, driving exploration away from already-sampled geometries "
-        "(curcuma SimpleMD rmsd_mtd)."));
-    rmsdOuterLayout->addWidget(m_rmsdMtdEnableCheck);
-
-    m_rmsdMtdDetails = new QWidget(m_rmsdMtdGroup);
-    auto* rmsdForm = new QFormLayout(m_rmsdMtdDetails);
-    rmsdForm->setContentsMargins(0, 0, 0, 0);
-
-    m_rmsdMtdKSpin = new QDoubleSpinBox(this);
-    m_rmsdMtdKSpin->setRange(0.0, 1000.0);
-    m_rmsdMtdKSpin->setDecimals(4);
-    m_rmsdMtdKSpin->setSingleStep(0.01);
-    m_rmsdMtdKSpin->setValue(0.01);
-    m_rmsdMtdKSpin->setSuffix(" Eh");
-    m_rmsdMtdKSpin->setToolTip(tr("Hill height constant: W_i = k * counter_i (Eh). "
-        "Force is the exact gradient of the bias, so k is ~100x smaller than the "
-        "pre-2026 value."));
-    rmsdForm->addRow(tr("k (height):"), m_rmsdMtdKSpin);
-
-    m_rmsdMtdAlphaSpin = new QDoubleSpinBox(this);
-    m_rmsdMtdAlphaSpin->setRange(0.0, 1e6);
-    m_rmsdMtdAlphaSpin->setDecimals(2);
-    m_rmsdMtdAlphaSpin->setSingleStep(1.0);
-    m_rmsdMtdAlphaSpin->setValue(10.0);
-    m_rmsdMtdAlphaSpin->setToolTip(tr("Width parameter for the RMSD Gaussians."));
-    rmsdForm->addRow(tr("α (width):"), m_rmsdMtdAlphaSpin);
-
-    m_rmsdMtdAtomsEdit = new QLineEdit(QStringLiteral("-1"), this);
-    m_rmsdMtdAtomsEdit->setToolTip(tr("Atom indices used for the RMSD calculation, "
-        "e.g. \"1-50\". \"-1\" = all atoms."));
-    rmsdForm->addRow(tr("RMSD atoms:"), m_rmsdMtdAtomsEdit);
-
-    // Reference structures file: line edit + browse button in a row.
-    auto* refRow = new QWidget(this);
-    auto* refRowLayout = new QHBoxLayout(refRow);
-    refRowLayout->setContentsMargins(0, 0, 0, 0);
-    m_rmsdMtdRefFileEdit = new QLineEdit(QStringLiteral("none"), refRow);
-    m_rmsdMtdRefFileEdit->setToolTip(tr("File with reference structures for RMSD-MTD. "
-        "\"none\" = derive bias structures from the running geometry."));
-    auto* refBrowseBtn = new QPushButton(tr("…"), refRow);
-    refBrowseBtn->setMaximumWidth(30);
-    refBrowseBtn->setToolTip(tr("Browse for a reference structures file"));
-    refRowLayout->addWidget(m_rmsdMtdRefFileEdit, 1);
-    refRowLayout->addWidget(refBrowseBtn);
-    rmsdForm->addRow(tr("Ref. file:"), refRow);
-    connect(refBrowseBtn, &QPushButton::clicked, this, [this]() {
-        const QString path = QFileDialog::getOpenFileName(this,
-            tr("RMSD-MTD reference structures"),
-            QString(), tr("Molecular structures (*.xyz *.pdb *.mol2 *.vtf);;All files (*)"));
-        if (!path.isEmpty())
-            m_rmsdMtdRefFileEdit->setText(path);
-    });
-
-    m_rmsdMtdMaxGaussiansSpin = new QSpinBox(this);
-    m_rmsdMtdMaxGaussiansSpin->setRange(-1, 1000000);
-    m_rmsdMtdMaxGaussiansSpin->setValue(-1);
-    m_rmsdMtdMaxGaussiansSpin->setToolTip(tr("Maximum number of stored bias structures. "
-        "-1 = unlimited."));
-    rmsdForm->addRow(tr("Max Gaussians:"), m_rmsdMtdMaxGaussiansSpin);
-
-    m_rmsdMtdMaxHeightSpin = new QSpinBox(this);
-    m_rmsdMtdMaxHeightSpin->setRange(0, 1000000);
-    m_rmsdMtdMaxHeightSpin->setValue(0);
-    m_rmsdMtdMaxHeightSpin->setToolTip(tr("Cap on per-structure hill counter: "
-        "W_i = k * min(counter_i, cap). 0 = unbounded (legacy)."));
-    rmsdForm->addRow(tr("Max height cap:"), m_rmsdMtdMaxHeightSpin);
-
-    m_rmsdMtdEconvSpin = new QDoubleSpinBox(this);
-    m_rmsdMtdEconvSpin->setRange(0.0, 1e12);
-    m_rmsdMtdEconvSpin->setDecimals(0);
-    m_rmsdMtdEconvSpin->setSingleStep(1e7);
-    m_rmsdMtdEconvSpin->setValue(1e8);
-    m_rmsdMtdEconvSpin->setToolTip(tr("Bias-deposition convergence threshold (rmsd_econv). "
-        "Gates when a region is considered biased enough to stop depositing hills; "
-        "passed to curcuma via setEnergyConv()."));
-    rmsdForm->addRow(tr("Conv. threshold:"), m_rmsdMtdEconvSpin);
-
-    m_rmsdMtdPaceSpin = new QSpinBox(this);
-    m_rmsdMtdPaceSpin->setRange(1, 1000000);
-    m_rmsdMtdPaceSpin->setValue(1);
-    m_rmsdMtdPaceSpin->setToolTip(tr("Deposition pace. UNUSED in the counter-based "
-        "scheme (kept for compatibility) — deposition is gated by bias level."));
-    rmsdForm->addRow(tr("Pace (unused):"), m_rmsdMtdPaceSpin);
-
-    m_rmsdMtdWtmtdCheck = new QCheckBox(tr("Well-tempered reporting"), this);
-    m_rmsdMtdWtmtdCheck->setToolTip(tr("Switch on well-tempered reporting. Only then "
-        "does ΔT below take effect (it only affects the reported well-tempered "
-        "energy, not the force or exploration)."));
-    rmsdForm->addRow(QString(), m_rmsdMtdWtmtdCheck);
-
-    m_rmsdMtdDtSpin = new QDoubleSpinBox(this);
-    m_rmsdMtdDtSpin->setRange(0.0, 1e9);
-    m_rmsdMtdDtSpin->setDecimals(1);
-    m_rmsdMtdDtSpin->setSingleStep(100.0);
-    m_rmsdMtdDtSpin->setValue(2000.0);
-    m_rmsdMtdDtSpin->setSuffix(" K");
-    m_rmsdMtdDtSpin->setEnabled(false);
-    m_rmsdMtdDtSpin->setToolTip(tr("Well-tempered bias temperature ΔT (K). "
-        "Only used when well-tempered reporting is on."));
-    rmsdForm->addRow(tr("ΔT (wtmtd):"), m_rmsdMtdDtSpin);
-
-    m_rmsdMtdFreezeCheck = new QCheckBox(tr("Freeze inherited hills"), this);
-    m_rmsdMtdFreezeCheck->setToolTip(tr("Freeze hill heights of bias structures present "
-        "at MD run start; only structures deposited during this run gain height. "
-        "Bounds cumulative bias force across successive shared-pool runs."));
-    rmsdForm->addRow(QString(), m_rmsdMtdFreezeCheck);
-
-    rmsdOuterLayout->addWidget(m_rmsdMtdDetails);
-    m_rmsdMtdDetails->setVisible(false);  // hidden until enabled
-    innerLayout->addWidget(m_rmsdMtdGroup);
+    innerLayout->addWidget(createRmsdMtdGroup());
 
     // ---- Confinement Walls (curcuma SimpleMD wall_* params) ----
-    // Claude Generated 2026 - exposes curcuma's harmonic confinement walls
-    // (wall_type/wall_potential/wall_x|y|z_min|max/wall_radius, "Walls" PARAM
-    // category in external/curcuma/src/capabilities/simplemd.h). MD only; details
-    // reveal on enable. The box wireframe is drawn live in the 3D viewer as the
-    // bounds are typed (auto-show when enabled) — see MainWindow forwarding
-    // configChanged to MoleculeViewer::setConfinementBox.
-    m_wallGroup = new QGroupBox(tr("Confinement Walls"), this);
-    auto* wallOuterLayout = new QVBoxLayout(m_wallGroup);
-    wallOuterLayout->setSpacing(4);
-    wallOuterLayout->setContentsMargins(4, 4, 4, 4);
-
-    m_wallEnableCheck = new QCheckBox(tr("Enable confinement walls"), this);
-    m_wallEnableCheck->setToolTip(tr("Add a harmonic/logfermi confinement potential "
-        "that pushes atoms back inside the defined region during MD. The wall "
-        "geometry is drawn live in the 3D viewer; explicit bounds are required for "
-        "the preview (zeros = curcuma auto-size, not previewable)."));
-    wallOuterLayout->addWidget(m_wallEnableCheck);
-
-    m_wallDetails = new QWidget(m_wallGroup);
-    auto* wallForm = new QFormLayout(m_wallDetails);
-
-    m_wallTypeCombo = new QComboBox(this);
-    m_wallTypeCombo->addItem(tr("None"), 0);
-    m_wallTypeCombo->addItem(tr("Spherical"), 1);
-    m_wallTypeCombo->addItem(tr("Rectangular"), 2);
-    m_wallTypeCombo->setToolTip(tr("Wall geometry. Spherical is origin-centred; "
-        "rectangular is the axis-aligned cuboid [x/y/z min .. max]."));
-    wallForm->addRow(tr("Geometry:"), m_wallTypeCombo);
-
-    m_wallPotentialCombo = new QComboBox(this);
-    m_wallPotentialCombo->addItem(tr("Harmonic"), 0);
-    m_wallPotentialCombo->addItem(tr("LogFermi"), 1);
-    m_wallPotentialCombo->setToolTip(tr("Wall potential function. Harmonic: "
-        "V = ½k·d² (unbounded force); LogFermi: soft, temperature-dependent wall."));
-    wallForm->addRow(tr("Potential:"), m_wallPotentialCombo);
-
-    // Claude Generated 2026 - wall_temp (force/energy scale) + wall_beta (steepness).
-    // Both sliders stay live during the run (wallTempChanged / wallBetaChanged signals).
-    {
-        m_wallTempSlider = new TemperatureSlider(this);
-        m_wallTempSlider->setRange(1.0, 5000.0);
-        m_wallTempSlider->setValue(298.15);
-        m_wallTempSlider->setToolTip(tr(
-            "Wall potential energy scale (wall_temp, K).\n"
-            "Harmonic: spring constant k = wall_temp × kB.\n"
-            "LogFermi: thermal energy kBT for the Fermi function.\n"
-            "Draggable during the run."));
-
-        m_wallBetaSlider = new TemperatureSlider(this);
-        m_wallBetaSlider->setRange(0.1, 50.0);
-        m_wallBetaSlider->setValue(6.0);
-        m_wallBetaSlider->setToolTip(tr(
-            "Wall steepness β (wall_beta).\n"
-            "LogFermi: Å⁻¹ — larger = sharper wall.\n"
-            "Harmonic: secondary scaling of the gradient correction.\n"
-            "Draggable during the run."));
-
-        auto* wallSliderRow = new QHBoxLayout;
-        auto* twCol = new QVBoxLayout;
-        auto* twCap = new QLabel(tr("Strength (K)"), this);
-        twCap->setAlignment(Qt::AlignHCenter);
-        twCol->addWidget(twCap);
-        twCol->addWidget(m_wallTempSlider, 1);
-
-        auto* bCol = new QVBoxLayout;
-        auto* bCap = new QLabel(tr("Steepness β"), this);
-        bCap->setAlignment(Qt::AlignHCenter);
-        bCol->addWidget(bCap);
-        bCol->addWidget(m_wallBetaSlider, 1);
-
-        wallSliderRow->addLayout(twCol);
-        wallSliderRow->addLayout(bCol);
-        wallForm->addRow(wallSliderRow);
-    }
-
-    auto makeBoundSpin = [this](const QString& suffix) {
-        auto* s = new QDoubleSpinBox(this);
-        s->setRange(-1e5, 1e5);
-        s->setDecimals(3);
-        s->setSingleStep(0.1);
-        s->setSuffix(suffix);
-        s->setValue(0.0);
-        return s;
-    };
-    // Pack two spin boxes side by side into a single QWidget for a QFormLayout row.
-    auto makeRowPair = [](QWidget* a, QWidget* b) {
-        auto* row = new QWidget;
-        auto* h = new QHBoxLayout(row);
-        h->setContentsMargins(0, 0, 0, 0);
-        h->addWidget(a);
-        h->addWidget(b);
-        return row;
-    };
-    const QString angstrom = QStringLiteral(" Å");
-    m_wallXminSpin = makeBoundSpin(angstrom);
-    m_wallXmaxSpin = makeBoundSpin(angstrom);
-    m_wallYminSpin = makeBoundSpin(angstrom);
-    m_wallYmaxSpin = makeBoundSpin(angstrom);
-    m_wallZminSpin = makeBoundSpin(angstrom);
-    m_wallZmaxSpin = makeBoundSpin(angstrom);
-    // Sane symmetric ±10 Å default so the rectangular preview is visible immediately.
-    m_wallXminSpin->setValue(-10.0);  m_wallXmaxSpin->setValue(10.0);
-    m_wallYminSpin->setValue(-10.0);  m_wallYmaxSpin->setValue(10.0);
-    m_wallZminSpin->setValue(-10.0);  m_wallZmaxSpin->setValue(10.0);
-    wallForm->addRow(tr("x min / max:"), makeRowPair(m_wallXminSpin, m_wallXmaxSpin));
-    wallForm->addRow(tr("y min / max:"), makeRowPair(m_wallYminSpin, m_wallYmaxSpin));
-    wallForm->addRow(tr("z min / max:"), makeRowPair(m_wallZminSpin, m_wallZmaxSpin));
-
-    m_wallRadiusSpin = new QDoubleSpinBox(this);
-    m_wallRadiusSpin->setRange(0.0, 1e5);
-    m_wallRadiusSpin->setDecimals(3);
-    m_wallRadiusSpin->setSingleStep(0.1);
-    m_wallRadiusSpin->setSuffix(angstrom);
-    m_wallRadiusSpin->setValue(8.0);
-    m_wallRadiusSpin->setToolTip(tr("Spherical wall radius (origin-centred). "
-        "0 = curcuma auto-size from molecule geometry (not previewable)."));
-    wallForm->addRow(tr("Sphere radius:"), m_wallRadiusSpin);
-
-    wallOuterLayout->addWidget(m_wallDetails);
-    m_wallDetails->setVisible(false);  // hidden until enabled
-
-    // Claude Generated 2026 - Live boundary-violation feedback: shown when walls
-    // are enabled; updated from MoleculeViewer::wallViolationChanged via
-    // MainWindow. The 3D wireframe also turns red when any atom is outside.
-    m_wallStatusLabel = new QLabel(m_wallGroup);
-    m_wallStatusLabel->setWordWrap(true);
-    m_wallStatusLabel->setVisible(false);
-    wallOuterLayout->addWidget(m_wallStatusLabel);
-
-    innerLayout->addWidget(m_wallGroup);
+    innerLayout->addWidget(createWallGroup());
 
     // ---- Optimization Parameters ----
     m_optGroup = new QGroupBox(tr("Optimization"), this);
