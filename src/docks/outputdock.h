@@ -26,6 +26,8 @@ public:
 public slots:
     void appendOutput(const QString& text);
     void clearOutput();
+    /// Replace the whole log with @p text; optionally scroll to the bottom.
+    void setText(const QString& text, bool scrollToBottom = false);
 
 signals:
     /// Emitted when the user clicks the clear button.

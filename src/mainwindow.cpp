@@ -1258,7 +1258,7 @@ void MainWindow::setupConnections()
                 // Log/Output-Dateien in Output View laden
                 QFile file(filePath);
                 if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                    m_outputView->setPlainText(QString::fromUtf8(file.readAll()));
+                    m_outputViewDock->setText(QString::fromUtf8(file.readAll()));
                     file.close();
                 }
             }
@@ -1801,11 +1801,8 @@ void MainWindow::updateOutputView(const QString& logFile, bool scrollToBottom)
 {
     QFile file(logFile);
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        m_outputView->setPlainText(QString::fromUtf8(file.readAll()));
+        m_outputViewDock->setText(QString::fromUtf8(file.readAll()), scrollToBottom);
         file.close();
-    }
-    if (scrollToBottom) {
-        m_outputView->verticalScrollBar()->setValue(m_outputView->verticalScrollBar()->maximum());
     }
 }
 
@@ -2240,13 +2237,13 @@ void MainWindow::projectSelected(const QModelIndex &index)
 void MainWindow::processOutput()
 {
     QByteArray output = m_currentProcess->readAllStandardOutput();
-    m_outputView->append(QString::fromUtf8(output));
+    m_outputViewDock->appendOutput(QString::fromUtf8(output));
 }
 
 void MainWindow::processError()
 {
     QByteArray error = m_currentProcess->readAllStandardError();
-    m_outputView->append("Error: " + QString::fromUtf8(error));
+    m_outputViewDock->appendOutput("Error: " + QString::fromUtf8(error));
 }
 
 void MainWindow::loadSettings()
@@ -2375,11 +2372,11 @@ void MainWindow::syncRightView()
                 loadingProgress->show();
                 QApplication::processEvents();
             }
-            m_outputView->setPlainText(QString::fromUtf8(outputFile.readAll()));
+            m_outputViewDock->setText(QString::fromUtf8(outputFile.readAll()));
             outputFile.close();
         }
     } else {
-        m_outputView->clear();
+        m_outputViewDock->clearOutput();
     }
 
     // Input-Datei suchen und laden
@@ -2702,8 +2699,9 @@ void MainWindow::saveCurrentEditor()
         currentEditor = m_structureView;
     } else if (m_inputView->hasFocus()) {
         currentEditor = m_inputView;
-    } else if (m_outputView->hasFocus()) {
-        currentEditor = m_outputView;
+    } else if (m_outputViewDock && m_outputViewDock->outputView()
+               && m_outputViewDock->outputView()->hasFocus()) {
+        currentEditor = m_outputViewDock->outputView();
     }
 
     if (currentEditor) {
@@ -3477,7 +3475,7 @@ void MainWindow::zoomToMolecule()
 // Claude Generated - Quick Fix: Clear output view
 void MainWindow::clearOutputView()
 {
-    m_outputView->clear();
+    m_outputViewDock->clearOutput();
     statusBar()->showMessage(tr("Output cleared"), 1500);
 }
 
@@ -4949,15 +4947,8 @@ void MainWindow::createDockWidgets()
         });
 
     // ==================== OUTPUT DOCK (bottom) ====================
-    // Phase 2: wrapper is created by DockManager. Pull the log view and clear signal.
-    if (m_outputViewDock)
-        m_outputView = m_outputViewDock->outputView();
-    if (!m_outputView) {
-        // Fallback if DockManager was not initialized; should not happen.
-        m_outputView = new QTextEdit;
-        m_outputView->setPlaceholderText(tr("Output"));
-        m_outputView->setReadOnly(true);
-    }
+    // The dock owns the log view; MainWindow drives it through the dock's
+    // appendOutput()/setText()/clearOutput() slots (no harvested pointer).
     connect(m_outputViewDock, &OutputDock::clearRequested,
             this, &MainWindow::clearOutputView);
 

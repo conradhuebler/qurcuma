@@ -69,3 +69,15 @@ void OutputDock::clearOutput()
     if (m_outputView)
         m_outputView->clear();
 }
+
+void OutputDock::setText(const QString& text, bool scrollToBottom)
+{
+    if (!m_outputView)
+        return;
+    m_outputView->setPlainText(text);
+    if (scrollToBottom) {
+        QScrollBar* bar = m_outputView->verticalScrollBar();
+        if (bar)
+            bar->setValue(bar->maximum());
+    }
+}

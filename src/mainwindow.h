@@ -365,7 +365,6 @@ private:
     QComboBox* m_programSelector;
     ModifiableTextEdit* m_structureView;  // Claude Generated - Phase 2.3
     ModifiableTextEdit* m_inputView;      // Claude Generated - Phase 2.3
-    QTextEdit* m_outputView;
     QPushButton *m_newCalculationButton, *m_chooseDirectory, *m_runCalculation;
     QCheckBox* m_uniqueFileNames;
     QSpinBox* m_threads;
