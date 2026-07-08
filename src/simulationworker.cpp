@@ -103,6 +103,94 @@ void applyTempRampParams(const SimulationConfig& cfg, json& simplemd_params)
             simplemd_params["temp_regions"] = regions;
     }
 }
+
+// Claude Generated 2026 - Single source of truth for the SimpleMD controller
+// block. Both startMD (continuous run) and stepOnce (single "Step" click) build
+// their controller here, so the two paths can no longer silently diverge — a
+// whole class of bug where the single-step path forgot thermostat/RATTLE/wall/
+// ramp params (see the earlier stepOnce config-drop fix). @p singleStep captures
+// the ONLY intended differences: run length (one step vs the configured count)
+// and no trajectory file for a single click. dump_frequency=1 is required so
+// SimpleMD::step() refreshes the molecule geometry every step (the interactive
+// viewer needs each frame; the default 50 returns stale positions 49/50 steps).
+json buildSimplemdParams(const SimulationConfig& cfg, bool singleStep)
+{
+    json p;
+    p["method"] = cfg.method.toStdString();
+    p["temperature"] = cfg.temperature;
+    p["time_step"] = cfg.timestep;
+    p["dump_frequency"] = 1;
+    p["max_time"] = singleStep
+        ? cfg.timestep
+        : (cfg.steps > 0 ? static_cast<double>(cfg.steps) * cfg.timestep : 0.0);
+    if (cfg.performanceAnalysis)
+        p["print_frequency"] = 1;
+    else if (singleStep)
+        p["print_frequency"] = 1000;
+    p["write_xyz"] = singleStep ? false : cfg.writeTrajectory;
+    p["no_restart"] = true;
+    p["no_center"] = true;
+    p["rattle"] = cfg.rattleMode;
+    p["rattle_12"] = cfg.rattle12;
+    p["rattle_13"] = cfg.rattle13;
+    p["rattle_tol_12"] = cfg.rattleTol12;
+    p["rattle_tol_13"] = cfg.rattleTol13;
+    p["rattle_max_iterations"] = cfg.rattleMaxIter;
+    p["hmass"] = cfg.hmass;
+    p["thermostat"] = cfg.thermostat.toStdString();
+    p["coupling"] = cfg.thermostatCoupling;
+    p["andersen_probability"] = cfg.andersenProbability;
+    p["chain_length"] = cfg.noseChainLength;
+    applyRmsdMtdParams(cfg, p);
+    applyWallParams(cfg, p);
+    applyTempRampParams(cfg, p);
+    return p;
+}
+
+// Claude Generated 2026 - Wrap the simplemd params in the full curcuma controller
+// (global method/gpu/verbosity + optional GFN-FF topology mode). Shared by startMD
+// and stepOnce so both build an identical controller shape.
+json buildMdController(const SimulationConfig& cfg, bool singleStep)
+{
+    json controller;
+    controller["simplemd"] = buildSimplemdParams(cfg, singleStep);
+    controller["global"]["method"] = cfg.method.toStdString();
+    controller["global"]["gpu"] = cfg.gpu.toStdString();
+    controller["global"]["verbosity"] = 0;
+    controller["verbosity"] = 0;
+    // GFN-FF topology mode (auto/constant); ignored for other methods.
+    if (cfg.method == "gfnff")
+        controller["global"]["topology_mode"] = cfg.topologyMode.toStdString();
+    return controller;
+}
+
+// Claude Generated 2026 - Energy-calculator controller shared by the optimizer
+// paths (runOptimization + single-step stepOnce).
+json buildEnergyController(const SimulationConfig& cfg)
+{
+    json c;
+    c["method"] = cfg.method.toStdString();
+    c["gpu"] = cfg.gpu.toStdString();
+    c["verbosity"] = 0;
+    return c;
+}
+
+// Claude Generated 2026 - Optimizer config shared by runOptimization (continuous
+// keep-alive loop) and stepOnce (single iteration). @p singleStep selects one
+// iteration + single_step_mode and no trajectory file. max_energy_rise is relaxed
+// in both so a bounded mouse-grab (which raises the energy) is not discarded.
+json buildOptConfig(const SimulationConfig& cfg, bool singleStep)
+{
+    json c;
+    c["max_iterations"] = singleStep ? 1 : cfg.steps;
+    c["gradient_threshold"] = cfg.convergence;
+    c["write_trajectory"] = singleStep ? false : cfg.writeTrajectory;
+    c["verbosity"] = 0;
+    c["max_energy_rise"] = 1.0e12;
+    if (singleStep)
+        c["single_step_mode"] = true;  // break after one iteration
+    return c;
+}
 }  // namespace
 
 SimulationWorker::SimulationWorker(QObject* parent)
@@ -218,44 +306,9 @@ void SimulationWorker::stepOnce()
         // the viewer has — for now we restart from m_initialAtoms. The dock
         // should re-spawn the worker with the current viewer geometry; this is
         // handled by the standard setMolecule() path before the call.
-        json simplemd_params;
-        simplemd_params["method"] = m_config.method.toStdString();
-        simplemd_params["temperature"] = m_config.temperature;
-        simplemd_params["time_step"] = m_config.timestep;
-        simplemd_params["dump_frequency"] = 1;
-        simplemd_params["max_time"] = m_config.timestep;  // one step only
-        simplemd_params["print_frequency"] = m_config.performanceAnalysis ? 1 : 1000;
-        simplemd_params["write_xyz"] = false;  // single step: no trajectory file
-        simplemd_params["no_restart"] = true;
-        simplemd_params["no_center"] = true;
-        // Claude Generated 2026 - Mirror startMD so a single "Step" honours the SAME
-        // config as a continuous run. RATTLE constraints, thermostat choice,
-        // confinement walls and temperature ramps were previously dropped here, so
-        // stepping frame-by-frame silently behaved differently from Start.
-        simplemd_params["rattle"] = m_config.rattleMode;
-        simplemd_params["rattle_12"] = m_config.rattle12;
-        simplemd_params["rattle_13"] = m_config.rattle13;
-        simplemd_params["rattle_tol_12"] = m_config.rattleTol12;
-        simplemd_params["rattle_tol_13"] = m_config.rattleTol13;
-        simplemd_params["rattle_max_iterations"] = m_config.rattleMaxIter;
-        simplemd_params["hmass"] = m_config.hmass;
-        simplemd_params["thermostat"] = m_config.thermostat.toStdString();
-        simplemd_params["coupling"] = m_config.thermostatCoupling;
-        simplemd_params["andersen_probability"] = m_config.andersenProbability;
-        simplemd_params["chain_length"] = m_config.noseChainLength;
-        applyRmsdMtdParams(m_config, simplemd_params);
-        applyWallParams(m_config, simplemd_params);
-        applyTempRampParams(m_config, simplemd_params);
-
-        json controller;
-        controller["simplemd"] = simplemd_params;
-        controller["global"]["method"] = m_config.method.toStdString();
-        controller["global"]["gpu"] = m_config.gpu.toStdString();
-        controller["global"]["verbosity"] = 0;
-        controller["verbosity"] = 0;
-        // GFN-FF topology mode (auto/constant); ignored for other methods.
-        if (m_config.method == "gfnff")
-            controller["global"]["topology_mode"] = m_config.topologyMode.toStdString();
+        // Single-step MD uses the SAME controller builder as startMD (singleStep =
+        // one step + no trajectory file), so the two paths cannot diverge again.
+        json controller = buildMdController(m_config, /*singleStep=*/true);
 
         auto md = std::make_unique<SimpleMD>(controller, true);
         md->setMolecule(atomsToMolecule(m_initialAtoms));
@@ -287,22 +340,10 @@ void SimulationWorker::stepOnce()
         // scratch each click — expensive for big systems, but matches the dock's
         // "manual convergence" UX. The user can also click Start to run a full
         // auto-converge in one shot.
-        json opt_config;
-        opt_config["max_iterations"] = 1;
-        opt_config["gradient_threshold"] = m_config.convergence;
-        opt_config["single_step_mode"] = true;  // break after one iteration
-        opt_config["write_trajectory"] = false;
-        opt_config["verbosity"] = 0;
-        // Claude Generated 2026 - Match runOptimization: a mouse-grab pulls atoms
-        // away from the minimum (raising the energy), which the driver's default
-        // energy-rise guard would treat as a failed step and discard — snapping the
-        // single-step grab back. Disable the guard here too (grab force is bounded).
-        opt_config["max_energy_rise"] = 1.0e12;
-
-        json energy_controller;
-        energy_controller["method"] = m_config.method.toStdString();
-        energy_controller["gpu"] = m_config.gpu.toStdString();
-        energy_controller["verbosity"] = 0;
+        // Single iteration; shares the optimizer/energy config builders with
+        // runOptimization (singleStep = one iteration + single_step_mode).
+        json opt_config = buildOptConfig(m_config, /*singleStep=*/true);
+        json energy_controller = buildEnergyController(m_config);
 
         try {
             EnergyCalculator calc(m_config.method.toStdString(), energy_controller);
@@ -457,53 +498,10 @@ static SimulationFramePtr moleculeToFrame(
 
 void SimulationWorker::startMD()
 {
-    // dump_frequency=1 is required: SimpleMD::step() only refreshes m_molecule's
-    // geometry inside `if (m_step % m_dump == 0)` blocks. With the default (50)
-    // currentMolecule() returns stale positions 49 out of 50 steps, producing
-    // the "99% frames dropped" appearance. The interactive viewer needs every
-    // step's geometry; the per-step overhead is negligible vs. the MD step itself.
-    json simplemd_params;
-    simplemd_params["method"] = m_config.method.toStdString();
-    simplemd_params["temperature"] = m_config.temperature;
-    simplemd_params["time_step"] = m_config.timestep;
-    simplemd_params["dump_frequency"] = 1;
-    if (m_config.steps > 0)
-        simplemd_params["max_time"] = static_cast<double>(m_config.steps) * m_config.timestep;
-    else
-        simplemd_params["max_time"] = 0.0;
-    if (m_config.performanceAnalysis)
-        simplemd_params["print_frequency"] = 1;
-    simplemd_params["write_xyz"] = m_config.writeTrajectory;
-    simplemd_params["no_restart"] = true;
-    simplemd_params["no_center"] = true;
-    simplemd_params["rattle"] = m_config.rattleMode;
-    simplemd_params["rattle_12"] = m_config.rattle12;
-    simplemd_params["rattle_13"] = m_config.rattle13;
-    simplemd_params["rattle_tol_12"] = m_config.rattleTol12;
-    simplemd_params["rattle_tol_13"] = m_config.rattleTol13;
-    simplemd_params["rattle_max_iterations"] = m_config.rattleMaxIter;
-    simplemd_params["hmass"] = m_config.hmass;
-    // Thermostat selection (curcuma reads only the params relevant to the chosen type).
-    simplemd_params["thermostat"] = m_config.thermostat.toStdString();
-    simplemd_params["coupling"] = m_config.thermostatCoupling;
-    simplemd_params["andersen_probability"] = m_config.andersenProbability;
-    simplemd_params["chain_length"] = m_config.noseChainLength;
-    applyRmsdMtdParams(m_config, simplemd_params);
-    applyWallParams(m_config, simplemd_params);
-    applyTempRampParams(m_config, simplemd_params);
-
-    json controller;
-    controller["simplemd"] = simplemd_params;
-    controller["global"]["method"] = m_config.method.toStdString();
-    controller["global"]["gpu"] = m_config.gpu.toStdString();
-    controller["global"]["verbosity"] = 0;
-    controller["verbosity"] = 0;
-
-    // GFN-FF topology mode: "auto" (two-tier caching) or "constant" (never recalculate)
-    // Only applies when method is gfnff, ignored otherwise
-    if (m_config.method == "gfnff") {
-        controller["global"]["topology_mode"] = m_config.topologyMode.toStdString();
-    }
+    // Continuous run: build the controller from the shared source of truth (see
+    // buildSimplemdParams). singleStep=false → full run length + trajectory file
+    // per the user's writeTrajectory setting.
+    json controller = buildMdController(m_config, /*singleStep=*/false);
 
     m_md = std::make_unique<SimpleMD>(controller, true);
     m_md->setMolecule(atomsToMolecule(m_initialAtoms));
@@ -633,23 +631,14 @@ void SimulationWorker::finalizeMDRun()
 
 void SimulationWorker::runOptimization()
 {
-    json opt_config;
-    opt_config["max_iterations"] = m_config.steps;
-    opt_config["gradient_threshold"] = m_config.convergence;
-    opt_config["write_trajectory"] = m_config.writeTrajectory;
-    opt_config["verbosity"] = 0;
-    // Claude Generated 2026 - Interactive grab intentionally pulls atoms away from
-    // the minimum, which RAISES the true energy. The driver's default energy-rise
-    // guard (100 kJ/mol) then aborts with an EMPTY failed_result, discarding the
-    // whole step — so the grabbed geometry snapped back every keep-alive cycle.
-    // Disable the guard here; the grab force is bounded and the objective still
-    // rejects NaN coordinates, so the optimisation cannot diverge silently.
-    opt_config["max_energy_rise"] = 1.0e12;
-
-    json energy_controller;
-    energy_controller["method"] = m_config.method.toStdString();
-    energy_controller["gpu"] = m_config.gpu.toStdString();
-    energy_controller["verbosity"] = 0;
+    // Continuous keep-alive optimisation; shares the config builders with the
+    // single-step stepOnce path. singleStep=false → run up to m_config.steps
+    // iterations and write the trajectory per the user's setting. max_energy_rise
+    // is relaxed inside buildOptConfig because an interactive grab pulls atoms away
+    // from the minimum (raising the energy); the default guard would otherwise
+    // abort with an empty result and snap the grabbed geometry back each cycle.
+    json opt_config = buildOptConfig(m_config, /*singleStep=*/false);
+    json energy_controller = buildEnergyController(m_config);
 
     Molecule mol = atomsToMolecule(m_initialAtoms);
 
