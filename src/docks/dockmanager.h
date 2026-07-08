@@ -48,7 +48,6 @@ public:
     // Internal tab widgets, exposed so callers can switch tabs without knowing
     // whether the content lives in a dock wrapper.
     QTabWidget* simulationTabs() const;
-    QTabWidget* navigationTabs() const;  // Returns nullptr: navigation is now a tab inside ProjectDock.
 
     // State
     bool dockVisible(QDockWidget* dock) const;
@@ -82,13 +81,6 @@ public:
     void placeDocks();
 
 private:
-    // Preset helpers
-    void applyVisualizationLayout();
-    void applyEditingLayout();
-    void applyCalculationLayout();
-    void applyAnalysisLayout();
-    void applyTeachingLayout();
-
     QMainWindow* m_mainWindow = nullptr;
 
     QDockWidget* m_projectDock = nullptr;

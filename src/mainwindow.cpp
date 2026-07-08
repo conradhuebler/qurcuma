@@ -4832,11 +4832,8 @@ void MainWindow::createDockWidgets()
     }
 
     // ==================== DISPLAY PANEL (inside Structure & Display dock) ====================
-    // Phase 8: DisplayPanel is now embedded in DisplayDock. Pull it from there.
-    if (!m_displayPanel) {
-        // Fallback if DockManager was not initialized; should not happen.
-        m_displayPanel = new DisplayPanel(m_moleculeView, &m_settings, this);
-    }
+    // Phase 8: DisplayPanel is owned by DisplayDock and harvested above; MainWindow
+    // only wires its signals here.
     connect(m_displayPanel, &DisplayPanel::centerOnLoadChanged, this, [this](bool on) {
         m_centerOnLoad = on;
         Settings::VisualizationSettings vs = m_settings.getVisualizationSettings();

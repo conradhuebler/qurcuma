@@ -35,13 +35,6 @@ QTabWidget* DockManager::simulationTabs() const
     return nullptr;
 }
 
-QTabWidget* DockManager::navigationTabs() const
-{
-    // Phase 6 redesign: navigation is embedded as a tab inside ProjectDock, so
-    // there is no standalone navigation tab widget at the dock-manager level.
-    return nullptr;
-}
-
 bool DockManager::dockVisible(QDockWidget* dock) const
 {
     return dock && dock->isVisible();
@@ -92,25 +85,80 @@ ProjectDock* DockManager::projectDockImpl() const
     return qobject_cast<ProjectDock*>(m_projectDock);
 }
 
+namespace {
+// Claude Generated 2026 - Data-driven layout presets. Each preset is a set of
+// dock-group visibility flags plus optional resize fractions; the five previous
+// near-identical applyXxxLayout() methods collapsed into this table + the single
+// applyPreset() below. Row order matches DockConfig::LayoutPreset.
+struct PresetSpec {
+    bool project;      // dock-group visibility
+    bool display;
+    bool simulation;
+    bool output;
+    double projectW;   // horizontal resize as fraction of window width (0 = skip)
+    double displayW;
+    double outputH;    // vertical resize as fraction of window height (0 = skip)
+};
+const PresetSpec kPresetSpecs[] = {
+    /* Visualization */ { true,  true,  false, false, 0.18, 0.22, 0.00 },
+    /* Editing       */ { true,  true,  false, false, 0.22, 0.32, 0.00 },
+    /* Calculation   */ { true,  false, true,  true,  0.00, 0.00, 0.35 },
+    /* Analysis      */ { true,  true,  true,  true,  0.22, 0.28, 0.22 },
+    /* Teaching      */ { true,  true,  true,  true,  0.18, 0.26, 0.25 },
+};
+}  // namespace
+
 void DockManager::applyPreset(DockConfig::LayoutPreset preset)
 {
+    if (!m_mainWindow)
+        return;
+
+    const int key = static_cast<int>(preset);
+
+    // Repeated tabify/split drifts Qt's layout, so once a preset has been built
+    // we restore its exact saved state instead of rebuilding it.
+    auto it = m_presetStates.find(key);
+    if (it != m_presetStates.end()) {
+        m_mainWindow->restoreState(*it);
+        emit presetApplied(preset);
+        return;
+    }
+
+    const PresetSpec& s = kPresetSpecs[key];
+    setDockGroupVisible(m_mainWindow, m_projectDock, s.project);
+    setDockGroupVisible(m_mainWindow, m_displayDock, s.display);
+    setDockGroupVisible(m_mainWindow, m_simulationDock, s.simulation);
+    setDockGroupVisible(m_mainWindow, m_outputViewDock, s.output);
+
+    // Preset-specific content selection (which tab/segment to show).
     switch (preset) {
-    case DockConfig::LayoutPreset::Visualization:
-        applyVisualizationLayout();
-        break;
     case DockConfig::LayoutPreset::Editing:
-        applyEditingLayout();
+        if (auto* sdd = displayDockImpl())
+            sdd->setCurrentTopSegment(DisplayDock::TopSegment::Structure);
         break;
     case DockConfig::LayoutPreset::Calculation:
-        applyCalculationLayout();
-        break;
-    case DockConfig::LayoutPreset::Analysis:
-        applyAnalysisLayout();
+        if (auto* sd = simulationDockImpl())
+            sd->setCurrentTab(0);  // Simulation tab
         break;
     case DockConfig::LayoutPreset::Teaching:
-        applyTeachingLayout();
+        if (auto* tabs = simulationTabs())
+            tabs->setCurrentIndex(0);
+        break;
+    default:
         break;
     }
+
+    if (s.displayW > 0.0 && m_mainWindow->width() > 0) {
+        m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
+            { int(m_mainWindow->width() * s.projectW), int(m_mainWindow->width() * s.displayW) },
+            Qt::Horizontal);
+    }
+    if (s.outputH > 0.0 && m_mainWindow->height() > 0) {
+        m_mainWindow->resizeDocks({ m_outputViewDock },
+            { int(m_mainWindow->height() * s.outputH) }, Qt::Vertical);
+    }
+
+    m_presetStates.insert(key, m_mainWindow->saveState());
     emit presetApplied(preset);
 }
 
@@ -233,118 +281,3 @@ void DockManager::placeDocks()
         m_mainWindow->addDockWidget(DockConfig::OutputViewDockArea, m_outputViewDock);
 }
 
-void DockManager::applyVisualizationLayout()
-{
-    const int key = static_cast<int>(DockConfig::LayoutPreset::Visualization);
-    auto it = m_presetStates.find(key);
-    if (it != m_presetStates.end()) {
-        m_mainWindow->restoreState(*it);
-    } else {
-        setDockGroupVisible(m_mainWindow, m_projectDock, true);
-        // Right area: show Structure&Display, hide Simulation.
-        setDockGroupVisible(m_mainWindow, m_displayDock, true);
-        setDockGroupVisible(m_mainWindow, m_simulationDock, false);
-        setDockGroupVisible(m_mainWindow, m_outputViewDock, false);
-        if (m_mainWindow && m_mainWindow->width() > 0) {
-            m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
-                { int(m_mainWindow->width() * 0.18), int(m_mainWindow->width() * 0.22) },
-                Qt::Horizontal);
-        }
-        m_presetStates.insert(key, m_mainWindow ? m_mainWindow->saveState() : QByteArray());
-    }
-}
-
-void DockManager::applyEditingLayout()
-{
-    const int key = static_cast<int>(DockConfig::LayoutPreset::Editing);
-    auto it = m_presetStates.find(key);
-    if (it != m_presetStates.end()) {
-        m_mainWindow->restoreState(*it);
-    } else {
-        setDockGroupVisible(m_mainWindow, m_projectDock, true);
-        // Right area: show Structure&Display, hide Simulation.
-        setDockGroupVisible(m_mainWindow, m_displayDock, true);
-        setDockGroupVisible(m_mainWindow, m_simulationDock, false);
-        setDockGroupVisible(m_mainWindow, m_outputViewDock, false);
-        if (auto* sdd = displayDockImpl())
-            sdd->setCurrentTopSegment(DisplayDock::TopSegment::Structure);
-        if (m_mainWindow && m_mainWindow->width() > 0) {
-            m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
-                { int(m_mainWindow->width() * 0.22), int(m_mainWindow->width() * 0.32) },
-                Qt::Horizontal);
-        }
-        m_presetStates.insert(key, m_mainWindow ? m_mainWindow->saveState() : QByteArray());
-    }
-}
-
-void DockManager::applyCalculationLayout()
-{
-    const int key = static_cast<int>(DockConfig::LayoutPreset::Calculation);
-    auto it = m_presetStates.find(key);
-    if (it != m_presetStates.end()) {
-        m_mainWindow->restoreState(*it);
-    } else {
-        setDockGroupVisible(m_mainWindow, m_projectDock, true);
-        // Right area: show Simulation, hide Structure&Display.
-        setDockGroupVisible(m_mainWindow, m_displayDock, false);
-        setDockGroupVisible(m_mainWindow, m_simulationDock, true);
-        setDockGroupVisible(m_mainWindow, m_outputViewDock, true);
-        if (auto* sd = simulationDockImpl())
-            sd->setCurrentTab(0); // Simulation tab
-        if (m_mainWindow && m_mainWindow->height() > 0) {
-            m_mainWindow->resizeDocks({ m_outputViewDock },
-                { int(m_mainWindow->height() * 0.35) }, Qt::Vertical);
-        }
-        m_presetStates.insert(key, m_mainWindow ? m_mainWindow->saveState() : QByteArray());
-    }
-}
-
-void DockManager::applyAnalysisLayout()
-{
-    const int key = static_cast<int>(DockConfig::LayoutPreset::Analysis);
-    auto it = m_presetStates.find(key);
-    if (it != m_presetStates.end()) {
-        m_mainWindow->restoreState(*it);
-    } else {
-        setDockGroupVisible(m_mainWindow, m_projectDock, true);
-        setDockGroupVisible(m_mainWindow, m_displayDock, true);
-        setDockGroupVisible(m_mainWindow, m_simulationDock, true);
-        setDockGroupVisible(m_mainWindow, m_outputViewDock, true);
-        if (m_mainWindow && m_mainWindow->width() > 0) {
-            m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
-                { int(m_mainWindow->width() * 0.22), int(m_mainWindow->width() * 0.28) },
-                Qt::Horizontal);
-        }
-        if (m_mainWindow && m_mainWindow->height() > 0) {
-            m_mainWindow->resizeDocks({ m_outputViewDock },
-                { int(m_mainWindow->height() * 0.22) }, Qt::Vertical);
-        }
-        m_presetStates.insert(key, m_mainWindow ? m_mainWindow->saveState() : QByteArray());
-    }
-}
-
-void DockManager::applyTeachingLayout()
-{
-    const int key = static_cast<int>(DockConfig::LayoutPreset::Teaching);
-    auto it = m_presetStates.find(key);
-    if (it != m_presetStates.end()) {
-        m_mainWindow->restoreState(*it);
-    } else {
-        setDockGroupVisible(m_mainWindow, m_projectDock, true);
-        setDockGroupVisible(m_mainWindow, m_displayDock, true);
-        setDockGroupVisible(m_mainWindow, m_simulationDock, true);
-        setDockGroupVisible(m_mainWindow, m_outputViewDock, true);
-        if (auto* tabs = simulationTabs())
-            tabs->setCurrentIndex(0);
-        if (m_mainWindow && m_mainWindow->width() > 0) {
-            m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
-                { int(m_mainWindow->width() * 0.18), int(m_mainWindow->width() * 0.26) },
-                Qt::Horizontal);
-        }
-        if (m_mainWindow && m_mainWindow->height() > 0) {
-            m_mainWindow->resizeDocks({ m_outputViewDock },
-                { int(m_mainWindow->height() * 0.25) }, Qt::Vertical);
-        }
-        m_presetStates.insert(key, m_mainWindow ? m_mainWindow->saveState() : QByteArray());
-    }
-}
