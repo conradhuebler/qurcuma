@@ -225,11 +225,27 @@ void SimulationWorker::stepOnce()
         simplemd_params["dump_frequency"] = 1;
         simplemd_params["max_time"] = m_config.timestep;  // one step only
         simplemd_params["print_frequency"] = m_config.performanceAnalysis ? 1 : 1000;
-        simplemd_params["write_xyz"] = false;
+        simplemd_params["write_xyz"] = false;  // single step: no trajectory file
         simplemd_params["no_restart"] = true;
         simplemd_params["no_center"] = true;
+        // Claude Generated 2026 - Mirror startMD so a single "Step" honours the SAME
+        // config as a continuous run. RATTLE constraints, thermostat choice,
+        // confinement walls and temperature ramps were previously dropped here, so
+        // stepping frame-by-frame silently behaved differently from Start.
+        simplemd_params["rattle"] = m_config.rattleMode;
+        simplemd_params["rattle_12"] = m_config.rattle12;
+        simplemd_params["rattle_13"] = m_config.rattle13;
+        simplemd_params["rattle_tol_12"] = m_config.rattleTol12;
+        simplemd_params["rattle_tol_13"] = m_config.rattleTol13;
+        simplemd_params["rattle_max_iterations"] = m_config.rattleMaxIter;
         simplemd_params["hmass"] = m_config.hmass;
+        simplemd_params["thermostat"] = m_config.thermostat.toStdString();
+        simplemd_params["coupling"] = m_config.thermostatCoupling;
+        simplemd_params["andersen_probability"] = m_config.andersenProbability;
+        simplemd_params["chain_length"] = m_config.noseChainLength;
         applyRmsdMtdParams(m_config, simplemd_params);
+        applyWallParams(m_config, simplemd_params);
+        applyTempRampParams(m_config, simplemd_params);
 
         json controller;
         controller["simplemd"] = simplemd_params;
@@ -237,6 +253,9 @@ void SimulationWorker::stepOnce()
         controller["global"]["gpu"] = m_config.gpu.toStdString();
         controller["global"]["verbosity"] = 0;
         controller["verbosity"] = 0;
+        // GFN-FF topology mode (auto/constant); ignored for other methods.
+        if (m_config.method == "gfnff")
+            controller["global"]["topology_mode"] = m_config.topologyMode.toStdString();
 
         auto md = std::make_unique<SimpleMD>(controller, true);
         md->setMolecule(atomsToMolecule(m_initialAtoms));
@@ -274,6 +293,11 @@ void SimulationWorker::stepOnce()
         opt_config["single_step_mode"] = true;  // break after one iteration
         opt_config["write_trajectory"] = false;
         opt_config["verbosity"] = 0;
+        // Claude Generated 2026 - Match runOptimization: a mouse-grab pulls atoms
+        // away from the minimum (raising the energy), which the driver's default
+        // energy-rise guard would treat as a failed step and discard — snapping the
+        // single-step grab back. Disable the guard here too (grab force is bounded).
+        opt_config["max_energy_rise"] = 1.0e12;
 
         json energy_controller;
         energy_controller["method"] = m_config.method.toStdString();

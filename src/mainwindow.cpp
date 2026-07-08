@@ -4254,7 +4254,8 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
         }
     }
     else if (suffix == "vtf") {
-        m_vtfParser = new VTFParser();
+        // Claude Generated 2026 - Reuse the parser created in the constructor;
+        // parseTrajectory() clears its frame buffer, so re-newing here only leaked.
         if (m_vtfParser->parseTrajectory(filePath)) {
             // Load VTF data as text
             QFile file(filePath);
@@ -4598,7 +4599,8 @@ void MainWindow::downloadAndLoadRemoteFile(const QString& filePath)
             }
         }
     } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive)) {
-        m_vtfParser = new VTFParser();
+        // Claude Generated 2026 - Reuse the constructor's parser (parseTrajectory
+        // clears its buffer); the previous re-new leaked one parser per VTF load.
         if (m_vtfParser->parseTrajectory(localPath)) {
             int frameCount = m_vtfParser->getFrameCount();
             m_moleculeView->setFrameCount(frameCount);
