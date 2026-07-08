@@ -38,6 +38,17 @@ public:
 
     void setCurrentTab(int index);
 
+signals:
+    // Claude Generated 2026 - Re-emitted SnapshotsWidget signals so MainWindow wires
+    // the dock instead of the internal widget (same pattern as ProjectDock). Only the
+    // snapshot signals are forwarded: the RMSD overlay signals carry MoleculeViewer
+    // types (forwarding them would pull view.h into this header) and the simulation
+    // control signals interleave with per-run worker wiring, so those stay connected
+    // directly via the getters pending a deeper logic move.
+    void takeSnapshotRequested();
+    void restoreSnapshotRequested(int index);
+    void deleteSnapshotRequested(int index);
+
 private:
     void setupUI();
 

@@ -36,6 +36,13 @@ void SimulationDock::setupUI()
 
     m_snapshotsWidget = new SnapshotsWidget(this);
     m_tabs->addTab(m_snapshotsWidget, tr("Snapshots"));
+    // Re-emit the snapshot widget's signals as dock signals (see header note).
+    connect(m_snapshotsWidget, &SnapshotsWidget::takeSnapshotRequested,
+            this, &SimulationDock::takeSnapshotRequested);
+    connect(m_snapshotsWidget, &SnapshotsWidget::restoreSnapshotRequested,
+            this, &SimulationDock::restoreSnapshotRequested);
+    connect(m_snapshotsWidget, &SnapshotsWidget::deleteSnapshotRequested,
+            this, &SimulationDock::deleteSnapshotRequested);
 
     m_rmsdWidget = new RMSDWidget(this);
     m_tabs->addTab(m_rmsdWidget,

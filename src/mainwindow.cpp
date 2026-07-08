@@ -4895,18 +4895,18 @@ void MainWindow::createDockWidgets()
         m_simulationControlWidget, &SimulationControlWidget::setWallViolationCount);
 
     // Claude Generated 2026 - Snapshot widget controls.
-    connect(m_snapshotsWidget, &SnapshotsWidget::takeSnapshotRequested,
+    connect(m_simulationDock, &SimulationDock::takeSnapshotRequested,
         this, [this]() {
             takeSnapshot();
         });
-    connect(m_snapshotsWidget, &SnapshotsWidget::restoreSnapshotRequested,
+    connect(m_simulationDock, &SimulationDock::restoreSnapshotRequested,
         this, [this](int index) {
             if (index >= 0 && index < m_snapshots.size())
                 restoreSnapshot(m_snapshots[index]);
         });
     // Claude Generated 2026 - Protect snapshot 0 (original geometry) from deletion.
     // Deleting it would break the Reset-to-original invariant.
-    connect(m_snapshotsWidget, &SnapshotsWidget::deleteSnapshotRequested,
+    connect(m_simulationDock, &SimulationDock::deleteSnapshotRequested,
         this, [this](int index) {
             if (index == 0)
                 return;  // Original snapshot must not be deleted
