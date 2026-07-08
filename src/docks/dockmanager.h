@@ -63,7 +63,10 @@ public slots:
     // Capture the current state as baseline (call once after the event loop starts).
     void captureBaselineState();
 
-    // Restore globally persisted layout.
+    // Persist the window geometry + dock layout to QSettings (call on close).
+    void saveLayout();
+
+    // Restore globally persisted layout (geometry + dock state).
     void restoreSavedLayout();
 
     // Reset to the baseline layout (clears preset caches).

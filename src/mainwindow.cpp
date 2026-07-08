@@ -262,16 +262,15 @@ void MainWindow::setupUI()
     // back to Analysis layout only on first run. Phase 5: state capture/restore is
     // owned by DockManager; geometry stays with MainWindow.
     QTimer::singleShot(0, this, [this]() {
-        if (m_dockManager)
+        // DockManager owns layout persistence: it restores both window geometry
+        // and dock state (no separate geometry restore here — that double-restored).
+        if (m_dockManager) {
             m_dockManager->captureBaselineState();
-        QSettings uiSettings;
-        const QByteArray savedGeometry = uiSettings.value(DockConfig::UiGeometryKey).toByteArray();
-        if (!savedGeometry.isEmpty())
-            restoreGeometry(savedGeometry);
-        if (m_dockManager)
             m_dockManager->restoreSavedLayout();
+        }
         // Claude Generated 2026 - P2: enforce the saved Explore/Compute mode last so the
         // calculation toolbar + dock visibility match the mode (default Explore on first run).
+        QSettings uiSettings;
         const auto savedMode = static_cast<DockConfig::AppMode>(
             uiSettings.value(DockConfig::UiAppModeKey, static_cast<int>(DockConfig::AppMode::Explore)).toInt());
         setAppMode(savedMode, /*reflow=*/false);
@@ -4995,9 +4994,8 @@ void MainWindow::applyLayoutPreset(DockConfig::LayoutPreset preset)
 // restores the user's last arrangement. Per-workspace save is orthogonal.
 void MainWindow::closeEvent(QCloseEvent* event)
 {
-    QSettings uiSettings;
-    uiSettings.setValue(DockConfig::UiGeometryKey, saveGeometry());
-    uiSettings.setValue(DockConfig::UiDockStateKey, saveState());
+    if (m_dockManager)
+        m_dockManager->saveLayout();
     QMainWindow::closeEvent(event);
 }
 

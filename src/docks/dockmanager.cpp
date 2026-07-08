@@ -209,6 +209,15 @@ void DockManager::captureBaselineState()
         m_defaultState = m_mainWindow->saveState();
 }
 
+void DockManager::saveLayout()
+{
+    if (!m_mainWindow)
+        return;
+    QSettings uiSettings;
+    uiSettings.setValue(DockConfig::UiGeometryKey, m_mainWindow->saveGeometry());
+    uiSettings.setValue(DockConfig::UiDockStateKey, m_mainWindow->saveState());
+}
+
 void DockManager::restoreSavedLayout()
 {
     if (!m_mainWindow)
