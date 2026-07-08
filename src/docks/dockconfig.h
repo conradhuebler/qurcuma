@@ -48,4 +48,12 @@ inline const QString DisplayDockTitle = QStringLiteral("Display");
 inline const QString SimulationDockTitle = QStringLiteral("Simulation");
 inline const QString OutputDockTitle = QStringLiteral("Output");
 
+// Persisted UI-state QSettings keys. Kept next to the enums/objectNames they
+// encode so the window geometry, dock layout and app-mode keys live in one place
+// instead of scattered magic strings. Do NOT change the values (existing configs
+// are stored under them). Claude Generated 2026.
+inline const QString UiGeometryKey = QStringLiteral("ui/geometry");
+inline const QString UiDockStateKey = QStringLiteral("ui/dockState");
+inline const QString UiAppModeKey = QStringLiteral("ui/appMode");
+
 } // namespace DockConfig

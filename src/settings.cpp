@@ -12,6 +12,22 @@ const QString Settings::LAST_USED_DIR_KEY = "lastUsedWorkingDirectory";
 const QString Settings::VIZ_SETTINGS_PREFIX = "visualization/";
 const QString Settings::USE_INVOCATION_DIR_KEY = "useInvocationDirectory";  // Claude Generated 2026
 const QString Settings::VIEW_PRESETS_PREFIX = "viewPresets/";  // Claude Generated 2026
+// Claude Generated 2026 - exact legacy key strings (see settings.h note).
+const QString Settings::ORCA_BINARY_KEY = "orca/binaryPath";
+const QString Settings::DARK_MODE_KEY = "darkMode";
+const QString Settings::RECENT_FILES_LEGACY_KEY = "recentFiles";
+const QString Settings::RECENT_FILES_V2_KEY = "recentFilesV2";
+const QString Settings::BOOKMARKS_KEY = "bookmarksV3";
+const QString Settings::WORKSPACES_KEY = "workspacesV1";
+const QString Settings::LAST_ACTIVE_WORKSPACE_KEY = "lastActiveWorkspaceId";
+const QString Settings::AUTO_SAVE_WORKSPACE_KEY = "autoSaveWorkspace";
+const QString Settings::RESTORE_LAST_WORKSPACE_KEY = "restoreLastWorkspace";
+const QString Settings::OPERATOR_NAME_KEY = "operator/name";
+const QString Settings::OPERATOR_ORCID_KEY = "operator/orcid";
+const QString Settings::OPERATOR_INSTITUTION_KEY = "operator/institution";
+const QString Settings::OPERATOR_LICENSE_KEY = "operator/license";
+const QString Settings::SFTP_PROFILES_KEY = "sftpProfilesV1";
+const QString Settings::REMOTE_MOUNTS_KEY = "remoteMountsV1";
 
 Settings::Settings(QObject* parent)
     : QObject(parent)
@@ -50,12 +66,12 @@ void Settings::setProgramPath(const QString &program, const QString &path)
 
 QString Settings::orcaBinaryPath() const
 {
-    return m_settings.value("orca/binaryPath").toString();
+    return m_settings.value(ORCA_BINARY_KEY).toString();
 }
 
 void Settings::setOrcaBinaryPath(const QString &path)
 {
-    m_settings.setValue("orca/binaryPath", path);
+    m_settings.setValue(ORCA_BINARY_KEY, path);
     m_settings.sync();
 }
 
@@ -134,27 +150,19 @@ QString Settings::lastUsedWorkingDirectory() const
     return m_settings.value(LAST_USED_DIR_KEY).toString();
 }
 
-// Claude Generated - Quick Win: Recent files
-QStringList Settings::recentFiles() const
-{
-    return m_settings.value("recentFiles", QStringList()).toStringList();
-}
-
-void Settings::setRecentFiles(const QStringList& files)
-{
-    m_settings.setValue("recentFiles", files);
-    m_settings.sync();
-}
+// Note: the legacy "recentFiles" QStringList key is still read once by
+// recentFilesV2() for one-time migration; the old V1 accessors were unused
+// and removed. Claude Generated 2026.
 
 // Claude Generated - Visual Polish: Dark mode
 bool Settings::darkModeEnabled() const
 {
-    return m_settings.value("darkMode", false).toBool();
+    return m_settings.value(DARK_MODE_KEY, false).toBool();
 }
 
 void Settings::setDarkMode(bool enabled)
 {
-    m_settings.setValue("darkMode", enabled);
+    m_settings.setValue(DARK_MODE_KEY, enabled);
     m_settings.sync();
 }
 
@@ -477,38 +485,38 @@ bool Settings::viewPresetExists(const QString& name) const
 // Claude Generated 2026 - Operator metadata (name/ORCID/institution/license)
 QString Settings::operatorName() const
 {
-    return m_settings.value(QStringLiteral("operator/name")).toString();
+    return m_settings.value(OPERATOR_NAME_KEY).toString();
 }
 void Settings::setOperatorName(const QString& name)
 {
-    m_settings.setValue(QStringLiteral("operator/name"), name);
+    m_settings.setValue(OPERATOR_NAME_KEY, name);
     m_settings.sync();
 }
 QString Settings::operatorOrcid() const
 {
-    return m_settings.value(QStringLiteral("operator/orcid")).toString();
+    return m_settings.value(OPERATOR_ORCID_KEY).toString();
 }
 void Settings::setOperatorOrcid(const QString& orcid)
 {
-    m_settings.setValue(QStringLiteral("operator/orcid"), orcid);
+    m_settings.setValue(OPERATOR_ORCID_KEY, orcid);
     m_settings.sync();
 }
 QString Settings::operatorInstitution() const
 {
-    return m_settings.value(QStringLiteral("operator/institution")).toString();
+    return m_settings.value(OPERATOR_INSTITUTION_KEY).toString();
 }
 void Settings::setOperatorInstitution(const QString& institution)
 {
-    m_settings.setValue(QStringLiteral("operator/institution"), institution);
+    m_settings.setValue(OPERATOR_INSTITUTION_KEY, institution);
     m_settings.sync();
 }
 QString Settings::operatorLicense() const
 {
-    return m_settings.value(QStringLiteral("operator/license")).toString();
+    return m_settings.value(OPERATOR_LICENSE_KEY).toString();
 }
 void Settings::setOperatorLicense(const QString& license)
 {
-    m_settings.setValue(QStringLiteral("operator/license"), license);
+    m_settings.setValue(OPERATOR_LICENSE_KEY, license);
     m_settings.sync();
 }
 
@@ -518,10 +526,10 @@ QVector<Settings::RecentFileEntry> Settings::recentFilesV2() const
     QVector<RecentFileEntry> entries;
 
     // Try to load new format first
-    if (m_settings.contains("recentFilesV2")) {
+    if (m_settings.contains(RECENT_FILES_V2_KEY)) {
         // Load from JSON format (simple string parsing)
         // Format: "path1|timestamp1;path2|timestamp2;..."
-        QString data = m_settings.value("recentFilesV2", "").toString();
+        QString data = m_settings.value(RECENT_FILES_V2_KEY, "").toString();
         if (!data.isEmpty()) {
             QStringList entryStrings = data.split(";");
             for (const QString& entryStr : entryStrings) {
@@ -541,7 +549,7 @@ QVector<Settings::RecentFileEntry> Settings::recentFilesV2() const
     }
 
     // Migration from old format (QStringList)
-    QStringList oldFiles = m_settings.value("recentFiles", QStringList()).toStringList();
+    QStringList oldFiles = m_settings.value(RECENT_FILES_LEGACY_KEY, QStringList()).toStringList();
     for (const QString& path : oldFiles) {
         RecentFileEntry entry;
         entry.path = path;
@@ -588,13 +596,13 @@ void Settings::setRecentFilesV2(const QVector<RecentFileEntry>& files)
         }
     }
 
-    m_settings.setValue("recentFilesV2", parts.join(";"));
+    m_settings.setValue(RECENT_FILES_V2_KEY, parts.join(";"));
     m_settings.sync();
 }
 
 void Settings::clearRecentFilesV2()
 {
-    m_settings.remove("recentFilesV2");
+    m_settings.remove(RECENT_FILES_V2_KEY);
     m_settings.sync();
 }
 
@@ -604,8 +612,8 @@ QVector<Settings::BookmarkItem> Settings::bookmarks() const
     QVector<BookmarkItem> items;
 
     // Try to load new format first
-    if (m_settings.contains("bookmarksV3")) {
-        QString data = m_settings.value("bookmarksV3", "").toString();
+    if (m_settings.contains(BOOKMARKS_KEY)) {
+        QString data = m_settings.value(BOOKMARKS_KEY, "").toString();
         if (!data.isEmpty()) {
             // Parse JSON-like format (simplified for now)
             // Format: id|name|path|tags|color|parentId|isFolder|created;...
@@ -669,7 +677,7 @@ void Settings::setBookmarks(const QVector<BookmarkItem>& items)
         }
     }
 
-    m_settings.setValue("bookmarksV3", parts.join("\n"));
+    m_settings.setValue(BOOKMARKS_KEY, parts.join("\n"));
     m_settings.sync();
 }
 
@@ -717,8 +725,8 @@ QVector<Settings::Workspace> Settings::workspaces() const
 {
     QVector<Workspace> workspaces;
 
-    if (m_settings.contains("workspacesV1")) {
-        QString data = m_settings.value("workspacesV1", "").toString();
+    if (m_settings.contains(WORKSPACES_KEY)) {
+        QString data = m_settings.value(WORKSPACES_KEY, "").toString();
         if (!data.isEmpty()) {
             // Parse format: id|name|description|workdir|calcDirs|geometry|splitterState|created|lastUsed;...
             QStringList wsStrings = data.split("\n");
@@ -778,7 +786,7 @@ void Settings::saveWorkspace(const Workspace& ws)
         }
     }
 
-    m_settings.setValue("workspacesV1", parts.join("\n"));
+    m_settings.setValue(WORKSPACES_KEY, parts.join("\n"));
     m_settings.sync();
 }
 
@@ -802,9 +810,9 @@ void Settings::deleteWorkspace(const QString& id)
     }
 
     if (parts.isEmpty()) {
-        m_settings.remove("workspacesV1");
+        m_settings.remove(WORKSPACES_KEY);
     } else {
-        m_settings.setValue("workspacesV1", parts.join("\n"));
+        m_settings.setValue(WORKSPACES_KEY, parts.join("\n"));
     }
     m_settings.sync();
 }
@@ -831,34 +839,34 @@ void Settings::updateWorkspaceLastUsed(const QString& id)
 
 QString Settings::lastActiveWorkspaceId() const
 {
-    return m_settings.value("lastActiveWorkspaceId", "").toString();
+    return m_settings.value(LAST_ACTIVE_WORKSPACE_KEY, "").toString();
 }
 
 void Settings::setLastActiveWorkspaceId(const QString& id)
 {
-    m_settings.setValue("lastActiveWorkspaceId", id);
+    m_settings.setValue(LAST_ACTIVE_WORKSPACE_KEY, id);
     m_settings.sync();
 }
 
 bool Settings::autoSaveWorkspaceEnabled() const
 {
-    return m_settings.value("autoSaveWorkspace", false).toBool();
+    return m_settings.value(AUTO_SAVE_WORKSPACE_KEY, false).toBool();
 }
 
 void Settings::setAutoSaveWorkspace(bool enabled)
 {
-    m_settings.setValue("autoSaveWorkspace", enabled);
+    m_settings.setValue(AUTO_SAVE_WORKSPACE_KEY, enabled);
     m_settings.sync();
 }
 
 bool Settings::restoreLastWorkspaceEnabled() const
 {
-    return m_settings.value("restoreLastWorkspace", false).toBool();
+    return m_settings.value(RESTORE_LAST_WORKSPACE_KEY, false).toBool();
 }
 
 void Settings::setRestoreLastWorkspace(bool enabled)
 {
-    m_settings.setValue("restoreLastWorkspace", enabled);
+    m_settings.setValue(RESTORE_LAST_WORKSPACE_KEY, enabled);
     m_settings.sync();
 }
 
@@ -868,8 +876,8 @@ QVector<Settings::SftpConnectionProfile> Settings::sftpProfiles() const
 {
     QVector<SftpConnectionProfile> profiles;
 
-    if (m_settings.contains("sftpProfilesV1")) {
-        QString data = m_settings.value("sftpProfilesV1", "").toString();
+    if (m_settings.contains(SFTP_PROFILES_KEY)) {
+        QString data = m_settings.value(SFTP_PROFILES_KEY, "").toString();
         if (!data.isEmpty()) {
             // Parse format: id|name|host|username|port|useSSHConfig|useKeyAuth|keyPath|created|lastUsed;...
             QStringList profileStrings = data.split("\n");
@@ -915,9 +923,9 @@ void Settings::setSftpProfiles(const QVector<SftpConnectionProfile>& profiles)
     }
 
     if (parts.isEmpty()) {
-        m_settings.remove("sftpProfilesV1");
+        m_settings.remove(SFTP_PROFILES_KEY);
     } else {
-        m_settings.setValue("sftpProfilesV1", parts.join("\n"));
+        m_settings.setValue(SFTP_PROFILES_KEY, parts.join("\n"));
     }
     m_settings.sync();
 }
@@ -998,8 +1006,8 @@ QVector<Settings::RemoteMountPoint> Settings::remoteMounts() const
 {
     QVector<RemoteMountPoint> mounts;
 
-    if (m_settings.contains("remoteMountsV1")) {
-        QString data = m_settings.value("remoteMountsV1", "").toString();
+    if (m_settings.contains(REMOTE_MOUNTS_KEY)) {
+        QString data = m_settings.value(REMOTE_MOUNTS_KEY, "").toString();
         if (!data.isEmpty()) {
             // Parse format: id|name|profileId|remotePath|mounted|lastAccessed
             QStringList mountStrings = data.split("\n");
@@ -1038,9 +1046,9 @@ void Settings::setRemoteMounts(const QVector<RemoteMountPoint>& mounts)
     }
 
     if (parts.isEmpty()) {
-        m_settings.remove("remoteMountsV1");
+        m_settings.remove(REMOTE_MOUNTS_KEY);
     } else {
-        m_settings.setValue("remoteMountsV1", parts.join("\n"));
+        m_settings.setValue(REMOTE_MOUNTS_KEY, parts.join("\n"));
     }
     m_settings.sync();
 }

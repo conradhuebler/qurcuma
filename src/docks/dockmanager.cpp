@@ -166,8 +166,8 @@ void DockManager::restoreSavedLayout()
     if (!m_mainWindow)
         return;
     QSettings uiSettings;
-    const QByteArray savedGeometry = uiSettings.value("ui/geometry").toByteArray();
-    const QByteArray savedState = uiSettings.value("ui/dockState").toByteArray();
+    const QByteArray savedGeometry = uiSettings.value(DockConfig::UiGeometryKey).toByteArray();
+    const QByteArray savedState = uiSettings.value(DockConfig::UiDockStateKey).toByteArray();
     if (!savedGeometry.isEmpty())
         m_mainWindow->restoreGeometry(savedGeometry);
     if (!savedState.isEmpty())

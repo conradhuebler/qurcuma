@@ -2272,7 +2272,7 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
     if (metadata.embed) {
         auto quat = metadata.cameraRotation;
         result.setText(QStringLiteral("Software"),
-                       QStringLiteral("Quranuma %1").arg(metadata.qurcumaVersion));
+                       QStringLiteral("Qurcuma %1").arg(metadata.qurcumaVersion));
         result.setText(QStringLiteral("ExportTimestamp"), metadata.exportTimestamp);
         result.setText(QStringLiteral("ImageWidth"), QString::number(metadata.width));
         result.setText(QStringLiteral("ImageHeight"), QString::number(metadata.height));

@@ -265,7 +265,7 @@ void MainWindow::setupUI()
         if (m_dockManager)
             m_dockManager->captureBaselineState();
         QSettings uiSettings;
-        const QByteArray savedGeometry = uiSettings.value("ui/geometry").toByteArray();
+        const QByteArray savedGeometry = uiSettings.value(DockConfig::UiGeometryKey).toByteArray();
         if (!savedGeometry.isEmpty())
             restoreGeometry(savedGeometry);
         if (m_dockManager)
@@ -273,7 +273,7 @@ void MainWindow::setupUI()
         // Claude Generated 2026 - P2: enforce the saved Explore/Compute mode last so the
         // calculation toolbar + dock visibility match the mode (default Explore on first run).
         const auto savedMode = static_cast<DockConfig::AppMode>(
-            uiSettings.value("ui/appMode", static_cast<int>(DockConfig::AppMode::Explore)).toInt());
+            uiSettings.value(DockConfig::UiAppModeKey, static_cast<int>(DockConfig::AppMode::Explore)).toInt());
         setAppMode(savedMode, /*reflow=*/false);
     });
 }
@@ -705,7 +705,7 @@ void MainWindow::setAppMode(DockConfig::AppMode mode, bool reflow)
         b->setChecked((b == m_exploreButton) == explore);
         b->blockSignals(false);
     }
-    QSettings().setValue("ui/appMode", static_cast<int>(mode));
+    QSettings().setValue(DockConfig::UiAppModeKey, static_cast<int>(mode));
 
     if (m_calculationToolbar)
         m_calculationToolbar->setVisible(!explore);
@@ -5008,8 +5008,8 @@ void MainWindow::applyLayoutPreset(DockConfig::LayoutPreset preset)
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     QSettings uiSettings;
-    uiSettings.setValue("ui/geometry", saveGeometry());
-    uiSettings.setValue("ui/dockState", saveState());
+    uiSettings.setValue(DockConfig::UiGeometryKey, saveGeometry());
+    uiSettings.setValue(DockConfig::UiDockStateKey, saveState());
     QMainWindow::closeEvent(event);
 }
 

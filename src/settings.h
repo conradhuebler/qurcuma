@@ -41,11 +41,9 @@ public:
     void setLastUsedWorkingDirectory(const QString& path);
     QString lastUsedWorkingDirectory() const;
 
-    // Claude Generated - Quick Win: Recent files
-    QStringList recentFiles() const;
-    void setRecentFiles(const QStringList& files);
-
     // Claude Generated Phase 2 - Enhanced recent files with timestamps
+    // (the unused V1 recentFiles()/setRecentFiles() accessors were removed;
+    // recentFilesV2() still migrates the legacy "recentFiles" key once).
     struct RecentFileEntry {
         QString path;
         QDateTime lastAccessed;
@@ -251,6 +249,24 @@ private:
     static const QString VIZ_SETTINGS_PREFIX;
     static const QString USE_INVOCATION_DIR_KEY;  // Claude Generated 2026 - "Use Invocation Directory" preference
     static const QString VIEW_PRESETS_PREFIX;      // Claude Generated 2026 - camera + display view presets
+    // Claude Generated 2026 - promoted from inline magic strings so read/write
+    // sites can't drift. Values are the exact legacy keys (do NOT change them:
+    // they are what existing user configs are stored under).
+    static const QString ORCA_BINARY_KEY;
+    static const QString DARK_MODE_KEY;
+    static const QString RECENT_FILES_LEGACY_KEY;  // V1, read once for migration
+    static const QString RECENT_FILES_V2_KEY;
+    static const QString BOOKMARKS_KEY;
+    static const QString WORKSPACES_KEY;
+    static const QString LAST_ACTIVE_WORKSPACE_KEY;
+    static const QString AUTO_SAVE_WORKSPACE_KEY;
+    static const QString RESTORE_LAST_WORKSPACE_KEY;
+    static const QString OPERATOR_NAME_KEY;
+    static const QString OPERATOR_ORCID_KEY;
+    static const QString OPERATOR_INSTITUTION_KEY;
+    static const QString OPERATOR_LICENSE_KEY;
+    static const QString SFTP_PROFILES_KEY;
+    static const QString REMOTE_MOUNTS_KEY;
 };
 
 #endif
