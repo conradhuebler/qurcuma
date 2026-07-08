@@ -3,6 +3,9 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <algorithm>
 
 const QString Settings::WORKING_DIR_KEY = "workingDirectory";
@@ -28,6 +31,168 @@ const QString Settings::OPERATOR_INSTITUTION_KEY = "operator/institution";
 const QString Settings::OPERATOR_LICENSE_KEY = "operator/license";
 const QString Settings::SFTP_PROFILES_KEY = "sftpProfilesV1";
 const QString Settings::REMOTE_MOUNTS_KEY = "remoteMountsV1";
+
+// Claude Generated 2026 - Structured (JSON) persistence for the record lists
+// (bookmarks / workspaces / SFTP profiles / remote mounts). Replaces the old
+// '|'- and '\n'-delimited encoding, which silently corrupted any field that
+// contained a delimiter and broke on positional-index drift. Each list is stored
+// as a compact JSON array string under its existing QSettings key. There is
+// intentionally NO backward read of the legacy delimited format (a one-time
+// settings reset for these lists is acceptable).
+namespace {
+
+QJsonArray readJsonArray(const QSettings& settings, const QString& key)
+{
+    return QJsonDocument::fromJson(settings.value(key).toString().toUtf8()).array();
+}
+
+void writeJsonArray(QSettings& settings, const QString& key, const QJsonArray& arr)
+{
+    if (arr.isEmpty())
+        settings.remove(key);
+    else
+        settings.setValue(key, QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+}
+
+QJsonObject bookmarkToJson(const Settings::BookmarkItem& b)
+{
+    QJsonObject o;
+    o["id"] = b.id;
+    o["name"] = b.name;
+    o["path"] = b.path;
+    o["tags"] = QJsonArray::fromStringList(b.tags);
+    o["color"] = b.color.isValid() ? b.color.name() : QString();
+    o["parentId"] = b.parentId;
+    o["isFolder"] = b.isFolder;
+    o["created"] = b.created.toString(Qt::ISODate);
+    return o;
+}
+
+Settings::BookmarkItem bookmarkFromJson(const QJsonObject& o)
+{
+    Settings::BookmarkItem b;
+    b.id = o["id"].toString();
+    b.name = o["name"].toString();
+    b.path = o["path"].toString();
+    QStringList tags;
+    for (const QJsonValue& v : o["tags"].toArray())
+        tags << v.toString();
+    b.tags = tags;
+    b.color = QColor(o["color"].toString());
+    b.parentId = o["parentId"].toString();
+    b.isFolder = o["isFolder"].toBool();
+    b.created = QDateTime::fromString(o["created"].toString(), Qt::ISODate);
+    return b;
+}
+
+QJsonObject workspaceToJson(const Settings::Workspace& w)
+{
+    QJsonObject o;
+    o["id"] = w.id;
+    o["name"] = w.name;
+    o["description"] = w.description;
+    o["workingDirectory"] = w.workingDirectory;
+    o["openCalculations"] = QJsonArray::fromStringList(w.openCalculations);
+    o["windowGeometry"] = QString::fromLatin1(w.windowGeometry.toBase64());
+    o["dockState"] = QString::fromLatin1(w.dockState.toBase64());
+    o["created"] = w.created.toString(Qt::ISODate);
+    o["lastUsed"] = w.lastUsed.toString(Qt::ISODate);
+    return o;
+}
+
+Settings::Workspace workspaceFromJson(const QJsonObject& o)
+{
+    Settings::Workspace w;
+    w.id = o["id"].toString();
+    w.name = o["name"].toString();
+    w.description = o["description"].toString();
+    w.workingDirectory = o["workingDirectory"].toString();
+    QStringList calcs;
+    for (const QJsonValue& v : o["openCalculations"].toArray())
+        calcs << v.toString();
+    w.openCalculations = calcs;
+    w.windowGeometry = QByteArray::fromBase64(o["windowGeometry"].toString().toLatin1());
+    w.dockState = QByteArray::fromBase64(o["dockState"].toString().toLatin1());
+    w.created = QDateTime::fromString(o["created"].toString(), Qt::ISODate);
+    w.lastUsed = QDateTime::fromString(o["lastUsed"].toString(), Qt::ISODate);
+    return w;
+}
+
+QJsonObject recentFileToJson(const Settings::RecentFileEntry& e)
+{
+    QJsonObject o;
+    o["path"] = e.path;
+    o["lastAccessed"] = e.lastAccessed.toString(Qt::ISODate);
+    return o;
+}
+
+Settings::RecentFileEntry recentFileFromJson(const QJsonObject& o)
+{
+    Settings::RecentFileEntry e;
+    e.path = o["path"].toString();
+    e.lastAccessed = QDateTime::fromString(o["lastAccessed"].toString(), Qt::ISODate);
+    return e;
+}
+
+#ifdef USE_SFTP
+QJsonObject sftpProfileToJson(const Settings::SftpConnectionProfile& p)
+{
+    QJsonObject o;
+    o["id"] = p.id;
+    o["name"] = p.name;
+    o["host"] = p.host;
+    o["username"] = p.username;
+    o["port"] = p.port;
+    o["useSSHConfig"] = p.useSSHConfig;
+    o["useKeyAuth"] = p.useKeyAuth;
+    o["keyPath"] = p.keyPath;
+    o["created"] = p.created.toString(Qt::ISODate);
+    o["lastUsed"] = p.lastUsed.toString(Qt::ISODate);
+    return o;
+}
+
+Settings::SftpConnectionProfile sftpProfileFromJson(const QJsonObject& o)
+{
+    Settings::SftpConnectionProfile p;
+    p.id = o["id"].toString();
+    p.name = o["name"].toString();
+    p.host = o["host"].toString();
+    p.username = o["username"].toString();
+    p.port = o["port"].toInt(22);
+    p.useSSHConfig = o["useSSHConfig"].toBool();
+    p.useKeyAuth = o["useKeyAuth"].toBool();
+    p.keyPath = o["keyPath"].toString();
+    p.created = QDateTime::fromString(o["created"].toString(), Qt::ISODate);
+    p.lastUsed = QDateTime::fromString(o["lastUsed"].toString(), Qt::ISODate);
+    return p;
+}
+
+QJsonObject mountToJson(const Settings::RemoteMountPoint& m)
+{
+    QJsonObject o;
+    o["id"] = m.id;
+    o["name"] = m.name;
+    o["profileId"] = m.profileId;
+    o["remotePath"] = m.remotePath;
+    o["mounted"] = m.mounted.toString(Qt::ISODate);
+    o["lastAccessed"] = m.lastAccessed.toString(Qt::ISODate);
+    return o;
+}
+
+Settings::RemoteMountPoint mountFromJson(const QJsonObject& o)
+{
+    Settings::RemoteMountPoint m;
+    m.id = o["id"].toString();
+    m.name = o["name"].toString();
+    m.profileId = o["profileId"].toString();
+    m.remotePath = o["remotePath"].toString();
+    m.mounted = QDateTime::fromString(o["mounted"].toString(), Qt::ISODate);
+    m.lastAccessed = QDateTime::fromString(o["lastAccessed"].toString(), Qt::ISODate);
+    return m;
+}
+#endif // USE_SFTP
+
+} // namespace
 
 Settings::Settings(QObject* parent)
     : QObject(parent)
@@ -525,27 +690,16 @@ QVector<Settings::RecentFileEntry> Settings::recentFilesV2() const
 {
     QVector<RecentFileEntry> entries;
 
-    // Try to load new format first
-    if (m_settings.contains(RECENT_FILES_V2_KEY)) {
-        // Load from JSON format (simple string parsing)
-        // Format: "path1|timestamp1;path2|timestamp2;..."
-        QString data = m_settings.value(RECENT_FILES_V2_KEY, "").toString();
-        if (!data.isEmpty()) {
-            QStringList entryStrings = data.split(";");
-            for (const QString& entryStr : entryStrings) {
-                if (entryStr.isEmpty()) continue;
-                QStringList parts = entryStr.split("|");
-                if (parts.size() == 2) {
-                    RecentFileEntry entry;
-                    entry.path = parts[0];
-                    entry.lastAccessed = QDateTime::fromString(parts[1], Qt::ISODate);
-                    if (entry.isValid()) {
-                        entries.append(entry);
-                    }
-                }
-            }
-            return entries;
+    // Load the JSON array format; fall through to the legacy QStringList
+    // migration below only when the V2 key is absent.
+    const QJsonArray arr = readJsonArray(m_settings, RECENT_FILES_V2_KEY);
+    if (!arr.isEmpty()) {
+        for (const QJsonValue& v : arr) {
+            RecentFileEntry entry = recentFileFromJson(v.toObject());
+            if (entry.isValid())
+                entries.append(entry);
         }
+        return entries;
     }
 
     // Migration from old format (QStringList)
@@ -588,15 +742,11 @@ void Settings::addRecentFileV2(const QString& path)
 
 void Settings::setRecentFilesV2(const QVector<RecentFileEntry>& files)
 {
-    // Save as string format: "path1|timestamp1;path2|timestamp2;..."
-    QStringList parts;
-    for (const auto& entry : files) {
-        if (entry.isValid()) {
-            parts.append(entry.path + "|" + entry.lastAccessed.toString(Qt::ISODate));
-        }
-    }
-
-    m_settings.setValue(RECENT_FILES_V2_KEY, parts.join(";"));
+    QJsonArray arr;
+    for (const auto& entry : files)
+        if (entry.isValid())
+            arr.append(recentFileToJson(entry));
+    writeJsonArray(m_settings, RECENT_FILES_V2_KEY, arr);
     m_settings.sync();
 }
 
@@ -610,74 +760,22 @@ void Settings::clearRecentFilesV2()
 QVector<Settings::BookmarkItem> Settings::bookmarks() const
 {
     QVector<BookmarkItem> items;
-
-    // Try to load new format first
-    if (m_settings.contains(BOOKMARKS_KEY)) {
-        QString data = m_settings.value(BOOKMARKS_KEY, "").toString();
-        if (!data.isEmpty()) {
-            // Parse JSON-like format (simplified for now)
-            // Format: id|name|path|tags|color|parentId|isFolder|created;...
-            QStringList itemStrings = data.split("\n");
-            for (const QString& itemStr : itemStrings) {
-                if (itemStr.isEmpty()) continue;
-                QStringList parts = itemStr.split("|");
-                if (parts.size() >= 8) {
-                    BookmarkItem item;
-                    item.id = parts[0];
-                    item.name = parts[1];
-                    item.path = parts[2];
-                    item.tags = parts[3].split(",");
-                    item.color = QColor(parts[4]);
-                    item.parentId = parts[5];
-                    item.isFolder = parts[6] == "1";
-                    item.created = QDateTime::fromString(parts[7], Qt::ISODate);
-                    if (item.isValid()) {
-                        items.append(item);
-                    }
-                }
-            }
-            return items;
-        }
-    }
-
-    // If new format doesn't exist, try to load from legacy format
-    QStringList oldDirs = m_settings.value(WORKING_DIRS_KEY).toStringList();
-    for (const QString& path : oldDirs) {
-        if (path.isEmpty()) continue;
-
-        BookmarkItem item;
-        item.id = QUuid::createUuid().toString();
-        // Extract directory name from path
-        QFileInfo fi(path);
-        item.name = fi.fileName().isEmpty() ? QDir(path).dirName() : fi.fileName();
-        item.path = path;
-        item.tags = QStringList();
-        item.color = QColor();
-        item.parentId = "";
-        item.isFolder = false;
-        item.created = QDateTime::currentDateTime();
-
-        if (item.isValid()) {
+    const QJsonArray arr = readJsonArray(m_settings, BOOKMARKS_KEY);
+    for (const QJsonValue& v : arr) {
+        BookmarkItem item = bookmarkFromJson(v.toObject());
+        if (item.isValid())
             items.append(item);
-        }
     }
-
     return items;
 }
 
 void Settings::setBookmarks(const QVector<BookmarkItem>& items)
 {
-    QStringList parts;
-    for (const auto& item : items) {
-        if (item.isValid()) {
-            parts.append(item.id + "|" + item.name + "|" + item.path + "|" +
-                        item.tags.join(",") + "|" + item.color.name() + "|" +
-                        item.parentId + "|" + (item.isFolder ? "1" : "0") + "|" +
-                        item.created.toString(Qt::ISODate));
-        }
-    }
-
-    m_settings.setValue(BOOKMARKS_KEY, parts.join("\n"));
+    QJsonArray arr;
+    for (const auto& item : items)
+        if (item.isValid())
+            arr.append(bookmarkToJson(item));
+    writeJsonArray(m_settings, BOOKMARKS_KEY, arr);
     m_settings.sync();
 }
 
@@ -724,34 +822,12 @@ void Settings::updateBookmark(const QString& id, const BookmarkItem& newItem)
 QVector<Settings::Workspace> Settings::workspaces() const
 {
     QVector<Workspace> workspaces;
-
-    if (m_settings.contains(WORKSPACES_KEY)) {
-        QString data = m_settings.value(WORKSPACES_KEY, "").toString();
-        if (!data.isEmpty()) {
-            // Parse format: id|name|description|workdir|calcDirs|geometry|splitterState|created|lastUsed;...
-            QStringList wsStrings = data.split("\n");
-            for (const QString& wsStr : wsStrings) {
-                if (wsStr.isEmpty()) continue;
-                QStringList parts = wsStr.split("|");
-                if (parts.size() >= 9) {
-                    Workspace ws;
-                    ws.id = parts[0];
-                    ws.name = parts[1];
-                    ws.description = parts[2];
-                    ws.workingDirectory = parts[3];
-                    ws.openCalculations = parts[4].split(",");
-                    ws.windowGeometry = QByteArray::fromHex(parts[5].toLatin1());
-                    ws.dockState = QByteArray::fromHex(parts[6].toLatin1());  // Claude Generated - UI Restructuring
-                    ws.created = QDateTime::fromString(parts[7], Qt::ISODate);
-                    ws.lastUsed = QDateTime::fromString(parts[8], Qt::ISODate);
-                    if (ws.isValid()) {
-                        workspaces.append(ws);
-                    }
-                }
-            }
-        }
+    const QJsonArray arr = readJsonArray(m_settings, WORKSPACES_KEY);
+    for (const QJsonValue& v : arr) {
+        Workspace ws = workspaceFromJson(v.toObject());
+        if (ws.isValid())
+            workspaces.append(ws);
     }
-
     return workspaces;
 }
 
@@ -774,19 +850,11 @@ void Settings::saveWorkspace(const Workspace& ws)
     }
 
     // Serialize all
-    QStringList parts;
-    for (const auto& w : workspaces_list) {
-        if (w.isValid()) {
-            parts.append(w.id + "|" + w.name + "|" + w.description + "|" +
-                        w.workingDirectory + "|" + w.openCalculations.join(",") + "|" +
-                        QString(w.windowGeometry.toHex()) + "|" +
-                        QString(w.dockState.toHex()) + "|" +  // Claude Generated - UI Restructuring
-                        w.created.toString(Qt::ISODate) + "|" +
-                        w.lastUsed.toString(Qt::ISODate));
-        }
-    }
-
-    m_settings.setValue(WORKSPACES_KEY, parts.join("\n"));
+    QJsonArray arr;
+    for (const auto& w : workspaces_list)
+        if (w.isValid())
+            arr.append(workspaceToJson(w));
+    writeJsonArray(m_settings, WORKSPACES_KEY, arr);
     m_settings.sync();
 }
 
@@ -796,24 +864,12 @@ void Settings::deleteWorkspace(const QString& id)
     workspaces_list.erase(std::remove_if(workspaces_list.begin(), workspaces_list.end(),
         [&id](const Workspace& ws) { return ws.id == id; }), workspaces_list.end());
 
-    // Serialize remaining
-    QStringList parts;
-    for (const auto& w : workspaces_list) {
-        if (w.isValid()) {
-            parts.append(w.id + "|" + w.name + "|" + w.description + "|" +
-                        w.workingDirectory + "|" + w.openCalculations.join(",") + "|" +
-                        QString(w.windowGeometry.toHex()) + "|" +
-                        QString(w.dockState.toHex()) + "|" +  // Claude Generated - UI Restructuring
-                        w.created.toString(Qt::ISODate) + "|" +
-                        w.lastUsed.toString(Qt::ISODate));
-        }
-    }
-
-    if (parts.isEmpty()) {
-        m_settings.remove(WORKSPACES_KEY);
-    } else {
-        m_settings.setValue(WORKSPACES_KEY, parts.join("\n"));
-    }
+    // Serialize remaining (writeJsonArray removes the key when the list is empty)
+    QJsonArray arr;
+    for (const auto& w : workspaces_list)
+        if (w.isValid())
+            arr.append(workspaceToJson(w));
+    writeJsonArray(m_settings, WORKSPACES_KEY, arr);
     m_settings.sync();
 }
 
@@ -875,58 +931,22 @@ void Settings::setRestoreLastWorkspace(bool enabled)
 QVector<Settings::SftpConnectionProfile> Settings::sftpProfiles() const
 {
     QVector<SftpConnectionProfile> profiles;
-
-    if (m_settings.contains(SFTP_PROFILES_KEY)) {
-        QString data = m_settings.value(SFTP_PROFILES_KEY, "").toString();
-        if (!data.isEmpty()) {
-            // Parse format: id|name|host|username|port|useSSHConfig|useKeyAuth|keyPath|created|lastUsed;...
-            QStringList profileStrings = data.split("\n");
-            for (const QString& profileStr : profileStrings) {
-                if (profileStr.isEmpty()) continue;
-                QStringList parts = profileStr.split("|");
-                if (parts.size() >= 10) {
-                    SftpConnectionProfile profile;
-                    profile.id = parts[0];
-                    profile.name = parts[1];
-                    profile.host = parts[2];
-                    profile.username = parts[3];
-                    profile.port = parts[4].toInt();
-                    profile.useSSHConfig = (parts[5] == "1");
-                    profile.useKeyAuth = (parts[6] == "1");
-                    profile.keyPath = parts[7];
-                    profile.created = QDateTime::fromString(parts[8], Qt::ISODate);
-                    profile.lastUsed = QDateTime::fromString(parts[9], Qt::ISODate);
-                    if (profile.isValid()) {
-                        profiles.append(profile);
-                    }
-                }
-            }
-        }
+    const QJsonArray arr = readJsonArray(m_settings, SFTP_PROFILES_KEY);
+    for (const QJsonValue& v : arr) {
+        SftpConnectionProfile profile = sftpProfileFromJson(v.toObject());
+        if (profile.isValid())
+            profiles.append(profile);
     }
-
     return profiles;
 }
 
 void Settings::setSftpProfiles(const QVector<SftpConnectionProfile>& profiles)
 {
-    QStringList parts;
-    for (const auto& profile : profiles) {
-        if (profile.isValid()) {
-            parts.append(profile.id + "|" + profile.name + "|" + profile.host + "|" +
-                        profile.username + "|" + QString::number(profile.port) + "|" +
-                        (profile.useSSHConfig ? "1" : "0") + "|" +
-                        (profile.useKeyAuth ? "1" : "0") + "|" +
-                        profile.keyPath + "|" +
-                        profile.created.toString(Qt::ISODate) + "|" +
-                        profile.lastUsed.toString(Qt::ISODate));
-        }
-    }
-
-    if (parts.isEmpty()) {
-        m_settings.remove(SFTP_PROFILES_KEY);
-    } else {
-        m_settings.setValue(SFTP_PROFILES_KEY, parts.join("\n"));
-    }
+    QJsonArray arr;
+    for (const auto& profile : profiles)
+        if (profile.isValid())
+            arr.append(sftpProfileToJson(profile));
+    writeJsonArray(m_settings, SFTP_PROFILES_KEY, arr);
     m_settings.sync();
 }
 
@@ -1005,51 +1025,22 @@ QVector<Settings::SftpConnectionProfile> Settings::getRecentSftpConnections(int 
 QVector<Settings::RemoteMountPoint> Settings::remoteMounts() const
 {
     QVector<RemoteMountPoint> mounts;
-
-    if (m_settings.contains(REMOTE_MOUNTS_KEY)) {
-        QString data = m_settings.value(REMOTE_MOUNTS_KEY, "").toString();
-        if (!data.isEmpty()) {
-            // Parse format: id|name|profileId|remotePath|mounted|lastAccessed
-            QStringList mountStrings = data.split("\n");
-            for (const QString& mountStr : mountStrings) {
-                if (mountStr.isEmpty()) continue;
-                QStringList parts = mountStr.split("|");
-                if (parts.size() >= 6) {
-                    RemoteMountPoint mount;
-                    mount.id = parts[0];
-                    mount.name = parts[1];
-                    mount.profileId = parts[2];
-                    mount.remotePath = parts[3];
-                    mount.mounted = QDateTime::fromString(parts[4], Qt::ISODate);
-                    mount.lastAccessed = QDateTime::fromString(parts[5], Qt::ISODate);
-                    if (mount.isValid()) {
-                        mounts.append(mount);
-                    }
-                }
-            }
-        }
+    const QJsonArray arr = readJsonArray(m_settings, REMOTE_MOUNTS_KEY);
+    for (const QJsonValue& v : arr) {
+        RemoteMountPoint mount = mountFromJson(v.toObject());
+        if (mount.isValid())
+            mounts.append(mount);
     }
-
     return mounts;
 }
 
 void Settings::setRemoteMounts(const QVector<RemoteMountPoint>& mounts)
 {
-    QStringList parts;
-    for (const auto& mount : mounts) {
-        if (mount.isValid()) {
-            parts.append(mount.id + "|" + mount.name + "|" + mount.profileId + "|" +
-                        mount.remotePath + "|" +
-                        mount.mounted.toString(Qt::ISODate) + "|" +
-                        mount.lastAccessed.toString(Qt::ISODate));
-        }
-    }
-
-    if (parts.isEmpty()) {
-        m_settings.remove(REMOTE_MOUNTS_KEY);
-    } else {
-        m_settings.setValue(REMOTE_MOUNTS_KEY, parts.join("\n"));
-    }
+    QJsonArray arr;
+    for (const auto& mount : mounts)
+        if (mount.isValid())
+            arr.append(mountToJson(mount));
+    writeJsonArray(m_settings, REMOTE_MOUNTS_KEY, arr);
     m_settings.sync();
 }
 
