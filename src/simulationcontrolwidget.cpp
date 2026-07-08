@@ -389,6 +389,333 @@ QGroupBox* SimulationControlWidget::createWallGroup()
     return m_wallGroup;
 }
 
+// Claude Generated 2026 - Potential / Method group (extracted from setupUI).
+QGroupBox* SimulationControlWidget::createPotentialGroup()
+{
+    auto* potentialGroup = new QGroupBox(tr("Potential / Method"), this);
+    auto* potentialForm = new QFormLayout(potentialGroup);
+
+    m_methodCombo = new QComboBox(this);
+    m_methodCombo->addItem("GFN-FF", "gfnff");
+    m_methodCombo->addItem("UFF", "uff");
+    m_methodCombo->addItem("GFN2", "gfn2");
+    m_methodCombo->addItem("GFN1", "gfn1");
+    potentialForm->addRow(tr("Method:"), m_methodCombo);
+
+    m_gpuCombo = new QComboBox(this);
+    m_gpuCombo->addItem(tr("CPU (none)"), "none");
+#if defined(USE_CUDA)
+    m_gpuCombo->addItem(tr("CUDA"), "cuda");
+#endif
+#if defined(USE_ROCM)
+    m_gpuCombo->addItem(tr("ROCm"), "rocm");
+#endif
+#if defined(USE_VULKAN)
+    m_gpuCombo->addItem(tr("Vulkan"), "vulkan");
+#endif
+    m_gpuCombo->addItem(tr("Auto"), "auto");
+    m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
+    potentialForm->addRow(tr("GPU:"), m_gpuCombo);
+
+    // GFN-FF topology mode selector
+    m_topologyModeCombo = new QComboBox(this);
+    m_topologyModeCombo->addItem(tr("Auto (adaptive)"), "auto");
+    m_topologyModeCombo->addItem(tr("Constant (fixed)"), "constant");
+    m_topologyModeCombo->setToolTip(tr("GFN-FF topology mode: Auto recalculates topology when needed, "
+                                       "Constant keeps initial topology fixed (faster for MD)"));
+    potentialForm->addRow(tr("Topology:"), m_topologyModeCombo);
+
+    return potentialGroup;
+}
+
+// Claude Generated 2026 - Temperature Ramp group (extracted from setupUI). Drives
+// the global setpoint through a multi-stage schedule; owns its +/- segment wiring.
+QGroupBox* SimulationControlWidget::createTempRampGroup()
+{
+    m_tempRampGroup = new QGroupBox(tr("Temperature Ramp"), this);
+    auto* rampOuter = new QVBoxLayout(m_tempRampGroup);
+    rampOuter->setSpacing(4);
+    rampOuter->setContentsMargins(4, 4, 4, 4);
+
+    m_tempRampEnableCheck = new QCheckBox(tr("Enable temperature ramp"), this);
+    m_tempRampEnableCheck->setToolTip(tr("Drive the global thermostat setpoint through a multi-stage "
+        "schedule. Each segment ramps to a target either over N steps or until the measured temperature "
+        "reaches it. Dragging the temperature slider during a run overrides the ramp."));
+    rampOuter->addWidget(m_tempRampEnableCheck);
+
+    m_tempRampDetails = new QWidget(m_tempRampGroup);
+    auto* rampLay = new QVBoxLayout(m_tempRampDetails);
+    rampLay->setContentsMargins(0, 0, 0, 0);
+
+    m_tempRampTable = new QTableWidget(0, 3, m_tempRampDetails);
+    m_tempRampTable->setHorizontalHeaderLabels({ tr("Target (K)"), tr("Mode"), tr("Value") });
+    m_tempRampTable->horizontalHeader()->setStretchLastSection(true);
+    m_tempRampTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_tempRampTable->verticalHeader()->setVisible(false);
+    m_tempRampTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tempRampTable->setMaximumHeight(150);
+    m_tempRampTable->setToolTip(tr("Mode 'steps': ramp the setpoint to Target over <Value> integration steps.\n"
+                                   "Mode 'reach': hold the setpoint at Target, advance once |<T>-Target| < Value K."));
+    rampLay->addWidget(m_tempRampTable);
+
+    auto* rampBtnRow = new QHBoxLayout;
+    auto* rampAddBtn = new QPushButton(tr("+ Segment"), m_tempRampDetails);
+    auto* rampDelBtn = new QPushButton(tr("− Segment"), m_tempRampDetails);
+    rampBtnRow->addWidget(rampAddBtn);
+    rampBtnRow->addWidget(rampDelBtn);
+    rampBtnRow->addStretch(1);
+    rampLay->addLayout(rampBtnRow);
+
+    m_tempOverrideLabel = new QLabel(tr("⚠ ramp overridden by manual temperature"), m_tempRampDetails);
+    m_tempOverrideLabel->setStyleSheet(QStringLiteral("color:#c47f00;"));
+    m_tempOverrideLabel->setVisible(false);
+    rampLay->addWidget(m_tempOverrideLabel);
+
+    rampOuter->addWidget(m_tempRampDetails);
+    m_tempRampDetails->setVisible(false);  // hidden until enabled
+
+    connect(rampAddBtn, &QPushButton::clicked, this, [this]() {
+        addRampSegmentRow(500.0, QStringLiteral("steps"), 5000.0);
+        emit configChanged(buildConfig());
+    });
+    connect(rampDelBtn, &QPushButton::clicked, this, [this]() {
+        const int row = m_tempRampTable->currentRow() >= 0
+            ? m_tempRampTable->currentRow() : m_tempRampTable->rowCount() - 1;
+        if (row >= 0)
+            m_tempRampTable->removeRow(row);
+        emit configChanged(buildConfig());
+    });
+    connect(m_tempRampEnableCheck, &QCheckBox::toggled, this,
+        [this](bool on) {
+            m_tempRampDetails->setVisible(on);
+            if (on && m_tempRampTable->rowCount() == 0)
+                addRampSegmentRow(500.0, QStringLiteral("steps"), 5000.0);
+        });
+    connect(m_tempRampTable, &QTableWidget::cellChanged, this,
+        [this](int, int) { emit configChanged(buildConfig()); });
+
+    return m_tempRampGroup;
+}
+
+// Claude Generated 2026 - Temperature Regions group (extracted from setupUI).
+// Per-atom-subset thermostats; owns its +/- region wiring.
+QGroupBox* SimulationControlWidget::createTempRegionGroup()
+{
+    m_tempRegionGroup = new QGroupBox(tr("Temperature Regions"), this);
+    auto* regOuter = new QVBoxLayout(m_tempRegionGroup);
+    regOuter->setSpacing(4);
+    regOuter->setContentsMargins(4, 4, 4, 4);
+
+    auto* regHelp = new QLabel(tr("Atom subsets with their own temperature. Atoms in no region "
+        "follow the global temperature."), m_tempRegionGroup);
+    regHelp->setWordWrap(true);
+    regOuter->addWidget(regHelp);
+
+    m_tempRegionTable = new QTableWidget(0, 3, m_tempRegionGroup);
+    m_tempRegionTable->setHorizontalHeaderLabels({ tr("Atoms"), tr("Start T (K)"), tr("Schedule") });
+    m_tempRegionTable->horizontalHeader()->setStretchLastSection(true);
+    m_tempRegionTable->verticalHeader()->setVisible(false);
+    m_tempRegionTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_tempRegionTable->setMaximumHeight(150);
+    m_tempRegionTable->setToolTip(tr("Atoms: selection like \"1:10,15\", \"F2\" (fragment), or \"-1\" (all).\n"
+                                     "Schedule (optional): same grammar as the global ramp, e.g. \"800:steps:5000;300:reach:10\"."));
+    regOuter->addWidget(m_tempRegionTable);
+
+    auto* regBtnRow = new QHBoxLayout;
+    auto* regAddBtn = new QPushButton(tr("+ Region"), m_tempRegionGroup);
+    auto* regDelBtn = new QPushButton(tr("− Region"), m_tempRegionGroup);
+    regBtnRow->addWidget(regAddBtn);
+    regBtnRow->addWidget(regDelBtn);
+    regBtnRow->addStretch(1);
+    regOuter->addLayout(regBtnRow);
+
+    connect(regAddBtn, &QPushButton::clicked, this, [this]() {
+        addRegionRow(QStringLiteral("-1"), 300.0, QString());
+        emit configChanged(buildConfig());
+    });
+    connect(regDelBtn, &QPushButton::clicked, this, [this]() {
+        const int row = m_tempRegionTable->currentRow() >= 0
+            ? m_tempRegionTable->currentRow() : m_tempRegionTable->rowCount() - 1;
+        if (row >= 0)
+            m_tempRegionTable->removeRow(row);
+        emit configChanged(buildConfig());
+    });
+    connect(m_tempRegionTable, &QTableWidget::cellChanged, this,
+        [this](int, int) { emit configChanged(buildConfig()); });
+
+    return m_tempRegionGroup;
+}
+
+// Claude Generated 2026 - RATTLE constraints group (extracted from setupUI).
+QGroupBox* SimulationControlWidget::createRattleGroup()
+{
+    m_rattleGroup = new QGroupBox(tr("RATTLE Constraints"), this);
+    auto* rattleOuterLayout = new QVBoxLayout(m_rattleGroup);
+    rattleOuterLayout->setSpacing(4);
+    rattleOuterLayout->setContentsMargins(4, 4, 4, 4);
+
+    auto* rattleModeForm = new QFormLayout;
+    m_rattleCombo = new QComboBox(this);
+    m_rattleCombo->addItem(tr("Off"), 0);
+    m_rattleCombo->addItem(tr("RATTLE"), 1);
+    m_rattleCombo->addItem(tr("RATTLE (H-only)"), 2);
+    m_rattleCombo->setToolTip(tr("Bond-length constraint algorithm (RATTLE)"));
+    rattleModeForm->addRow(tr("Mode:"), m_rattleCombo);
+    rattleOuterLayout->addLayout(rattleModeForm);
+
+    // Detail controls — shown only when RATTLE is active
+    m_rattleDetails = new QWidget(m_rattleGroup);
+    auto* rattleForm = new QFormLayout(m_rattleDetails);
+    rattleForm->setContentsMargins(0, 0, 0, 0);
+
+    m_rattle12Check = new QCheckBox(tr("Constrain 1-2 bonds"), this);
+    m_rattle12Check->setChecked(true);
+    rattleForm->addRow("", m_rattle12Check);
+
+    m_rattle13Check = new QCheckBox(tr("Constrain 1-3 angles"), this);
+    m_rattle13Check->setChecked(false);
+    rattleForm->addRow("", m_rattle13Check);
+
+    m_rattleTol12Spin = new QDoubleSpinBox(this);
+    m_rattleTol12Spin->setRange(1e-10, 1e-1);
+    m_rattleTol12Spin->setDecimals(8);
+    m_rattleTol12Spin->setSingleStep(1e-5);
+    m_rattleTol12Spin->setValue(1e-4);
+    m_rattleTol12Spin->setToolTip(tr("Tolerance for 1-2 bond constraints (Bohr²)"));
+    rattleForm->addRow(tr("Tol 1-2:"), m_rattleTol12Spin);
+
+    m_rattleTol13Spin = new QDoubleSpinBox(this);
+    m_rattleTol13Spin->setRange(1e-10, 1e-1);
+    m_rattleTol13Spin->setDecimals(8);
+    m_rattleTol13Spin->setSingleStep(1e-4);
+    m_rattleTol13Spin->setValue(1e-3);
+    m_rattleTol13Spin->setToolTip(tr("Tolerance for 1-3 angle constraints (Bohr²)"));
+    rattleForm->addRow(tr("Tol 1-3:"), m_rattleTol13Spin);
+
+    m_rattleMaxIterSpin = new QSpinBox(this);
+    m_rattleMaxIterSpin->setRange(1, 1000);
+    m_rattleMaxIterSpin->setValue(100);
+    m_rattleMaxIterSpin->setToolTip(tr("Maximum RATTLE iterations per MD step"));
+    rattleForm->addRow(tr("Max iter:"), m_rattleMaxIterSpin);
+
+    rattleOuterLayout->addWidget(m_rattleDetails);
+    m_rattleDetails->setVisible(false);  // hidden until mode != off
+    return m_rattleGroup;
+}
+
+// Claude Generated 2026 - Optimization group (extracted from setupUI).
+QGroupBox* SimulationControlWidget::createOptGroup()
+{
+    m_optGroup = new QGroupBox(tr("Optimization"), this);
+    auto* optForm = new QFormLayout(m_optGroup);
+
+    m_optimizerCombo = new QComboBox(this);
+    m_optimizerCombo->addItem(tr("Auto"), "auto");
+    m_optimizerCombo->addItem(tr("LBFGS++"), "lbfgspp");
+    m_optimizerCombo->addItem(tr("Native L-BFGS"), "native_lbfgs");
+    m_optimizerCombo->addItem(tr("DIIS"), "native_diis");
+    m_optimizerCombo->addItem(tr("RFO"), "native_rfo");
+    m_optimizerCombo->addItem(tr("ANCOpt"), "ancopt");
+    m_optimizerCombo->setToolTip(tr("Optimization algorithm (geometry optimization only)"));
+    optForm->addRow(tr("Algorithm:"), m_optimizerCombo);
+
+    m_convergenceSpin = new QDoubleSpinBox(this);
+    m_convergenceSpin->setRange(1e-10, 1e-2);
+    m_convergenceSpin->setDecimals(10);
+    m_convergenceSpin->setSingleStep(1e-7);
+    m_convergenceSpin->setValue(1e-6);
+    optForm->addRow(tr("Gradient tol:"), m_convergenceSpin);
+
+    // Claude Generated 2026 - Opt-in: keep the force-field parameters/topology
+    // fixed while interactively dragging atoms during a geometry optimization.
+    // When on (default), keep-alive restarts reuse the existing FF and only move
+    // atoms (no rebuild from the grab-distorted geometry — faster, crash-free).
+    // When off, each restart rebuilds the FF from the current geometry (adaptive).
+    m_optKeepParamsCheck = new QCheckBox(tr("Keep parameters while dragging"), this);
+    m_optKeepParamsCheck->setChecked(true);
+    m_optKeepParamsCheck->setToolTip(tr("Interactive Opt: keep the force-field parameters/topology fixed "
+                                        "across keep-alive restarts instead of rebuilding them from the "
+                                        "(grab-distorted) geometry. Recommended on."));
+    optForm->addRow("", m_optKeepParamsCheck);
+
+    return m_optGroup;
+}
+
+// Claude Generated 2026 - Output Options group (extracted from setupUI).
+QGroupBox* SimulationControlWidget::createOutputGroup()
+{
+    auto* outputGroup = new QGroupBox(tr("Output"), this);
+    auto* outputLayout = new QVBoxLayout(outputGroup);
+    outputLayout->setSpacing(4);
+    outputLayout->setContentsMargins(4, 4, 4, 4);
+
+    m_writeTrjCheck = new QCheckBox(tr("Write .trj.xyz"), this);
+    outputLayout->addWidget(m_writeTrjCheck);
+
+    m_perfCheck = new QCheckBox(tr("Performance analysis"), this);
+    outputLayout->addWidget(m_perfCheck);
+
+    return outputGroup;
+}
+
+// Claude Generated 2026 - Interactive Grab group (extracted from setupUI).
+QGroupBox* SimulationControlWidget::createGrabGroup()
+{
+    auto* grabGroup = new QGroupBox(tr("Interactive Grab"), this);
+    auto* grabOuter = new QVBoxLayout(grabGroup);
+    grabOuter->setContentsMargins(4, 4, 4, 4);
+    grabOuter->setSpacing(4);
+
+    m_grabStrengthSpin = new QDoubleSpinBox(this);
+    m_grabStrengthSpin->setRange(1e-4, 10.0);
+    m_grabStrengthSpin->setDecimals(4);
+    m_grabStrengthSpin->setSingleStep(0.01);
+    m_grabStrengthSpin->setValue(0.1);
+    m_grabStrengthSpin->setToolTip(tr("World-space force per screen pixel (Eh/Bohr), Angstrom-to-Bohr corrected"));
+
+    auto* grabForm = new QFormLayout;
+    grabForm->addRow(tr("Strength:"), m_grabStrengthSpin);
+    grabOuter->addLayout(grabForm);
+
+    // Stiffness presets — map coupled α + maxShells to physical behaviour
+    m_grabPresetCombo = new QComboBox(this);
+    m_grabPresetCombo->addItem(tr("Soft (local drag)"), 0);   // α=0.2, shells=5
+    m_grabPresetCombo->addItem(tr("Balanced"), 1);           // α=0.4, shells=3
+    m_grabPresetCombo->addItem(tr("Stiff (rigid pull)"), 2);  // α=0.8, shells=1
+    m_grabPresetCombo->setCurrentIndex(1);  // Balanced default
+    m_grabPresetCombo->setToolTip(tr("Force propagation: Soft affects only nearest neighbours, "
+                                     "Stiff pulls the whole fragment as a unit"));
+    grabForm->addRow(tr("Stiffness:"), m_grabPresetCombo);
+
+    // Advanced controls — hidden by default
+    m_grabAdvancedCheck = new QCheckBox(tr("Advanced"), this);
+    grabForm->addRow("", m_grabAdvancedCheck);
+
+    m_grabAdvancedWidget = new QWidget(this);
+    auto* advLayout = new QFormLayout(m_grabAdvancedWidget);
+    advLayout->setContentsMargins(0, 0, 0, 0);
+
+    m_grabAlphaSpin = new QDoubleSpinBox(this);
+    m_grabAlphaSpin->setRange(0.0, 1.0);
+    m_grabAlphaSpin->setDecimals(2);
+    m_grabAlphaSpin->setSingleStep(0.05);
+    m_grabAlphaSpin->setValue(0.4);
+    m_grabAlphaSpin->setToolTip(tr("Shell decay factor α^depth (0 = only grabbed atom, 1 = uniform)"));
+    advLayout->addRow(tr("α decay:"), m_grabAlphaSpin);
+
+    m_grabMaxShellsSpin = new QSpinBox(this);
+    m_grabMaxShellsSpin->setRange(-1, 20);
+    m_grabMaxShellsSpin->setValue(3);
+    m_grabMaxShellsSpin->setSpecialValueText(tr("∞"));
+    m_grabMaxShellsSpin->setToolTip(tr("Max BFS depth for force propagation (-1 = unlimited)"));
+    advLayout->addRow(tr("Max shells:"), m_grabMaxShellsSpin);
+
+    m_grabAdvancedWidget->setVisible(false);
+    grabOuter->addWidget(m_grabAdvancedWidget);
+
+    return grabGroup;
+}
+
 void SimulationControlWidget::setupUI()
 {
     auto* outer = new QVBoxLayout(this);
@@ -529,209 +856,19 @@ void SimulationControlWidget::setupUI()
             this, [this]() { emit resetStructureRequested(0); });
 
     // ---- Potential / Methode ----
-    auto* potentialGroup = new QGroupBox(tr("Potential / Method"), this);
-    auto* potentialForm = new QFormLayout(potentialGroup);
-
-    m_methodCombo = new QComboBox(this);
-    m_methodCombo->addItem("GFN-FF", "gfnff");
-    m_methodCombo->addItem("UFF", "uff");
-    m_methodCombo->addItem("GFN2", "gfn2");
-    m_methodCombo->addItem("GFN1", "gfn1");
-    potentialForm->addRow(tr("Method:"), m_methodCombo);
-
-    m_gpuCombo = new QComboBox(this);
-    m_gpuCombo->addItem(tr("CPU (none)"), "none");
-#if defined(USE_CUDA)
-    m_gpuCombo->addItem(tr("CUDA"), "cuda");
-#endif
-#if defined(USE_ROCM)
-    m_gpuCombo->addItem(tr("ROCm"), "rocm");
-#endif
-#if defined(USE_VULKAN)
-    m_gpuCombo->addItem(tr("Vulkan"), "vulkan");
-#endif
-    m_gpuCombo->addItem(tr("Auto"), "auto");
-    m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
-    potentialForm->addRow(tr("GPU:"), m_gpuCombo);
-
-    // GFN-FF topology mode selector
-    m_topologyModeCombo = new QComboBox(this);
-    m_topologyModeCombo->addItem(tr("Auto (adaptive)"), "auto");
-    m_topologyModeCombo->addItem(tr("Constant (fixed)"), "constant");
-    m_topologyModeCombo->setToolTip(tr("GFN-FF topology mode: Auto recalculates topology when needed, "
-                                       "Constant keeps initial topology fixed (faster for MD)"));
-    potentialForm->addRow(tr("Topology:"), m_topologyModeCombo);
-
-    innerLayout->addWidget(potentialGroup);
+    innerLayout->addWidget(createPotentialGroup());
 
     // ---- MD Parameters ----
     innerLayout->addWidget(createMdGroup());
 
     // ---- Temperature Ramp (global setpoint schedule, curcuma temp_ramp/temp_schedule) ----
-    // Claude Generated 2026 - drive the global setpoint through a multi-stage schedule.
-    m_tempRampGroup = new QGroupBox(tr("Temperature Ramp"), this);
-    auto* rampOuter = new QVBoxLayout(m_tempRampGroup);
-    rampOuter->setSpacing(4);
-    rampOuter->setContentsMargins(4, 4, 4, 4);
-
-    m_tempRampEnableCheck = new QCheckBox(tr("Enable temperature ramp"), this);
-    m_tempRampEnableCheck->setToolTip(tr("Drive the global thermostat setpoint through a multi-stage "
-        "schedule. Each segment ramps to a target either over N steps or until the measured temperature "
-        "reaches it. Dragging the temperature slider during a run overrides the ramp."));
-    rampOuter->addWidget(m_tempRampEnableCheck);
-
-    m_tempRampDetails = new QWidget(m_tempRampGroup);
-    auto* rampLay = new QVBoxLayout(m_tempRampDetails);
-    rampLay->setContentsMargins(0, 0, 0, 0);
-
-    m_tempRampTable = new QTableWidget(0, 3, m_tempRampDetails);
-    m_tempRampTable->setHorizontalHeaderLabels({ tr("Target (K)"), tr("Mode"), tr("Value") });
-    m_tempRampTable->horizontalHeader()->setStretchLastSection(true);
-    m_tempRampTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_tempRampTable->verticalHeader()->setVisible(false);
-    m_tempRampTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_tempRampTable->setMaximumHeight(150);
-    m_tempRampTable->setToolTip(tr("Mode 'steps': ramp the setpoint to Target over <Value> integration steps.\n"
-                                   "Mode 'reach': hold the setpoint at Target, advance once |<T>-Target| < Value K."));
-    rampLay->addWidget(m_tempRampTable);
-
-    auto* rampBtnRow = new QHBoxLayout;
-    auto* rampAddBtn = new QPushButton(tr("+ Segment"), m_tempRampDetails);
-    auto* rampDelBtn = new QPushButton(tr("− Segment"), m_tempRampDetails);
-    rampBtnRow->addWidget(rampAddBtn);
-    rampBtnRow->addWidget(rampDelBtn);
-    rampBtnRow->addStretch(1);
-    rampLay->addLayout(rampBtnRow);
-
-    m_tempOverrideLabel = new QLabel(tr("⚠ ramp overridden by manual temperature"), m_tempRampDetails);
-    m_tempOverrideLabel->setStyleSheet(QStringLiteral("color:#c47f00;"));
-    m_tempOverrideLabel->setVisible(false);
-    rampLay->addWidget(m_tempOverrideLabel);
-
-    rampOuter->addWidget(m_tempRampDetails);
-    m_tempRampDetails->setVisible(false);  // hidden until enabled
-    innerLayout->addWidget(m_tempRampGroup);
-
-    connect(rampAddBtn, &QPushButton::clicked, this, [this]() {
-        addRampSegmentRow(500.0, QStringLiteral("steps"), 5000.0);
-        emit configChanged(buildConfig());
-    });
-    connect(rampDelBtn, &QPushButton::clicked, this, [this]() {
-        const int row = m_tempRampTable->currentRow() >= 0
-            ? m_tempRampTable->currentRow() : m_tempRampTable->rowCount() - 1;
-        if (row >= 0)
-            m_tempRampTable->removeRow(row);
-        emit configChanged(buildConfig());
-    });
-    connect(m_tempRampEnableCheck, &QCheckBox::toggled, this,
-        [this](bool on) {
-            m_tempRampDetails->setVisible(on);
-            if (on && m_tempRampTable->rowCount() == 0)
-                addRampSegmentRow(500.0, QStringLiteral("steps"), 5000.0);
-        });
-    connect(m_tempRampTable, &QTableWidget::cellChanged, this,
-        [this](int, int) { emit configChanged(buildConfig()); });
+    innerLayout->addWidget(createTempRampGroup());
 
     // ---- Temperature Regions (per-atom-subset thermostats, curcuma temp_regions) ----
-    // Claude Generated 2026 - each region thermostats an atom subset to its own target/ramp;
-    // atoms in no region follow the global temperature above.
-    m_tempRegionGroup = new QGroupBox(tr("Temperature Regions"), this);
-    auto* regOuter = new QVBoxLayout(m_tempRegionGroup);
-    regOuter->setSpacing(4);
-    regOuter->setContentsMargins(4, 4, 4, 4);
-
-    auto* regHelp = new QLabel(tr("Atom subsets with their own temperature. Atoms in no region "
-        "follow the global temperature."), m_tempRegionGroup);
-    regHelp->setWordWrap(true);
-    regOuter->addWidget(regHelp);
-
-    m_tempRegionTable = new QTableWidget(0, 3, m_tempRegionGroup);
-    m_tempRegionTable->setHorizontalHeaderLabels({ tr("Atoms"), tr("Start T (K)"), tr("Schedule") });
-    m_tempRegionTable->horizontalHeader()->setStretchLastSection(true);
-    m_tempRegionTable->verticalHeader()->setVisible(false);
-    m_tempRegionTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_tempRegionTable->setMaximumHeight(150);
-    m_tempRegionTable->setToolTip(tr("Atoms: selection like \"1:10,15\", \"F2\" (fragment), or \"-1\" (all).\n"
-                                     "Schedule (optional): same grammar as the global ramp, e.g. \"800:steps:5000;300:reach:10\"."));
-    regOuter->addWidget(m_tempRegionTable);
-
-    auto* regBtnRow = new QHBoxLayout;
-    auto* regAddBtn = new QPushButton(tr("+ Region"), m_tempRegionGroup);
-    auto* regDelBtn = new QPushButton(tr("− Region"), m_tempRegionGroup);
-    regBtnRow->addWidget(regAddBtn);
-    regBtnRow->addWidget(regDelBtn);
-    regBtnRow->addStretch(1);
-    regOuter->addLayout(regBtnRow);
-
-    innerLayout->addWidget(m_tempRegionGroup);
-
-    connect(regAddBtn, &QPushButton::clicked, this, [this]() {
-        addRegionRow(QStringLiteral("-1"), 300.0, QString());
-        emit configChanged(buildConfig());
-    });
-    connect(regDelBtn, &QPushButton::clicked, this, [this]() {
-        const int row = m_tempRegionTable->currentRow() >= 0
-            ? m_tempRegionTable->currentRow() : m_tempRegionTable->rowCount() - 1;
-        if (row >= 0)
-            m_tempRegionTable->removeRow(row);
-        emit configChanged(buildConfig());
-    });
-    connect(m_tempRegionTable, &QTableWidget::cellChanged, this,
-        [this](int, int) { emit configChanged(buildConfig()); });
+    innerLayout->addWidget(createTempRegionGroup());
 
     // ---- RATTLE constraints (MD only) ----
-    m_rattleGroup = new QGroupBox(tr("RATTLE Constraints"), this);
-    auto* rattleOuterLayout = new QVBoxLayout(m_rattleGroup);
-    rattleOuterLayout->setSpacing(4);
-    rattleOuterLayout->setContentsMargins(4, 4, 4, 4);
-
-    auto* rattleModeForm = new QFormLayout;
-    m_rattleCombo = new QComboBox(this);
-    m_rattleCombo->addItem(tr("Off"), 0);
-    m_rattleCombo->addItem(tr("RATTLE"), 1);
-    m_rattleCombo->addItem(tr("RATTLE (H-only)"), 2);
-    m_rattleCombo->setToolTip(tr("Bond-length constraint algorithm (RATTLE)"));
-    rattleModeForm->addRow(tr("Mode:"), m_rattleCombo);
-    rattleOuterLayout->addLayout(rattleModeForm);
-
-    // Detail controls — shown only when RATTLE is active
-    m_rattleDetails = new QWidget(m_rattleGroup);
-    auto* rattleForm = new QFormLayout(m_rattleDetails);
-    rattleForm->setContentsMargins(0, 0, 0, 0);
-
-    m_rattle12Check = new QCheckBox(tr("Constrain 1-2 bonds"), this);
-    m_rattle12Check->setChecked(true);
-    rattleForm->addRow("", m_rattle12Check);
-
-    m_rattle13Check = new QCheckBox(tr("Constrain 1-3 angles"), this);
-    m_rattle13Check->setChecked(false);
-    rattleForm->addRow("", m_rattle13Check);
-
-    m_rattleTol12Spin = new QDoubleSpinBox(this);
-    m_rattleTol12Spin->setRange(1e-10, 1e-1);
-    m_rattleTol12Spin->setDecimals(8);
-    m_rattleTol12Spin->setSingleStep(1e-5);
-    m_rattleTol12Spin->setValue(1e-4);
-    m_rattleTol12Spin->setToolTip(tr("Tolerance for 1-2 bond constraints (Bohr²)"));
-    rattleForm->addRow(tr("Tol 1-2:"), m_rattleTol12Spin);
-
-    m_rattleTol13Spin = new QDoubleSpinBox(this);
-    m_rattleTol13Spin->setRange(1e-10, 1e-1);
-    m_rattleTol13Spin->setDecimals(8);
-    m_rattleTol13Spin->setSingleStep(1e-4);
-    m_rattleTol13Spin->setValue(1e-3);
-    m_rattleTol13Spin->setToolTip(tr("Tolerance for 1-3 angle constraints (Bohr²)"));
-    rattleForm->addRow(tr("Tol 1-3:"), m_rattleTol13Spin);
-
-    m_rattleMaxIterSpin = new QSpinBox(this);
-    m_rattleMaxIterSpin->setRange(1, 1000);
-    m_rattleMaxIterSpin->setValue(100);
-    m_rattleMaxIterSpin->setToolTip(tr("Maximum RATTLE iterations per MD step"));
-    rattleForm->addRow(tr("Max iter:"), m_rattleMaxIterSpin);
-
-    rattleOuterLayout->addWidget(m_rattleDetails);
-    m_rattleDetails->setVisible(false);  // hidden until mode != off
-    innerLayout->addWidget(m_rattleGroup);
+    innerLayout->addWidget(createRattleGroup());
 
     // ---- RMSD Metadynamics (MD bias, curcuma SimpleMD rmsd_mtd) ----
     innerLayout->addWidget(createRmsdMtdGroup());
@@ -740,108 +877,13 @@ void SimulationControlWidget::setupUI()
     innerLayout->addWidget(createWallGroup());
 
     // ---- Optimization Parameters ----
-    m_optGroup = new QGroupBox(tr("Optimization"), this);
-    auto* optForm = new QFormLayout(m_optGroup);
-
-    m_optimizerCombo = new QComboBox(this);
-    m_optimizerCombo->addItem(tr("Auto"), "auto");
-    m_optimizerCombo->addItem(tr("LBFGS++"), "lbfgspp");
-    m_optimizerCombo->addItem(tr("Native L-BFGS"), "native_lbfgs");
-    m_optimizerCombo->addItem(tr("DIIS"), "native_diis");
-    m_optimizerCombo->addItem(tr("RFO"), "native_rfo");
-    m_optimizerCombo->addItem(tr("ANCOpt"), "ancopt");
-    m_optimizerCombo->setToolTip(tr("Optimization algorithm (geometry optimization only)"));
-    optForm->addRow(tr("Algorithm:"), m_optimizerCombo);
-
-    m_convergenceSpin = new QDoubleSpinBox(this);
-    m_convergenceSpin->setRange(1e-10, 1e-2);
-    m_convergenceSpin->setDecimals(10);
-    m_convergenceSpin->setSingleStep(1e-7);
-    m_convergenceSpin->setValue(1e-6);
-    optForm->addRow(tr("Gradient tol:"), m_convergenceSpin);
-
-    // Claude Generated 2026 - Opt-in: keep the force-field parameters/topology
-    // fixed while interactively dragging atoms during a geometry optimization.
-    // When on (default), keep-alive restarts reuse the existing FF and only move
-    // atoms (no rebuild from the grab-distorted geometry — faster, crash-free).
-    // When off, each restart rebuilds the FF from the current geometry (adaptive).
-    m_optKeepParamsCheck = new QCheckBox(tr("Keep parameters while dragging"), this);
-    m_optKeepParamsCheck->setChecked(true);
-    m_optKeepParamsCheck->setToolTip(tr("Interactive Opt: keep the force-field parameters/topology fixed "
-                                        "across keep-alive restarts instead of rebuilding them from the "
-                                        "(grab-distorted) geometry. Recommended on."));
-    optForm->addRow("", m_optKeepParamsCheck);
-
-    innerLayout->addWidget(m_optGroup);
+    innerLayout->addWidget(createOptGroup());
 
     // ---- Output Options ----
-    auto* outputGroup = new QGroupBox(tr("Output"), this);
-    auto* outputLayout = new QVBoxLayout(outputGroup);
-    outputLayout->setSpacing(4);
-    outputLayout->setContentsMargins(4, 4, 4, 4);
-
-    m_writeTrjCheck = new QCheckBox(tr("Write .trj.xyz"), this);
-    outputLayout->addWidget(m_writeTrjCheck);
-
-    m_perfCheck = new QCheckBox(tr("Performance analysis"), this);
-    outputLayout->addWidget(m_perfCheck);
-
-    innerLayout->addWidget(outputGroup);
+    innerLayout->addWidget(createOutputGroup());
 
     // ---- Interactive grab ----
-    auto* grabGroup = new QGroupBox(tr("Interactive Grab"), this);
-    auto* grabOuter = new QVBoxLayout(grabGroup);
-    grabOuter->setContentsMargins(4, 4, 4, 4);
-    grabOuter->setSpacing(4);
-
-    m_grabStrengthSpin = new QDoubleSpinBox(this);
-    m_grabStrengthSpin->setRange(1e-4, 10.0);
-    m_grabStrengthSpin->setDecimals(4);
-    m_grabStrengthSpin->setSingleStep(0.01);
-    m_grabStrengthSpin->setValue(0.1);
-    m_grabStrengthSpin->setToolTip(tr("World-space force per screen pixel (Eh/Bohr), Angstrom-to-Bohr corrected"));
-
-    auto* grabForm = new QFormLayout;
-    grabForm->addRow(tr("Strength:"), m_grabStrengthSpin);
-    grabOuter->addLayout(grabForm);
-
-    // Stiffness presets — map coupled α + maxShells to physical behaviour
-    m_grabPresetCombo = new QComboBox(this);
-    m_grabPresetCombo->addItem(tr("Soft (local drag)"), 0);   // α=0.2, shells=5
-    m_grabPresetCombo->addItem(tr("Balanced"), 1);           // α=0.4, shells=3
-    m_grabPresetCombo->addItem(tr("Stiff (rigid pull)"), 2);  // α=0.8, shells=1
-    m_grabPresetCombo->setCurrentIndex(1);  // Balanced default
-    m_grabPresetCombo->setToolTip(tr("Force propagation: Soft affects only nearest neighbours, "
-                                     "Stiff pulls the whole fragment as a unit"));
-    grabForm->addRow(tr("Stiffness:"), m_grabPresetCombo);
-
-    // Advanced controls — hidden by default
-    m_grabAdvancedCheck = new QCheckBox(tr("Advanced"), this);
-    grabForm->addRow("", m_grabAdvancedCheck);
-
-    m_grabAdvancedWidget = new QWidget(this);
-    auto* advLayout = new QFormLayout(m_grabAdvancedWidget);
-    advLayout->setContentsMargins(0, 0, 0, 0);
-
-    m_grabAlphaSpin = new QDoubleSpinBox(this);
-    m_grabAlphaSpin->setRange(0.0, 1.0);
-    m_grabAlphaSpin->setDecimals(2);
-    m_grabAlphaSpin->setSingleStep(0.05);
-    m_grabAlphaSpin->setValue(0.4);
-    m_grabAlphaSpin->setToolTip(tr("Shell decay factor α^depth (0 = only grabbed atom, 1 = uniform)"));
-    advLayout->addRow(tr("α decay:"), m_grabAlphaSpin);
-
-    m_grabMaxShellsSpin = new QSpinBox(this);
-    m_grabMaxShellsSpin->setRange(-1, 20);
-    m_grabMaxShellsSpin->setValue(3);
-    m_grabMaxShellsSpin->setSpecialValueText(tr("∞"));
-    m_grabMaxShellsSpin->setToolTip(tr("Max BFS depth for force propagation (-1 = unlimited)"));
-    advLayout->addRow(tr("Max shells:"), m_grabMaxShellsSpin);
-
-    m_grabAdvancedWidget->setVisible(false);
-    grabOuter->addWidget(m_grabAdvancedWidget);
-
-    innerLayout->addWidget(grabGroup);
+    innerLayout->addWidget(createGrabGroup());
 
     innerLayout->addStretch();
 

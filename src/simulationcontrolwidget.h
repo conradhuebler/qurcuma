@@ -124,9 +124,16 @@ private:
     // Claude Generated 2026 - per-QGroupBox builders extracted from setupUI().
     // Each creates its group (populating the m_* members it owns) and returns it
     // for setupUI() to add to the scroll layout.
+    QGroupBox* createPotentialGroup();
     QGroupBox* createMdGroup();
+    QGroupBox* createTempRampGroup();
+    QGroupBox* createTempRegionGroup();
+    QGroupBox* createRattleGroup();
     QGroupBox* createRmsdMtdGroup();
     QGroupBox* createWallGroup();
+    QGroupBox* createOptGroup();
+    QGroupBox* createOutputGroup();
+    QGroupBox* createGrabGroup();
     void setRunning(bool running);
     void setState(const QString& label, const QString& color);  // Claude Generated 2026 - state pill
     void onStepButtonEnableToggled();  // Claude Generated 2026 - re-arm Step after throttle
