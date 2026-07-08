@@ -344,66 +344,76 @@ void Settings::setUseInvocationDirectoryEnabled(bool enabled)
 }
 
 // Claude Generated - Visualization Settings Persistence
+namespace {
+// Claude Generated 2026 - One read/writer for a full VisualizationSettings block
+// under an arbitrary key prefix. The live settings (prefix "visualization/") and
+// every named preset ("visualization/presets/<name>/") now persist the SAME
+// complete field set; presets previously saved only 8 fields and silently dropped
+// SSAO/bloom/HDR/rotation/walls/... The reader falls back to the struct's own
+// default-initialised values, so defaults live only in DisplaySettings.
+void writeVizSettings(QSettings& s, const QString& prefix, const Settings::VisualizationSettings& v)
+{
+    s.setValue(prefix + "renderingMode", v.renderingMode);
+    s.setValue(prefix + "colorScheme", v.colorScheme);
+    s.setValue(prefix + "atomTransparency", v.atomTransparency);
+    s.setValue(prefix + "atomShininess", v.atomShininess);
+    s.setValue(prefix + "atomScaleFactor", v.atomScaleFactor);
+    s.setValue(prefix + "bondThickness", v.bondThickness);
+    s.setValue(prefix + "fogEnabled", v.fogEnabled);
+    s.setValue(prefix + "fogIntensity", v.fogIntensity);
+    s.setValue(prefix + "ssaoEnabled", v.ssaoEnabled);
+    s.setValue(prefix + "ssaoIntensity", v.ssaoIntensity);
+    s.setValue(prefix + "ssaoRadius", v.ssaoRadius);
+    s.setValue(prefix + "ssaoBias", v.ssaoBias);
+    s.setValue(prefix + "bloomEnabled", v.bloomEnabled);
+    s.setValue(prefix + "bloomThreshold", v.bloomThreshold);
+    s.setValue(prefix + "bloomIntensity", v.bloomIntensity);
+    s.setValue(prefix + "hdrEnabled", v.hdrEnabled);
+    s.setValue(prefix + "exposure", v.exposure);
+    s.setValue(prefix + "rotationMode", v.rotationMode);
+    s.setValue(prefix + "instancingThreshold", v.instancingThreshold);
+    s.setValue(prefix + "wallVisible", v.wallVisible);
+    s.setValue(prefix + "wallOpacity", v.wallOpacity);
+    s.setValue(prefix + "centerOnLoad", v.centerOnLoad);
+}
+
+Settings::VisualizationSettings readVizSettings(const QSettings& s, const QString& prefix)
+{
+    Settings::VisualizationSettings v;  // default-initialised = canonical defaults
+    v.renderingMode = s.value(prefix + "renderingMode", v.renderingMode).toInt();
+    v.colorScheme = s.value(prefix + "colorScheme", v.colorScheme).toInt();
+    v.atomTransparency = s.value(prefix + "atomTransparency", v.atomTransparency).toFloat();
+    v.atomShininess = s.value(prefix + "atomShininess", v.atomShininess).toFloat();
+    v.atomScaleFactor = s.value(prefix + "atomScaleFactor", v.atomScaleFactor).toFloat();
+    v.bondThickness = s.value(prefix + "bondThickness", v.bondThickness).toFloat();
+    v.fogEnabled = s.value(prefix + "fogEnabled", v.fogEnabled).toBool();
+    v.fogIntensity = s.value(prefix + "fogIntensity", v.fogIntensity).toFloat();
+    v.ssaoEnabled = s.value(prefix + "ssaoEnabled", v.ssaoEnabled).toBool();
+    v.ssaoIntensity = s.value(prefix + "ssaoIntensity", v.ssaoIntensity).toFloat();
+    v.ssaoRadius = s.value(prefix + "ssaoRadius", v.ssaoRadius).toFloat();
+    v.ssaoBias = s.value(prefix + "ssaoBias", v.ssaoBias).toFloat();
+    v.bloomEnabled = s.value(prefix + "bloomEnabled", v.bloomEnabled).toBool();
+    v.bloomThreshold = s.value(prefix + "bloomThreshold", v.bloomThreshold).toFloat();
+    v.bloomIntensity = s.value(prefix + "bloomIntensity", v.bloomIntensity).toFloat();
+    v.hdrEnabled = s.value(prefix + "hdrEnabled", v.hdrEnabled).toBool();
+    v.exposure = s.value(prefix + "exposure", v.exposure).toFloat();
+    v.rotationMode = s.value(prefix + "rotationMode", v.rotationMode).toInt();
+    v.instancingThreshold = s.value(prefix + "instancingThreshold", v.instancingThreshold).toInt();
+    v.wallVisible = s.value(prefix + "wallVisible", v.wallVisible).toBool();
+    v.wallOpacity = s.value(prefix + "wallOpacity", v.wallOpacity).toDouble();
+    v.centerOnLoad = s.value(prefix + "centerOnLoad", v.centerOnLoad).toBool();
+    return v;
+}
+}  // namespace
+
 Settings::VisualizationSettings Settings::getVisualizationSettings() const
 {
-    VisualizationSettings settings;
-
-    settings.renderingMode = m_settings.value(VIZ_SETTINGS_PREFIX + "renderingMode", 0).toInt();
-    settings.colorScheme = m_settings.value(VIZ_SETTINGS_PREFIX + "colorScheme", 0).toInt();
-    settings.atomTransparency = m_settings.value(VIZ_SETTINGS_PREFIX + "atomTransparency", 1.0f).toFloat();
-    settings.atomShininess = m_settings.value(VIZ_SETTINGS_PREFIX + "atomShininess", 80.0f).toFloat();
-    settings.atomScaleFactor = m_settings.value(VIZ_SETTINGS_PREFIX + "atomScaleFactor", 1.0f).toFloat();
-    settings.bondThickness = m_settings.value(VIZ_SETTINGS_PREFIX + "bondThickness", 0.15f).toFloat();
-    settings.fogEnabled = m_settings.value(VIZ_SETTINGS_PREFIX + "fogEnabled", false).toBool();
-    settings.fogIntensity = m_settings.value(VIZ_SETTINGS_PREFIX + "fogIntensity", 0.5f).toFloat();
-    // Claude Generated - Phase 5A: Post-processing effects
-    settings.ssaoEnabled = m_settings.value(VIZ_SETTINGS_PREFIX + "ssaoEnabled", true).toBool();
-    settings.ssaoIntensity = m_settings.value(VIZ_SETTINGS_PREFIX + "ssaoIntensity", 1.0f).toFloat();
-    settings.ssaoRadius = m_settings.value(VIZ_SETTINGS_PREFIX + "ssaoRadius", 0.05f).toFloat();
-    settings.ssaoBias = m_settings.value(VIZ_SETTINGS_PREFIX + "ssaoBias", 0.025f).toFloat();
-    // Claude Generated - Phase 5B: Bloom and HDR post-processing
-    settings.bloomEnabled = m_settings.value(VIZ_SETTINGS_PREFIX + "bloomEnabled", true).toBool();
-    settings.bloomThreshold = m_settings.value(VIZ_SETTINGS_PREFIX + "bloomThreshold", 0.8f).toFloat();
-    settings.bloomIntensity = m_settings.value(VIZ_SETTINGS_PREFIX + "bloomIntensity", 1.0f).toFloat();
-    settings.hdrEnabled = m_settings.value(VIZ_SETTINGS_PREFIX + "hdrEnabled", true).toBool();
-    settings.exposure = m_settings.value(VIZ_SETTINGS_PREFIX + "exposure", 1.0f).toFloat();
-    // Claude Generated 2026 - Interaction / Performance
-    settings.rotationMode = m_settings.value(VIZ_SETTINGS_PREFIX + "rotationMode", 0).toInt();
-    settings.instancingThreshold = m_settings.value(VIZ_SETTINGS_PREFIX + "instancingThreshold", 500).toInt();
-    settings.wallVisible = m_settings.value(VIZ_SETTINGS_PREFIX + "wallVisible", true).toBool();
-    settings.wallOpacity = m_settings.value(VIZ_SETTINGS_PREFIX + "wallOpacity", 0.6).toDouble();
-    settings.centerOnLoad = m_settings.value(VIZ_SETTINGS_PREFIX + "centerOnLoad", true).toBool();
-
-    return settings;
+    return readVizSettings(m_settings, VIZ_SETTINGS_PREFIX);
 }
 
 void Settings::setVisualizationSettings(const VisualizationSettings& settings)
 {
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "renderingMode", settings.renderingMode);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "colorScheme", settings.colorScheme);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "atomTransparency", settings.atomTransparency);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "atomShininess", settings.atomShininess);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "atomScaleFactor", settings.atomScaleFactor);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "bondThickness", settings.bondThickness);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "fogEnabled", settings.fogEnabled);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "fogIntensity", settings.fogIntensity);
-    // Claude Generated - Phase 5A: Post-processing effects
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "ssaoEnabled", settings.ssaoEnabled);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "ssaoIntensity", settings.ssaoIntensity);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "ssaoRadius", settings.ssaoRadius);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "ssaoBias", settings.ssaoBias);
-    // Claude Generated - Phase 5B: Bloom and HDR post-processing
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "bloomEnabled", settings.bloomEnabled);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "bloomThreshold", settings.bloomThreshold);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "bloomIntensity", settings.bloomIntensity);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "hdrEnabled", settings.hdrEnabled);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "exposure", settings.exposure);
-    // Claude Generated 2026 - Interaction / Performance
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "rotationMode", settings.rotationMode);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "instancingThreshold", settings.instancingThreshold);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "wallVisible", settings.wallVisible);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "wallOpacity", settings.wallOpacity);
-    m_settings.setValue(VIZ_SETTINGS_PREFIX + "centerOnLoad", settings.centerOnLoad);
+    writeVizSettings(m_settings, VIZ_SETTINGS_PREFIX, settings);
     m_settings.sync();
 }
 
@@ -413,43 +423,21 @@ QVector<Settings::VisualizationPreset> Settings::getVisualizationPresets()
     QVector<VisualizationPreset> presets;
 
     m_settings.beginGroup(VIZ_SETTINGS_PREFIX + "presets");
-    QStringList presetNames = m_settings.childGroups();
+    const QStringList presetNames = m_settings.childGroups();
+    m_settings.endGroup();
 
     for (const QString& presetName : presetNames) {
-        m_settings.beginGroup(presetName);
-
         VisualizationPreset preset;
         preset.name = presetName;
-        preset.settings.renderingMode = m_settings.value("renderingMode", 0).toInt();
-        preset.settings.colorScheme = m_settings.value("colorScheme", 0).toInt();
-        preset.settings.atomTransparency = m_settings.value("atomTransparency", 1.0f).toFloat();
-        preset.settings.atomShininess = m_settings.value("atomShininess", 80.0f).toFloat();
-        preset.settings.atomScaleFactor = m_settings.value("atomScaleFactor", 1.0f).toFloat();
-        preset.settings.bondThickness = m_settings.value("bondThickness", 0.15f).toFloat();
-        preset.settings.fogEnabled = m_settings.value("fogEnabled", false).toBool();
-        preset.settings.fogIntensity = m_settings.value("fogIntensity", 0.5f).toFloat();
-
+        preset.settings = readVizSettings(m_settings, VIZ_SETTINGS_PREFIX + "presets/" + presetName + "/");
         presets.append(preset);
-        m_settings.endGroup();
     }
-
-    m_settings.endGroup();
     return presets;
 }
 
 void Settings::savePreset(const QString& name, const VisualizationSettings& settings)
 {
-    QString presetPath = VIZ_SETTINGS_PREFIX + "presets/" + name;
-
-    m_settings.setValue(presetPath + "/renderingMode", settings.renderingMode);
-    m_settings.setValue(presetPath + "/colorScheme", settings.colorScheme);
-    m_settings.setValue(presetPath + "/atomTransparency", settings.atomTransparency);
-    m_settings.setValue(presetPath + "/atomShininess", settings.atomShininess);
-    m_settings.setValue(presetPath + "/atomScaleFactor", settings.atomScaleFactor);
-    m_settings.setValue(presetPath + "/bondThickness", settings.bondThickness);
-    m_settings.setValue(presetPath + "/fogEnabled", settings.fogEnabled);
-    m_settings.setValue(presetPath + "/fogIntensity", settings.fogIntensity);
-
+    writeVizSettings(m_settings, VIZ_SETTINGS_PREFIX + "presets/" + name + "/", settings);
     m_settings.sync();
 }
 

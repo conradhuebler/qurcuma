@@ -10,6 +10,8 @@
 #include <QVector3D>
 #include <QString>
 
+#include "displaysettings.h"
+
 /** @brief How the stored camera distance is interpreted when loading a preset.
  *
  *  - Absolute: the stored `cameraDistance` is applied verbatim. Identical only
@@ -32,7 +34,7 @@ enum class ZoomMode {
  *
  *  Claude Generated 2026.
  */
-struct ViewPreset {
+struct ViewPreset : public DisplaySettings {
     QString name;
 
     // --- camera (SceneController transform) ---
@@ -45,28 +47,11 @@ struct ViewPreset {
     float zoomFactor = 3.0f;      // relative zoom = cameraDistance / sceneExtent
     ZoomMode zoomMode = ZoomMode::Absolute;
 
-    // --- display / appearance (VisualizationSettings subset) ---
-    int renderingMode = 0;       // MoleculeViewer::RenderingMode
-    int colorScheme = 0;         // MoleculeViewer::ColorScheme
-    float atomTransparency = 1.0f;
-    float atomShininess = 80.0f;
-    float atomScaleFactor = 1.0f;
-    float bondThickness = 0.15f;
-    bool fogEnabled = false;
-    float fogIntensity = 0.5f;
+    // --- display / appearance ---
+    // The shared appearance fields (rendering mode, colours, effects, walls, ...)
+    // are inherited from DisplaySettings. Only the preset-specific extras below
+    // are declared here. Claude Generated 2026.
     float fogDistance = 0.2f;
-    bool ssaoEnabled = true;
-    float ssaoIntensity = 1.0f;
-    float ssaoRadius = 0.05f;
-    float ssaoBias = 0.025f;
-    bool bloomEnabled = true;
-    float bloomThreshold = 0.8f;
-    float bloomIntensity = 1.0f;
-    bool hdrEnabled = true;
-    float exposure = 1.0f;
-    int rotationMode = 0;        // MoleculeViewer::RotationMode
-    bool wallVisible = true;
-    qreal wallOpacity = 0.6;
     QColor backgroundColor = QColor(32, 36, 44);
     bool cornerLightEnabled[4] = { true, true, false, false };
 

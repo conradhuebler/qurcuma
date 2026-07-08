@@ -10,6 +10,7 @@
 #include <QColor>
 #include <QUuid>
 
+#include "displaysettings.h"
 #include "viewpreset.h"
 
 class Settings : public QObject
@@ -69,35 +70,13 @@ public:
     void setUseInvocationDirectoryEnabled(bool enabled);
 
     // Claude Generated - Visualization Settings Persistence
-    // Structure to hold all visualization parameters
-    struct VisualizationSettings {
-        int renderingMode = 0;      // RenderingMode enum value
-        int colorScheme = 0;        // ColorScheme enum value
-        float atomTransparency = 1.0f;
-        float atomShininess = 80.0f;
-        float atomScaleFactor = 1.0f;
-        float bondThickness = 0.15f;
-        bool fogEnabled = false;
-        float fogIntensity = 0.5f;
-        // Claude Generated - Phase 5A: Post-processing effects
-        bool ssaoEnabled = true;
-        float ssaoIntensity = 1.0f;
-        float ssaoRadius = 0.05f;
-        float ssaoBias = 0.025f;
-        // Claude Generated - Phase 5B: Bloom and HDR post-processing
-        bool bloomEnabled = true;
-        float bloomThreshold = 0.8f;
-        float bloomIntensity = 1.0f;
-        bool hdrEnabled = true;
-        float exposure = 1.0f;
-        // Claude Generated 2026 - Interaction / Performance
-        int rotationMode = 0;          // 0 = Model, 1 = CameraOrbit
+    // Structure to hold all visualization parameters. The shared display fields
+    // (rendering mode, colours, effects, walls, ...) live in DisplaySettings so
+    // they can't drift from ViewPreset; only the extra live-settings fields are
+    // declared here. Claude Generated 2026.
+    struct VisualizationSettings : public DisplaySettings {
         int instancingThreshold = 500; // Atom count >= threshold switches to GPU instancing (picking disabled)
-        // Claude Generated 2026 - Confinement-wall wireframe show/hide override
-        // (the wall geometry itself comes from the Simulation config).
-        bool wallVisible = true;
-        qreal wallOpacity = 0.6;  // wireframe alpha 0..1
-        bool centerOnLoad = true;  // translate COM to origin after loading
+        bool centerOnLoad = true;      // translate COM to origin after loading
     };
 
     VisualizationSettings getVisualizationSettings() const;
