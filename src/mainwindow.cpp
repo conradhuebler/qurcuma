@@ -220,31 +220,31 @@ void MainWindow::setupUI()
 #endif
 
     // Claude Generated - Rendering mode shortcuts (Keys 1-4)
-    new QShortcut(Qt::Key_1, this, SLOT(setRenderingModeBallAndStick()));
-    new QShortcut(Qt::Key_2, this, SLOT(setRenderingModeSpaceFilling()));
-    new QShortcut(Qt::Key_3, this, SLOT(setRenderingModeWireframe()));
-    new QShortcut(Qt::Key_4, this, SLOT(setRenderingModeSticks()));
+    new QShortcut(Qt::Key_1, this, this, &MainWindow::setRenderingModeBallAndStick);
+    new QShortcut(Qt::Key_2, this, this, &MainWindow::setRenderingModeSpaceFilling);
+    new QShortcut(Qt::Key_3, this, this, &MainWindow::setRenderingModeWireframe);
+    new QShortcut(Qt::Key_4, this, this, &MainWindow::setRenderingModeSticks);
 
     // Claude Generated - Atom size shortcuts (Plus/Minus)
-    new QShortcut(Qt::Key_Plus, this, SLOT(increaseAtomSize()));
-    new QShortcut(Qt::Key_Equal, this, SLOT(increaseAtomSize()));  // Plus key often requires Shift on some keyboards
-    new QShortcut(Qt::Key_Minus, this, SLOT(decreaseAtomSize()));
+    new QShortcut(Qt::Key_Plus, this, this, &MainWindow::increaseAtomSize);
+    new QShortcut(Qt::Key_Equal, this, this, &MainWindow::increaseAtomSize);  // Plus key often requires Shift on some keyboards
+    new QShortcut(Qt::Key_Minus, this, this, &MainWindow::decreaseAtomSize);
 
     // Claude Generated - Bond thickness shortcuts (< / >)
-    new QShortcut(Qt::SHIFT | Qt::Key_Less, this, SLOT(decreaseBondThickness()));
-    new QShortcut(Qt::SHIFT | Qt::Key_Greater, this, SLOT(increaseBondThickness()));
-    new QShortcut(Qt::Key_Comma, this, SLOT(decreaseBondThickness()));      // Fallback for < key
-    new QShortcut(Qt::Key_Period, this, SLOT(increaseBondThickness()));     // Fallback for > key
+    new QShortcut(Qt::SHIFT | Qt::Key_Less, this, this, &MainWindow::decreaseBondThickness);
+    new QShortcut(Qt::SHIFT | Qt::Key_Greater, this, this, &MainWindow::increaseBondThickness);
+    new QShortcut(Qt::Key_Comma, this, this, &MainWindow::decreaseBondThickness);      // Fallback for < key
+    new QShortcut(Qt::Key_Period, this, this, &MainWindow::increaseBondThickness);     // Fallback for > key
 
     // Claude Generated - Focus & view shortcuts
-    new QShortcut(Qt::CTRL | Qt::Key_0, this, SLOT(fitMoleculeInView()));   // Ctrl+0 for fit all
-    new QShortcut(Qt::Key_Home, this, SLOT(fitMoleculeInView()));            // Home key also fits
-    new QShortcut(Qt::CTRL | Qt::Key_F, this, SLOT(centerViewOnSelection())); // Ctrl+F for focus
-    new QShortcut(Qt::CTRL | Qt::Key_Backspace, this, SLOT(centerMoleculeAtOrigin())); // Ctrl+Backspace for center at origin
+    new QShortcut(Qt::CTRL | Qt::Key_0, this, this, &MainWindow::fitMoleculeInView);   // Ctrl+0 for fit all
+    new QShortcut(Qt::Key_Home, this, this, &MainWindow::fitMoleculeInView);            // Home key also fits
+    new QShortcut(Qt::CTRL | Qt::Key_F, this, this, &MainWindow::centerViewOnSelection); // Ctrl+F for focus
+    new QShortcut(Qt::CTRL | Qt::Key_Backspace, this, this, &MainWindow::centerMoleculeAtOrigin); // Ctrl+Backspace for center at origin
 
     // Claude Generated - Phase 2A: Selection shortcuts
-    new QShortcut(Qt::CTRL | Qt::Key_A, this, SLOT(selectAllAtoms()));       // Ctrl+A for select all
-    new QShortcut(Qt::Key_Escape, this, SLOT(clearAtomSelection()));          // Escape for clear selection
+    new QShortcut(Qt::CTRL | Qt::Key_A, this, this, &MainWindow::selectAllAtoms);       // Ctrl+A for select all
+    new QShortcut(Qt::Key_Escape, this, this, &MainWindow::clearAtomSelection);          // Escape for clear selection
 
     // Claude Generated 2026 - P3 command palette: Ctrl+K is carried by the View ▸ Command
     // Palette menu action (P4); no standalone QShortcut here to avoid an ambiguous overload.
@@ -1413,22 +1413,22 @@ void MainWindow::setupConnections()
 void MainWindow::setupShortcuts()
 {
     // Claude Generated - Phase 1.2: Keyboard shortcuts
-    new QShortcut(QKeySequence::New, this, SLOT(createNewDirectory()));
-    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_R), this, SLOT(runSimulation()));
-    new QShortcut(QKeySequence::Refresh, this, SLOT(runSimulation()));  // F5
+    new QShortcut(QKeySequence::New, this, this, &MainWindow::createNewDirectory);
+    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_R), this, this, &MainWindow::runSimulation);
+    new QShortcut(QKeySequence::Refresh, this, this, &MainWindow::runSimulation);  // F5
     // Claude Generated 2026 - Ctrl+S is bound to the File>Save menu action
     // (m_saveAction) below, so we deliberately omit a second QShortcut here to
     // avoid double-firing. The editor save behaviour is still reachable via
     // saveCurrentStructureAs() / editor shortcuts.
-    new QShortcut(Qt::Key_Escape, this, SLOT(cancelCalculation()));
-    new QShortcut(QKeySequence::NextChild, this, SLOT(switchEditorTab()));  // Ctrl+Tab
+    new QShortcut(Qt::Key_Escape, this, this, &MainWindow::cancelCalculation);
+    new QShortcut(QKeySequence::NextChild, this, this, &MainWindow::switchEditorTab);  // Ctrl+Tab
 
     // Claude Generated - Quick Win: Zoom to fit molecule (Home key)
-    new QShortcut(Qt::Key_Home, this, SLOT(zoomToMolecule()));
+    new QShortcut(Qt::Key_Home, this, this, &MainWindow::zoomToMolecule);
 
     // Claude Generated - Quick Fix: Additional shortcuts
-    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_L), this, SLOT(clearOutputView()));  // Ctrl+L
-    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_0), this, SLOT(zoomToMolecule()));   // Ctrl+0
+    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_L), this, this, &MainWindow::clearOutputView);  // Ctrl+L
+    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_0), this, this, &MainWindow::zoomToMolecule);   // Ctrl+0
 }
 
 void MainWindow::setupProjectViewContextMenu()
@@ -3664,22 +3664,8 @@ void MainWindow::updateWorkflowState(WorkflowState state)
 // function and uncommenting the file load below.
 void MainWindow::applyStylesheet(bool darkMode)
 {
-    Q_UNUSED(darkMode);
-
-    // --- Disabled 2026: do not load any custom stylesheet. ---
-    // QString stylesheetPath = darkMode ?
-    //     ":/stylesheets/dark.qss" :
-    //     ":/stylesheets/light.qss";
-    // QFile styleFile(stylesheetPath);
-    // if (styleFile.open(QFile::ReadOnly)) {
-    //     QString styleSheet = QString::fromUtf8(styleFile.readAll());
-    //     qApp->setStyleSheet(styleSheet);
-    //     styleFile.close();
-    // } else {
-    //     qWarning() << "[Dark Mode] FAILED to open stylesheet file:" << stylesheetPath;
-    //     qWarning() << "[Dark Mode] Error:" << styleFile.errorString();
-    // }
-
+    // 2026: no custom .qss is loaded — the app uses the native palette; dark mode
+    // just records the preference and updates the status bar.
     m_darkModeEnabled = darkMode;
     m_settings.setDarkMode(darkMode);
     statusBar()->showMessage(
