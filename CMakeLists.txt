@@ -158,6 +158,7 @@ set(SOURCES
     src/settings.cpp
     src/vtfparser.cpp
     src/xyzparser.cpp
+    src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
     src/modifiabletextedit.cpp
     src/displaypanel.cpp  # Claude Generated 2026 - docked viewer display options
     src/widgets/collapsiblesection.cpp  # Claude Generated 2026 - accordion section
@@ -207,6 +208,7 @@ set(HEADERS
     src/view.h
     src/vtfparser.h
     src/xyzparser.h
+    src/moleculefileloader.h  # Claude Generated 2026 - unified structure-file reader
     src/modifiabletextedit.h
     src/displaypanel.h  # Claude Generated 2026 - docked viewer display options
     src/widgets/collapsiblesection.h  # Claude Generated 2026 - accordion section

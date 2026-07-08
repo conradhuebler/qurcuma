@@ -67,6 +67,7 @@
 #include <QTextStream>
 #include <QString>
 #include "view.h"
+#include "moleculefileloader.h"  // Claude Generated 2026 - unified structure-file reader
 #include "frequencydialog.h"
 #include "displaypanel.h"
 #include "widgets/commandpalette.h"
@@ -153,8 +154,6 @@ MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     }
 
     m_nmrDialog = new NMRSpectrumDialog(this);
-    m_vtfParser = new VTFParser();
-    m_xyzParser = new XYZParser();
 
     // Claude Generated - Visual Polish: Load dark mode setting and update checkbox
     m_darkModeEnabled = m_settings.darkModeEnabled();
@@ -164,11 +163,7 @@ MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     applyStylesheet(m_darkModeEnabled);
 }
 
-MainWindow::~MainWindow()
-{
-    delete m_vtfParser;
-    delete m_xyzParser;
-}
+MainWindow::~MainWindow() = default;
 
 void MainWindow::setupUI()
 {
@@ -454,16 +449,13 @@ void MainWindow::setupContextMenu()
 
                 connect(visualizerAction, &QAction::triggered,
                     [this, filePath]() {
-                        PDBParser pdbParser;
-                        PDBParser::PDBFrame frame;
-                        if (pdbParser.parseFile(filePath, frame)) {
-                            QVector<MoleculeViewer::Atom> atoms;
-                            QVector<MoleculeViewer::Bond> bonds;
-                            PDBParser::convertToMoleculeViewer(frame, atoms, bonds, pdbParser.getBonds());
-                            m_moleculeView->addMolecule(atoms, bonds);
-                            if (m_simulationControlWidget) m_simulationControlWidget->setMolecule(atoms, bonds);
+                        const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath);
+                        if (r.ok) {
+                            m_moleculeView->addMolecule(r.frames.first(), r.frameBonds.first());
+                            if (m_simulationControlWidget)
+                                m_simulationControlWidget->setMolecule(r.frames.first(), r.frameBonds.first());
                         } else {
-                            QMessageBox::warning(this, tr("Error"), tr("Failed to parse PDB file: %1").arg(pdbParser.getLastError()));
+                            QMessageBox::warning(this, tr("Error"), tr("Failed to parse PDB file: %1").arg(r.error));
                         }
                     });
 
@@ -498,16 +490,13 @@ void MainWindow::setupContextMenu()
 
                 connect(visualizerAction, &QAction::triggered,
                     [this, filePath]() {
-                        MOL2Parser mol2Parser;
-                        MOL2Parser::MOL2Molecule molecule;
-                        if (mol2Parser.parseFile(filePath, molecule)) {
-                            QVector<MoleculeViewer::Atom> atoms;
-                            QVector<MoleculeViewer::Bond> bonds;
-                            MOL2Parser::convertToMoleculeViewer(molecule, atoms, bonds);
-                            m_moleculeView->addMolecule(atoms, bonds);
-                            if (m_simulationControlWidget) m_simulationControlWidget->setMolecule(atoms, bonds);
+                        const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath);
+                        if (r.ok) {
+                            m_moleculeView->addMolecule(r.frames.first(), r.frameBonds.first());
+                            if (m_simulationControlWidget)
+                                m_simulationControlWidget->setMolecule(r.frames.first(), r.frameBonds.first());
                         } else {
-                            QMessageBox::warning(this, tr("Error"), tr("Failed to parse MOL2 file: %1").arg(mol2Parser.getLastError()));
+                            QMessageBox::warning(this, tr("Error"), tr("Failed to parse MOL2 file: %1").arg(r.error));
                         }
                     });
 
@@ -3352,36 +3341,17 @@ void MainWindow::loadDrafts()
 }
 
 // Claude Generated - Quick Win: Copy/Paste structures
-// Claude Generated 2026 - Parse the first frame of a structure file into viewer atoms/
-// bonds. Local parser instances keep the main parsers' state untouched.
+// Claude Generated 2026 - Parse the first frame of a structure file into viewer
+// atoms/bonds via the shared MoleculeFileLoader (xyz/vtf/pdb/mol2).
 bool MainWindow::parseFirstFrame(const QString& filePath, QVector<MoleculeViewer::Atom>& atoms,
     QVector<MoleculeViewer::Bond>& bonds)
 {
     atoms.clear();
     bonds.clear();
-    if (filePath.isEmpty() || !QFile::exists(filePath))
-        return false;
-    const QString suffix = QFileInfo(filePath).suffix().toLower();
-    if (suffix == "xyz") {
-        XYZParser parser;
-        XYZParser::XYZFrame frame;
-        if (parser.parseTrajectory(filePath) && parser.getFrameCount() > 0 && parser.getFrame(0, frame))
-            XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
-    } else if (suffix == "vtf") {
-        VTFParser parser;
-        VTFParser::VTFFrame frame;
-        if (parser.parseTrajectory(filePath) && parser.getFrameCount() > 0 && parser.getFrame(0, frame))
-            VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
-    } else if (suffix == "pdb") {
-        PDBParser parser;
-        PDBParser::PDBFrame frame;
-        if (parser.parseFile(filePath, frame))
-            PDBParser::convertToMoleculeViewer(frame, atoms, bonds, parser.getBonds());
-    } else if (suffix == "mol2") {
-        MOL2Parser parser;
-        MOL2Parser::MOL2Molecule molecule;
-        if (parser.parseFile(filePath, molecule))
-            MOL2Parser::convertToMoleculeViewer(molecule, atoms, bonds);
+    const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath);
+    if (!r.frames.isEmpty()) {
+        atoms = r.frames.first();
+        bonds = r.frameBonds.first();
     }
     return !atoms.isEmpty();
 }
@@ -4165,153 +4135,50 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     // the working directory to the file's parent directory.
     bool fileLoaded = false;
 
-    if (suffix == "xyz") {
-        // XYZ file loading
-        if (m_xyzParser->parseTrajectory(filePath)) {
-            // Load XYZ data as text
-            QFile file(filePath);
-            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
-                m_structureFileEdit->setText(QFileInfo(filePath).fileName());
-                file.close();
-            }
-
-            // Get frame count and setup trajectory data
-            int frameCount = m_xyzParser->getFrameCount();
-            DEBUG_LOG << "XYZ: frameCount =" << frameCount;
-            m_moleculeView->setFrameCount(frameCount);
-
-            // Reset molecule viewer for new file
-            m_moleculeView->clearScenePublic();
-
-            // Convert all frames to trajectory data
-            QVector<QVector<MoleculeViewer::Atom>> allAtoms;
-            QVector<QVector<MoleculeViewer::Bond>> allBonds;
-
-            for (int i = 0; i < frameCount; ++i) {
-                XYZParser::XYZFrame frame;
-                if (m_xyzParser->getFrame(i, frame)) {
-                    QVector<MoleculeViewer::Atom> atoms;
-                    QVector<MoleculeViewer::Bond> bonds;
-                    XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
-                    allAtoms.append(atoms);
-                    allBonds.append(bonds);
-                    DEBUG_LOG << "XYZ: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
-                } else {
-                    DEBUG_LOG << "XYZ: Failed to load frame" << i;
-                }
-            }
-
-            DEBUG_LOG << "XYZ: Total frames loaded:" << allAtoms.size();
-            m_moleculeView->setTrajectoryData(allAtoms, allBonds);
-            if (m_centerOnLoad) m_moleculeView->centerAtOrigin();
-
-            // Claude Generated - Feed the loaded molecule into the inline
-            // simulation widget so the user can start a run without manually
-            // re-selecting it. First frame is used as the simulation input.
-            if (m_simulationControlWidget && !allAtoms.isEmpty())
-                m_simulationControlWidget->setMolecule(m_moleculeView->getCurrentFrameAtoms(),
-                    m_moleculeView->getCurrentFrameBonds());
-            // Claude Generated 2026 - Fresh load: clear the modified flag, cache
-            // the new source path (so a follow-up Save overwrites it), and
-            // enable the File>Save actions. The Save action is enabled as soon
-            // as a molecule is on screen, regardless of modification state.
-            m_currentMoleculeFilePath = filePath;
-            m_structureModified = false;
-            if (m_simulationControlWidget)
-                m_simulationControlWidget->setStructureModified(false);
-            if (m_saveAction) m_saveAction->setEnabled(true);
-            if (m_saveAsAction) m_saveAsAction->setEnabled(true);
-            // Store an in-memory snapshot of the original geometry so the
-            // in-dock Reset button can restore it without reloading the file.
-            // Snapshot 0 is the automatic load-time snapshot and also seeds the
-            // manual snapshot history list.
-            if (!allAtoms.isEmpty()) {
-                captureInitialSnapshot(filePath, m_moleculeView->getCurrentFrameAtoms(),
-                    m_moleculeView->getCurrentFrameBonds());
-            }
-            fileLoaded = true;
-        } else {
-            m_moleculeView->clearScenePublic();
-            qWarning() << "Failed to parse XYZ file:" << filePath;
-        }
-    }
-    else if (suffix == "vtf") {
-        // Claude Generated 2026 - Reuse the parser created in the constructor;
-        // parseTrajectory() clears its frame buffer, so re-newing here only leaked.
-        if (m_vtfParser->parseTrajectory(filePath)) {
-            // Load VTF data as text
-            QFile file(filePath);
-            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
-                m_structureFileEdit->setText(QFileInfo(filePath).fileName());
-                file.close();
-            }
-
-            // Get frame count and setup trajectory data
-            int frameCount = m_vtfParser->getFrameCount();
-            DEBUG_LOG << "VTF: frameCount =" << frameCount;
-            m_moleculeView->setFrameCount(frameCount);
-
-            // Reset molecule viewer for new file
-            m_moleculeView->clearScenePublic();
-
-            // Convert all frames to trajectory data
-            QVector<QVector<MoleculeViewer::Atom>> allAtoms;
-            QVector<QVector<MoleculeViewer::Bond>> allBonds;
-
-            for (int i = 0; i < frameCount; ++i) {
-                VTFParser::VTFFrame frame;
-                if (m_vtfParser->getFrame(i, frame)) {
-                    QVector<MoleculeViewer::Atom> atoms;
-                    QVector<MoleculeViewer::Bond> bonds;
-                    VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
-                    allAtoms.append(atoms);
-                    allBonds.append(bonds);
-                    DEBUG_LOG << "VTF: Loaded frame" << i << "- atoms:" << atoms.size() << "bonds:" << bonds.size();
-                } else {
-                    DEBUG_LOG << "VTF: Failed to load frame" << i;
-                }
-            }
-
-            DEBUG_LOG << "VTF: Total frames loaded:" << allAtoms.size();
-            m_moleculeView->setTrajectoryData(allAtoms, allBonds);
-            if (m_centerOnLoad) m_moleculeView->centerAtOrigin();
-
-            // Claude Generated - Feed first frame into the simulation widget.
-            if (m_simulationControlWidget && !allAtoms.isEmpty())
-                m_simulationControlWidget->setMolecule(m_moleculeView->getCurrentFrameAtoms(),
-                    m_moleculeView->getCurrentFrameBonds());
-            // Claude Generated 2026 - Fresh load: clear the modified flag, cache
-            // the new source path (so a follow-up Save overwrites it), and
-            // enable the File>Save actions. The Save action is enabled as soon
-            // as a molecule is on screen, regardless of modification state.
-            m_currentMoleculeFilePath = filePath;
-            m_structureModified = false;
-            if (m_simulationControlWidget)
-                m_simulationControlWidget->setStructureModified(false);
-            if (m_saveAction) m_saveAction->setEnabled(true);
-            if (m_saveAsAction) m_saveAsAction->setEnabled(true);
-            // Store an in-memory snapshot of the original geometry so the
-            // in-dock Reset button can restore it without reloading the file.
-            // Snapshot 0 is the automatic load-time snapshot and also seeds the
-            // manual snapshot history list.
-            if (!allAtoms.isEmpty()) {
-                captureInitialSnapshot(filePath, m_moleculeView->getCurrentFrameAtoms(),
-                    m_moleculeView->getCurrentFrameBonds());
-            }
-            fileLoaded = true;
-        } else {
-            m_moleculeView->clearScenePublic();
-            qWarning() << "Failed to parse VTF file:" << filePath;
-        }
-    }
-    else if (suffix == "pdb" || suffix == "mol2") {
-        // PDB/MOL2 support - placeholder for future implementation
+    if (suffix == "pdb" || suffix == "mol2") {
+        // PDB/MOL2 open-in-viewer is not wired yet. The loader can parse them
+        // (used by merge + remote load), but the full-file open path stays as-is.
         statusBar()->showMessage(tr("PDB/MOL2 support coming soon"), 2000);
     }
     else {
-        statusBar()->showMessage(tr("Unsupported file format: %1").arg(suffix), 2000);
+        // Claude Generated 2026 - xyz/vtf load through the shared MoleculeFileLoader.
+        // The two formerly identical per-format blocks are now one.
+        const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath);
+        if (!r.supported) {
+            statusBar()->showMessage(tr("Unsupported file format: %1").arg(suffix), 2000);
+        } else if (r.ok) {
+            // Load the raw file contents into the structure editor.
+            QFile file(filePath);
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                m_structureView->setPlainText(QString::fromUtf8(file.readAll()));
+                m_structureFileEdit->setText(QFileInfo(filePath).fileName());
+                file.close();
+            }
+            m_moleculeView->setFrameCount(r.frameCount());
+            m_moleculeView->clearScenePublic();
+            m_moleculeView->setTrajectoryData(r.frames, r.frameBonds);
+            if (m_centerOnLoad) m_moleculeView->centerAtOrigin();
+
+            // Feed the first frame into the inline simulation widget so the user
+            // can start a run without re-selecting the molecule.
+            if (m_simulationControlWidget)
+                m_simulationControlWidget->setMolecule(m_moleculeView->getCurrentFrameAtoms(),
+                    m_moleculeView->getCurrentFrameBonds());
+            // Fresh load: clear the modified flag, cache the source path, enable Save.
+            m_currentMoleculeFilePath = filePath;
+            m_structureModified = false;
+            if (m_simulationControlWidget)
+                m_simulationControlWidget->setStructureModified(false);
+            if (m_saveAction) m_saveAction->setEnabled(true);
+            if (m_saveAsAction) m_saveAsAction->setEnabled(true);
+            // Snapshot 0 = original geometry (seeds in-dock Reset + history list).
+            captureInitialSnapshot(filePath, m_moleculeView->getCurrentFrameAtoms(),
+                m_moleculeView->getCurrentFrameBonds());
+            fileLoaded = true;
+        } else {
+            m_moleculeView->clearScenePublic();
+            qWarning() << "Failed to parse file:" << filePath;
+        }
     }
 
     // Claude Generated 2026 - "Open file follows its own directory" semantics.
@@ -4567,61 +4434,19 @@ void MainWindow::downloadAndLoadRemoteFile(const QString& filePath)
         return;
     }
 
-    // Load the downloaded file into the viewer based on file extension
-    if (filePath.endsWith(".xyz", Qt::CaseInsensitive)) {
-        if (m_xyzParser->parseTrajectory(localPath)) {
-            int frameCount = m_xyzParser->getFrameCount();
-            m_moleculeView->setFrameCount(frameCount);
-
-            XYZParser::XYZFrame frame;
-            if (m_xyzParser->getFrame(0, frame)) {
-                QVector<MoleculeViewer::Atom> atoms;
-                QVector<MoleculeViewer::Bond> bonds;
-                XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
-                m_moleculeView->addMolecule(atoms, bonds);
-            }
-        }
-    } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive)) {
-        // Claude Generated 2026 - Reuse the constructor's parser (parseTrajectory
-        // clears its buffer); the previous re-new leaked one parser per VTF load.
-        if (m_vtfParser->parseTrajectory(localPath)) {
-            int frameCount = m_vtfParser->getFrameCount();
-            m_moleculeView->setFrameCount(frameCount);
-
-            VTFParser::VTFFrame frame;
-            if (m_vtfParser->getFrame(0, frame)) {
-                QVector<MoleculeViewer::Atom> atoms;
-                QVector<MoleculeViewer::Bond> bonds;
-                VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
-                m_moleculeView->addMolecule(atoms, bonds);
-            }
-        }
-    } else if (filePath.endsWith(".pdb", Qt::CaseInsensitive)) {
-        PDBParser pdbParser;
-        PDBParser::PDBFrame frame;
-        if (pdbParser.parseFile(localPath, frame)) {
-            QVector<MoleculeViewer::Atom> atoms;
-            QVector<MoleculeViewer::Bond> bonds;
-            PDBParser::convertToMoleculeViewer(frame, atoms, bonds, pdbParser.getBonds());
-            m_moleculeView->addMolecule(atoms, bonds);
-        } else {
-            QMessageBox::warning(this, tr("Error"), tr("Failed to parse PDB file: %1").arg(pdbParser.getLastError()));
-        }
-    } else if (filePath.endsWith(".mol2", Qt::CaseInsensitive)) {
-        MOL2Parser mol2Parser;
-        MOL2Parser::MOL2Molecule molecule;
-        if (mol2Parser.parseFile(localPath, molecule)) {
-            QVector<MoleculeViewer::Atom> atoms;
-            QVector<MoleculeViewer::Bond> bonds;
-            MOL2Parser::convertToMoleculeViewer(molecule, atoms, bonds);
-            m_moleculeView->addMolecule(atoms, bonds);
-        } else {
-            QMessageBox::warning(this, tr("Error"), tr("Failed to parse MOL2 file: %1").arg(mol2Parser.getLastError()));
-        }
-    } else {
+    // Load the downloaded file (first frame) into the viewer via the shared loader.
+    const MoleculeFileLoader::Result r = MoleculeFileLoader::load(localPath);
+    if (!r.supported) {
         QMessageBox::warning(this, tr("Unsupported Format"),
             tr("File format not supported: %1").arg(filePath));
         return;
+    }
+    if (r.ok) {
+        m_moleculeView->setFrameCount(r.frameCount());
+        m_moleculeView->addMolecule(r.frames.first(), r.frameBonds.first());
+    } else if (!r.error.isEmpty()) {
+        // pdb/mol2 surface a parse error; xyz/vtf fail silently (as before).
+        QMessageBox::warning(this, tr("Error"), tr("Failed to parse file: %1").arg(r.error));
     }
 
     statusBar()->showMessage(tr("Loaded: %1 (from %2)").arg(fileName, filePath));

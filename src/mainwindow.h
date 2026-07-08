@@ -389,10 +389,6 @@ private:
     AtomListPanel* m_atomListPanel = nullptr;  // Claude Generated Phase 2C - Atom list panel
     SnapshotsWidget* m_snapshotsWidget = nullptr;  // Claude Generated 2026 - Snapshot history
 
-    // VTF/XYZ Parser
-    VTFParser* m_vtfParser;
-    XYZParser* m_xyzParser;
-
     QStringList m_simulationPrograms{ "curcuma", "orca", "xtb" };
     QStringList m_visualizerPrograms{ "iboview", "avogadro" };
 
