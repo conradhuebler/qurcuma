@@ -1917,7 +1917,7 @@ void MainWindow::runSimulation()
 
     // Starte Prozess und füge Eintrag zur Historie hinzu
     m_currentProcess->start();
-    addCalculationToHistory(entry);
+    CalculationHistory::add(currentCalculationDir(), entry, m_uniqueFileNames->isChecked());
 
     // Claude Generated - Phase 2.2: Update workflow state
     updateWorkflowState(WorkflowState::CalculationRunning);
@@ -1974,7 +1974,7 @@ void MainWindow::runSimulation()
             // Aktualisiere Status in der Historie
             CalculationEntry updatedEntry = entry;
             updatedEntry.status = (exitCode == 0) ? "completed" : "error";
-            addCalculationToHistory(updatedEntry);
+            CalculationHistory::add(currentCalculationDir(), updatedEntry, m_uniqueFileNames->isChecked());
 
             updateOutputView(currentCalculationDir() + QDir::separator() + entry.outputFile);
             statusBar()->showMessage(exitCode == 0 ?
@@ -2027,77 +2027,6 @@ QString MainWindow::generateUniqueFileName(const QString &baseFileName, const QS
         } else
             return QString("%1.%2").arg(baseFileName, extension);
     }
-}
-
-void MainWindow::addCalculationToHistory(const CalculationEntry &entry)
-{
-    QString historyFile = currentCalculationDir() + QDir::separator() + "calculations.json";
-    QList<CalculationEntry> history = loadCalculationHistory(currentCalculationDir());
-
-    // Aktualisiere bestehenden Eintrag oder füge neuen hinzu
-    bool updated = false;
-    for (int i = 0; i < history.size(); ++i) {
-        if (history[i].id == entry.id) {
-            history[i] = entry;
-            updated = true;
-            break;
-        }
-    }
-    if (!updated) {
-        history.append(entry);
-    }
-
-    // Speichere aktualisierte Historie
-    QJsonArray jsonArray;
-    for (const auto &calc : history) {
-        QJsonObject calcObj;
-        calcObj["id"] = calc.id;
-        calcObj["program"] = calc.program;
-        calcObj["command"] = calc.command;
-        calcObj["structureFile"] = calc.structureFile;
-        calcObj["outputFile"] = calc.outputFile;
-        calcObj["timestamp"] = calc.timestamp.toString(Qt::ISODate);
-        calcObj["status"] = calc.status;
-        calcObj["unqiueFileNames"] = m_uniqueFileNames->isChecked();
-        jsonArray.append(calcObj);
-    }
-
-    QJsonObject rootObj;
-    rootObj["calculations"] = jsonArray;
-    
-    QFile file(historyFile);
-    if (file.open(QIODevice::WriteOnly)) {
-        QJsonDocument doc(rootObj);
-        file.write(doc.toJson(QJsonDocument::Indented));
-        file.close();
-    }
-}
-
-QList<CalculationEntry> MainWindow::loadCalculationHistory(const QString &path)
-{
-    QList<CalculationEntry> history;
-    QFile file(path + "/calculations.json");
-    
-    if (file.open(QIODevice::ReadOnly)) {
-        QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-        QJsonArray calculations = doc.object()["calculations"].toArray();
-        
-        for (const auto &calcRef : calculations) {
-            QJsonObject calc = calcRef.toObject();
-            CalculationEntry entry;
-            entry.id = calc["id"].toString();
-            entry.program = calc["program"].toString();
-            entry.command = calc["command"].toString();
-            entry.structureFile = calc["structureFile"].toString();
-            entry.outputFile = calc["outputFile"].toString();
-            entry.timestamp = QDateTime::fromString(calc["timestamp"].toString(), Qt::ISODate);
-            entry.status = calc["status"].toString();
-            history.append(entry);
-        }
-        file.close();
-    }
-    
-    return history;
 }
 
 void MainWindow::orcaPlotVib(const QString &filename, int frequency)

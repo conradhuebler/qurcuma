@@ -67,17 +67,8 @@ class SimulationChartWidget;    // Claude Generated 2026 - live MD temperature/e
 class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog
 
 
-struct CalculationEntry {
-    QString id;          // Eindeutige ID (z.B. Zeitstempel)
-    QString program;
-    QString command;
-    QString structureFile;
-    QString inputFile;
-    QString outputFile;
-    QDateTime timestamp;
-    QString status;      // "started", "completed", "error"
-    // Weitere Metadaten
-};
+// CalculationEntry + the calculations.json persistence live here now.
+#include "calculationhistory.h"
 
 class MainWindow : public QMainWindow
 {
@@ -312,8 +303,6 @@ private:
     void syncRightView();  // Claude Generated - removed unused path parameter
     void saveCalculationInfo();
     void loadCalculationInfo(const QString &path);
-    QList<CalculationEntry> loadCalculationHistory(const QString &path);
-    void addCalculationToHistory(const CalculationEntry &entry);
     QString generateUniqueFileName(const QString &baseFileName, const QString &extension);
     // Path helpers - Claude Generated for clarity
     QString currentCalculationDir() const {
