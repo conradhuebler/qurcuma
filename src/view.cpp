@@ -19,6 +19,7 @@
 #include "xyzparser.h"
 
 #include <QApplication>
+#include <QFileInfo>
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
@@ -2150,7 +2151,7 @@ void MoleculeViewer::saveScreenshotDialog()
 }
 
 bool MoleculeViewer::exportImage(const QString& path, int width, int height, int background,
-    bool ssaa, const ImageMetadata& metadata)
+    bool ssaa, const ImageMetadata& metadata, const QColor& bgColor)
 {
     if (!m_scene || width < 1 || height < 1)
         return false;
@@ -2164,6 +2165,9 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
     if (background == 1) {
         ctrl.setTransparentBackground(false);
         ctrl.setBackgroundColor(Qt::white);
+    } else if (background == 3 && bgColor.isValid()) {
+        ctrl.setTransparentBackground(false);
+        ctrl.setBackgroundColor(bgColor);
     } else {
         ctrl.setTransparentBackground(transparent);
     }
@@ -2391,38 +2395,10 @@ void MoleculeViewer::exportImageDialog(const QString& startDir, Settings* settin
 
     // Build the metadata to embed.
     ImageMetadata meta;
-    meta.embed = embedCheck->isChecked();
-    if (meta.embed) {
-        if (settings) {
-            meta.authorName = settings->operatorName();
-            meta.authorOrcid = settings->operatorOrcid();
-            meta.authorInstitution = settings->operatorInstitution();
-            meta.license = settings->operatorLicense();
-        }
-        if (!m_currentFilePath.isEmpty())
-            meta.sourceFiles << m_currentFilePath;
-
-        const ViewPreset cam = currentViewPreset(ZoomMode::Absolute);
-        meta.cameraRotation = cam.rootRotation;
-        meta.cameraPan = cam.pan;
-        meta.cameraDistance = cam.cameraDistance;
-        meta.zoomMode = cam.zoomMode;
-        meta.zoomFactor = cam.zoomFactor;
-
-        meta.renderingMode = static_cast<int>(m_renderingMode);
-        meta.colorScheme = static_cast<int>(m_colorScheme);
-        meta.atomScaleFactor = m_atomScaleFactor;
-        meta.bondThickness = m_bondThickness;
-        meta.atomTransparency = m_atomTransparency;
-        meta.backgroundColor = m_backgroundColor;
-        meta.effects = QStringLiteral("SSAO=%1,Bloom=%2,HDR=%3,Fog=%4")
-                           .arg(m_ssaoEnabled ? 1 : 0).arg(m_bloomEnabled ? 1 : 0)
-                           .arg(m_hdrEnabled ? 1 : 0).arg(m_fogEnabled ? 1 : 0);
-
-        meta.qurcumaVersion = QCoreApplication::applicationVersion();
-        meta.exportTimestamp = QDateTime::currentDateTime().toString(Qt::ISODate);
-        meta.viewPresetName = presetName;
-    }
+    if (embedCheck->isChecked())
+        meta = buildImageMetadata(settings, presetName);
+    else
+        meta.embed = false;
 
     const QString filter = (bg == 2)
         ? tr("PNG Image (*.png)")  // alpha needs PNG
@@ -2443,11 +2419,95 @@ void MoleculeViewer::exportImageDialog(const QString& startDir, Settings* settin
     QApplication::setOverrideCursor(Qt::WaitCursor);
     const bool ok = exportImage(path, wSpin->value(), hSpin->value(), bg, ssaaCheck->isChecked(), meta);
     QApplication::restoreOverrideCursor();
-    if (ok)
+    if (ok) {
+        emit imageExported(path);  // let the image-gallery dock pick it up
         QMessageBox::information(this, tr("Export Image"), tr("Image saved to:\n%1").arg(path));
-    else
+    } else
         QMessageBox::warning(this, tr("Export Image"),
             tr("Failed to export the image (the offscreen render returned no content)."));
+}
+
+// Claude Generated 2026 - shared metadata assembly for both export paths so the
+// dialog and the quick "Photo" export embed identical provenance.
+ImageMetadata MoleculeViewer::buildImageMetadata(Settings* settings, const QString& presetName)
+{
+    ImageMetadata meta;
+    meta.embed = true;
+    if (settings) {
+        meta.authorName = settings->operatorName();
+        meta.authorOrcid = settings->operatorOrcid();
+        meta.authorInstitution = settings->operatorInstitution();
+        meta.license = settings->operatorLicense();
+    }
+    if (!m_currentFilePath.isEmpty())
+        meta.sourceFiles << m_currentFilePath;
+
+    const ViewPreset cam = currentViewPreset(ZoomMode::Absolute);
+    meta.cameraRotation = cam.rootRotation;
+    meta.cameraPan = cam.pan;
+    meta.cameraDistance = cam.cameraDistance;
+    meta.zoomMode = cam.zoomMode;
+    meta.zoomFactor = cam.zoomFactor;
+
+    meta.renderingMode = static_cast<int>(m_renderingMode);
+    meta.colorScheme = static_cast<int>(m_colorScheme);
+    meta.atomScaleFactor = m_atomScaleFactor;
+    meta.bondThickness = m_bondThickness;
+    meta.atomTransparency = m_atomTransparency;
+    meta.backgroundColor = m_backgroundColor;
+    meta.effects = QStringLiteral("SSAO=%1,Bloom=%2,HDR=%3,Fog=%4")
+                       .arg(m_ssaoEnabled ? 1 : 0).arg(m_bloomEnabled ? 1 : 0)
+                       .arg(m_hdrEnabled ? 1 : 0).arg(m_fogEnabled ? 1 : 0);
+
+    meta.qurcumaVersion = QCoreApplication::applicationVersion();
+    meta.exportTimestamp = QDateTime::currentDateTime().toString(Qt::ISODate);
+    meta.viewPresetName = presetName;
+    return meta;
+}
+
+// Claude Generated 2026 - dialog-free export triggered by the viewer-bar "Photo"
+// button. Uses the dialog defaults (2× viewport, transparent, SSAA) and an
+// auto-generated file name so a figure is one click away.
+QString MoleculeViewer::quickExportImage(const QString& startDir, Settings* settings)
+{
+    if (!m_scene)
+        return QString();
+
+    const QSize cur = m_container ? m_container->size() : QSize(1280, 960);
+    const int w = qMax(64, cur.width() * 2);
+    const int h = qMax(64, cur.height() * 2);
+
+    // Background from the viewer-bar Photo controls: transparent checkbox wins,
+    // otherwise the colour preset (invalid = scene colour). See exportImage().
+    int bgMode = 2;  // transparent
+    QColor bgColor;
+    if (!m_photoTransparent) {
+        if (m_photoBgColor.isValid()) {
+            bgMode = 3;
+            bgColor = m_photoBgColor;
+        } else {
+            bgMode = 0;  // scene colour
+        }
+    }
+
+    const QString dir = startDir.isEmpty() ? QDir::homePath() : startDir;
+    QString stem = QStringLiteral("qurcuma");
+    if (!m_currentFilePath.isEmpty())
+        stem = QFileInfo(m_currentFilePath).completeBaseName();
+    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
+    const QString path = QDir(dir).filePath(QStringLiteral("%1_%2.png").arg(stem, stamp));
+
+    ImageMetadata meta = buildImageMetadata(settings, QString());
+    meta.width = w;
+    meta.height = h;
+
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const bool ok = exportImage(path, w, h, bgMode, /*ssaa=*/true, meta, bgColor);
+    QApplication::restoreOverrideCursor();
+    if (!ok)
+        return QString();
+    emit imageExported(path);
+    return path;
 }
 
 // ---------------------------------------------------------------------------
@@ -2699,6 +2759,50 @@ void MoleculeViewer::setupControlPanel()
         }
     });
     panelLayout->addWidget(editBtn);
+
+    // Photo — one-click image export (no dialog). Sibling of Measure/Edit; the host
+    // supplies the working dir + operator settings via quickExportRequested.
+    QToolButton* photoBtn = new QToolButton;
+    photoBtn->setText(tr("Photo"));
+    photoBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    {
+        QIcon ico = QIcon::fromTheme(QStringLiteral("camera-photo"));
+        if (ico.isNull())
+            ico = QIcon::fromTheme(QStringLiteral("camera"));
+        if (ico.isNull())
+            ico = QIcon::fromTheme(QStringLiteral("image-x-generic"));
+        if (!ico.isNull())
+            photoBtn->setIcon(ico);
+    }
+    photoBtn->setToolTip(tr("Quick export: save a PNG (2× view, metadata embedded) to the "
+                            "working folder without a dialog. Ctrl+Shift+E opens the full dialog."));
+    connect(photoBtn, &QToolButton::clicked, this, [this] { emit quickExportRequested(); });
+    panelLayout->addWidget(photoBtn);
+
+    // Photo background options: transparent toggle + colour preset (used when opaque).
+    QCheckBox* photoTransp = new QCheckBox(tr("Transparent"));
+    photoTransp->setChecked(m_photoTransparent);
+    photoTransp->setToolTip(tr("Quick-export with a transparent background (alpha PNG)."));
+    panelLayout->addWidget(photoTransp);
+
+    QComboBox* photoBg = new QComboBox;
+    photoBg->addItem(tr("Scene"), QVariant::fromValue(QColor()));  // invalid = scene colour
+    photoBg->addItem(tr("White"), QVariant::fromValue(QColor(Qt::white)));
+    photoBg->addItem(tr("Black"), QVariant::fromValue(QColor(Qt::black)));
+    photoBg->addItem(tr("Light grey"), QVariant::fromValue(QColor(0xDD, 0xDD, 0xDD)));
+    photoBg->addItem(tr("Dark grey"), QVariant::fromValue(QColor(0x28, 0x28, 0x28)));
+    photoBg->setMaximumWidth(110);
+    photoBg->setEnabled(!m_photoTransparent);
+    photoBg->setToolTip(tr("Background colour preset for the quick export (used when not transparent)."));
+    m_photoBgColor = photoBg->currentData().value<QColor>();
+    panelLayout->addWidget(photoBg);
+
+    connect(photoTransp, &QCheckBox::toggled, this, [this, photoBg](bool on) {
+        m_photoTransparent = on;
+        photoBg->setEnabled(!on);
+    });
+    connect(photoBg, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this, photoBg](int) { m_photoBgColor = photoBg->currentData().value<QColor>(); });
 
     QComboBox* colorCombo = new QComboBox;
     colorCombo->addItem(tr("CPK"), static_cast<int>(ColorScheme::CPK));

@@ -192,6 +192,8 @@ set(SOURCES
     src/docks/workspacepanel.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/remotedirectoriespanel.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/projectdock.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/imagegallerydock.cpp  # Claude Generated 2026 - batch border-trim gallery
+    src/imagecrop.cpp  # Claude Generated 2026 - image border-trim analysis (metadata-preserving)
     src/forceinjector.cpp  # Claude Generated 2026 - Topological force distribution (Phase 4)
     src/elementdata.cpp  # Claude Generated 2026 - Quick3D renderer: shared element tables
     src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing

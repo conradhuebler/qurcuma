@@ -1,5 +1,15 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juli 2026 - Batch-Randbeschnitt exportierter Bilder (Image-Gallery-Dock)
+
+- **Image-Gallery-Dock** (unten, ausblendbar, erscheint automatisch beim ersten Bildexport): Thumbnail-Raster der in der Session exportierten Bilder; Checkbox „Show all images in folder" schaltet auf alle `*.png` im Arbeitsverzeichnis um.
+- **Gemeinsamer Randbeschnitt** (FlipBooQ-Vorbild, „Daumenkino"): alle Frames werden auf eine gemeinsame Leinwand (max. Quellbreite × -höhe) zentriert, der Rand über die Eckpixel-Hintergrundfarbe erkannt und die Inhalts-Rechtecke auf der Leinwand vereinigt (`united`) → **ein** Crop-Rechteck an identischer Position. Ergebnis: alle Ausgaben haben dieselbe X×Y, kein Molekül wird beschnitten, die Bewegung bleibt registriert, minimaler gemeinsamer Rand — auch bei unterschiedlich großen Quellbildern. Toleranz-Slider (0–32).
+- **Metadaten-erhaltender Export**: `imagecrop::saveResized` arbeitet mit `QImage` (nicht `QPixmap`), überträgt alle PNG-Text-Chunks der Quelle in die zugeschnittene Kopie und ergänzt Crop-Provenienz (`ResizeSourceSize/CropRect/Tolerance/Background/BatchTimestamp/Software`); Ausgabe als `<name>.resized.png` (nicht-destruktiv).
+- **Schnell-Export „Photo"-Button** in der Viewer-Leiste (neben Measure/Edit): dialogfreier Export (`MoleculeViewer::quickExportImage` — 2× Viewport, SSAA, Metadaten) mit Auto-Dateiname `<stem>_<timestamp>.png` ins Arbeitsverzeichnis; landet direkt in der Galerie. Daneben eine **Transparent-Checkbox** + **Hintergrund-Farbpreset-Combo** (Scene/White/Black/Grautöne, via `exportImage`-`background=3`+`QColor`). Metadaten-Aufbau in `buildImageMetadata` extrahiert (geteilt mit dem Export-Dialog).
+- **Galerie-Kontextmenü + Bild-Viewer**: Rechtsklick/Doppelklick auf ein Thumbnail → Bild-Viewer (Fit-to-Window + Zoom-Slider 10–400 %, Tabelle aller eingebetteten PNG-Text-Chunks), „Remove from gallery", „Delete file from disk…" (mit Bestätigung).
+- **Crop-Vorschau + Quell-Filter**: nach „Analyze borders" wird das gemeinsame Crop-Rechteck (gestrichelt rot) in die Thumbnails eingezeichnet. Quell-Combo „Show:" wählt Session / Ordner: alle PNG / nur `*.resized.png` / nur Originale — die exportierten Bilder sind so filterbar sichtbar.
+- **Neu**: `src/imagecrop.*` (reine, testbare Analyse), `src/docks/imagegallerydock.*` (Dock); Signal `MoleculeViewer::imageExported` verdrahtet den Export mit dem Dock.
+
 ## Juli 2026 - Reproduzierbare Metadaten in exportierten Abbildungen
 
 - **Operator-Metadaten** (Settings ▸ „Operator Metadata…"): Name, ORCID, Institution, Lizenz einmal konfigurierbar; gespeichert unter `operator/` in QSettings. Werden als Default-Autorenschaft für Bildexport (und künftig Lessons) verwendet.

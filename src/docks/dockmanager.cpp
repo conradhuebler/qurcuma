@@ -11,6 +11,7 @@
 #include "projectdock.h"
 #include "simulationdock.h"
 #include "displaydock.h"
+#include "imagegallerydock.h"
 
 #include <QDockWidget>
 #include <QMainWindow>
@@ -27,6 +28,7 @@ QDockWidget* DockManager::projectDock() const { return m_projectDock; }
 QDockWidget* DockManager::displayDock() const { return m_displayDock; }
 QDockWidget* DockManager::simulationDock() const { return m_simulationDock; }
 QDockWidget* DockManager::outputDock() const { return m_outputViewDock; }
+QDockWidget* DockManager::imageGalleryDock() const { return m_imageGalleryDock; }
 
 QTabWidget* DockManager::simulationTabs() const
 {
@@ -83,6 +85,11 @@ SimulationDock* DockManager::simulationDockImpl() const
 ProjectDock* DockManager::projectDockImpl() const
 {
     return qobject_cast<ProjectDock*>(m_projectDock);
+}
+
+ImageGalleryDock* DockManager::imageGalleryDockImpl() const
+{
+    return qobject_cast<ImageGalleryDock*>(m_imageGalleryDock);
 }
 
 namespace {
@@ -258,6 +265,7 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
     m_displayDock = new DisplayDock(viewer, settings, m_mainWindow);
     m_simulationDock = new SimulationDock(m_mainWindow);
     m_projectDock = new ProjectDock(settings, m_mainWindow);
+    m_imageGalleryDock = new ImageGalleryDock(m_mainWindow);
 }
 
 void DockManager::placeDocks()
@@ -288,5 +296,15 @@ void DockManager::placeDocks()
 
     if (m_outputViewDock)
         m_mainWindow->addDockWidget(DockConfig::OutputViewDockArea, m_outputViewDock);
+
+    // The image-gallery dock shares the bottom area (tabified with Output) and
+    // stays hidden until the first image is exported (ImageGalleryDock shows
+    // itself in addExportedImage). Claude Generated 2026.
+    if (m_imageGalleryDock) {
+        m_mainWindow->addDockWidget(DockConfig::ImageGalleryDockArea, m_imageGalleryDock);
+        if (m_outputViewDock)
+            m_mainWindow->tabifyDockWidget(m_outputViewDock, m_imageGalleryDock);
+        m_imageGalleryDock->hide();
+    }
 }
 

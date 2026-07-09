@@ -209,9 +209,16 @@ public slots:
     /// (true supersampling, not upscaling) and save it. @p background: 0 = scene colour,
     /// 1 = white, 2 = transparent (alpha PNG). @p metadata is written as PNG text chunks.
     /// Claude Generated 2026.
+    /// @p background: 0 = scene colour, 1 = white, 2 = transparent, 3 = @p bgColor.
     bool exportImage(const QString& path, int width, int height, int background, bool ssaa,
-                     const ImageMetadata& metadata);
+                     const ImageMetadata& metadata, const QColor& bgColor = QColor());
     void exportImageDialog(const QString& startDir = QString(), Settings* settings = nullptr);
+
+    /// Quick, dialog-free export (the viewer-bar "Photo" button): saves
+    /// <stem>_<timestamp>.png (transparent, 2× viewport, metadata embedded) into
+    /// @p startDir and emits imageExported(). Returns the saved path, or an empty
+    /// string on failure. Claude Generated 2026.
+    QString quickExportImage(const QString& startDir = QString(), Settings* settings = nullptr);
 
     // Claude Generated - Trajectory animation
     void startAnimation();
@@ -349,6 +356,15 @@ signals:
     // can re-sync its controls without the dock being raised.
     void viewPresetApplied();
 
+    // Claude Generated 2026 - emitted after an image was successfully exported
+    // (exportImageDialog / quickExportImage), so the image-gallery dock can list
+    // it for batch trimming.
+    void imageExported(const QString& path);
+
+    // Claude Generated 2026 - the viewer-bar "Photo" button asks the host to run a
+    // quick export (the host supplies the working dir + operator settings).
+    void quickExportRequested();
+
 public slots:
     void setSimulationActive(bool on);
     bool simulationActive() const { return m_simulationActive; }  // for the WASD/QE key filter
@@ -409,6 +425,10 @@ private:
     void setupControlPanel();   // Claude Generated - Integrated control panel (top bar)
     QFrame* createSeparator();  // Helper to create vertical separator in panel
 
+    // Assemble reproducibility/authorship metadata from the current view + operator
+    // settings. Shared by exportImageDialog and quickExportImage. Claude Generated 2026.
+    ImageMetadata buildImageMetadata(Settings* settings, const QString& presetName);
+
     // Push the current frame's atoms/bonds into the SceneController.
     // resetCamera=false keeps the camera for in-place rebuilds (refresh).
     void syncSceneToController(int frameIndex, bool resetCamera, bool fullRebuild,
@@ -466,6 +486,11 @@ private:
     // 4 screen-fixed corner lights (state mirrored into the scene controller).
     bool m_cornerLightEnabled[4] = {true, true, false, false};
     QColor m_backgroundColor{32, 36, 44};
+
+    // Claude Generated 2026 - viewer-bar "Photo" quick-export options (transparent
+    // toggle + background colour preset). m_photoBgColor invalid = use scene colour.
+    bool m_photoTransparent = true;
+    QColor m_photoBgColor;
 
     QVector3D m_moleculeCenter;
     float m_moleculeRadius = 10.0f;

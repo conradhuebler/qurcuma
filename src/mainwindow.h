@@ -57,6 +57,7 @@ class OutputDock;           // Claude Generated 2026 - Output dock wrapper
 class SimulationDock;       // Claude Generated 2026 - Simulation dock wrapper
 class DisplayDock; // Claude Generated 2026 - Structure & Display dock wrapper
 class ProjectDock;            // Claude Generated 2026 - Project dock wrapper
+class ImageGalleryDock;       // Claude Generated 2026 - batch border-trim gallery (bottom)
 class QSortFilterProxyModel;  // Claude Generated 2026 - ProjectDock file filter proxy
 #ifdef USE_SFTP
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
@@ -508,6 +509,7 @@ private:
     DisplayDock* m_displayDock = nullptr; // Right: [Structure | Atoms] segment + Display panel
     SimulationDock* m_simulationDock = nullptr;     // Right: Simulation/Snapshots/RMSD/Input tabs (tabified with Structure&Display)
     OutputDock* m_outputViewDock = nullptr;         // Bottom: output log
+    ImageGalleryDock* m_imageGalleryDock = nullptr; // Bottom (tabified): batch border-trim gallery
     QDialog* m_simulationChartDialog = nullptr;     // Modeless dialog: live MD temperature/energy charts
     QTabWidget* m_simulationTabs = nullptr;         // Internal tabs inside m_simulationDock
 

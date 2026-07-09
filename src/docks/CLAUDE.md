@@ -10,6 +10,7 @@
 - `DisplayDock` — right-side dock with segmented top area [Structure | Atoms], the Display panel, and the View-Preset widget.
 - `SimulationDock` — right-side dock with tabs [Simulation | Snapshots | RMSD / Align | Input].
 - `OutputDock` — output log + clear button.
+- `ImageGalleryDock` — bottom dock (tabified with Output), hidden until the first image export; thumbnail grid of exported images. "Show:" combo = session / folder all-PNG / resized-only / originals-only. Common border-trim analysis (flip-book: centre all frames on a max-size canvas, `imagecrop::commonContentRect` = union of content → one crop at identical position, uniform X×Y even for differently-sized sources; the crop rect is drawn dashed-red onto the analyzed thumbnails) → saves metadata-preserving `<name>.resized.png`. Fed by `MoleculeViewer::imageExported` (export dialog + viewer-bar "Photo" quick-export with transparent/colour-preset controls). Context menu / double-click: view image (fit-to-window + zoom slider) + embedded-metadata table, remove from gallery, delete file from disk (confirmed).
 
 ## Shared Config (`dockconfig.h`)
 - `DockConfig::LayoutPreset` — Visualization, Editing, Calculation, Analysis, Teaching.

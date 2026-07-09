@@ -87,6 +87,7 @@
 #include "docks/workspacepanel.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/remotedirectoriespanel.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/projectdock.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/imagegallerydock.h"  // Claude Generated 2026 - batch border-trim gallery
 #include "mainwindow.h"
 
 // Claude Generated - Conditional debug logging
@@ -2417,6 +2418,8 @@ void MainWindow::switchWorkingDirectory(const QString& path)
     m_settings.setLastUsedWorkingDirectory(path);
     m_projectModel->setRootPath(path);
     m_projectListView->setRootIndex(m_projectModel->index(path));
+    if (m_imageGalleryDock)
+        m_imageGalleryDock->setWorkingDirectory(path);  // keep "show all in folder" scoped
 
     // Claude Generated - Reset current calculation directory when switching working dir
     m_currentCalculationDir.clear();
@@ -4413,6 +4416,29 @@ void MainWindow::createDockWidgets()
         m_snapshotsWidget = m_simulationDock->snapshotsWidget();
         m_rmsdWidget = m_simulationDock->rmsdWidget();
     }
+
+    // Image-gallery dock (bottom, hidden until the first export): collect exported
+    // images and batch-trim their identical whitespace border. Claude Generated 2026.
+    m_imageGalleryDock = m_dockManager->imageGalleryDockImpl();
+    if (m_imageGalleryDock) {
+        m_imageGalleryDock->setWorkingDirectory(m_workingDirectory);
+        if (m_moleculeView)
+            connect(m_moleculeView, &MoleculeViewer::imageExported,
+                m_imageGalleryDock, &ImageGalleryDock::addExportedImage);
+    }
+
+    // Viewer-bar "Photo" button → dialog-free quick export into the working folder.
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::quickExportRequested, this, [this]() {
+            if (!m_moleculeView)
+                return;
+            const QString saved = m_moleculeView->quickExportImage(m_workingDirectory, &m_settings);
+            if (!saved.isEmpty())
+                statusBar()->showMessage(tr("Image exported: %1").arg(saved), 5000);
+            else
+                statusBar()->showMessage(
+                    tr("Quick export failed — is a molecule loaded?"), 5000);
+        });
 
     // ==================== PROJECT DOCK (left) ====================
     // Phase 6 redesign: ProjectDock owns a segmented upper panel
