@@ -68,6 +68,7 @@
 #include <QString>
 #include "view.h"
 #include "moleculefileloader.h"  // Claude Generated 2026 - unified structure-file reader
+#include "calculationrunner.h"  // Claude Generated 2026 - WP T3 external-process orchestration
 #include "frequencydialog.h"
 #include "displaypanel.h"
 #include "widgets/commandpalette.h"
@@ -105,8 +106,9 @@ MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     : QMainWindow(parent)
 {
     m_invocationDir = invocationDir;
-    // Claude Generated - Initialize m_currentProcess first (needed by setupConnections)
-    m_currentProcess = new QProcess(this);
+    // Claude Generated 2026 - WP T3: the runner owns the calculation QProcess and the
+    // per-program completer commands. Created first so setupConnections() can wire it.
+    m_calculationRunner = new CalculationRunner(this);
 
     // Claude Generated 2026 - Dock system restructuring: manager owns all docks,
     // presets and Explore/Compute mode. Construction happens before setupUI() so
@@ -188,9 +190,6 @@ void MainWindow::setupUI()
     m_moleculeView->setInstancingThreshold(vizSettings.instancingThreshold);
     m_centerOnLoad = vizSettings.centerOnLoad;
     setCentralWidget(m_moleculeView);
-
-    // Initialize available program commands before creating docks
-    initializeProgramCommands();
 
     // Claude Generated 2026 - Dock refactor: set dock options and tab positions
     // BEFORE creating/placing docks so tabify/split calls inherit the right config.
@@ -587,57 +586,6 @@ QStringList MainWindow::currentSubdirectories() const
         subdirs << it.fileName();
     }
     return subdirs;
-}
-
-void MainWindow::initializeProgramCommands()
-{
-    // Curcuma Befehle
-    m_programCommands["curcuma"] = QStringList{
-        "--align",
-        "--rmsd",
-        "--cluster",
-        "--compare",
-        "--convert",
-        "--distance",
-        "--docking",
-        "--energy",
-        "--geometry",
-        "--md",
-        "--md-analysis",
-        "--reactive",
-        "--traj-rmsd",
-        "--opt",
-        // Weitere Befehle hier ergänzen
-    };
-
-    // XTB Befehle
-    m_programCommands["xtb"] = QStringList{
-        "--opt",
-        "--md",
-        "--hess",
-        "--ohess",
-        "--bhess",
-        "--grad",
-        "--ograd",
-        "--scc",
-        "--vip",
-        "--vipea",
-        "--sp",
-        "--gfn0",
-        "--gfn1",
-        "--gfn2",
-        "--gfnff",
-        "--alpb",
-        "--gbsa",
-        "--cosmo",
-        "--wbo",
-        "--pop",
-        "--molden",
-        "--dipole",
-        "--chrg",
-        "--uhf"
-        // Weitere Befehle hier ergänzen
-    };
 }
 
 // Claude Generated 2026 - P2/P4: prominent Explore/Compute mode switch, placed in the
@@ -1179,11 +1127,14 @@ void MainWindow::setupConnections()
     connect(m_projectListView, &QListView::clicked,
         this, &MainWindow::projectSelected);
 
-    // Claude Generated - Process connections (m_currentProcess already initialized in constructor)
-    connect(m_currentProcess, &QProcess::readyReadStandardOutput,
-        this, &MainWindow::processOutput);
-    connect(m_currentProcess, &QProcess::readyReadStandardError,
-        this, &MainWindow::processError);
+    // Claude Generated 2026 - WP T3: route the calculation runner's output/completion
+    // into the output dock + the finish handler (the runner owns the QProcess).
+    connect(m_calculationRunner, &CalculationRunner::outputReceived,
+        this, [this](const QString& text) { m_outputViewDock->appendOutput(text); });
+    connect(m_calculationRunner, &CalculationRunner::errorReceived,
+        this, [this](const QString& text) { m_outputViewDock->appendOutput("Error: " + text); });
+    connect(m_calculationRunner, &CalculationRunner::finished,
+        this, &MainWindow::onCalculationFinished);
 
     // Programmtyp-spezifische Aktionen
     connect(m_programSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -1223,7 +1174,7 @@ void MainWindow::setupConnections()
     connect(m_programSelector, &QComboBox::currentTextChanged,
         [this](const QString& program) {
             if (m_simulationPrograms.contains(program)) {
-                m_commandCompleter->setModel(new QStringListModel(m_programCommands[program]));
+                m_commandCompleter->setModel(new QStringListModel(m_calculationRunner->commandsFor(program)));
             }
         });
     connect(m_directoryContentView, &QListView::clicked,
@@ -1490,9 +1441,10 @@ void MainWindow::updateCommandLineVisibility(const QString &program)
                 });
         }
 
-        if (m_programCommands.contains(program)) {
+        const QStringList programCommands = m_calculationRunner->commandsFor(program);
+        if (!programCommands.isEmpty()) {
             m_commandInput->setPlaceholderText(tr("Enter command for %1...").arg(program));
-            m_commandCompleter->setModel(new QStringListModel(m_programCommands[program]));
+            m_commandCompleter->setModel(new QStringListModel(programCommands));
         }
     }
 }
@@ -1811,43 +1763,28 @@ void MainWindow::runSimulation()
         return;
     }
 
-    bool input_empty = true, structure_empty = true, argument_empty = true;
-    // Generiere eindeutige Namen für diese Berechnung
-    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
-    QString structureFile = generateUniqueFileName(m_structureFileEdit->text(), m_structureFileEditExtension->text());
-    QString trjFile = generateUniqueFileName(m_structureFileEdit->text(), "trj" + m_structureFileEditExtension->text());
-    QString inputFile = generateUniqueFileName(m_inputFileEdit->text(), m_inputFileEditExtension->text());
+    // Claude Generated 2026 - WP T3: validate the editors up front (CalculationRunner
+    // assumes a valid request), assemble the request from the widgets/settings, then
+    // hand the QProcess lifecycle off to the runner.
+    const bool structureEmpty = m_structureView->toPlainText().isEmpty();
+    const bool inputEmpty = m_inputView->toPlainText().isEmpty();
 
-    QString outputFile = generateUniqueFileName("output", "log");
-    // Speichere aktuelle Strukturdaten
-    QFile structFile(currentCalculationDir() + QDir::separator() + structureFile);
-    if (structFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        structFile.write(m_structureView->toPlainText().toUtf8());
-        structure_empty = m_structureView->toPlainText().toUtf8().isEmpty();
-        structFile.close();
-    }
-
-    // Speichere den Text aus dem Eingabefeld in die Input-Datei
-    QFile inputFileObj(currentCalculationDir() + QDir::separator() + inputFile);
-    if (inputFileObj.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        inputFileObj.write(m_inputView->toPlainText().toLatin1());
-        input_empty = m_inputView->toPlainText().toUtf8().isEmpty();
-        inputFileObj.close();
-    }
-    argument_empty = m_commandInput->text().trimmed().isEmpty();
-    // Speichere das Kommando in die Historie
-    CalculationEntry entry;
-    entry.id = timestamp;
-    entry.program = program;
-    entry.command = m_commandInput->text().trimmed();
-    entry.structureFile = structureFile;
-    entry.outputFile = outputFile;
-    entry.timestamp = QDateTime::currentDateTime();
-    entry.status = "started";
+    CalculationRequest req;
+    req.program = program;
+    req.command = m_commandInput->text().trimmed();
+    req.structureText = m_structureView->toPlainText();
+    req.inputText = m_inputView->toPlainText();
+    req.structureBase = m_structureFileEdit->text();
+    req.structureExt = m_structureFileEditExtension->text();
+    req.inputBase = m_inputFileEdit->text();
+    req.inputExt = m_inputFileEditExtension->text();
+    req.threads = m_threads->value();
+    req.uniqueFileNames = m_uniqueFileNames->isChecked();
+    req.calcDir = currentCalculationDir();
 
     if (program == "orca") {
-        QString orcaPath = m_settings.orcaBinaryPath();
-        if (orcaPath.isEmpty()) {
+        req.orcaBinaryPath = m_settings.orcaBinaryPath();
+        if (req.orcaBinaryPath.isEmpty()) {
             // Claude Generated - Phase 4.1: Enhanced error dialog
             showEnhancedError(tr("ORCA Configuration Error"),
                 tr("ORCA binary path is not configured."),
@@ -1857,7 +1794,7 @@ void MainWindow::runSimulation()
                 });
             return;
         }
-        if (input_empty) {
+        if (inputEmpty) {
             // Claude Generated - Phase 4.1: Enhanced error dialog
             showEnhancedError(tr("Input File Empty"),
                 tr("Input file is empty."),
@@ -1865,17 +1802,8 @@ void MainWindow::runSimulation()
                 nullptr);
             return;
         }
-        // ORCA-spezifischer Start
-        QString orcaExe = orcaPath + "/orca";
-        m_currentProcess->setWorkingDirectory(currentCalculationDir());
-        m_currentProcess->setProgram(orcaExe);
-        // ORCA erwartet den Input-Dateinamen als Argument
-
-        m_currentProcess->setArguments(QStringList() << inputFile);
-        QFile::copy(currentCalculationDir() + QDir::separator() + structureFile, currentCalculationDir() + QDir::separator() + m_structureFileEdit->text() + ".xyz");
-    }
-    else {
-        if (structure_empty) {
+    } else {
+        if (structureEmpty) {
             // Claude Generated - Phase 4.1: Enhanced error dialog
             showEnhancedError(tr("Structure Data Missing"),
                 tr("Structure data is empty."),
@@ -1883,41 +1811,10 @@ void MainWindow::runSimulation()
                 nullptr);
             return;
         }
-        QString programPath = m_settings.getProgramPath(program);
-        auto environment = QProcessEnvironment::systemEnvironment();
-        environment.insert("OMP_NUM_THREADS", QString::number(m_threads->value()));
-        m_currentProcess->setEnvironment(environment.toStringList());
-        m_currentProcess->setWorkingDirectory(currentCalculationDir());
-        m_currentProcess->setProgram(programPath);
-
-        QStringList args;
-        if (program == "curcuma") {
-            args = entry.command.split(" ", Qt::SkipEmptyParts);
-            if (args.size() >= 1) {
-                args.insert(1, structureFile);
-            }
-        } else if (program == "xtb") {
-            args << structureFile;
-            args.append(entry.command.split(" ", Qt::SkipEmptyParts));
-            connect(m_currentProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                [this, entry, trjFile](int exitCode, QProcess::ExitStatus exitStatus) {
-                    QString xtbOptLogFile = currentCalculationDir() + QDir::separator() + "xtbopt.xyz";
-                    if (QFile::exists(xtbOptLogFile)) {
-                        QFile::rename(xtbOptLogFile, trjFile);
-                    }
-                    xtbOptLogFile = currentCalculationDir() + QDir::separator() + "xtbopt.log";
-                    if (QFile::exists(xtbOptLogFile)) {
-                        QFile::rename(xtbOptLogFile, trjFile);
-                    }
-                });
-        }
-        m_currentProcess->setArguments(args);
+        req.programPath = m_settings.getProgramPath(program);
     }
-    m_currentProcess->setStandardOutputFile(currentCalculationDir() + QDir::separator() + outputFile, QIODevice::Append);
-    m_currentProcess->setStandardErrorFile(currentCalculationDir() + QDir::separator() + outputFile, QIODevice::Append);
 
-    // Starte Prozess und füge Eintrag zur Historie hinzu
-    m_currentProcess->start();
+    const CalculationEntry entry = m_calculationRunner->start(req);
     CalculationHistory::add(currentCalculationDir(), entry, m_uniqueFileNames->isChecked());
 
     // Claude Generated - Phase 2.2: Update workflow state
@@ -1950,84 +1847,68 @@ void MainWindow::runSimulation()
     m_progressDialog->setWindowTitle(tr("Calculation Progress"));
     m_progressDialog->show();
 
-    // Connect cancel button to stop process
+    // Connect cancel button to stop the calculation
     connect(m_progressDialog, &QProgressDialog::canceled, [this]() {
-        if (m_currentProcess && m_currentProcess->state() == QProcess::Running) {
-            m_currentProcess->kill();
+        if (m_calculationRunner->isRunning()) {
+            m_calculationRunner->cancel();
             statusBar()->showMessage(tr("Calculation canceled by user"));
         }
     });
 
-    // Verbinde Prozessende
-    connect(m_currentProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-        [this, entry](int exitCode, QProcess::ExitStatus exitStatus) {
-            // Claude Generated - Phase 1.3: Close progress dialog
-            if (m_progressDialog) {
-                m_progressDialog->close();
-                m_progressDialog = nullptr;
-            }
-
-            // Claude Generated - Quick Win: Stop calculation timer
-            if (m_calculationTimer) {
-                m_calculationTimer->stop();
-            }
-
-            // Aktualisiere Status in der Historie
-            CalculationEntry updatedEntry = entry;
-            updatedEntry.status = (exitCode == 0) ? "completed" : "error";
-            CalculationHistory::add(currentCalculationDir(), updatedEntry, m_uniqueFileNames->isChecked());
-
-            updateOutputView(currentCalculationDir() + QDir::separator() + entry.outputFile);
-            statusBar()->showMessage(exitCode == 0 ?
-                tr("Calculation completed successfully") :
-                tr("Calculation failed with error (Code: %1)").arg(exitCode));
-
-            // Claude Generated - Phase 2.2: Update workflow state based on exit code
-            if (exitCode == 0) {
-                updateWorkflowState(WorkflowState::CalculationComplete);
-            } else {
-                updateWorkflowState(WorkflowState::CalculationError);
-            }
-
-            QApplication::restoreOverrideCursor();
-
-    });
-
-    // Timer zum regelmäßigen Aktualisieren der Ausgabedatei
-    QPointer<QTimer> outputUpdateTimer = new QTimer(this);
-    connect(outputUpdateTimer, &QTimer::timeout, [this, outputFile]() {
-        updateOutputView(currentCalculationDir() + QDir::separator() + outputFile, true);
-    });
-    outputUpdateTimer->start(1000); // Aktualisiere alle 1000 ms (1 Sekunde)
-
-    // Stoppe den Timer, wenn der Prozess beendet ist
-    connect(m_currentProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-        [outputUpdateTimer](int, QProcess::ExitStatus) {
-            if (outputUpdateTimer) {
-                outputUpdateTimer->stop();
-                outputUpdateTimer->deleteLater();
-            }
+    // Claude Generated 2026 - WP T3: live output tail. The process redirects
+    // stdout/stderr into the log file, so re-read it periodically until finish
+    // (stopped in onCalculationFinished()).
+    m_currentOutputFile = entry.outputFile;
+    if (!m_outputUpdateTimer) {
+        m_outputUpdateTimer = new QTimer(this);
+        connect(m_outputUpdateTimer, &QTimer::timeout, [this]() {
+            updateOutputView(currentCalculationDir() + QDir::separator() + m_currentOutputFile, true);
         });
+    }
+    m_outputUpdateTimer->start(1000); // Aktualisiere alle 1000 ms (1 Sekunde)
 
     // Zeige eine Information und setze den Cursor auf "Warten"
     statusBar()->showMessage(tr("Calculation running..."));
     QApplication::setOverrideCursor(Qt::WaitCursor);
 }
 
-QString MainWindow::generateUniqueFileName(const QString &baseFileName, const QString &extension)
+// Claude Generated 2026 - WP T3: react to CalculationRunner::finished (echoes the
+// entry from runSimulation()). Persists the final status, refreshes the output view
+// and workflow state, and tears down the progress dialog + timers.
+void MainWindow::onCalculationFinished(const CalculationEntry& entry, int exitCode)
 {
-    if (m_uniqueFileNames->isChecked()) {
-        QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
-        if (extension.isEmpty()) {
-            return QString("%1_%2").arg(baseFileName, timestamp);
-        } else
-            return QString("%1_%2.%3").arg(baseFileName, timestamp, extension);
-    } else {
-        if (extension.isEmpty()) {
-            return QString("%1").arg(baseFileName);
-        } else
-            return QString("%1.%2").arg(baseFileName, extension);
+    // Claude Generated - Phase 1.3: Close progress dialog
+    if (m_progressDialog) {
+        m_progressDialog->close();
+        m_progressDialog = nullptr;
     }
+
+    // Claude Generated - Quick Win: Stop calculation + output timers
+    if (m_calculationTimer) {
+        m_calculationTimer->stop();
+    }
+    if (m_outputUpdateTimer) {
+        m_outputUpdateTimer->stop();
+    }
+
+    // Aktualisiere Status in der Historie
+    CalculationEntry updatedEntry = entry;
+    updatedEntry.status = (exitCode == 0) ? "completed" : "error";
+    CalculationHistory::add(currentCalculationDir(), updatedEntry, m_uniqueFileNames->isChecked());
+
+    updateOutputView(currentCalculationDir() + QDir::separator() + entry.outputFile);
+    statusBar()->showMessage(exitCode == 0 ?
+        tr("Calculation completed successfully") :
+        tr("Calculation failed with error (Code: %1)").arg(exitCode));
+
+    // Claude Generated - Phase 2.2: Update workflow state based on exit code
+    if (exitCode == 0) {
+        updateWorkflowState(WorkflowState::CalculationComplete);
+    } else {
+        updateWorkflowState(WorkflowState::CalculationError);
+    }
+
+    QApplication::restoreOverrideCursor();
 }
 
 void MainWindow::orcaPlotVib(const QString &filename, int frequency)
@@ -2036,11 +1917,13 @@ void MainWindow::orcaPlotVib(const QString &filename, int frequency)
 
         QString orcaExe = orcaPath + "/orca_pltvib";
         QString cfilename = QFileInfo(filename).fileName();
-        m_currentProcess->setWorkingDirectory(currentCalculationDir());
-        m_currentProcess->setProgram(orcaExe);
-        m_currentProcess->setArguments(QStringList() << cfilename << QString::number(frequency));
-        m_currentProcess->start();
-        m_currentProcess->waitForFinished();
+        // Claude Generated 2026 - WP T3: local process (the runner owns the calc one).
+        QProcess process;
+        process.setWorkingDirectory(currentCalculationDir());
+        process.setProgram(orcaExe);
+        process.setArguments(QStringList() << cfilename << QString::number(frequency));
+        process.start();
+        process.waitForFinished();
 
         QString vXXX;
         if(frequency < 10)
@@ -2073,11 +1956,13 @@ void MainWindow::openWithVisualizer(const QString &filePath, const QString &visu
         QString fileDir = QFileInfo(filePath).absolutePath();
         QFile::copy(filePath, fileDir + "/tmp.gbw");
         QString nfilePath = fileDir + "/tmp";
-        m_currentProcess->setWorkingDirectory(currentCalculationDir());
-        m_currentProcess->setProgram(orcaExe);
-        m_currentProcess->setArguments(QStringList() << nfilePath << "-molden");
-        m_currentProcess->start();
-        m_currentProcess->waitForFinished();
+        // Claude Generated 2026 - WP T3: local process (the runner owns the calc one).
+        QProcess process;
+        process.setWorkingDirectory(currentCalculationDir());
+        process.setProgram(orcaExe);
+        process.setArguments(QStringList() << nfilePath << "-molden");
+        process.start();
+        process.waitForFinished();
         arguments << nfilePath + ".molden.input";
     }else
         arguments << filePath;  // Übergebe den Dateipfad als Argument
@@ -2141,17 +2026,6 @@ void MainWindow::projectSelected(const QModelIndex &index)
     QApplication::restoreOverrideCursor();
 }
 
-void MainWindow::processOutput()
-{
-    QByteArray output = m_currentProcess->readAllStandardOutput();
-    m_outputViewDock->appendOutput(QString::fromUtf8(output));
-}
-
-void MainWindow::processError()
-{
-    QByteArray error = m_currentProcess->readAllStandardError();
-    m_outputViewDock->appendOutput("Error: " + QString::fromUtf8(error));
-}
 
 void MainWindow::loadSettings()
 {
@@ -2508,8 +2382,8 @@ void MainWindow::openRecentFile(const QString& path)
 // Claude Generated - Phase 1.2: Keyboard shortcut handlers
 void MainWindow::cancelCalculation()
 {
-    if (m_currentProcess && m_currentProcess->state() == QProcess::Running) {
-        m_currentProcess->kill();
+    if (m_calculationRunner->isRunning()) {
+        m_calculationRunner->cancel();
         statusBar()->showMessage(tr("Calculation canceled"));
     }
 }

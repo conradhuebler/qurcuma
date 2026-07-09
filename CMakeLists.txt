@@ -160,6 +160,7 @@ set(SOURCES
     src/xyzparser.cpp
     src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
     src/calculationhistory.cpp  # Claude Generated 2026 - calculations.json persistence
+    src/calculationrunner.cpp  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.cpp
     src/displaypanel.cpp  # Claude Generated 2026 - docked viewer display options
     src/widgets/collapsiblesection.cpp  # Claude Generated 2026 - accordion section
@@ -213,6 +214,7 @@ set(HEADERS
     src/xyzparser.h
     src/moleculefileloader.h  # Claude Generated 2026 - unified structure-file reader
     src/calculationhistory.h  # Claude Generated 2026 - calculations.json persistence
+    src/calculationrunner.h  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.h
     src/displaypanel.h  # Claude Generated 2026 - docked viewer display options
     src/widgets/collapsiblesection.h  # Claude Generated 2026 - accordion section

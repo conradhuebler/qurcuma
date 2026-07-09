@@ -66,6 +66,7 @@ class SimulationControlWidget;  // Claude Generated - Interactive Simulation Int
 class LessonStructureModel;     // Claude Generated 2026 - in-memory lesson structure list model
 class SimulationChartWidget;    // Claude Generated 2026 - live MD temperature/energy charts
 class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog
+class CalculationRunner;        // Claude Generated 2026 - WP T3 external-process orchestration
 
 
 // CalculationEntry + the calculations.json persistence live here now.
@@ -147,8 +148,8 @@ private slots:
     void runCommand();
     void programSelected(int index);
     void projectSelected(const QModelIndex &index);
-    void processOutput();
-    void processError();
+    // Claude Generated 2026 - WP T3: finish handling for a CalculationRunner run.
+    void onCalculationFinished(const CalculationEntry& entry, int exitCode);
     void configurePrograms();
     void configureOperatorMetadata();  // Claude Generated 2026 - operator name/ORCID/institution/license
     void runSimulation();
@@ -295,13 +296,11 @@ private:
     void updateDirectoryContent();  // Claude Generated - removed unused path parameter
 
     QPair<int, int> countImaginaryFrequencies(const QString &filename);
-    void initializeProgramCommands();
     void updateCommandLineVisibility(const QString &program);
     void setupContextMenu();
     void openWithVisualizer(const QString &filePath, const QString &visualizer);
     void orcaPlotVib(const QString &outputFile, int freqNumber);
     void syncRightView();  // Claude Generated - removed unused path parameter
-    QString generateUniqueFileName(const QString &baseFileName, const QString &extension);
     // Path helpers - Claude Generated for clarity
     QString currentCalculationDir() const {
         return QDir(m_workingDirectory).filePath(m_currentCalculationDir);
@@ -358,9 +357,9 @@ private:
     QFileSystemModel* m_projectModel;
     QFileSystemModel* m_directoryContentModel;
     QSortFilterProxyModel* m_directoryContentProxyModel = nullptr;
-    QProcess* m_currentProcess;
     Settings m_settings;
-    QMap<QString, QStringList> m_programCommands;
+    // Claude Generated 2026 - WP T3: owns the calculation QProcess + completer commands.
+    CalculationRunner* m_calculationRunner = nullptr;
 
     // Claude Generated 2026 - Docked viewer display options (replaces the modal dialog)
     DisplayPanel* m_displayPanel = nullptr;
@@ -393,6 +392,11 @@ private:
     QTimer* m_calculationTimer = nullptr;
     QLabel* m_timerLabel = nullptr;
     int m_elapsedSeconds = 0;
+
+    // Claude Generated 2026 - WP T3: periodic re-read of the running calculation's
+    // log file (the process redirects stdout/stderr there) into the output dock.
+    QTimer* m_outputUpdateTimer = nullptr;
+    QString m_currentOutputFile;
 
     // Claude Generated - Quick Win: Recent files
     QMenu* m_recentFilesMenu = nullptr;
