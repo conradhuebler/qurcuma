@@ -2091,17 +2091,6 @@ void MainWindow::openWithVisualizer(const QString &filePath, const QString &visu
 }
 
 
-bool MainWindow::checkProgramPath(const QString &program)
-{
-    QString path = m_settings.getProgramPath(program);
-    if (path.isEmpty()) {
-        QMessageBox::warning(this, "Fehler",
-            "Bitte konfigurieren Sie zuerst den Pfad für " + program);
-        return false;
-    }
-    return true;
-}
-
 void MainWindow::runCommand()
 {
     QString program = m_programSelector->currentText();
@@ -2315,78 +2304,6 @@ void MainWindow::syncRightView()
     if (loadingProgress) {
         loadingProgress->close();
         delete loadingProgress;
-    }
-}
-
-void MainWindow::saveCalculationInfo()
-{
-    CalculationEntry info;
-    info.program = m_programSelector->currentText();
-    info.command = m_commandInput->text();
-    info.structureFile = m_structureFileEdit->text();
-    info.inputFile = m_inputFileEdit->text();
-    info.outputFile = "compute.log";  // oder andere Output-Datei
-    info.timestamp = QDateTime::currentDateTime();
-
-    QJsonObject json;
-    json["program"] = info.program;
-    json["command"] = info.command;
-    json["structureFile"] = info.structureFile;
-    json["inputFile"] = info.inputFile;
-    json["outputFile"] = info.outputFile;
-    json["timestamp"] = info.timestamp.toString(Qt::ISODate);
-    
-    // Füge Programm-spezifische Informationen hinzu
-    QJsonObject programInfo;
-    if (info.program == "orca") {
-        programInfo["type"] = "quantum-chemistry";
-        // Weitere ORCA-spezifische Informationen
-    } else if (info.program == "xtb") {
-        programInfo["type"] = "semi-empirical";
-        // Weitere XTB-spezifische Informationen
-    } else if (info.program == "curcuma") {
-        programInfo["type"] = "modeling";
-        // Weitere Curcuma-spezifische Informationen
-    }
-    json["programInfo"] = programInfo;
-
-    // Optional: Füge System-Informationen hinzu
-    QJsonObject systemInfo;
-    systemInfo["hostname"] = QSysInfo::machineHostName();
-    systemInfo["os"] = QSysInfo::prettyProductName();
-    json["systemInfo"] = systemInfo;
-
-    // Speichere JSON-Datei
-    QFile jsonFile(currentCalculationDir() + "/calculation.json");
-    if (jsonFile.open(QIODevice::WriteOnly)) {
-        QJsonDocument doc(json);
-        jsonFile.write(doc.toJson(QJsonDocument::Indented));
-        jsonFile.close();
-    }
-}
-
-void MainWindow::loadCalculationInfo(const QString &path)
-{
-    QFile jsonFile(path + "/calculation.json");
-    if (jsonFile.open(QIODevice::ReadOnly)) {
-        QJsonDocument doc = QJsonDocument::fromJson(jsonFile.readAll());
-        QJsonObject json = doc.object();
-        
-        // Setze UI-Elemente basierend auf den gespeicherten Informationen
-        if (json.contains("program")) {
-            int index = m_programSelector->findText(json["program"].toString());
-            if (index >= 0) {
-                m_programSelector->setCurrentIndex(index);
-            }
-        }
-        
-        if (json.contains("command")) {
-            m_commandInput->setText(json["command"].toString());
-        }
-        
-        // ... Weitere Informationen laden
-        
-        jsonFile.close();
     }
 }
 

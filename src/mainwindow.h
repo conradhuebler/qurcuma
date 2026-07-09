@@ -246,7 +246,6 @@ private:
     void setupConnections();
     void setupShortcuts();  // Claude Generated - Phase 1.2
     void loadSettings();
-    bool checkProgramPath(const QString &program);
 
     bool setupCalculationDirectory();
     void updateOutputView(const QString& logFile, bool scrollToBottom = false);
@@ -302,8 +301,6 @@ private:
     void openWithVisualizer(const QString &filePath, const QString &visualizer);
     void orcaPlotVib(const QString &outputFile, int freqNumber);
     void syncRightView();  // Claude Generated - removed unused path parameter
-    void saveCalculationInfo();
-    void loadCalculationInfo(const QString &path);
     QString generateUniqueFileName(const QString &baseFileName, const QString &extension);
     // Path helpers - Claude Generated for clarity
     QString currentCalculationDir() const {
