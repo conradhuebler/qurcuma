@@ -202,6 +202,7 @@ set(SOURCES
     src/scenecontroller.cpp  # Claude Generated 2026 - Quick3D renderer: scene view-model
     src/lesson.cpp  # Claude Generated 2026 - OER teaching scenarios (Lesson model + JSON)
     src/lessonstructuremodel.cpp  # Claude Generated 2026 - in-memory lesson structure list model
+    src/lessoncontroller.cpp  # Claude Generated 2026 - WP T4 lesson feature controller
     src/dialogs/lessonmetadatadialog.cpp  # Claude Generated 2026 - lesson metadata editor
 )
 
@@ -241,6 +242,7 @@ set(HEADERS
     src/scenecontroller.h  # Claude Generated 2026 - Quick3D renderer: scene view-model
     src/lesson.h  # Claude Generated 2026 - OER teaching scenarios (Lesson model + JSON)
     src/lessonstructuremodel.h  # Claude Generated 2026 - in-memory lesson structure list model (Q_OBJECT)
+    src/lessoncontroller.h  # Claude Generated 2026 - WP T4 lesson feature controller (Q_OBJECT)
     src/dialogs/lessonmetadatadialog.h  # Claude Generated 2026 - lesson metadata editor (Q_OBJECT)
     #src/dialogs/nmrstructuremodel.h
 

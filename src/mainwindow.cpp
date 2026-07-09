@@ -69,6 +69,7 @@
 #include "view.h"
 #include "moleculefileloader.h"  // Claude Generated 2026 - unified structure-file reader
 #include "calculationrunner.h"  // Claude Generated 2026 - WP T3 external-process orchestration
+#include "lessoncontroller.h"  // Claude Generated 2026 - WP T4 lesson feature controller
 #include "frequencydialog.h"
 #include "displaypanel.h"
 #include "widgets/commandpalette.h"
@@ -346,19 +347,15 @@ void MainWindow::setupContextMenu()
 
             // Claude Generated 2026 - Lesson mode: the view shows in-memory lesson
             // structures, so offer Load / Remove instead of the file actions.
-            if (m_lessonBrowseMode) {
+            if (m_lessonController->browseMode()) {
                 QMenu menu(this);
                 QAction* loadAct = menu.addAction(tr("Load Structure"));
                 QAction* removeAct = menu.addAction(tr("Remove from Lesson"));
                 QAction* chosen = menu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
                 if (chosen == loadAct) {
-                    loadLessonStructureFromIndex(index);
-                } else if (chosen == removeAct && index.row() < m_lesson.structures.size()) {
-                    const QString name = m_lesson.structures.at(index.row()).name;
-                    m_lesson.structures.remove(index.row());
-                    refreshLessonStructureView();
-                    showLessonStructureDetails(-1);  // rows shifted; reset the editor
-                    statusBar()->showMessage(tr("Removed '%1' from lesson").arg(name), 3000);
+                    m_lessonController->loadStructureFromIndex(index);
+                } else if (chosen == removeAct) {
+                    m_lessonController->removeStructure(index.row());
                 }
                 return;
             }
@@ -397,7 +394,7 @@ void MainWindow::setupContextMenu()
                 // Claude Generated 2026 - Add this file straight into the lesson.
                 QAction *lessonAction = contextMenu.addAction(tr("Add to Lesson"));
                 connect(lessonAction, &QAction::triggered, this,
-                    [this, filePath]() { addFileToLesson(filePath); });
+                    [this, filePath]() { m_lessonController->addFile(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive))
@@ -434,7 +431,7 @@ void MainWindow::setupContextMenu()
                 // Claude Generated 2026 - Add this file straight into the lesson.
                 QAction *lessonAction = contextMenu.addAction(tr("Add to Lesson"));
                 connect(lessonAction, &QAction::triggered, this,
-                    [this, filePath]() { addFileToLesson(filePath); });
+                    [this, filePath]() { m_lessonController->addFile(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".pdb", Qt::CaseInsensitive))
@@ -475,7 +472,7 @@ void MainWindow::setupContextMenu()
                 // Claude Generated 2026 - Add this file straight into the lesson.
                 QAction *lessonAction = contextMenu.addAction(tr("Add to Lesson"));
                 connect(lessonAction, &QAction::triggered, this,
-                    [this, filePath]() { addFileToLesson(filePath); });
+                    [this, filePath]() { m_lessonController->addFile(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             } else if (filePath.endsWith(".mol2", Qt::CaseInsensitive))
@@ -516,7 +513,7 @@ void MainWindow::setupContextMenu()
                 // Claude Generated 2026 - Add this file straight into the lesson.
                 QAction *lessonAction = contextMenu.addAction(tr("Add to Lesson"));
                 connect(lessonAction, &QAction::triggered, this,
-                    [this, filePath]() { addFileToLesson(filePath); });
+                    [this, filePath]() { m_lessonController->addFile(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             }else if(filePath.endsWith(".gbw", Qt::CaseInsensitive) || filePath.endsWith(".loc", Qt::CaseInsensitive) || filePath.endsWith(".ges", Qt::CaseInsensitive))
@@ -831,21 +828,22 @@ void MainWindow::createMenus()
         const QString startDir = m_workingDirectory.isEmpty() ? QDir::homePath() : m_workingDirectory;
         const QString path = QFileDialog::getOpenFileName(this, tr("Open Lesson"),
             startDir, tr("Qurcuma Lesson (*.qlesson.json *.json);;All Files (*)"));
-        if (!path.isEmpty()) openLesson(path);
+        if (!path.isEmpty()) m_lessonController->openLesson(path);
     });
     QAction* addStructAction = lessonMenu->addAction(tr("&Add Current Structure to Lesson..."));
-    connect(addStructAction, &QAction::triggered, this, &MainWindow::addCurrentStructureToLesson);
+    connect(addStructAction, &QAction::triggered, this,
+        [this]() { m_lessonController->addCurrentStructure(m_currentMoleculeFilePath); });
     QAction* metaAction = lessonMenu->addAction(tr("Lesson &Metadata..."));
-    connect(metaAction, &QAction::triggered, this, &MainWindow::editLessonMetadata);
+    connect(metaAction, &QAction::triggered, this, [this]() { m_lessonController->editMetadata(); });
     lessonMenu->addSeparator();
     // Save: overwrite the currently open lesson file directly; Save As: always
     // prompt. Both route through saveLessonInteractive() (Claude Generated 2026).
     QAction* saveLessonAction = lessonMenu->addAction(tr("&Save Lesson"));
     connect(saveLessonAction, &QAction::triggered, this,
-        [this]() { saveLessonInteractive(/*forceDialog=*/false); });
+        [this]() { m_lessonController->saveLessonInteractive(/*forceDialog=*/false); });
     QAction* saveLessonAsAction = lessonMenu->addAction(tr("Save Lesson &As..."));
     connect(saveLessonAsAction, &QAction::triggered, this,
-        [this]() { saveLessonInteractive(/*forceDialog=*/true); });
+        [this]() { m_lessonController->saveLessonInteractive(/*forceDialog=*/true); });
 
     fileMenu->addSeparator();
     // Claude Generated - Visual Polish: Menu icons
@@ -1181,8 +1179,8 @@ void MainWindow::setupConnections()
         [this](const QModelIndex& index) {
             // Claude Generated 2026 - In Lesson mode the view shows the in-memory
             // lesson model, not the filesystem; load that structure directly.
-            if (m_lessonBrowseMode) {
-                loadLessonStructureFromIndex(index);
+            if (m_lessonController->browseMode()) {
+                m_lessonController->loadStructureFromIndex(index);
                 return;
             }
             QString filePath = filePathFromContentIndex(index);
@@ -2197,6 +2195,18 @@ void MainWindow::updatePathLabel(const QString& path)
 }
 
 // Aktualisiere die switchWorkingDirectory Funktion
+// Claude Generated 2026 - WP T4: MainWindow bookkeeping after LessonController loaded
+// an in-memory lesson structure into the viewer (LessonController::loadStructureFromIndex).
+void MainWindow::onLessonStructureLoaded(const QString& name)
+{
+    m_currentMoleculeFilePath.clear();  // in-memory: force Save-As on a later save
+    m_structureModified = false;
+    if (m_saveAction) m_saveAction->setEnabled(true);
+    if (m_saveAsAction) m_saveAsAction->setEnabled(true);
+    captureInitialSnapshot(name, m_moleculeView->getCurrentFrameAtoms(),
+        m_moleculeView->getCurrentFrameBonds());
+}
+
 void MainWindow::switchWorkingDirectory(const QString& path)
 {
     if (path.isEmpty() || !QDir(path).exists()) {
@@ -2206,6 +2216,8 @@ void MainWindow::switchWorkingDirectory(const QString& path)
     }
 
     m_workingDirectory = path;
+    if (m_lessonController)
+        m_lessonController->setWorkingDirectory(path);  // keep the save-dialog default in sync
     m_settings.setLastUsedWorkingDirectory(path);
     m_projectModel->setRootPath(path);
     m_projectListView->setRootIndex(m_projectModel->index(path));
@@ -2509,342 +2521,6 @@ void MainWindow::saveCurrentStructureAs()
         m_currentMoleculeFilePath = oldPath;  // user cancelled; keep old target
 }
 
-// ============================================================================
-// Lessons (OER teaching scenarios) - Claude Generated 2026. See lesson.h.
-// ============================================================================
-
-// Open a self-contained *.qlesson.json, unpack its embedded structures into a
-// sibling working directory (so they appear in the file browser), and adopt it
-// as the in-memory lesson. Clicking a structure later restores its conditions
-// via applyLessonConditions() (hooked into loadMoleculeFile()).
-void MainWindow::openLesson(const QString& path)
-{
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly)) {
-        QMessageBox::warning(this, tr("Open Lesson"), tr("Could not read %1").arg(path));
-        return;
-    }
-    QJsonParseError perr{};
-    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &perr);
-    f.close();
-    if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
-        QMessageBox::warning(this, tr("Open Lesson"),
-            tr("Invalid lesson JSON: %1").arg(perr.errorString()));
-        return;
-    }
-    QString err;
-    Lesson lesson = lessonFromJson(doc.object(), &err);
-    if (!err.isEmpty()) {
-        QMessageBox::warning(this, tr("Open Lesson"), err);
-        return;
-    }
-    if (lesson.structures.isEmpty()) {
-        QMessageBox::information(this, tr("Open Lesson"), tr("This lesson contains no structures."));
-        return;
-    }
-
-    // Unpack into <file-dir>/<stem>/ so the structures show up in the browser.
-    const QFileInfo fi(path);
-    QString stem = fi.fileName();
-    stem.remove(QStringLiteral(".qlesson.json"), Qt::CaseInsensitive);
-    stem.remove(QStringLiteral(".json"), Qt::CaseInsensitive);
-    if (stem.isEmpty()) stem = QStringLiteral("lesson");
-    const QString targetDir = fi.absoluteDir().filePath(stem);
-
-    QString extractErr;
-    if (!extractLesson(lesson, targetDir, &extractErr)) {
-        QMessageBox::warning(this, tr("Open Lesson"), extractErr);
-        return;
-    }
-
-    m_lesson = lesson;  // adopt so further edits / re-save work
-    m_lessonFilePath = path;  // remember source so "Save Lesson" can overwrite it
-    switchWorkingDirectory(targetDir);
-    // Refresh the in-memory list (count); the extracted .xyz already show in the
-    // file browser, so stay in Files mode rather than auto-switching.
-    refreshLessonStructureView(/*autoShow=*/false);
-
-    const QString title = lesson.meta.title.isEmpty() ? fi.fileName() : lesson.meta.title;
-    const QString author = lesson.meta.authors.isEmpty() ? QString() : lesson.meta.authors.first().name;
-    setWindowTitle(QStringLiteral("Qurcuma — %1%2").arg(title,
-        author.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(author)));
-    statusBar()->showMessage(tr("Lesson '%1' loaded: %2 structure(s) in %3")
-        .arg(title).arg(lesson.structures.size()).arg(targetDir), 5000);
-}
-
-// Write the in-memory lesson as a self-contained *.qlesson.json (inline XYZ).
-void MainWindow::saveLesson(const QString& path)
-{
-    if (m_lesson.structures.isEmpty()) {
-        QMessageBox::information(this, tr("Save Lesson"),
-            tr("The lesson is empty. Use 'Add Current Structure to Lesson…' first."));
-        return;
-    }
-    const QString now = QDateTime::currentDateTime().toString(Qt::ISODate);
-    if (m_lesson.meta.created.isEmpty())
-        m_lesson.meta.created = now;
-    m_lesson.meta.modified = now;
-    m_lesson.meta.qurcumaVersion = QCoreApplication::applicationVersion();
-
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QMessageBox::critical(this, tr("Save Lesson"), tr("Could not write %1").arg(path));
-        return;
-    }
-    f.write(QJsonDocument(lessonToJson(m_lesson, /*inlineXyz=*/true)).toJson(QJsonDocument::Indented));
-    f.close();
-    m_lessonFilePath = path;  // remember target so a follow-up "Save Lesson" overwrites it
-    statusBar()->showMessage(
-        tr("Lesson saved: %1 (%2 structure(s))").arg(path).arg(m_lesson.structures.size()), 4000);
-}
-
-// Resolve the save target and call saveLesson(). With forceDialog==false, a known
-// current lesson path (from openLesson/saveLesson) is overwritten silently — the
-// "Save Lesson" behaviour the user expects. Otherwise (Save As, or no known path)
-// a Save dialog is shown, defaulting to the current path. Claude Generated 2026.
-bool MainWindow::saveLessonInteractive(bool forceDialog)
-{
-    if (m_lesson.structures.isEmpty()) {
-        QMessageBox::information(this, tr("Save Lesson"),
-            tr("The lesson is empty. Use 'Add Current Structure to Lesson…' first."));
-        return false;
-    }
-
-    QString path = m_lessonFilePath;
-    if (forceDialog || path.isEmpty()) {
-        const QString startDir = !m_lessonFilePath.isEmpty()
-            ? QFileInfo(m_lessonFilePath).absolutePath()
-            : (m_workingDirectory.isEmpty() ? QDir::homePath() : m_workingDirectory);
-        const QString suggestion = !m_lessonFilePath.isEmpty()
-            ? QFileInfo(m_lessonFilePath).fileName()
-            : QStringLiteral("lesson.qlesson.json");
-        path = QFileDialog::getSaveFileName(this, tr("Save Lesson"),
-            QDir(startDir).filePath(suggestion),
-            tr("Qurcuma Lesson (*.qlesson.json);;All Files (*)"));
-        if (path.isEmpty())
-            return false;  // user cancelled
-        if (!path.endsWith(QStringLiteral(".json"), Qt::CaseInsensitive))
-            path += QStringLiteral(".qlesson.json");
-    }
-    saveLesson(path);
-    return true;
-}
-
-// Build a LessonStructure from atoms + the dock's current simulation conditions,
-// append it, and return its row. No UI changes — callers decide what to reveal.
-int MainWindow::appendLessonStructureFromAtoms(const QString& name,
-    const QVector<MoleculeViewer::Atom>& atoms)
-{
-    LessonStructure s;
-    s.name = name.isEmpty()
-        ? tr("Structure %1").arg(m_lesson.structures.size() + 1) : name;
-    s.xyz = atomsToXyz(atoms, s.name);
-    s.sim = m_simulationControlWidget ? m_simulationControlWidget->currentConfig() : SimulationConfig{};
-    m_lesson.structures.push_back(s);
-    return static_cast<int>(m_lesson.structures.size()) - 1;
-}
-
-// Capture the currently displayed structure as a new lesson entry. No dialogs: it
-// is added with a default name, then selected so the user fills in name/notes/role
-// in the inline detail editor.
-void MainWindow::addCurrentStructureToLesson()
-{
-    if (!m_moleculeView)
-        return;
-    const QVector<MoleculeViewer::Atom> atoms = m_moleculeView->getCurrentFrameAtoms();
-    if (atoms.isEmpty()) {
-        statusBar()->showMessage(tr("No structure to add"), 3000);
-        return;
-    }
-    const QString defaultName = QFileInfo(m_currentMoleculeFilePath).completeBaseName();
-    const int row = appendLessonStructureFromAtoms(defaultName, atoms);
-
-    refreshLessonStructureView(/*autoShow=*/true);  // switch to Lesson mode + count
-    if (m_directoryContentView && m_lessonStructureModel)
-        m_directoryContentView->setCurrentIndex(m_lessonStructureModel->index(row, 0));
-    showLessonStructureDetails(row);
-    if (m_structNameEdit) {
-        m_structNameEdit->setFocus();
-        m_structNameEdit->selectAll();  // ready to rename immediately
-    }
-    statusBar()->showMessage(
-        tr("Added structure — edit name/notes/role below, then Save Lesson"), 5000);
-}
-
-// Add a structure straight from the file browser (context menu / drag-drop) without
-// loading it into the viewer. Stays in the current browser mode (just bumps the
-// count) so the user can add several files in a row.
-void MainWindow::addFileToLesson(const QString& filePath)
-{
-    QVector<MoleculeViewer::Atom> atoms;
-    QVector<MoleculeViewer::Bond> bonds;
-    if (!parseFirstFrame(filePath, atoms, bonds) || atoms.isEmpty()) {
-        statusBar()->showMessage(
-            tr("Could not read structure: %1").arg(QFileInfo(filePath).fileName()), 3000);
-        return;
-    }
-    appendLessonStructureFromAtoms(QFileInfo(filePath).completeBaseName(), atoms);
-    refreshLessonStructureView(/*autoShow=*/false);  // bump count, keep current mode
-    statusBar()->showMessage(
-        tr("Added '%1' to lesson (%2). Switch to Lesson to edit details.")
-            .arg(QFileInfo(filePath).completeBaseName()).arg(m_lesson.structures.size()), 4000);
-}
-
-// Edit the lesson-level metadata (title, authors with ORCID/institution, ...).
-void MainWindow::editLessonMetadata()
-{
-    LessonMetadataDialog dlg(m_lesson.meta, this);
-    if (dlg.exec() == QDialog::Accepted) {
-        m_lesson.meta = dlg.metadata();
-        refreshLessonMetaWidget();  // reflect changes in the inline widget
-    }
-}
-
-// If the just-loaded file belongs to an unpacked lesson (a lesson.json sidecar in
-// its directory references it by name), restore that structure's stored
-// simulation conditions into the dock. No-op for ordinary files.
-void MainWindow::applyLessonConditions(const QString& filePath)
-{
-    if (!m_simulationControlWidget)
-        return;
-    const QFileInfo fi(filePath);
-    const QString sidecar = fi.absoluteDir().filePath(QStringLiteral("lesson.json"));
-    if (!QFile::exists(sidecar))
-        return;
-    QFile f(sidecar);
-    if (!f.open(QIODevice::ReadOnly))
-        return;
-    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
-    f.close();
-    if (!doc.isObject())
-        return;
-    const Lesson lesson = lessonFromJson(doc.object());
-    const QString fname = fi.fileName();
-    for (const LessonStructure& s : lesson.structures) {
-        if (s.file == fname) {
-            m_simulationControlWidget->applyConfig(s.sim);
-            QString msg = tr("Lesson conditions applied: %1").arg(s.name);
-            if (!s.description.isEmpty())
-                msg += QStringLiteral(" — ") + s.description;
-            statusBar()->showMessage(msg, 5000);
-            return;
-        }
-    }
-}
-
-// Swap the content view between the filesystem model and the in-memory lesson
-// model (no second view), and show/hide the lesson metadata + per-structure detail
-// widgets. Restores the filesystem root index when returning to Files mode.
-void MainWindow::setBrowserMode(bool lessonMode)
-{
-    if (!m_directoryContentView)
-        return;
-    m_lessonBrowseMode = lessonMode;
-    if (m_filesModeBtn) m_filesModeBtn->setChecked(!lessonMode);
-    if (m_lessonModeBtn) m_lessonModeBtn->setChecked(lessonMode);
-    if (m_lessonMetaWidget) m_lessonMetaWidget->setVisible(lessonMode);
-    const bool haveSel = (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size());
-    if (m_lessonStructWidget) m_lessonStructWidget->setVisible(lessonMode && haveSel);
-    if (lessonMode) {
-        refreshLessonMetaWidget();
-        m_directoryContentView->setModel(m_lessonStructureModel);
-        m_directoryContentView->setRootIndex(QModelIndex());  // flat list
-    } else {
-        m_directoryContentView->setModel(m_directoryContentProxyModel
-            ? static_cast<QAbstractItemModel*>(m_directoryContentProxyModel)
-            : static_cast<QAbstractItemModel*>(m_directoryContentModel));
-        updateDirectoryContent();  // restore the filesystem root index
-    }
-}
-
-// Refresh the in-memory lesson-structure model and the Lesson toggle's count. With
-// autoShow, switch to Lesson mode so the user sees a just-added structure.
-void MainWindow::refreshLessonStructureView(bool autoShow)
-{
-    if (m_lessonStructureModel)
-        m_lessonStructureModel->refresh();
-    const int n = static_cast<int>(m_lesson.structures.size());
-    if (m_lessonModeBtn)
-        m_lessonModeBtn->setText(tr("Lesson (%1)").arg(n));
-    if (autoShow && n > 0 && !m_lessonBrowseMode)
-        setBrowserMode(true);
-}
-
-// Mirror the lesson-level metadata into the inline metadata widget.
-void MainWindow::refreshLessonMetaWidget()
-{
-    if (m_lessonTitleEdit) m_lessonTitleEdit->setText(m_lesson.meta.title);
-    if (m_lessonDescEdit) m_lessonDescEdit->setText(m_lesson.meta.description);
-    if (m_lessonAuthorsLabel) {
-        QStringList names;
-        for (const LessonAuthor& a : m_lesson.meta.authors)
-            names << (a.name.isEmpty() ? a.orcid : a.name);
-        m_lessonAuthorsLabel->setText(names.isEmpty() ? tr("(none)") : names.join(QStringLiteral(", ")));
-    }
-}
-
-// Populate the per-structure detail editor from structure @p row (or hide it when
-// the row is invalid). The role combo is signal-blocked so populating it doesn't
-// write back. Claude Generated 2026.
-void MainWindow::showLessonStructureDetails(int row)
-{
-    m_currentLessonRow = row;
-    const bool valid = (row >= 0 && row < m_lesson.structures.size());
-    if (m_lessonStructWidget)
-        m_lessonStructWidget->setVisible(valid && m_lessonBrowseMode);
-    if (!valid)
-        return;
-    const LessonStructure& s = m_lesson.structures.at(row);
-    if (m_structNameEdit) m_structNameEdit->setText(s.name);     // setText: no textEdited
-    if (m_structDescEdit) m_structDescEdit->setText(s.description);
-    if (m_structRoleCombo) {
-        QSignalBlocker blk(m_structRoleCombo);
-        int idx = 0;
-        if (s.role == QLatin1String("start")) idx = 1;
-        else if (s.role == QLatin1String("intermediate")) idx = 2;
-        else if (s.role == QLatin1String("target")) idx = 3;
-        m_structRoleCombo->setCurrentIndex(idx);
-    }
-}
-
-// Load an in-memory lesson structure: parse its embedded XYZ into the viewer and
-// restore its stored simulation conditions. No working-directory switch and no
-// source path (it is in-memory authored geometry), so a later Save prompts.
-void MainWindow::loadLessonStructureFromIndex(const QModelIndex& index)
-{
-    if (!m_lessonStructureModel || !m_moleculeView)
-        return;
-    const LessonStructure* s = m_lessonStructureModel->at(index.row());
-    if (!s)
-        return;
-    QVector<MoleculeViewer::Atom> atoms;
-    if (!xyzToAtoms(s->xyz, atoms)) {
-        statusBar()->showMessage(tr("Could not parse lesson structure '%1'").arg(s->name), 3000);
-        return;
-    }
-
-    QVector<QVector<MoleculeViewer::Atom>> allAtoms { atoms };
-    QVector<QVector<MoleculeViewer::Bond>> allBonds;  // empty => viewer auto-detects bonds
-    m_moleculeView->clearScenePublic();
-    m_moleculeView->setTrajectoryData(allAtoms, allBonds);
-    if (m_centerOnLoad)
-        m_moleculeView->centerAtOrigin();
-
-    if (m_simulationControlWidget) {
-        m_simulationControlWidget->setMolecule(m_moleculeView->getCurrentFrameAtoms(),
-            m_moleculeView->getCurrentFrameBonds());
-        m_simulationControlWidget->applyConfig(s->sim);  // restore stored conditions
-        m_simulationControlWidget->setStructureModified(false);
-    }
-    m_currentMoleculeFilePath.clear();  // in-memory: force Save-As on a later save
-    m_structureModified = false;
-    if (m_saveAction) m_saveAction->setEnabled(true);
-    if (m_saveAsAction) m_saveAsAction->setEnabled(true);
-    captureInitialSnapshot(s->name, m_moleculeView->getCurrentFrameAtoms(),
-        m_moleculeView->getCurrentFrameBonds());
-    showLessonStructureDetails(index.row());  // bind the inline detail editor to it
-    statusBar()->showMessage(tr("Loaded lesson structure: %1").arg(s->name), 4000);
-}
 
 // ============================================================================
 // Bidirectional structure sync helpers (viewer <-> atom table <-> text editor).
@@ -3923,7 +3599,7 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
         // Claude Generated 2026 - If this file belongs to an unpacked lesson (a
         // lesson.json sidecar in its directory references it), restore the stored
         // simulation conditions into the dock. No-op for ordinary files.
-        applyLessonConditions(filePath);
+        m_lessonController->applyConditions(filePath);
     }
 }
 
@@ -4251,14 +3927,37 @@ void MainWindow::createDockWidgets()
         m_directoryContentView = m_projectDock->directoryContentView();
         m_directoryContentModel = m_projectDock->directoryContentModel();
         m_directoryContentProxyModel = m_projectDock->directoryContentProxyModel();
-        m_lessonMetaWidget = m_projectDock->lessonMetaWidget();
-        m_lessonTitleEdit = m_projectDock->lessonTitleEdit();
-        m_lessonDescEdit = m_projectDock->lessonDescEdit();
-        m_lessonAuthorsLabel = m_projectDock->lessonAuthorsLabel();
-        m_lessonStructWidget = m_projectDock->lessonStructWidget();
-        m_structNameEdit = m_projectDock->structNameEdit();
-        m_structDescEdit = m_projectDock->structDescEdit();
-        m_structRoleCombo = m_projectDock->structRoleCombo();
+        // Claude Generated 2026 - WP T4: the lesson feature is owned by LessonController.
+        // Inject the collaborators harvested from the docks (m_simulationControlWidget is
+        // already set by the simulation-dock block above), then let the controller wire its
+        // own metadata/detail editors + build the in-memory structure model.
+        m_lessonController = new LessonController(this, this);
+        m_lessonController->setViewer(m_moleculeView);
+        m_lessonController->setSimulationWidget(m_simulationControlWidget);
+        m_lessonController->setContentView(m_directoryContentView,
+            m_directoryContentProxyModel
+                ? static_cast<QAbstractItemModel*>(m_directoryContentProxyModel)
+                : static_cast<QAbstractItemModel*>(m_directoryContentModel));
+        m_lessonController->setModeButtons(m_filesModeBtn, m_lessonModeBtn);
+        m_lessonController->setMetaWidgets(m_projectDock->lessonMetaWidget(),
+            m_projectDock->lessonTitleEdit(), m_projectDock->lessonDescEdit(),
+            m_projectDock->lessonAuthorsLabel());
+        m_lessonController->setStructWidgets(m_projectDock->lessonStructWidget(),
+            m_projectDock->structNameEdit(), m_projectDock->structDescEdit(),
+            m_projectDock->structRoleCombo());
+        m_lessonController->setWorkingDirectory(m_workingDirectory);
+        m_lessonController->setCenterOnLoad(m_centerOnLoad);
+        m_lessonController->wireWidgetConnections();
+        connect(m_lessonController, &LessonController::workingDirectoryChangeRequested,
+                this, &MainWindow::switchWorkingDirectory);
+        connect(m_lessonController, &LessonController::windowTitleChangeRequested,
+                this, &QWidget::setWindowTitle);
+        connect(m_lessonController, &LessonController::directoryContentRefreshRequested,
+                this, &MainWindow::updateDirectoryContent);
+        connect(m_lessonController, &LessonController::statusMessage, this,
+                [this](const QString& msg, int t) { statusBar()->showMessage(msg, t); });
+        connect(m_lessonController, &LessonController::inMemoryStructureLoaded,
+                this, &MainWindow::onLessonStructureLoaded);
 
         if (auto* bw = m_projectDock->bookmarkWidget())
             m_bookmarkTreeView = bw->treeView();
@@ -4279,9 +3978,9 @@ void MainWindow::createDockWidgets()
 
         // Files / Lesson browser toggle
         connect(m_filesModeBtn, &QToolButton::clicked,
-                this, [this]() { setBrowserMode(false); });
+                this, [this]() { m_lessonController->setBrowserMode(false); });
         connect(m_lessonModeBtn, &QToolButton::clicked,
-                this, [this]() { setBrowserMode(true); });
+                this, [this]() { m_lessonController->setBrowserMode(true); });
 
         // Content view remote-file handling
 #ifdef USE_SFTP
@@ -4289,36 +3988,11 @@ void MainWindow::createDockWidgets()
                 this, &MainWindow::onRemoteFileDoubleClicked);
 #endif
 
-        // In-memory lesson structures model (owned by MainWindow, installed into the dock's view)
-        m_lessonStructureModel = new LessonStructureModel(&m_lesson.structures, this);
-
-        // Lesson metadata editors
-        connect(m_lessonTitleEdit, &QLineEdit::textEdited, this,
-            [this](const QString& t) { m_lesson.meta.title = t.trimmed(); });
-        connect(m_lessonDescEdit, &QLineEdit::textEdited, this,
-            [this](const QString& t) { m_lesson.meta.description = t.trimmed(); });
+        // Lesson: the "Authors/License…" button opens the metadata dialog. The inline
+        // title/desc/detail editors + the in-memory structure model are wired inside the
+        // controller (wireWidgetConnections above).
         connect(m_projectDock->editAuthorsButton(), &QToolButton::clicked,
-                this, &MainWindow::editLessonMetadata);
-
-        // Per-structure detail editors
-        connect(m_structNameEdit, &QLineEdit::textEdited, this, [this](const QString& t) {
-            if (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size()) {
-                m_lesson.structures[m_currentLessonRow].name = t;
-                m_lessonStructureModel->refresh();
-            }
-        });
-        connect(m_structDescEdit, &QLineEdit::textEdited, this, [this](const QString& t) {
-            if (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size())
-                m_lesson.structures[m_currentLessonRow].description = t;
-        });
-        connect(m_structRoleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-            [this](int idx) {
-                if (m_currentLessonRow >= 0 && m_currentLessonRow < m_lesson.structures.size()) {
-                    m_lesson.structures[m_currentLessonRow].role =
-                        (idx <= 0) ? QString() : m_structRoleCombo->currentText();
-                    m_lessonStructureModel->refresh();
-                }
-            });
+                this, [this]() { m_lessonController->editMetadata(); });
 
         // Bookmark / workspace / remote panel signals
         connect(m_projectDock, &ProjectDock::bookmarkDirectorySelected,
@@ -4392,6 +4066,8 @@ void MainWindow::createDockWidgets()
     // only wires its signals here.
     connect(m_displayPanel, &DisplayPanel::centerOnLoadChanged, this, [this](bool on) {
         m_centerOnLoad = on;
+        if (m_lessonController)
+            m_lessonController->setCenterOnLoad(on);
         Settings::VisualizationSettings vs = m_settings.getVisualizationSettings();
         vs.centerOnLoad = on;
         m_settings.setVisualizationSettings(vs);
@@ -4587,26 +4263,10 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         } else if (event->type() == QEvent::Drop) {
             auto* de = static_cast<QDropEvent*>(event);
             if (de->mimeData()->hasUrls()) {
-                int added = 0;
-                for (const QUrl& url : de->mimeData()->urls()) {
-                    const QString path = url.toLocalFile();
-                    const QString suf = QFileInfo(path).suffix().toLower();
-                    if (suf != QLatin1String("xyz") && suf != QLatin1String("vtf")
-                        && suf != QLatin1String("pdb") && suf != QLatin1String("mol2"))
-                        continue;
-                    QVector<MoleculeViewer::Atom> atoms;
-                    QVector<MoleculeViewer::Bond> bonds;
-                    if (parseFirstFrame(path, atoms, bonds) && !atoms.isEmpty()) {
-                        appendLessonStructureFromAtoms(QFileInfo(path).completeBaseName(), atoms);
-                        ++added;
-                    }
-                }
-                if (added > 0) {
-                    refreshLessonStructureView(/*autoShow=*/false);
-                    statusBar()->showMessage(
-                        tr("Added %1 structure(s) to lesson (%2 total)")
-                            .arg(added).arg(m_lesson.structures.size()), 4000);
-                }
+                QStringList paths;
+                for (const QUrl& url : de->mimeData()->urls())
+                    paths << url.toLocalFile();
+                m_lessonController->addFiles(paths);  // filters + parses + status
                 de->acceptProposedAction();
                 return true;
             }

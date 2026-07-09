@@ -64,6 +64,7 @@ class SftpItemModel;  // Claude Generated - Remote Directory Mounting
 #endif
 class SimulationControlWidget;  // Claude Generated - Interactive Simulation Integration
 class LessonStructureModel;     // Claude Generated 2026 - in-memory lesson structure list model
+class LessonController;          // Claude Generated 2026 - WP T4 lesson feature controller
 class SimulationChartWidget;    // Claude Generated 2026 - live MD temperature/energy charts
 class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog
 class CalculationRunner;        // Claude Generated 2026 - WP T3 external-process orchestration
@@ -258,27 +259,11 @@ private:
     // Claude Generated - SFTP: Load molecule file (local or remote)
     void loadMoleculeFile(const QString& filePath);
 
-    // Claude Generated 2026 - OER teaching scenarios (Lessons). A lesson is a
-    // self-contained *.qlesson.json (structures embedded as inline XYZ + their
-    // simulation conditions + author/ORCID/... metadata). openLesson unpacks it
-    // into a working directory so the structures appear in the file browser;
-    // applyLessonConditions restores a structure's stored conditions on load.
-    void openLesson(const QString& path);
-    void saveLesson(const QString& path);
-    void addCurrentStructureToLesson();
-    // Add a structure straight from the file browser (context menu / drag-drop):
-    // parse the file's first frame and append it without loading it into the viewer.
-    void addFileToLesson(const QString& filePath);
-    // Shared appender: build a LessonStructure from atoms + the dock's current sim
-    // config, push it, return its row (no UI mode switch). Claude Generated 2026.
-    int appendLessonStructureFromAtoms(const QString& name,
-        const QVector<MoleculeViewer::Atom>& atoms);
-    void editLessonMetadata();
-    void applyLessonConditions(const QString& filePath);
-    // Refresh the optional in-memory lesson-structure list in the Project dock and
-    // (when @p autoShow) reveal it; load one entry's geometry + conditions.
-    void refreshLessonStructureView(bool autoShow = false);
-    void loadLessonStructureFromIndex(const QModelIndex& index);
+    // Claude Generated 2026 - WP T4: the OER-lesson feature (open/save/add/apply +
+    // Files|Lesson browse mode + metadata/detail editors) lives in LessonController.
+    // This handles the MainWindow bookkeeping after an in-memory lesson structure is
+    // loaded into the viewer (clear file path, reset modified state, snapshot).
+    void onLessonStructureLoaded(const QString& name);
 
     // Claude Generated 2026 - Bidirectional structure sync (viewer <-> atom table
     // <-> structure text editor). The viewer is the canonical store; m_structSyncing
@@ -417,37 +402,13 @@ private:
     // the QSortFilterProxyModel introduced by ProjectDock. Claude Generated 2026.
     QString filePathFromContentIndex(const QModelIndex& viewIndex) const;
 
-    // Claude Generated 2026 - In-memory lesson being authored (Save as Lesson…).
-    // Structures are appended via addCurrentStructureToLesson(); metadata via the
-    // LessonMetadataDialog. See lesson.h for the data model.
-    Lesson m_lesson;
-    // Path of the currently open/last-saved *.qlesson.json. Set by openLesson()
-    // and saveLesson(); lets "Save Lesson" overwrite it directly (no re-pick).
-    QString m_lessonFilePath;
-    bool saveLessonInteractive(bool forceDialog);  // resolve target + call saveLesson()
-    // In-memory lesson-structure list. Shown in the EXISTING file browser
-    // (m_directoryContentView) by swapping its model — no second view. A segmented
-    // "Files | Lesson" toggle (like Explore/Compute) switches the mode; in Lesson
-    // mode a metadata widget + a per-structure detail editor appear. Claude Generated 2026.
-    LessonStructureModel* m_lessonStructureModel = nullptr;
-    bool m_lessonBrowseMode = false;  // true => content view shows the lesson model
-    int m_currentLessonRow = -1;      // structure row bound to the detail editor
-    void setBrowserMode(bool lessonMode);
-    void showLessonStructureDetails(int row);  // populate the per-structure editor
-    void refreshLessonMetaWidget();            // sync the metadata widget from m_lesson.meta
-    // Segmented Files/Lesson toggle (project dock).
+    // Claude Generated 2026 - WP T4: the OER-lesson feature (data + open/save/add/apply
+    // + Files|Lesson browse mode + the metadata/detail editors) is owned by
+    // LessonController. MainWindow keeps only the two mode buttons — the eventFilter
+    // drop-target compares against m_lessonModeBtn — and delegates the rest.
+    LessonController* m_lessonController = nullptr;
     QToolButton* m_filesModeBtn = nullptr;
     QToolButton* m_lessonModeBtn = nullptr;
-    // Lesson metadata widget (visible only in Lesson mode).
-    QWidget* m_lessonMetaWidget = nullptr;
-    QLineEdit* m_lessonTitleEdit = nullptr;
-    QLineEdit* m_lessonDescEdit = nullptr;
-    QLabel* m_lessonAuthorsLabel = nullptr;
-    // Per-structure inline detail editor (visible only in Lesson mode).
-    QWidget* m_lessonStructWidget = nullptr;
-    QLineEdit* m_structNameEdit = nullptr;
-    QLineEdit* m_structDescEdit = nullptr;
-    QComboBox* m_structRoleCombo = nullptr;
     bool m_centerOnLoad = true;  // shift COM to origin after loading (from VisualizationSettings)
     QAction* m_saveAction = nullptr;
     QAction* m_saveAsAction = nullptr;
