@@ -892,6 +892,14 @@ void SimulationControlWidget::setupUI()
     outer->addWidget(scroll);
 
     // ---- Connections ----
+    setupConnections();
+}
+
+// Claude Generated 2026 - WP T1 rest: signal wiring extracted from setupUI() so the
+// latter stays at composition altitude. All connect() targets are m_* members; the
+// helper lambdas (notifyConfig/updateThermostatRows/notifyGrab/markCustom) are local.
+void SimulationControlWidget::setupConnections()
+{
     connect(m_startBtn, &QToolButton::clicked, this, &SimulationControlWidget::onStartClicked);
     connect(m_pauseBtn, &QToolButton::clicked, this, &SimulationControlWidget::onPauseClicked);
     connect(m_stepBtn, &QToolButton::clicked, this, &SimulationControlWidget::onStepClicked);

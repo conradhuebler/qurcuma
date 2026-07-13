@@ -121,6 +121,9 @@ public slots:
 
 private:
     void setupUI();
+    // Claude Generated 2026 - WP T1 rest: signal wiring extracted from setupUI() so
+    // the latter stays at composition altitude. All connect() targets are m_* members.
+    void setupConnections();
     // Claude Generated 2026 - per-QGroupBox builders extracted from setupUI().
     // Each creates its group (populating the m_* members it owns) and returns it
     // for setupUI() to add to the scroll layout.

@@ -63,7 +63,6 @@ class QSortFilterProxyModel;  // Claude Generated 2026 - ProjectDock file filter
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
 #endif
 class SimulationControlWidget;  // Claude Generated - Interactive Simulation Integration
-class LessonStructureModel;     // Claude Generated 2026 - in-memory lesson structure list model
 class LessonController;          // Claude Generated 2026 - WP T4 lesson feature controller
 class SimulationChartWidget;    // Claude Generated 2026 - live MD temperature/energy charts
 class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog

@@ -7,8 +7,7 @@
 #endif
 #include "simulationcontrolwidget.h"  // Claude Generated - Interactive Simulation Integration
 #include "snapshotswidget.h"  // Claude Generated 2026 - Snapshot history foundation
-#include "dialogs/lessonmetadatadialog.h"  // Claude Generated 2026 - lesson metadata editor
-#include "lessonstructuremodel.h"  // Claude Generated 2026 - in-memory lesson structure list
+// Claude Generated 2026 - WP T4: lesson widgets/model/dialog moved into LessonController.
 // Claude Generated 2026 - Phase 6: SimulationDialog removed; the dock widget is the sole sim UI.
 #include <algorithm>  // Claude Generated - for std::min/std::max
 #include <QAbstractSpinBox>
