@@ -120,25 +120,12 @@ public:
     void autoStartSimulation(SimulationConfig::Mode mode);
 
     /**
-     * @brief Switch the working directory to the directory where the molecule file
-     *        resides, after it was loaded successfully.
-     *
-     * Claude Generated 2026: Wired to be called by loadMoleculeFile() so the user
-     * automatically lands in the file's parent directory after a successful load.
-     * No-op if the path is empty or does not exist.
-     *
-     * @param dir  Directory to switch to. If empty, falls back to the captured
-     *             invocation dir (m_invocationDir).
-     */
-    void setWorkingDirFromArg(const QString& dir);
-
-    /**
      * @brief Switch the working directory to a directory given on the command line
      *        (e.g. `qurcuma .`).
      *
-     * Claude Generated 2026: Separate entry point from setWorkingDirFromArg() so
-     * the CLI '.' case never triggers a file load. Called from main.cpp after
-     * the event loop starts, so it has access to switchWorkingDirectory().
+     * Claude Generated 2026: The CLI '.'/<dir> case switches the working directory
+     * without loading a file. Called from main.cpp after the event loop starts, so
+     * it has access to switchWorkingDirectory().
      *
      * @param dir  Absolute directory path. If empty, no-op.
      */
@@ -266,7 +253,7 @@ private:
 
     // Claude Generated 2026 - Bidirectional structure sync (viewer <-> atom table
     // <-> structure text editor). The viewer is the canonical store; m_structSyncing
-    // breaks feedback loops. See the connections in setupAtomListPanelConnections().
+    // breaks feedback loops.
     void updateAtomTableFromViewer();     // push viewer geometry -> atom table
     void updateStructureTextFromViewer(); // push viewer geometry -> text editor (XYZ)
     void applyStructureTextToViewer();    // parse editor text -> viewer ("Apply")
@@ -289,9 +276,6 @@ private:
     QString currentCalculationDir() const {
         return QDir(m_workingDirectory).filePath(m_currentCalculationDir);
     }
-    QString getCalculationDirName() const {
-        return m_currentCalculationDir;
-    }
     bool isValidCalculationDir() const {
         return !m_currentCalculationDir.isEmpty() &&
                m_currentCalculationDir != "." &&
@@ -299,8 +283,6 @@ private:
     }
     QStringList currentSubdirectories() const;
 
-    void setupBookmarkView();
-    void updateBookmarkView();
     void switchWorkingDirectory(const QString& path);
 
     // Claude Generated - Quick Win: Recent files management
@@ -319,7 +301,6 @@ private:
     void onWorkspaceContextMenu(const QPoint& pos);
     void restoreWorkspaceState(const Settings::Workspace& ws);
     void updateWorkspaceList();
-    void updateWorkspaceMenu(QMenu* menu);
 
     // Claude Generated - UI Restructuring: Layout preset management
     void applyLayoutPreset(DockConfig::LayoutPreset preset);

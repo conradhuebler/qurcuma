@@ -1,5 +1,9 @@
 # AIChangelog - Qurcuma Improvements
 
+## Juli 2026 - Arbeitsverzeichnis bleibt beim Öffnen einer Struktur stabil
+
+- **`loadMoleculeFile()` wechselt das Arbeitsverzeichnis nicht mehr**: Das frühere „Open file follows its own directory"-Verhalten (Auto-Wechsel ins Elternverzeichnis der geladenen Datei) ist entfernt. Struktur-Laden ist eine reine Viewer-Operation; das Arbeitsverzeichnis ist ein stabiler, bewusst gesetzter Anker. Gilt für alle Ladepfade (Datei-Browser-Klick, File▸Open, Drag&Drop, Recent Files, Remote, CLI `qurcuma <file>`). Wechsel nur noch explizit: Choose Directory, „Set as Working Directory", Breadcrumb, Recent-Dirs, Workspace-Load, CLI `qurcuma <dir>`.
+
 ## Juli 2026 - Batch-Randbeschnitt exportierter Bilder (Image-Gallery-Dock)
 
 - **Image-Gallery-Dock** (unten, ausblendbar, erscheint automatisch beim ersten Bildexport): Thumbnail-Raster der in der Session exportierten Bilder; Checkbox „Show all images in folder" schaltet auf alle `*.png` im Arbeitsverzeichnis um.

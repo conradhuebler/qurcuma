@@ -129,8 +129,8 @@ int main(int argc, char *argv[])
     //   qurcuma .                        - switch working directory to CWD
     //   qurcuma <dir>                    - switch working directory to <dir>
     //   qurcuma <file.xyz|file.vtf|...>  - load the file; the working
-    //                                      directory is auto-switched to the
-    //                                      file's parent directory on success
+    //                                      directory is left at the startup
+    //                                      default (loading never changes it)
     //   qurcuma <file> -md               - load the file and auto-start MD
     //   qurcuma <file> -opt              - load the file and auto-start Opt
     if (!cliArg.isEmpty()) {

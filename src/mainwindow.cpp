@@ -725,9 +725,8 @@ void MainWindow::createMenus()
     // Claude Generated 2026 - Local file open. The previous File menu only
     // exposed "Open Remote File..."; the standard "Open File..." action was
     // missing. The action uses the current Working Directory as the dialog's
-    // start path so the user lands where they expect, and the underlying
-    // loadMoleculeFile() will auto-switch the working directory to the
-    // file's parent directory on a successful load.
+    // start path so the user lands where they expect; loading the file does
+    // not change the Working Directory.
     QAction *openFileAction = fileMenu->addAction(QIcon::fromTheme("document-open"), tr("&Open File..."));
     openFileAction->setShortcut(QKeySequence::Open);  // Ctrl+O / Cmd+O
     connect(openFileAction, &QAction::triggered, this, [this]() {
@@ -3468,24 +3467,6 @@ void MainWindow::restoreWorkspaceState(const Settings::Workspace& ws)
     statusBar()->showMessage(tr("Workspace '%1' restored").arg(ws.name), 3000);
 }
 
-void MainWindow::updateWorkspaceMenu(QMenu* menu)
-{
-    if (!menu || !m_workspaceManager) return;
-
-    auto workspaces = m_workspaceManager->listWorkspaces();
-    if (workspaces.isEmpty()) {
-        menu->addAction(tr("(No saved workspaces)"))->setEnabled(false);
-        return;
-    }
-
-    for (int i = 0; i < std::min(5, static_cast<int>(workspaces.size())); ++i) {
-        Settings::Workspace ws = workspaces[i];  // Copy instead of reference
-        QAction* action = menu->addAction(ws.name);
-        connect(action, &QAction::triggered, [this, ws]() {
-            restoreWorkspaceState(ws);
-        });
-    }
-}
 // Claude Generated - SFTP: Load molecule file from local or remote path
 void MainWindow::loadMoleculeFile(const QString& filePath)
 {
@@ -3579,18 +3560,12 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
         }
     }
 
-    // Claude Generated 2026 - "Open file follows its own directory" semantics.
-    // When a file is loaded successfully, the user almost always wants to
-    // work next to the file (output files, sidecar data, related files).
-    // We auto-switch the Working Directory to the file's parent directory.
-    // Failure cases (parse error, unsupported format) leave the current
-    // Working Directory untouched. switchWorkingDirectory already shows a
-    // status-bar message and updates recent files.
+    // Claude Generated 2026 - Loading a structure is a pure viewer operation and
+    // must NOT change the Working Directory. The Working Directory is a stable
+    // anchor the user sets deliberately (Choose Directory, "Set as Working
+    // Directory", breadcrumb, recent dirs, workspace, CLI <dir>); clicking around
+    // and opening structures should never move it.
     if (fileLoaded) {
-        const QString fileDir = QFileInfo(filePath).absolutePath();
-        if (!fileDir.isEmpty() && QDir(fileDir).exists() && fileDir != m_workingDirectory) {
-            switchWorkingDirectory(fileDir);
-        }
         // A fresh molecule resets the scene (clears any RMSD overlays); reset the RMSD
         // workspace too so it does not keep stale aligned structures.
         if (m_rmsdWidget)
@@ -4439,8 +4414,8 @@ void MainWindow::loadFileFromArg(const QString& path)
         return;
     }
     loadMoleculeFile(absPath);
-    // Note: loadMoleculeFile() now auto-switches the working directory to
-    // the file's parent directory on success, so no explicit switch here.
+    // Note: loading a file does not change the Working Directory; it stays at
+    // the startup default (last-used dir, or the invocation dir if enabled).
 }
 
 // Claude Generated 2026 - Auto-start the interactive simulation from the CLI
@@ -4459,17 +4434,6 @@ void MainWindow::autoStartSimulation(SimulationConfig::Mode mode)
              << "atoms=" << m_simulationControlWidget->currentAtoms().size();
     m_simulationControlWidget->setMode(mode);
     m_simulationControlWidget->onStartClicked();
-}
-
-// Claude Generated 2026: Switch the working directory to the file's parent dir
-// after a successful load. Extracted as a separate entry point so it can be
-// called from any place that loads a molecule file (CLI, File menu, drag-drop).
-void MainWindow::setWorkingDirFromArg(const QString& dir)
-{
-    QString target = dir.isEmpty() ? m_invocationDir : dir;
-    if (target.isEmpty() || !QDir(target).exists()) return;
-    if (target == m_workingDirectory) return;
-    switchWorkingDirectory(target);
 }
 
 // Claude Generated 2026: CLI entry point for `qurcuma <directory>`.

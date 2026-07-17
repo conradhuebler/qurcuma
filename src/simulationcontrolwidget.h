@@ -139,7 +139,6 @@ private:
     QGroupBox* createGrabGroup();
     void setRunning(bool running);
     void setState(const QString& label, const QString& color);  // Claude Generated 2026 - state pill
-    void onStepButtonEnableToggled();  // Claude Generated 2026 - re-arm Step after throttle
     SimulationConfig buildConfig() const;
 
     // Claude Generated 2026 - temperature ramp / region table row helpers
