@@ -51,13 +51,27 @@ public:
         CPK,            // Standard CPK colors (element-based)
         Monochrome,     // Single color (uniform gray)
         ByCharge,       // Color by atomic charge (if available)
-        Custom          // User-defined colors
+        Custom,         // User-defined colors
+        ByType          // Color by bead/residue type label (coarse-grained VTF)
+        // NOTE: append new schemes at the end — the numeric value is persisted
+        // in VisualizationSettings::colorScheme.
+    };
+
+    // Claude Generated 2026 - Per-atom text labels drawn as a 2D overlay.
+    enum class AtomLabel {
+        None,           // no labels
+        Element,        // element symbol (bead type when there is no element)
+        Type,           // bead/residue type label (coarse-grained VTF)
+        Index           // 0-based atom index
     };
 
     struct Atom {
         QVector3D position;
         QString element;
         float charge = 0.0f;  // Claude Generated - for charge-based coloring
+        // Claude Generated 2026 - coarse-grained (VTF bead) support:
+        float radius = 0.0f;  // per-atom draw radius; 0 = fall back to element vdW
+        QString type;         // bead/residue type label; drives "By Type" colouring
     };
 
     struct Bond {
@@ -126,6 +140,10 @@ public:
 
     void setColorScheme(ColorScheme scheme);
     ColorScheme getColorScheme() const { return m_colorScheme; }
+
+    // Claude Generated 2026 - Per-atom overlay labels (element/type/index).
+    void setAtomLabelMode(AtomLabel mode);
+    void setLabelSelectionOnly(bool on);  // true = only label selected atoms
 
     void setAtomTransparency(float alpha);  // 0.0 (transparent) to 1.0 (opaque)
     float getAtomTransparency() const { return m_atomTransparency; }
@@ -440,8 +458,6 @@ private:
     void refreshVisualization();// Refresh without camera reset
 
     // Element data helpers (kept for getCurrentFrame* and bond detection).
-    QColor getAtomColor(const QString& element, float charge = 0.0f);
-    float getAtomRadius(const QString& element) const;
     float getCovalentRadius(const QString& element);
     QVector<Bond> detectBonds(const QVector<Atom>& atoms);
     // Claude Generated 2026 - per-frame bond re-detection with hysteresis (form tighter than break)

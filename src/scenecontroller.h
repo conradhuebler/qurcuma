@@ -11,6 +11,7 @@
 #include <QObject>
 #include <QQuaternion>
 #include <QRectF>
+#include <QVariant>
 #include <QVector3D>
 #include <QVector>
 
@@ -30,6 +31,10 @@ class SceneController : public QObject
     Q_PROPERTY(QQuick3DInstancing* measureLineInstancing READ measureLineInstancing CONSTANT)
     Q_PROPERTY(QString measurementText READ measurementText NOTIFY measurementChanged)
     Q_PROPERTY(bool measurementActive READ measurementActive NOTIFY measurementChanged)
+    // Claude Generated 2026 - Per-atom overlay labels. Each entry is a map
+    // {px,py,pz (local atom position), text}; viewer3d.qml projects them to screen
+    // reactively (so rotation/zoom/pan need no C++ recompute).
+    Q_PROPERTY(QVariantList atomLabels READ atomLabels NOTIFY labelsChanged)
     Q_PROPERTY(QQuick3DInstancing* overlayAtomInstancing READ overlayAtomInstancing CONSTANT)
     Q_PROPERTY(QQuick3DInstancing* overlayBondInstancing READ overlayBondInstancing CONSTANT)
     Q_PROPERTY(bool overlayVisible READ overlayVisible NOTIFY overlayChanged)
@@ -97,6 +102,8 @@ public:
         QVector3D position;
         QString element;
         float charge = 0.0f;
+        float radius = 0.0f;   // per-atom draw radius; 0 = fall back to element vdW
+        QString type;          // bead/residue type label ("By Type" colouring)
     };
     struct BondDatum {
         int a = 0;
@@ -115,7 +122,7 @@ public:
         bool visible = true;
     };
 
-    enum ColorScheme { CPK = 0, Monochrome = 1, ByCharge = 2, Custom = 3 };
+    enum ColorScheme { CPK = 0, Monochrome = 1, ByCharge = 2, Custom = 3, ByType = 4 };  // mirrors MoleculeViewer::ColorScheme
     enum RenderingMode { BallAndStick = 0, Wireframe = 1, SpaceFilling = 2, SticksOnly = 3 };
 
     QQuick3DInstancing* atomInstancing() const;
@@ -242,6 +249,10 @@ public:
     void setBackgroundColor(const QColor& c);
     void setSelection(const QVector<int>& indices);
     void setHoverAtom(int index);  // mouse-over highlight (-1 = none)
+    // Claude Generated 2026 - Per-atom overlay labels.
+    QVariantList atomLabels() const { return m_atomLabels; }
+    void setLabelMode(int mode);          // MoleculeViewer::AtomLabel as int
+    void setLabelSelectionOnly(bool on);
     // Claude Generated 2026 - Structure editing: atoms that currently clash with a
     // moved/placed selection. Drawn RED (priority above the magenta selection) so the
     // user sees what to push apart. Empty = no clashes.
@@ -304,6 +315,7 @@ signals:
     void effectsChanged();
     void transformChanged();
     void structureChanged();
+    void labelsChanged();
     void forceVectorsChanged();
     void measurementChanged();
     void overlayChanged();
@@ -319,7 +331,9 @@ private:
     QColor atomColor(int index) const;
     // Base scheme colour for an element/charge (CPK/Monochrome/ByCharge), ignoring the
     // transient selection/hover/collision state — used as the tint base for overlays.
-    QColor schemeColor(const QString& element, float charge) const;
+    QColor schemeColor(const AtomDatum& a) const;
+    QColor typeColor(const QString& type) const;  // stable distinct colour per bead type
+    float atomDrawRadius(const AtomDatum& a) const;  // per-atom radius (bead override or vdW)
 
     AtomInstancing* m_atomInstancing = nullptr;
     BondInstancing* m_bondInstancing = nullptr;
@@ -354,6 +368,11 @@ private:
     QVector<AtomDatum> m_atoms;
     QVector<BondDatum> m_bonds;
     QVector<int> m_selection;
+    // Claude Generated 2026 - Per-atom overlay labels (see rebuildLabels()).
+    int m_labelMode = 0;              // 0=None, 1=Element, 2=Type, 3=Index
+    bool m_labelSelectionOnly = false;
+    QVariantList m_atomLabels;
+    void rebuildLabels();
     QVector<int> m_collisionAtoms;  // Claude Generated 2026 - clashing atoms (drawn red)
     int m_hoverAtom = -1;
     bool m_rubberBandActive = false;        // Claude Generated 2026 - box-select overlay

@@ -311,4 +311,41 @@ Item {
             text: controller.measurementText
         }
     }
+
+    // Per-atom overlay labels (element/type/index). C++ (SceneController::rebuildLabels)
+    // supplies each atom's LOCAL position + text; we project to screen here so
+    // rotation/zoom/pan reposition the labels reactively. The projection mirrors
+    // SceneController's axis-aligned camera exactly (camera at pivotPosition +
+    // (0,0,cameraDistance), looking down -Z, vertical FoV = fieldOfView).
+    Repeater {
+        model: controller.atomLabels
+        delegate: Text {
+            // atom position relative to the rotation centre (sceneCenter)
+            readonly property real rx: modelData.px - controller.sceneCenter.x
+            readonly property real ry: modelData.py - controller.sceneCenter.y
+            readonly property real rz: modelData.pz - controller.sceneCenter.z
+            // rotate (rx,ry,rz) by rootRotation: v' = v + w*t + q.xyz × t, t = 2·(q.xyz × v)
+            readonly property quaternion q: controller.rootRotation
+            readonly property real tx: 2 * (q.y * rz - q.z * ry)
+            readonly property real ty: 2 * (q.z * rx - q.x * rz)
+            readonly property real tz: 2 * (q.x * ry - q.y * rx)
+            readonly property real wx: controller.sceneCenter.x + rx + q.scalar * tx + (q.y * tz - q.z * ty)
+            readonly property real wy: controller.sceneCenter.y + ry + q.scalar * ty + (q.z * tx - q.x * tz)
+            readonly property real wz: controller.sceneCenter.z + rz + q.scalar * tz + (q.x * ty - q.y * tx)
+            readonly property real depth: (controller.pivotPosition.z + controller.cameraDistance) - wz
+            readonly property real halfH: Math.tan(controller.fieldOfView * Math.PI / 360.0)
+            readonly property real halfW: halfH * (root.width / Math.max(1, root.height))
+            readonly property real ndcX: (wx - controller.pivotPosition.x) / (Math.max(depth, 0.0001) * halfW)
+            readonly property real ndcY: (wy - controller.pivotPosition.y) / (Math.max(depth, 0.0001) * halfH)
+            visible: depth > 0.0001
+            x: (ndcX + 1) * 0.5 * root.width - width / 2
+            y: (1 - ndcY) * 0.5 * root.height - height / 2
+            text: modelData.text
+            color: "#ffffff"
+            font.pixelSize: 11
+            font.bold: true
+            style: Text.Outline
+            styleColor: "#000000"
+        }
+    }
 }

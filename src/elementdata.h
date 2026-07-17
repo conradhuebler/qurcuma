@@ -19,4 +19,8 @@ float vdwRadius(const QString& element);
 /// Covalent radius in Angstrom for distance-based bond detection.
 float covalentRadius(const QString& element);
 
+/// True if the string is a real chemical element symbol (case-sensitive, e.g.
+/// "C", "Na"). Used to tell chemical atoms from coarse-grained bead labels.
+bool isElementSymbol(const QString& s);
+
 } // namespace elem

@@ -3,6 +3,7 @@
 #include "elementdata.h"
 
 #include <QHash>
+#include <QSet>
 
 namespace elem {
 
@@ -41,6 +42,24 @@ float covalentRadius(const QString& element)
         { "Mg", 1.30f }, { "Ca", 1.76f }, { "Fe", 1.32f }, { "Zn", 1.22f }
     };
     return radii.value(element, 0.76f);
+}
+
+bool isElementSymbol(const QString& s)
+{
+    // Full periodic table (H..Og). Case-sensitive: a proper symbol is a capital
+    // followed by an optional lowercase, which also excludes bead labels like
+    // "ppo1"/"bead1" (lowercase start) and numeric names.
+    static const QSet<QString> symbols = {
+        "H","He","Li","Be","B","C","N","O","F","Ne","Na","Mg","Al","Si","P","S",
+        "Cl","Ar","K","Ca","Sc","Ti","V","Cr","Mn","Fe","Co","Ni","Cu","Zn","Ga",
+        "Ge","As","Se","Br","Kr","Rb","Sr","Y","Zr","Nb","Mo","Tc","Ru","Rh","Pd",
+        "Ag","Cd","In","Sn","Sb","Te","I","Xe","Cs","Ba","La","Ce","Pr","Nd","Pm",
+        "Sm","Eu","Gd","Tb","Dy","Ho","Er","Tm","Yb","Lu","Hf","Ta","W","Re","Os",
+        "Ir","Pt","Au","Hg","Tl","Pb","Bi","Po","At","Rn","Fr","Ra","Ac","Th","Pa",
+        "U","Np","Pu","Am","Cm","Bk","Cf","Es","Fm","Md","No","Lr","Rf","Db","Sg",
+        "Bh","Hs","Mt","Ds","Rg","Cn","Nh","Fl","Mc","Lv","Ts","Og"
+    };
+    return symbols.contains(s);
 }
 
 } // namespace elem

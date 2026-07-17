@@ -53,12 +53,6 @@ public:
                                       QVector<MoleculeViewer::Atom>& atoms,
                                       QVector<MoleculeViewer::Bond>& bonds);
 
-    // Get atom color based on VTF type
-    static QColor getAtomColor(const QString& type);
-
-    // Get atom radius from VTF data
-    static float getAtomRadius(float vtfRadius);
-
 private:
     bool parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& frames);
     QString trimQuotes(const QString& str);

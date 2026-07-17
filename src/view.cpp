@@ -78,7 +78,18 @@ MoleculeViewer::MoleculeViewer(QWidget* parent)
     // MeasurementOverlay (Qt3D) is not constructed; the Quick3D port lands in M2.
 }
 
-MoleculeViewer::~MoleculeViewer() = default;
+MoleculeViewer::~MoleculeViewer()
+{
+    // Claude Generated 2026 - Tear down the QML scene before the SceneController it
+    // binds to. Both are children of this widget, but m_scene is parented first, so
+    // QObject would otherwise destroy it before the QML view; the "controller"
+    // context property then goes null while the bindings are still live, and every
+    // controller.<prop> binding in viewer3d.qml logs a harmless "Cannot read
+    // property ... of null" TypeError on exit. Unloading the QML root here drops
+    // those bindings first.
+    if (m_quickView)
+        m_quickView->setSource(QUrl());
+}
 
 void MoleculeViewer::setupViewer()
 {
@@ -847,7 +858,7 @@ void MoleculeViewer::syncSceneToController(int frameIndex, bool resetCamera, boo
         QVector<SceneController::AtomDatum> sa;
         sa.reserve(atoms.size());
         for (const Atom& a : atoms)
-            sa.append({ a.position, a.element, a.charge });
+            sa.append({ a.position, a.element, a.charge, a.radius, a.type });
         QVector<SceneController::BondDatum> sb;
         if (frameIndex < m_trajectoryBonds.size()) {
             const QVector<Bond>& bonds = m_trajectoryBonds[frameIndex];
@@ -1013,7 +1024,7 @@ int MoleculeViewer::addOverlay(const QVector<Atom>& targetAtoms, const QColor& t
     QVector<SceneController::AtomDatum> ta;
     ta.reserve(targetAtoms.size());
     for (const Atom& a : targetAtoms)
-        ta.append({ a.position, a.element, a.charge });
+        ta.append({ a.position, a.element, a.charge, a.radius, a.type });
     QVector<SceneController::BondDatum> tb;
     tb.reserve(tBonds.size());
     for (const Bond& b : tBonds)
@@ -1362,6 +1373,19 @@ void MoleculeViewer::setColorScheme(ColorScheme scheme)
     if (m_scene)
         m_scene->setColorScheme(static_cast<int>(scheme));
     emit colorSchemeChanged(scheme);
+}
+
+// Claude Generated 2026 - Per-atom overlay labels (element/type/index).
+void MoleculeViewer::setAtomLabelMode(AtomLabel mode)
+{
+    if (m_scene)
+        m_scene->setLabelMode(static_cast<int>(mode));
+}
+
+void MoleculeViewer::setLabelSelectionOnly(bool on)
+{
+    if (m_scene)
+        m_scene->setLabelSelectionOnly(on);
 }
 
 void MoleculeViewer::setBackgroundColor(const QColor& color)
@@ -1935,32 +1959,9 @@ QVector<MoleculeViewer::Atom> MoleculeViewer::getCurrentFrameAtoms() const
 // ---------------------------------------------------------------------------
 // Element data + bond detection (logic preserved from the Qt3D version)
 // ---------------------------------------------------------------------------
-QColor MoleculeViewer::getAtomColor(const QString& element, float charge)
-{
-    switch (m_colorScheme) {
-    case ColorScheme::Monochrome:
-        return QColor(180, 180, 180);
-    case ColorScheme::ByCharge:
-        if (charge > 0.5f) return QColor(255, 0, 0);
-        if (charge < -0.5f) return QColor(0, 0, 255);
-        if (charge > 0.1f) return QColor(255, 128, 128);
-        if (charge < -0.1f) return QColor(128, 128, 255);
-        return QColor(220, 220, 220);
-    case ColorScheme::CPK:
-    case ColorScheme::Custom:
-    default:
-        return elem::cpkColor(element);
-    }
-}
-
-float MoleculeViewer::getAtomRadius(const QString& element) const
-{
-    const float base = elem::vdwRadius(element);
-    if (m_renderingMode == RenderingMode::SpaceFilling)
-        return base * 2.0f * m_atomScaleFactor;
-    return base * m_atomScaleFactor;
-}
-
+// Claude Generated 2026 - getAtomColor()/getAtomRadius() removed: dead legacy
+// helpers superseded by SceneController::schemeColor()/atomDrawRadius(), which
+// are what the renderer actually uses.
 float MoleculeViewer::getCovalentRadius(const QString& element)
 {
     return elem::covalentRadius(element);
@@ -2808,6 +2809,7 @@ void MoleculeViewer::setupControlPanel()
     colorCombo->addItem(tr("CPK"), static_cast<int>(ColorScheme::CPK));
     colorCombo->addItem(tr("Monochrome"), static_cast<int>(ColorScheme::Monochrome));
     colorCombo->addItem(tr("By Charge"), static_cast<int>(ColorScheme::ByCharge));
+    colorCombo->addItem(tr("By Type"), static_cast<int>(ColorScheme::ByType));
     colorCombo->setMaximumWidth(100);
     connect(colorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, colorCombo](int index) {
         setColorScheme(static_cast<ColorScheme>(colorCombo->itemData(index).toInt()));

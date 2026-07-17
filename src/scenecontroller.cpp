@@ -85,6 +85,11 @@ SceneController::SceneController(QObject* parent)
     m_overlayAtoms->setParent(this);
     m_overlayBonds = new BondInstancing(nullptr);
     m_overlayBonds->setParent(this);
+
+    // Claude Generated 2026 - Rebuild overlay labels whenever the structure changes
+    // (load/reset/clear/clone). Live MD frames are handled in updatePositions();
+    // rotation/zoom/pan need no rebuild (viewer3d.qml reprojects reactively).
+    connect(this, &SceneController::structureChanged, this, &SceneController::rebuildLabels);
 }
 
 QQuick3DInstancing* SceneController::measureLineInstancing() const { return m_measureLines; }
@@ -205,8 +210,8 @@ void SceneController::rebuildOverlays()
             continue;
         anyVisible = true;
 
-        auto tinted = [&](const QString& element, float charge) {
-            QColor c = shiftOverlayColor(schemeColor(element, charge), ov.tint);
+        auto tinted = [&](const AtomDatum& a) {
+            QColor c = shiftOverlayColor(schemeColor(a), ov.tint);
             c.setAlphaF(m_transparency);
             return c;
         };
@@ -216,8 +221,8 @@ void SceneController::rebuildOverlays()
             for (const AtomDatum& a : ov.atoms) {
                 AtomInstancing::Item it;
                 it.position = a.position;
-                it.scale = radiusFactor * ov.sizeScale * m_atomScaleFactor * elem::vdwRadius(a.element);
-                it.color = tinted(a.element, a.charge);
+                it.scale = radiusFactor * ov.sizeScale * m_atomScaleFactor * atomDrawRadius(a);
+                it.color = tinted(a);
                 items.append(it);
             }
         }
@@ -236,8 +241,8 @@ void SceneController::rebuildOverlays()
                 const QVector3D mid = 0.5f * (posA + posB);
                 const float halfLength = length * 0.25f;
                 const QVector3D scale(sxz, halfLength / kCylBaseHalfHeight, sxz);
-                segs.append({ 0.5f * (posA + mid), scale, rot, tinted(ov.atoms[b.a].element, ov.atoms[b.a].charge) });
-                segs.append({ 0.5f * (mid + posB), scale, rot, tinted(ov.atoms[b.b].element, ov.atoms[b.b].charge) });
+                segs.append({ 0.5f * (posA + mid), scale, rot, tinted(ov.atoms[b.a]) });
+                segs.append({ 0.5f * (mid + posB), scale, rot, tinted(ov.atoms[b.b]) });
             }
         }
     }
@@ -680,6 +685,8 @@ void SceneController::updatePositions(const QVector<QVector3D>& positions)
     for (int i = 0; i < n; ++i)
         m_atoms[i].position = positions[i];
     rebuildGeometry();
+    if (m_labelMode != 0)
+        rebuildLabels();  // labels track live MD/Opt positions
 }
 
 // Claude Generated 2026 - replace the bond list and rebuild geometry only. No bounds recompute or
@@ -723,21 +730,44 @@ void SceneController::recomputeBounds()
 
 // Base colour for an element/charge under the current scheme, ignoring the transient
 // selection/hover/collision state. Shared by atomColor() and the overlay tint path.
-QColor SceneController::schemeColor(const QString& element, float charge) const
+// Claude Generated 2026 - Stable, distinct colour per bead/residue type. Uses a
+// deterministic FNV-1a hash (not qHash, which is per-process seeded) so a given
+// type always maps to the same hue across runs. Spreads hues by the golden angle.
+QColor SceneController::typeColor(const QString& type) const
+{
+    uint h = 2166136261u;
+    for (const QChar c : type) { h ^= c.unicode(); h *= 16777619u; }
+    const float hue = (h % 3600) / 3600.0f;             // 0.0 .. 1.0
+    const float sat = 0.55f + (h >> 8 & 0x3) * 0.10f;   // 0.55 .. 0.85
+    return QColor::fromHsvF(hue, qBound(0.0f, sat, 1.0f), 0.90f);
+}
+
+QColor SceneController::schemeColor(const AtomDatum& a) const
 {
     switch (m_colorScheme) {
     case Monochrome:
         return m_monochrome;
     case ByCharge: {
-        const float q = qBound(-1.0f, charge, 1.0f);
+        const float q = qBound(-1.0f, a.charge, 1.0f);
         return (q >= 0) ? QColor::fromRgbF(1.0, 1.0 - q, 1.0 - q)  // white -> red
                         : QColor::fromRgbF(1.0 + q, 1.0 + q, 1.0); // white -> blue
     }
+    case ByType:
+        // Coarse-grained beads have no element; colour by type. Real atoms (no
+        // type label) fall back to CPK so the scheme is harmless for them.
+        return a.type.isEmpty() ? elem::cpkColor(a.element) : typeColor(a.type);
     case CPK:
     case Custom:
     default:
-        return elem::cpkColor(element);
+        return elem::cpkColor(a.element);
     }
+}
+
+// Claude Generated 2026 - Per-atom draw radius: honour an explicit radius (VTF
+// coarse-grained beads carry their own), else fall back to the element vdW table.
+float SceneController::atomDrawRadius(const AtomDatum& a) const
+{
+    return a.radius > 0.0f ? a.radius : elem::vdwRadius(a.element);
 }
 
 QColor SceneController::atomColor(int index) const
@@ -757,12 +787,11 @@ QColor SceneController::atomColor(int index) const
     const AtomDatum& a = m_atoms[index];
     // Hover feedback: brighten the atom under the cursor (below selection).
     if (index == m_hoverAtom) {
-        QColor base = (m_colorScheme == Monochrome) ? m_monochrome : elem::cpkColor(a.element);
-        QColor hl = base.lighter(170);
+        QColor hl = schemeColor(a).lighter(170);
         hl.setAlphaF(m_transparency);
         return hl;
     }
-    QColor c = schemeColor(a.element, a.charge);
+    QColor c = schemeColor(a);
     c.setAlphaF(m_transparency);
     return c;
 }
@@ -778,7 +807,7 @@ void SceneController::rebuildAtoms()
         for (int i = 0; i < m_atoms.size(); ++i) {
             AtomInstancing::Item it;
             it.position = m_atoms[i].position;
-            it.scale = radiusFactor * m_atomScaleFactor * elem::vdwRadius(m_atoms[i].element);
+            it.scale = radiusFactor * m_atomScaleFactor * atomDrawRadius(m_atoms[i]);
             it.color = atomColor(i);
             items.append(it);
         }
@@ -822,8 +851,8 @@ void SceneController::rebuildGeometry()
             const float halfLength = length * 0.25f;
             const QVector3D scale(sxz, halfLength / kCylBaseHalfHeight, sxz);
 
-            QColor cA = (m_colorScheme == Monochrome) ? m_monochrome : elem::cpkColor(m_atoms[b.a].element);
-            QColor cB = (m_colorScheme == Monochrome) ? m_monochrome : elem::cpkColor(m_atoms[b.b].element);
+            QColor cA = schemeColor(m_atoms[b.a]);
+            QColor cB = schemeColor(m_atoms[b.b]);
             cA.setAlphaF(m_transparency);
             cB.setAlphaF(m_transparency);
 
@@ -988,6 +1017,63 @@ void SceneController::setSelection(const QVector<int>& indices)
 {
     m_selection = indices;
     rebuildAtoms(); // only atom colours change
+    if (m_labelSelectionOnly && m_labelMode != 0)
+        rebuildLabels();  // selection-scoped labels follow the selection
+}
+
+// Claude Generated 2026 - Per-atom overlay labels. Builds the {position,text} list;
+// viewer3d.qml projects each entry to screen reactively, so rotation/zoom/pan need
+// no recompute here — only structure/selection/mode changes rebuild the list.
+void SceneController::setLabelMode(int mode)
+{
+    if (m_labelMode == mode)
+        return;
+    m_labelMode = mode;
+    rebuildLabels();
+}
+
+void SceneController::setLabelSelectionOnly(bool on)
+{
+    if (m_labelSelectionOnly == on)
+        return;
+    m_labelSelectionOnly = on;
+    rebuildLabels();
+}
+
+void SceneController::rebuildLabels()
+{
+    QVariantList out;
+    if (m_labelMode != 0 && !m_atoms.isEmpty()) {
+        auto labelFor = [this](int i) -> QString {
+            const AtomDatum& a = m_atoms[i];
+            switch (m_labelMode) {
+            case 1: return a.element.isEmpty() ? a.type : a.element;  // Element
+            case 2: return a.type;                                    // Type
+            case 3: return QString::number(i);                        // Index
+            default: return QString();
+            }
+        };
+        auto add = [&](int i) {
+            const QString t = labelFor(i);
+            if (t.isEmpty())
+                return;
+            const QVector3D& p = m_atoms[i].position;
+            QVariantMap m;
+            m["px"] = p.x(); m["py"] = p.y(); m["pz"] = p.z();
+            m["text"] = t;
+            out.append(m);
+        };
+        if (m_labelSelectionOnly) {
+            for (int idx : m_selection)
+                if (idx >= 0 && idx < m_atoms.size())
+                    add(idx);
+        } else {
+            for (int i = 0; i < m_atoms.size(); ++i)
+                add(i);
+        }
+    }
+    m_atomLabels = out;
+    emit labelsChanged();
 }
 
 // Claude Generated 2026 - Structure editing: recolour clashing atoms red. Cheap

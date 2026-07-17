@@ -2,6 +2,7 @@
 // Parses VTF (Visualization Toolkit Format) files for molecular visualization
 
 #include "vtfparser.h"
+#include "elementdata.h"
 #include <QTextStream>
 #include <QRegularExpression>
 
@@ -69,37 +70,42 @@ bool VTFParser::parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& fra
         line = stream.readLine().trimmed();
 
         if (line.startsWith("atom ")) {
-            // Parse atom line: "atom     0 radius   0.20000E+01 type        ppo1 name 1"
-            QStringList parts = line.split(QRegularExpression("\\s+"));
-
-            // Corrected: the actual structure is: atom, index, radius, radiusValue, type, typeValue, name, nameValue
-            // So we need at least 8 parts
-            if (parts.size() >= 8) {
+            // VMD/VTF "atom" record: "atom <index> [<keyword> <value>]..." where the
+            // keywords (radius/name/type/element/charge/...) may appear in ANY order.
+            // The old parser hard-coded column positions (parts[3]=radius, [5]=type,
+            // [7]=name) and faked chemical elements from a fixed polymer table, so any
+            // file with a different field order or non-polymer beads rendered wrong.
+            // Parse by keyword instead. Claude Generated 2026.
+            QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+            if (parts.size() >= 2) {
                 VTFAtom atom;
-                bool indexOk = false, radiusOk = false;
+                atom.radius = 0.0f;
+                bool indexOk = false;
                 atom.index = parts[1].toInt(&indexOk);
-                atom.radius = parts[3].toDouble(&radiusOk);  // parts[3] = radius value
-                atom.type = trimQuotes(parts[5]);  // parts[5] = type value
-                atom.name = trimQuotes(parts[7]);   // parts[7] = name value
-
-                if (indexOk && radiusOk) {
-
-                    // Set element based on type for visualization
-                    if (atom.type == "ppo1" || atom.type == "ppo2") {
-                        atom.element = "C"; // Polymer units as carbon
-                    } else if (atom.type.startsWith("dmaema")) {
-                        atom.element = "N"; // DMAEMA units as nitrogen
-                    } else {
-                        atom.element = "C"; // Default to carbon
-                    }
-
-                    atomDefinitions.append(atom);
-                } else {
-                    qWarning() << "Failed to parse atom values - skipping line:" << line;
+                for (int i = 2; i + 1 < parts.size(); i += 2) {
+                    const QString key = parts[i].toLower();
+                    const QString val = trimQuotes(parts[i + 1]);
+                    if (key == "radius")       atom.radius = val.toFloat();
+                    else if (key == "name")    atom.name = val;
+                    else if (key == "type")    atom.type = val;
+                    else if (key == "element") atom.element = val;
                 }
+                // Element: prefer an explicit "element"; else adopt "name" when it is a
+                // real symbol (many all-atom VTFs put the element there). Coarse-grained
+                // beads (ppo1, bead1, numeric names) leave it empty — the renderer then
+                // colours them "By Type" and sizes them by the per-bead radius.
+                if (atom.element.isEmpty() && elem::isElementSymbol(atom.name))
+                    atom.element = atom.name;
+                // Guarantee a non-empty type key so "By Type" always has something.
+                if (atom.type.isEmpty())
+                    atom.type = atom.name.isEmpty() ? atom.element : atom.name;
+
+                if (indexOk)
+                    atomDefinitions.append(atom);
+                else
+                    qWarning() << "VTF: atom record without numeric index - skipping:" << line;
             } else {
-                qWarning() << "Invalid atom line - not enough parts:" << parts.size() << "Expected: 8+";
-                qWarning() << "Line was:" << line;
+                qWarning() << "VTF: malformed atom record - skipping:" << line;
             }
         }
         else if (line.startsWith("bond ")) {
@@ -266,6 +272,8 @@ void VTFParser::convertToMoleculeViewer(const VTFFrame& vtfFrame,
         MoleculeViewer::Atom atom;
         atom.element = vtfAtom.element;
         atom.position = QVector3D(vtfAtom.x, vtfAtom.y, vtfAtom.z);
+        atom.radius = vtfAtom.radius;  // coarse-grained beads carry their own radius
+        atom.type = vtfAtom.type;      // drives "By Type" colouring
         atoms.append(atom);
     }
     
@@ -278,34 +286,7 @@ void VTFParser::convertToMoleculeViewer(const VTFFrame& vtfFrame,
     }
 }
 
-QColor VTFParser::getAtomColor(const QString& type)
-{
-    // Map VTF types to colors
-    if (type == "ppo1" || type == "ppo2") {
-        return QColor(255, 165, 0); // Orange for polymer units
-    }
-    else if (type.startsWith("dmaema")) {
-        return QColor(0, 100, 255); // Blue for DMAEMA units
-    }
-    else if (type == "C") {
-        return QColor(128, 128, 128); // Gray for carbon
-    }
-    else if (type == "H") {
-        return QColor(255, 255, 255); // White for hydrogen
-    }
-    else if (type == "O") {
-        return QColor(255, 0, 0); // Red for oxygen
-    }
-    else if (type == "N") {
-        return QColor(0, 0, 255); // Blue for nitrogen
-    }
-    
-    return QColor(200, 200, 200); // Default gray
-}
-
-float VTFParser::getAtomRadius(float vtfRadius)
-{
-    // Convert VTF radius to appropriate display radius
-    // VTF uses different scaling, adjust for molecular visualization
-    return qMax(0.3f, vtfRadius / 100.0f);
-}
+// Claude Generated 2026 - getAtomColor()/getAtomRadius() removed: dead legacy
+// helpers with the same hard-coded polymer→colour table that broke generic VTF.
+// Colour is now the renderer's "By Type" scheme (SceneController::typeColor) and
+// the per-bead radius flows through MoleculeViewer::Atom::radius.

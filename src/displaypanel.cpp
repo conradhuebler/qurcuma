@@ -120,6 +120,7 @@ void DisplayPanel::createRenderingGroup(QVBoxLayout* mainLayout)
     m_colorSchemeCombo->addItem(tr("CPK (Element Colors)"), static_cast<int>(MoleculeViewer::ColorScheme::CPK));
     m_colorSchemeCombo->addItem(tr("Monochrome"), static_cast<int>(MoleculeViewer::ColorScheme::Monochrome));
     m_colorSchemeCombo->addItem(tr("By Charge"), static_cast<int>(MoleculeViewer::ColorScheme::ByCharge));
+    m_colorSchemeCombo->addItem(tr("By Type (CG beads)"), static_cast<int>(MoleculeViewer::ColorScheme::ByType));
     m_colorSchemeCombo->addItem(tr("Custom"), static_cast<int>(MoleculeViewer::ColorScheme::Custom));
     connect(m_colorSchemeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
         this, &DisplayPanel::onColorSchemeChanged);
@@ -373,6 +374,28 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
         if (m_viewer) m_viewer->setBondEditMode(m_bondEditCombo->itemData(i).toInt());
     });
     f->addRow(tr("Bond Edit:"), m_bondEditCombo);
+
+    // Claude Generated 2026 - Per-atom overlay labels (element / bead type / index).
+    auto* labelCombo = new QComboBox(this);
+    labelCombo->addItem(tr("No labels"), int(MoleculeViewer::AtomLabel::None));
+    labelCombo->addItem(tr("Element"), int(MoleculeViewer::AtomLabel::Element));
+    labelCombo->addItem(tr("Type (bead)"), int(MoleculeViewer::AtomLabel::Type));
+    labelCombo->addItem(tr("Index"), int(MoleculeViewer::AtomLabel::Index));
+    labelCombo->setToolTip(tr("Draw a text label next to each atom. Element falls back "
+                              "to the bead type for coarse-grained (VTF) atoms."));
+    connect(labelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, labelCombo](int i) {
+        if (m_viewer)
+            m_viewer->setAtomLabelMode(static_cast<MoleculeViewer::AtomLabel>(labelCombo->itemData(i).toInt()));
+    });
+    f->addRow(tr("Labels:"), labelCombo);
+
+    auto* labelSelOnly = new QCheckBox(tr("Label selected atoms only"), this);
+    labelSelOnly->setToolTip(tr("Show labels only for selected atoms — clearer and faster "
+                                "for large or coarse-grained systems."));
+    connect(labelSelOnly, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_viewer) m_viewer->setLabelSelectionOnly(on);
+    });
+    f->addRow(QString(), labelSelOnly);
 
     m_forceVectorsCheck = new QCheckBox(tr("Show force vectors while grabbing"), this);
     connect(m_forceVectorsCheck, &QCheckBox::toggled, this, [this](bool on) {
