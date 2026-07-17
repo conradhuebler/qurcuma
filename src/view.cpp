@@ -2194,45 +2194,38 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
             qWarning() << "exportImage qml:" << e.toString();
         return false;
     }
-    QObject* rootObj = component.create(engine.rootContext());
-    auto* rootItem = qobject_cast<QQuickItem*>(rootObj);
-    if (!rootItem) {
-        delete rootObj;
+    // Claude Generated 2026 - QScopedPointer so every early return below releases the
+    // QML scene automatically (was 6 hand-written `delete rootObj`, one per exit path).
+    QScopedPointer<QObject> root(component.create(engine.rootContext()));
+    auto* rootItem = qobject_cast<QQuickItem*>(root.data());
+    if (!rootItem)
         return false;
-    }
     rootItem->setParentItem(quickWindow.contentItem());
     rootItem->setSize(QSizeF(width, height));
     quickWindow.setGeometry(0, 0, width, height);
 
     if (!renderControl.initialize()) {
         qWarning() << "exportImage: QQuickRenderControl::initialize() failed";
-        delete rootObj;
         return false;
     }
     QRhi* rhi = renderControl.rhi();
-    if (!rhi) {
-        delete rootObj;
+    if (!rhi)
         return false;
-    }
 
     const QSize pixelSize(width, height);
     QScopedPointer<QRhiTexture> tex(rhi->newTexture(QRhiTexture::RGBA8, pixelSize, 1,
         QRhiTexture::RenderTarget | QRhiTexture::UsedAsTransferSource));
     QScopedPointer<QRhiRenderBuffer> ds(
         rhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil, pixelSize, 1));
-    if (!tex->create() || !ds->create()) {
-        delete rootObj;
+    if (!tex->create() || !ds->create())
         return false;
-    }
     QRhiTextureRenderTargetDescription rtDesc(QRhiColorAttachment(tex.data()));
     rtDesc.setDepthStencilBuffer(ds.data());
     QScopedPointer<QRhiTextureRenderTarget> rt(rhi->newTextureRenderTarget(rtDesc));
     QScopedPointer<QRhiRenderPassDescriptor> rp(rt->newCompatibleRenderPassDescriptor());
     rt->setRenderPassDescriptor(rp.data());
-    if (!rt->create()) {
-        delete rootObj;
+    if (!rt->create())
         return false;
-    }
 
     quickWindow.setRenderTarget(QQuickRenderTarget::fromRhiRenderTarget(rt.data()));
 
@@ -2265,7 +2258,7 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
 #endif
     }
 
-    delete rootObj;            // release the QML scene before engine/ctrl go away
+    root.reset();              // release the QML scene before engine/ctrl go away
     renderControl.invalidate();
 
     if (result.isNull())
