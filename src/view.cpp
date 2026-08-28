@@ -9,6 +9,7 @@
 
 #include "bondeditor.h"
 #include "elementdata.h"
+#include "widgets/elementpicker.h"  // Claude Generated 2026 - builder element strip
 #include "settings.h"
 
 #include "src/core/elements.h"
@@ -3563,6 +3564,21 @@ void MoleculeViewer::setupControlPanel()
         }
     });
     panelLayout->addWidget(buildBtn);
+
+    // Element strip — visible only while Build mode is on (Claude Generated 2026).
+    // Two-way sync with the viewer's build element (hotkeys move the highlight).
+    auto* elementStrip = new ElementQuickBar;
+    elementStrip->setVisible(false);
+    elementStrip->setCurrentElement(m_buildElement);
+    connect(elementStrip, &ElementQuickBar::elementPicked,
+        this, &MoleculeViewer::setBuildElement);
+    connect(this, &MoleculeViewer::buildElementChanged,
+        elementStrip, &ElementQuickBar::setCurrentElement);
+    connect(this, &MoleculeViewer::interactionModeChanged, elementStrip,
+        [elementStrip](InteractionMode m) {
+            elementStrip->setVisible(m == InteractionMode::Build);
+        });
+    panelLayout->addWidget(elementStrip);
 
     // NCI toggle — quick access to the non-covalent interaction overlay (Claude
     // Generated 2026). Click toggles; the dropdown arrow picks the source. The

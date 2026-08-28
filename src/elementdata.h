@@ -23,4 +23,10 @@ float covalentRadius(const QString& element);
 /// "C", "Na"). Used to tell chemical atoms from coarse-grained bead labels.
 bool isElementSymbol(const QString& s);
 
+/// Atomic number for a symbol (0 if unknown). Claude Generated 2026.
+int atomicNumber(const QString& symbol);
+
+/// Symbol for an atomic number 1..118 (empty if out of range). Claude Generated 2026.
+QString symbolForZ(int z);
+
 } // namespace elem

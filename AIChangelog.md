@@ -467,3 +467,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-28: Chrome polish: shared display QActions + viewport context menu, playback toggle with Space/arrow keys, permanent status-bar indicators, Photo split-button, Custom scheme in bar combo, Teaching layout reachable (Ctrl+Alt+5), shortcut conflicts resolved
 - 2026-08-28: Builder groundwork: exclusive InteractionMode enum (None/Edit/Measure/BondEdit/Build) replaces pairwise mode resets; bond edits now undoable and fully propagated; appendMolecule startPlacement flag
 - 2026-08-28: Build mode core: place/attach atoms with chosen element, bond by dragging atom to atom (order cycles), element hotkeys, HUD, per-atom context menu, coalesced undo snapshots
+- 2026-08-28: Element picker: quick strip (H C N O S P F Cl Br) + full periodic-table popup in the viewer bar (Build mode only); element tables extended via curcuma literature data for all 118 elements
