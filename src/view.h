@@ -12,6 +12,7 @@
 #include <QSpinBox>
 #include <QFrame>
 #include <QColor>
+#include <QElapsedTimer>
 #include <QQuaternion>
 #include <QVector3D>
 #include <QHash>
@@ -295,6 +296,22 @@ public slots:
     /// Enable/disable the Edit interaction mode (thin wrapper on setInteractionMode).
     void setEditMode(bool on);
     bool editMode() const { return m_mode == InteractionMode::Edit; }
+
+    // ----- Molecule builder (Build mode). Claude Generated 2026 -------------
+    // Click empty space: place an atom of the current element at the selection's
+    // depth. Click an atom: attach a bonded atom along its free valence. Drag
+    // atom -> atom: add a bond, or cycle an existing one's order 1->2->3->1.
+    void setBuildMode(bool on);
+    bool buildMode() const { return m_mode == InteractionMode::Build; }
+    /// The element new atoms are created with (default "C").
+    void setBuildElement(const QString& symbol);
+    QString buildElement() const { return m_buildElement; }
+    /// Attach a new atom of the current build element to @p atomIndex, placed
+    /// along its free-valence direction at covalent-bond distance. Also used by
+    /// the viewport context menu outside Build mode.
+    void buildAttachAtom(int atomIndex);
+    /// Add bond a-b (order 1) or cycle an existing bond's order 1->2->3->1.
+    void buildBond(int a, int b);
     /// Select all atoms of the connected fragment that @p seedAtom belongs to.
     void selectFragment(int seedAtom, bool append = false);
     /// Bulk-select a list of atom indices (used by fragment/paste/merge).
@@ -440,6 +457,9 @@ signals:
     /// Claude Generated 2026 - The exclusive interaction mode changed (None/Edit/
     /// Measure/BondEdit/Build); drives mode-conditional UI like the build strip.
     void interactionModeChanged(MoleculeViewer::InteractionMode mode);
+    /// Claude Generated 2026 - The builder's current element changed (hotkey or
+    /// picker); keeps the element strip and HUD in sync.
+    void buildElementChanged(const QString& symbol);
     void displayOptionsRequested();
     // Claude Generated 2026 - Structure editing.
     void editModeChanged(bool on);
@@ -705,6 +725,19 @@ private:
 
     // Claude Generated 2026 - Structure editing state
     InteractionMode m_mode = InteractionMode::None;
+    // Molecule builder state (Build mode). Claude Generated 2026.
+    QString m_buildElement = QStringLiteral("C");
+    QElapsedTimer m_buildSnapshotTimer;  // coalesces undo snapshots (5 s window)
+    int m_buildDragFrom = -1;            // atom under the press starting a bond-drag
+    /// Append one atom (optionally bonded to @p bondTo) with full notifications.
+    int addAtomAt(const QVector3D& modelPos, const QString& element, int bondTo = -1);
+    /// Place an atom of the current element under the cursor (click on empty space).
+    void placeAtomAtScreen(const QPoint& pos);
+    /// -(sum of unit bond vectors): where a new substituent has the most room.
+    QVector3D freeValenceDirection(int atomIndex) const;
+    /// Coalesced undo snapshot: at most one per 5 s of build edits.
+    void requestBuildSnapshot();
+    void updateBuildHint();
     bool m_movingSelection = false;       // a drag-move of the selection is in progress
     bool m_moveSnapshotTaken = false;     // pre-move undo snapshot taken for this drag
     bool m_emptyPressPending = false;     // left-press on empty space (clears on release)

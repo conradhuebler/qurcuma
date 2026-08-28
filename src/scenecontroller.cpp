@@ -963,7 +963,7 @@ void SceneController::ensureFragments() const
         for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
             append(it.key(), it.value());
 
-        m_fragmentInfo.append({ formula, members.size() });
+        m_fragmentInfo.append({ formula, int(members.size()) });
     }
 }
 
@@ -1822,6 +1822,27 @@ QVector3D SceneController::computeGrabForce(float mx, float my, int atomIndex,
 // strength). The X/Y components move in the view plane; dDepthPx moves along the
 // camera axis (+Z = toward the camera). The result is rotated into model-local
 // (intrinsic) coords so it can be added directly to stored atom positions.
+// Claude Generated 2026 - Inverse of pickAtom's ray at a reference depth: cast
+// the same ray and intersect it with the camera-facing plane (z = const, the
+// camera looks down -Z) through the reference point, then rotate back into
+// model-local coordinates (inverse of modelToWorld).
+QVector3D SceneController::screenToModelPoint(float sx, float sy,
+    const QVector3D& depthRefLocal, float viewW, float viewH) const
+{
+    if (viewW <= 0 || viewH <= 0)
+        return depthRefLocal;
+    const QVector3D camPos = cameraWorldPos();
+    const float halfH = std::tan(m_fov * float(M_PI) / 360.0f);
+    const float halfW = halfH * (viewW / viewH);
+    const float ndcX = 2.0f * sx / viewW - 1.0f;
+    const float ndcY = 1.0f - 2.0f * sy / viewH;
+    const QVector3D rayDir = QVector3D(ndcX * halfW, ndcY * halfH, -1.0f).normalized();
+    const QVector3D refWorld = modelToWorld(depthRefLocal);
+    const float t = (refWorld.z() - camPos.z()) / rayDir.z();  // rayDir.z() < 0 always
+    const QVector3D world = camPos + rayDir * t;
+    return m_sceneCenter + m_rootRotation.inverted().rotatedVector(world - m_sceneCenter);
+}
+
 QVector3D SceneController::screenDragToModelDelta(float dxPx, float dyPx, float dDepthPx,
     const QVector3D& refLocal, float viewW, float viewH) const
 {

@@ -187,6 +187,14 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     }
                     return true;
                 }
+                if (buildMode() && !m_simulationActive) {
+                    // Claude Generated 2026 - Build mode: remember the atom under the
+                    // press. A drag from it becomes a bond-drag (handled in MouseMove/
+                    // Release); a press on empty space stays a rotate-drag, and a plain
+                    // click places a new atom on release.
+                    m_buildDragFrom = pickAtomAtScreenPos(m_lastMousePos);
+                    return true;
+                }
                 if (m_simulationActive) {
                     int picked = pickAtomAtScreenPos(m_lastMousePos);
                     if (picked >= 0) {
@@ -239,6 +247,26 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                         computeCollisions();
                     }
                     m_emptyPressPending = false;
+                    return true;
+                }
+                if (buildMode() && !m_simulationActive) {
+                    // Claude Generated 2026 - Build mode gestures resolve on release.
+                    const QPoint pos = me->position().toPoint();
+                    const int from = m_buildDragFrom;
+                    m_buildDragFrom = -1;
+                    if (m_scene)
+                        m_scene->setMeasurement({}, QString());  // clear the bond preview
+                    if (from >= 0) {
+                        if (!m_leftDragged) {
+                            buildAttachAtom(from);      // click on an atom: attach
+                        } else {
+                            const int target = pickAtomAtScreenPos(pos);
+                            if (target >= 0 && target != from)
+                                buildBond(from, target); // drag atom -> atom: bond
+                        }
+                    } else if (!m_leftDragged) {
+                        placeAtomAtScreen(pos);          // click on empty space: place
+                    }
                     return true;
                 }
                 if (m_grabbedAtom >= 0) {
@@ -336,6 +364,22 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 m_leftDragged = true;
                 if (m_scene)
                     m_scene->setRubberBand(QRectF(m_rubberStart, pos).normalized(), true);
+                m_lastMousePos = pos;
+                return true;
+            }
+            if (buildMode() && !m_simulationActive && m_leftMousePressed && m_buildDragFrom >= 0) {
+                // Claude Generated 2026 - Bond-drag preview: a dashed line from the
+                // pressed atom to the point under the cursor (at that atom's depth).
+                if ((pos - m_leftPressPos).manhattanLength() > 3)
+                    m_leftDragged = true;
+                if (m_leftDragged && m_scene && m_quickView
+                    && m_currentFrame < m_trajectoryAtoms.size()
+                    && m_buildDragFrom < m_trajectoryAtoms[m_currentFrame].size()) {
+                    const QVector3D from = m_trajectoryAtoms[m_currentFrame][m_buildDragFrom].position;
+                    const QVector3D to = m_scene->screenToModelPoint(pos.x(), pos.y(), from,
+                        m_quickView->width(), m_quickView->height());
+                    m_scene->setMeasurement({ qMakePair(from, to) }, QString());
+                }
                 m_lastMousePos = pos;
                 return true;
             }
@@ -2019,6 +2063,15 @@ void MoleculeViewer::setInteractionMode(InteractionMode mode)
             m_bondEditor->setEditMode(BondEditor::EditMode::None);
         emit bondEditModeChanged(0);
         break;
+    case InteractionMode::Build:
+        m_buildDragFrom = -1;
+        m_collisionAtoms.clear();
+        if (m_scene) {
+            m_scene->setCollisionAtoms({});
+            m_scene->setMeasurement({}, QString());  // clear a bond-drag preview
+        }
+        emit collisionCountChanged(0);
+        break;
     default:
         break;
     }
@@ -2036,6 +2089,11 @@ void MoleculeViewer::setInteractionMode(InteractionMode mode)
             m_scene->setEditHint(tr("Edit  ·  drag: move (Shift = depth)  ·  WASD/QE: rotate"
                                     "  ·  double-click: whole molecule"
                                     "  ·  Ctrl/Shift+drag: box-select"));
+        break;
+    case InteractionMode::Build:
+        m_buildSnapshotTimer.invalidate();  // first build edit snapshots immediately
+        computeCollisions();
+        updateBuildHint();
         break;
     default:
         break;
@@ -2097,6 +2155,192 @@ void MoleculeViewer::setEditMode(bool on)
         setInteractionMode(InteractionMode::Edit);
     else if (m_mode == InteractionMode::Edit)
         setInteractionMode(InteractionMode::None);
+}
+
+// ===========================================================================
+// Molecule builder (Build mode). Claude Generated 2026.
+// Click empty space = place an atom of the current element at the selection's
+// depth; click an atom = attach a bonded atom along its free valence at
+// covalent distance; drag atom -> atom = add a bond / cycle its order.
+// ===========================================================================
+void MoleculeViewer::setBuildMode(bool on)
+{
+    if (on)
+        setInteractionMode(InteractionMode::Build);
+    else if (m_mode == InteractionMode::Build)
+        setInteractionMode(InteractionMode::None);
+}
+
+void MoleculeViewer::setBuildElement(const QString& symbol)
+{
+    if (symbol.isEmpty() || m_buildElement == symbol)
+        return;
+    m_buildElement = symbol;
+    if (buildMode())
+        updateBuildHint();
+    emit buildElementChanged(m_buildElement);
+}
+
+void MoleculeViewer::updateBuildHint()
+{
+    if (m_scene)
+        m_scene->setEditHint(tr("Build [%1]  ·  click: place atom  ·  click atom: attach"
+                                "  ·  drag atom→atom: bond (repeat: order)"
+                                "  ·  X/Del: delete  ·  H C N O S P F L(Cl) R(Br): element")
+                                 .arg(m_buildElement));
+}
+
+// One undo snapshot per 5 s of building: placing a chain atom-by-atom stays a
+// single Snapshots entry instead of one per click.
+void MoleculeViewer::requestBuildSnapshot()
+{
+    if (!m_buildSnapshotTimer.isValid() || m_buildSnapshotTimer.elapsed() > 5000) {
+        emit editSnapshotRequested(tr("Before build edits"));
+        m_buildSnapshotTimer.start();
+    }
+}
+
+// Where a new substituent has the most room: opposite the average of the unit
+// vectors to the bonded neighbours. No neighbours -> +X; neighbours that cancel
+// (linear/symmetric coordination) -> any direction perpendicular to the first.
+QVector3D MoleculeViewer::freeValenceDirection(int atomIndex) const
+{
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return QVector3D(1, 0, 0);
+    const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (atomIndex < 0 || atomIndex >= atoms.size())
+        return QVector3D(1, 0, 0);
+    QVector3D sum;
+    QVector3D firstDir;
+    int neighbours = 0;
+    if (m_currentFrame < m_trajectoryBonds.size()) {
+        for (const Bond& b : m_trajectoryBonds[m_currentFrame]) {
+            int other = -1;
+            if (b.atom1 == atomIndex)
+                other = b.atom2;
+            else if (b.atom2 == atomIndex)
+                other = b.atom1;
+            if (other < 0 || other >= atoms.size())
+                continue;
+            const QVector3D d = (atoms[other].position - atoms[atomIndex].position).normalized();
+            if (neighbours == 0)
+                firstDir = d;
+            sum += d;
+            ++neighbours;
+        }
+    }
+    if (neighbours == 0)
+        return QVector3D(1, 0, 0);
+    QVector3D dir = -sum;
+    if (dir.length() < 1e-3f) {
+        QVector3D perp = QVector3D::crossProduct(firstDir, QVector3D(0, 0, 1));
+        if (perp.length() < 1e-3f)
+            perp = QVector3D::crossProduct(firstDir, QVector3D(0, 1, 0));
+        return perp.normalized();
+    }
+    return dir.normalized();
+}
+
+// Append one atom (optionally bonded to an existing one) with the full
+// post-mutation canon, so table/text/NCI/fragments/clashes stay current.
+int MoleculeViewer::addAtomAt(const QVector3D& modelPos, const QString& element, int bondTo)
+{
+    Atom atom;
+    atom.position = modelPos;
+    atom.element = element;
+
+    if (m_trajectoryAtoms.isEmpty()) {
+        addMolecule({ atom }, {});   // nothing loaded yet -> behave like a load
+        selectAtoms({ 0 }, false);
+        return 0;
+    }
+    if (!canEditStructure()) {
+        qWarning() << "addAtomAt: only single-frame structures can be edited";
+        return -1;
+    }
+    requestBuildSnapshot();
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    const int index = atoms.size();
+    atoms.append(atom);
+    if (m_currentFrame >= m_trajectoryBonds.size())
+        m_trajectoryBonds.resize(m_currentFrame + 1);
+    if (bondTo >= 0 && bondTo < index)
+        m_trajectoryBonds[m_currentFrame].append({ bondTo, index, 1 });
+
+    if (m_bondEditor)
+        m_bondEditor->setAtoms(atoms);
+    if (m_perfOpt)
+        m_perfOpt->setAtomCount(atoms.size());
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/true, /*keepView=*/true);
+    selectAtoms({ index }, /*append=*/false);
+    buildForceAdjacency();
+    invalidateNciTopology();
+    emit fragmentsChanged();
+    refreshNciOverlay();
+    computeCollisions();
+    onStructureChanged();
+    emit moleculeUpdated(atoms, getCurrentFrameBonds());
+    return index;
+}
+
+void MoleculeViewer::placeAtomAtScreen(const QPoint& pos)
+{
+    if (m_trajectoryAtoms.isEmpty()
+        || (m_currentFrame < m_trajectoryAtoms.size() && m_trajectoryAtoms[m_currentFrame].isEmpty())) {
+        addAtomAt(QVector3D(0, 0, 0), m_buildElement);  // first atom: origin
+        return;
+    }
+    // Depth reference: the selection's centroid keeps consecutive placements in
+    // one plane; without a selection, the molecule centre.
+    const QVector3D depthRef = m_selectedAtoms.isEmpty() ? m_moleculeCenter : selectionCentroidLocal();
+    QVector3D p = depthRef;
+    if (m_scene && m_quickView)
+        p = m_scene->screenToModelPoint(pos.x(), pos.y(), depthRef,
+            m_quickView->width(), m_quickView->height());
+    addAtomAt(p, m_buildElement);
+}
+
+void MoleculeViewer::buildAttachAtom(int atomIndex)
+{
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (atomIndex < 0 || atomIndex >= atoms.size())
+        return;
+    const QVector3D dir = freeValenceDirection(atomIndex);
+    const float dist = elem::covalentRadius(atoms[atomIndex].element)
+        + elem::covalentRadius(m_buildElement);
+    addAtomAt(atoms[atomIndex].position + dir * dist, m_buildElement, atomIndex);
+}
+
+void MoleculeViewer::buildBond(int a, int b)
+{
+    if (a == b || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    if (m_currentFrame >= m_trajectoryBonds.size())
+        m_trajectoryBonds.resize(m_currentFrame + 1);
+    QVector<Bond>& bonds = m_trajectoryBonds[m_currentFrame];
+    int found = -1;
+    for (int i = 0; i < bonds.size(); ++i)
+        if ((bonds[i].atom1 == a && bonds[i].atom2 == b)
+            || (bonds[i].atom1 == b && bonds[i].atom2 == a)) {
+            found = i;
+            break;
+        }
+    requestBuildSnapshot();
+    if (found < 0)
+        bonds.append({ a, b, 1 });
+    else
+        bonds[found].bondOrder = (bonds[found].bondOrder % 3) + 1;  // 1->2->3->1
+    // Connectivity changed: same follow-up canon as performBondEdit.
+    refreshVisualization();
+    buildForceAdjacency();
+    invalidateNciTopology();
+    emit fragmentsChanged();
+    refreshNciOverlay();
+    computeCollisions();
+    onStructureChanged();
+    emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
 }
 
 QVector3D MoleculeViewer::selectionCentroidLocal() const
@@ -3292,6 +3536,33 @@ void MoleculeViewer::setupControlPanel()
         }
     });
     panelLayout->addWidget(editBtn);
+
+    // Build toggle — molecule builder (Claude Generated 2026). Sibling of
+    // Measure/Edit; the element strip and dropdown arrive with the element picker.
+    QToolButton* buildBtn = new QToolButton;
+    buildBtn->setText(tr("Build"));
+    buildBtn->setCheckable(true);
+    buildBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    {
+        QIcon ico = QIcon::fromTheme(QStringLiteral("draw-freehand"));
+        if (ico.isNull())
+            ico = QIcon::fromTheme(QStringLiteral("list-add"));
+        if (!ico.isNull())
+            buildBtn->setIcon(ico);
+    }
+    buildBtn->setToolTip(tr("Molecule builder: click empty space to place an atom, click an "
+                            "atom to attach one, drag atom to atom to bond. "
+                            "Keys H C N O S P F L(Cl) R(Br) pick the element."));
+    connect(buildBtn, &QToolButton::toggled, this, [this](bool on) { setBuildMode(on); });
+    connect(this, &MoleculeViewer::interactionModeChanged, buildBtn, [buildBtn](InteractionMode m) {
+        const bool on = (m == InteractionMode::Build);
+        if (buildBtn->isChecked() != on) {
+            buildBtn->blockSignals(true);
+            buildBtn->setChecked(on);
+            buildBtn->blockSignals(false);
+        }
+    });
+    panelLayout->addWidget(buildBtn);
 
     // NCI toggle — quick access to the non-covalent interaction overlay (Claude
     // Generated 2026). Click toggles; the dropdown arrow picks the source. The

@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "elementdata.h"  // Claude Generated 2026 - element validation for the context menu
 #include "selectionmanager.h"  // Claude Generated - Phase 2A
 #include "atomlistpanel.h"  // Claude Generated - Phase 2C
 #ifdef USE_SFTP
@@ -2553,6 +2554,12 @@ void MainWindow::handleEscape()
         cancelCalculation();
         return;
     }
+    // Claude Generated 2026 - In Build mode, Esc leaves the builder first.
+    if (m_moleculeView
+        && m_moleculeView->interactionMode() == MoleculeViewer::InteractionMode::Build) {
+        m_moleculeView->setBuildMode(false);
+        return;
+    }
     clearAtomSelection();
 }
 
@@ -2561,10 +2568,42 @@ void MainWindow::handleEscape()
 // photo export. Same QActions as the menu bar, so checked states always match.
 void MainWindow::showViewportContextMenu(const QPoint& globalPos, int atomIndex)
 {
-    Q_UNUSED(atomIndex);
     if (!m_displayMenu)
         return;
     QMenu menu(this);
+    // Claude Generated 2026 - Per-atom builder entries when the click hit an atom.
+    if (atomIndex >= 0 && m_moleculeView) {
+        QAction* attach = menu.addAction(
+            tr("Add Bonded Atom (%1)").arg(m_moleculeView->buildElement()));
+        connect(attach, &QAction::triggered, this,
+            [this, atomIndex]() { m_moleculeView->buildAttachAtom(atomIndex); });
+
+        QAction* changeEl = menu.addAction(tr("Change Element…"));
+        connect(changeEl, &QAction::triggered, this, [this, atomIndex]() {
+            const auto atoms = m_moleculeView->getCurrentFrameAtoms();
+            if (atomIndex >= atoms.size())
+                return;
+            bool ok = false;
+            QString s = QInputDialog::getText(this, tr("Change Element"),
+                tr("Element symbol:"), QLineEdit::Normal, atoms[atomIndex].element, &ok)
+                            .trimmed();
+            if (!ok || s.isEmpty())
+                return;
+            s = s.left(1).toUpper() + s.mid(1).toLower();
+            if (!elem::isElementSymbol(s)) {
+                statusBar()->showMessage(tr("Unknown element: %1").arg(s), 3000);
+                return;
+            }
+            m_moleculeView->setAtomInCurrentFrame(atomIndex, s, atoms[atomIndex].position);
+        });
+
+        QAction* delAtom = menu.addAction(tr("Delete Atom"));
+        connect(delAtom, &QAction::triggered, this, [this, atomIndex]() {
+            m_moleculeView->selectAtoms({ atomIndex }, false);
+            m_moleculeView->deleteSelection();
+        });
+        menu.addSeparator();
+    }
     for (QAction* a : m_displayMenu->actions())
         menu.addAction(a);
     menu.addSeparator();
@@ -4461,6 +4500,50 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                     paths << url.toLocalFile();
                 m_lessonController->addFiles(paths);  // filters + parses + status
                 de->acceptProposedAction();
+                return true;
+            }
+        }
+    }
+
+    // Claude Generated 2026 - Builder hotkeys, only while Build mode is on and the
+    // viewport has focus. ShortcutOverride must be accepted first: some of these
+    // letters (N = NCI overlay) and Del are registered QAction shortcuts, which
+    // would otherwise swallow the key before it reaches this filter.
+    if ((event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)
+        && m_moleculeView
+        && m_moleculeView->interactionMode() == MoleculeViewer::InteractionMode::Build
+        && m_moleculeView->viewportHasFocus() && !isTextInputFocused()) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        if (!(ke->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
+            QString element;
+            switch (ke->key()) {
+            case Qt::Key_H: element = QStringLiteral("H"); break;
+            case Qt::Key_C: element = QStringLiteral("C"); break;
+            case Qt::Key_N: element = QStringLiteral("N"); break;
+            case Qt::Key_O: element = QStringLiteral("O"); break;
+            case Qt::Key_S: element = QStringLiteral("S"); break;
+            case Qt::Key_P: element = QStringLiteral("P"); break;
+            case Qt::Key_F: element = QStringLiteral("F"); break;
+            case Qt::Key_L: element = QStringLiteral("Cl"); break;
+            case Qt::Key_R: element = QStringLiteral("Br"); break;
+            case Qt::Key_X:
+            case Qt::Key_Delete:
+                if (event->type() == QEvent::ShortcutOverride) {
+                    event->accept();
+                    return true;
+                }
+                m_moleculeView->deleteSelection();
+                return true;
+            default:
+                break;
+            }
+            if (!element.isEmpty()) {
+                if (event->type() == QEvent::ShortcutOverride) {
+                    event->accept();
+                    return true;
+                }
+                m_moleculeView->setBuildElement(element);
+                statusBar()->showMessage(tr("Build element: %1").arg(element), 1500);
                 return true;
             }
         }
