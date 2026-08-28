@@ -1509,6 +1509,19 @@ void MoleculeViewer::previousFrame()
         showFrame(m_currentFrame - 1);
 }
 
+// Claude Generated 2026 - First/last jump for the playback bar + shortcuts.
+void MoleculeViewer::firstFrame()
+{
+    if (m_trajectoryAtoms.size() > 0)
+        showFrame(0);
+}
+
+void MoleculeViewer::lastFrame()
+{
+    if (m_trajectoryAtoms.size() > 0)
+        showFrame(m_trajectoryAtoms.size() - 1);
+}
+
 namespace {
 // Claude Generated 2026 - order-independent comparison of two bond sets (file-provided bonds may
 // not be in ascending (i,j) order, so compare as a set rather than element-wise).
@@ -2933,13 +2946,32 @@ void MoleculeViewer::startAnimation()
         connect(m_animationTimer, &QTimer::timeout, this, &MoleculeViewer::onAnimationTick);
     }
     m_animationTimer->start(qMax(1, 1000 / m_animationFPS));
+    emit animationStateChanged(true);
 }
 
 void MoleculeViewer::stopAnimation()
 {
     if (m_animationTimer)
         m_animationTimer->stop();
+    const bool wasAnimating = m_isAnimating;
     m_isAnimating = false;
+    if (wasAnimating)
+        emit animationStateChanged(false);
+}
+
+// Claude Generated 2026 - Focus gate for the playback keys (Space, arrows).
+bool MoleculeViewer::viewportHasFocus() const
+{
+    return m_container && m_container->hasFocus();
+}
+
+// Claude Generated 2026 - Play/pause as one action (toggle button, Space).
+void MoleculeViewer::toggleAnimation()
+{
+    if (m_isAnimating)
+        stopAnimation();
+    else
+        startAnimation();
 }
 
 void MoleculeViewer::setAnimationFPS(int fps)
@@ -3038,17 +3070,31 @@ void MoleculeViewer::setupControlPanel()
     frameLayout->setContentsMargins(0, 0, 0, 0);
     frameLayout->setSpacing(3);
 
+    // Claude Generated 2026 - first/prev/next/last; Left/Right and Ctrl+Left/Right
+    // shortcuts are handled in MainWindow's app event filter.
+    QPushButton* firstButton = new QPushButton("⏮");
+    firstButton->setMaximumWidth(30);
+    firstButton->setToolTip(tr("First Frame (Ctrl+Left)"));
+    connect(firstButton, &QPushButton::clicked, this, &MoleculeViewer::firstFrame);
+    frameLayout->addWidget(firstButton);
+
     QPushButton* prevButton = new QPushButton("◀");
     prevButton->setMaximumWidth(30);
-    prevButton->setToolTip(tr("Previous Frame"));
+    prevButton->setToolTip(tr("Previous Frame (Left)"));
     connect(prevButton, &QPushButton::clicked, this, &MoleculeViewer::previousFrame);
     frameLayout->addWidget(prevButton);
 
     QPushButton* nextButton = new QPushButton("▶");
     nextButton->setMaximumWidth(30);
-    nextButton->setToolTip(tr("Next Frame"));
+    nextButton->setToolTip(tr("Next Frame (Right)"));
     connect(nextButton, &QPushButton::clicked, this, &MoleculeViewer::nextFrame);
     frameLayout->addWidget(nextButton);
+
+    QPushButton* lastButton = new QPushButton("⏭");
+    lastButton->setMaximumWidth(30);
+    lastButton->setToolTip(tr("Last Frame (Ctrl+Right)"));
+    connect(lastButton, &QPushButton::clicked, this, &MoleculeViewer::lastFrame);
+    frameLayout->addWidget(lastButton);
 
     m_frameSlider = new QSlider(Qt::Horizontal);
     m_frameSlider->setMinimum(0);
@@ -3086,19 +3132,19 @@ void MoleculeViewer::setupControlPanel()
     playbackLayout->setContentsMargins(0, 0, 0, 0);
     playbackLayout->setSpacing(3);
 
+    // Claude Generated 2026 - One play/pause toggle whose icon shows the state
+    // (was two separate buttons with no running indication). Space toggles too.
     QPushButton* playButton = new QPushButton;
     playButton->setIcon(QIcon::fromTheme("media-playback-start"));
-    playButton->setToolTip(tr("Play Animation"));
+    playButton->setToolTip(tr("Play/Pause Animation (Space)"));
     playButton->setMaximumWidth(30);
-    connect(playButton, &QPushButton::clicked, this, &MoleculeViewer::startAnimation);
+    connect(playButton, &QPushButton::clicked, this, &MoleculeViewer::toggleAnimation);
+    connect(this, &MoleculeViewer::animationStateChanged, playButton, [playButton](bool running) {
+        playButton->setIcon(QIcon::fromTheme(running
+            ? QStringLiteral("media-playback-pause")
+            : QStringLiteral("media-playback-start")));
+    });
     playbackLayout->addWidget(playButton);
-
-    QPushButton* pauseButton = new QPushButton;
-    pauseButton->setIcon(QIcon::fromTheme("media-playback-pause"));
-    pauseButton->setToolTip(tr("Pause Animation"));
-    pauseButton->setMaximumWidth(30);
-    connect(pauseButton, &QPushButton::clicked, this, &MoleculeViewer::stopAnimation);
-    playbackLayout->addWidget(pauseButton);
 
     QSpinBox* fpsSpinBox = new QSpinBox;
     fpsSpinBox->setRange(1, 60);

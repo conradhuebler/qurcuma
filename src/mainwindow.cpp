@@ -1224,6 +1224,15 @@ void MainWindow::createMenus()
 
     // Statusleiste
     setStatusBar(new QStatusBar);
+    // Claude Generated 2026 - Permanent indicators: file · atoms · frame. Transient
+    // showMessage() notices appear to their left and disappear; these stay.
+    m_statusFileLabel = new QLabel(this);
+    m_statusAtomsLabel = new QLabel(this);
+    m_statusFrameLabel = new QLabel(this);
+    m_statusFrameLabel->setVisible(false);
+    statusBar()->addPermanentWidget(m_statusFileLabel);
+    statusBar()->addPermanentWidget(m_statusAtomsLabel);
+    statusBar()->addPermanentWidget(m_statusFrameLabel);
 }
 
 void MainWindow::setupConnections()
@@ -1411,6 +1420,14 @@ void MainWindow::setupConnections()
                         m_moleculeView->centerOnAtom(atomIndex);
                     }
                 });
+
+        // Claude Generated 2026 - Keep the permanent status-bar indicators current.
+        connect(m_moleculeView, &MoleculeViewer::trajectoryLoaded,
+                this, &MainWindow::updateStatusIndicators);
+        connect(m_moleculeView, &MoleculeViewer::frameChanged,
+                this, &MainWindow::updateStatusIndicators);
+        connect(m_moleculeView, &MoleculeViewer::moleculeUpdated,
+                this, &MainWindow::updateStatusIndicators);
 
         // When MoleculeViewer loads molecule → Update AtomListPanel
         connect(m_moleculeView, &MoleculeViewer::trajectoryLoaded,
@@ -2549,6 +2566,24 @@ void MainWindow::showViewportContextMenu(const QPoint& globalPos, int atomIndex)
     QAction* photo = menu.addAction(QIcon::fromTheme("camera-photo"), tr("Photo (Quick Export)"));
     connect(photo, &QAction::triggered, this, &MainWindow::quickExportPhoto);
     menu.exec(globalPos);
+}
+
+// Claude Generated 2026 - Refresh the permanent status-bar indicators from the
+// viewer (atom count of the current frame, frame position for trajectories).
+void MainWindow::updateStatusIndicators()
+{
+    if (!m_moleculeView || !m_statusAtomsLabel || !m_statusFrameLabel)
+        return;
+    const int atoms = m_moleculeView->getCurrentFrameAtoms().size();
+    m_statusAtomsLabel->setText(atoms > 0 ? tr("%1 atoms").arg(atoms) : QString());
+    const int frames = m_moleculeView->getFrameCount();
+    if (frames > 1) {
+        m_statusFrameLabel->setText(
+            tr("Frame %1/%2").arg(m_moleculeView->getCurrentFrame() + 1).arg(frames));
+        m_statusFrameLabel->setVisible(true);
+    } else {
+        m_statusFrameLabel->setVisible(false);
+    }
 }
 
 // Claude Generated 2026 - One-click PNG export into the working directory
@@ -3740,6 +3775,8 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     // Directory", breadcrumb, recent dirs, workspace, CLI <dir>); clicking around
     // and opening structures should never move it.
     if (fileLoaded) {
+        if (m_statusFileLabel)
+            m_statusFileLabel->setText(QFileInfo(filePath).fileName());
         // A fresh molecule resets the scene (clears any RMSD overlays); reset the RMSD
         // workspace too so it does not keep stale aligned structures.
         if (m_rmsdWidget)
@@ -4424,6 +4461,30 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 
     if (event->type() == QEvent::KeyPress && m_moleculeView) {
         auto* ke = static_cast<QKeyEvent*>(event);
+        // Claude Generated 2026 - Trajectory playback keys, only when a multi-frame
+        // file is loaded AND the 3D viewport has focus (click it first), so lists,
+        // tables and buttons keep their arrow/space behaviour: Space = play/pause,
+        // Left/Right = prev/next frame, Ctrl+Left/Right = first/last.
+        if (m_moleculeView->getFrameCount() > 1 && m_moleculeView->viewportHasFocus()
+            && !(ke->modifiers() & (Qt::AltModifier | Qt::MetaModifier | Qt::ShiftModifier))) {
+            const bool ctrl = ke->modifiers() & Qt::ControlModifier;
+            switch (ke->key()) {
+            case Qt::Key_Space:
+                if (!ctrl) {
+                    m_moleculeView->toggleAnimation();
+                    return true;
+                }
+                break;
+            case Qt::Key_Left:
+                ctrl ? m_moleculeView->firstFrame() : m_moleculeView->previousFrame();
+                return true;
+            case Qt::Key_Right:
+                ctrl ? m_moleculeView->lastFrame() : m_moleculeView->nextFrame();
+                return true;
+            default:
+                break;
+            }
+        }
         // Auto-repeat allowed: holding a key keeps rotating.
         if (!(ke->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
             const int key = ke->key();

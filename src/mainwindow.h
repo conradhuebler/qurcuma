@@ -509,6 +509,12 @@ private:
     void showViewportContextMenu(const QPoint& globalPos, int atomIndex);
     /// One-click PNG export (viewer-bar Photo button, context menu).
     void quickExportPhoto();
+    // Claude Generated 2026 - Permanent status-bar indicators (file · atoms · frame),
+    // so the current state survives the transient showMessage() notices.
+    QLabel* m_statusFileLabel = nullptr;
+    QLabel* m_statusAtomsLabel = nullptr;
+    QLabel* m_statusFrameLabel = nullptr;
+    void updateStatusIndicators();
     void onSimulationConfigChanged(SimulationConfig cfg);
 
 #ifdef USE_SFTP

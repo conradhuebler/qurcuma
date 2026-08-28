@@ -222,6 +222,8 @@ public slots:
     void showFrame(int frameIndex);  // Show specific frame
     void nextFrame();               // Show next frame
     void previousFrame();           // Show previous frame
+    void firstFrame();              // Jump to the first frame (Claude Generated 2026)
+    void lastFrame();               // Jump to the last frame (Claude Generated 2026)
 
     // Claude Generated - Screenshot/Export functionality
     void saveScreenshot(const QString& filename, int scaleFactor = 1);
@@ -247,6 +249,11 @@ public slots:
     // Claude Generated - Trajectory animation
     void startAnimation();
     void stopAnimation();
+    void toggleAnimation();  // play/pause in one action (Claude Generated 2026)
+    bool isAnimating() const { return m_isAnimating; }
+    /// True when the 3D viewport (window container) has keyboard focus — gate for
+    /// the playback keys so they never steal arrows from lists. Claude Generated 2026.
+    bool viewportHasFocus() const;
     void setAnimationFPS(int fps);
     int getAnimationFPS() const { return m_animationFPS; }
     void setAnimationLoop(bool loop) { m_animationLoop = loop; }
@@ -400,6 +407,9 @@ signals:
     /// Claude Generated 2026 - Right-click (no drag) on the viewport asks the
     /// host for the shared context menu. atomIndex = picked atom or -1.
     void contextMenuRequested(const QPoint& globalPos, int atomIndex);
+    /// Claude Generated 2026 - Trajectory playback started/stopped (drives the
+    /// play/pause toggle button's icon).
+    void animationStateChanged(bool running);
     void measurementModeChanged(int mode);  // 0=off,1=distance,2=angle,3=dihedral
     void displayOptionsRequested();
     // Claude Generated 2026 - Structure editing.
