@@ -22,6 +22,8 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSettings>
+#include <QTimer>
 #include <QSlider>
 #include <QSpinBox>
 #include <QToolButton>
@@ -88,32 +90,48 @@ void DisplayPanel::setupUI()
     col->setContentsMargins(4, 4, 4, 4);
     col->setSpacing(4);
 
-    auto addSection = [&](const QString& title, std::function<void(QVBoxLayout*)> build,
-                          bool expanded) {
+    // Claude Generated 2026 - Sections carry a stable key so their expand state
+    // survives restarts (ui/displayPanel/<key>Expanded) and expandSection() can
+    // surface one programmatically (e.g. the Display menu's NCI entry).
+    QSettings uiSettings;
+    auto addSection = [&](const QString& key, const QString& title,
+                          std::function<void(QVBoxLayout*)> build, bool expandedDefault) {
         auto* sec = new CollapsibleSection(title, content);
         auto* lay = new QVBoxLayout;
         lay->setSpacing(4);
         build(lay);
         sec->setContentLayout(lay);
-        sec->setExpanded(expanded);
+        const QString settingsKey = QStringLiteral("ui/displayPanel/%1Expanded").arg(key);
+        sec->setExpanded(uiSettings.value(settingsKey, expandedDefault).toBool());
+        connect(sec, &CollapsibleSection::expandedChanged, this, [settingsKey](bool on) {
+            QSettings().setValue(settingsKey, on);
+        });
+        m_sections.insert(key, sec);
         col->addWidget(sec);
         return sec;
     };
 
-    addSection(tr("Style"), [this](QVBoxLayout* l) {
+    addSection(QStringLiteral("style"), tr("Style"), [this](QVBoxLayout* l) {
         createRenderingGroup(l);
         createFragmentGroup(l);
         createBeadTypeGroup(l);
         createMaterialGroup(l);
         createSizeGroup(l);
     }, true);
-    addSection(tr("Effects"), [this](QVBoxLayout* l) { createAppearanceGroup(l); }, false);
-    addSection(tr("Lighting"), [this](QVBoxLayout* l) { createLightingGroup(l); }, false);
-    addSection(tr("Tools"), [this](QVBoxLayout* l) { createToolsGroup(l); createNciGroup(l); }, false);
-    addSection(tr("Presets"), [this](QVBoxLayout* l) { createPresetsGroup(l); }, false);
+    addSection(QStringLiteral("nci"), tr("Interactions (NCI)"),
+        [this](QVBoxLayout* l) { createNciGroup(l); }, false);
+    addSection(QStringLiteral("effects"), tr("Effects"),
+        [this](QVBoxLayout* l) { createAppearanceGroup(l); }, false);
+    addSection(QStringLiteral("lighting"), tr("Lighting"),
+        [this](QVBoxLayout* l) { createLightingGroup(l); }, false);
+    addSection(QStringLiteral("tools"), tr("Tools"),
+        [this](QVBoxLayout* l) { createToolsGroup(l); }, false);
+    addSection(QStringLiteral("presets"), tr("Presets"),
+        [this](QVBoxLayout* l) { createPresetsGroup(l); }, false);
 
     col->addStretch();
     scroll->setWidget(content);
+    m_scroll = scroll;
     root->addWidget(scroll, 1);
 
     // Footer: live changes apply instantly; these manage defaults.
@@ -161,6 +179,29 @@ void DisplayPanel::createRenderingGroup(QVBoxLayout* mainLayout)
     connect(m_colorSchemeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
         this, &DisplayPanel::onColorSchemeChanged);
     f->addRow(tr("Colors:"), m_colorSchemeCombo);
+
+    // Claude Generated 2026 - Per-atom overlay labels (element / bead type / index).
+    // Everyday viewing option, so it lives under Style rather than Tools.
+    auto* labelCombo = new QComboBox(this);
+    labelCombo->addItem(tr("No labels"), int(MoleculeViewer::AtomLabel::None));
+    labelCombo->addItem(tr("Element"), int(MoleculeViewer::AtomLabel::Element));
+    labelCombo->addItem(tr("Type (bead)"), int(MoleculeViewer::AtomLabel::Type));
+    labelCombo->addItem(tr("Index"), int(MoleculeViewer::AtomLabel::Index));
+    labelCombo->setToolTip(tr("Draw a text label next to each atom. Element falls back "
+                              "to the bead type for coarse-grained (VTF) atoms."));
+    connect(labelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, labelCombo](int i) {
+        if (m_viewer)
+            m_viewer->setAtomLabelMode(static_cast<MoleculeViewer::AtomLabel>(labelCombo->itemData(i).toInt()));
+    });
+    f->addRow(tr("Labels:"), labelCombo);
+
+    auto* labelSelOnly = new QCheckBox(tr("Label selected atoms only"), this);
+    labelSelOnly->setToolTip(tr("Show labels only for selected atoms — clearer and faster "
+                                "for large or coarse-grained systems."));
+    connect(labelSelOnly, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_viewer) m_viewer->setLabelSelectionOnly(on);
+    });
+    f->addRow(QString(), labelSelOnly);
 
     mainLayout->addWidget(g);
 }
@@ -411,28 +452,6 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
     });
     f->addRow(tr("Bond Edit:"), m_bondEditCombo);
 
-    // Claude Generated 2026 - Per-atom overlay labels (element / bead type / index).
-    auto* labelCombo = new QComboBox(this);
-    labelCombo->addItem(tr("No labels"), int(MoleculeViewer::AtomLabel::None));
-    labelCombo->addItem(tr("Element"), int(MoleculeViewer::AtomLabel::Element));
-    labelCombo->addItem(tr("Type (bead)"), int(MoleculeViewer::AtomLabel::Type));
-    labelCombo->addItem(tr("Index"), int(MoleculeViewer::AtomLabel::Index));
-    labelCombo->setToolTip(tr("Draw a text label next to each atom. Element falls back "
-                              "to the bead type for coarse-grained (VTF) atoms."));
-    connect(labelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, labelCombo](int i) {
-        if (m_viewer)
-            m_viewer->setAtomLabelMode(static_cast<MoleculeViewer::AtomLabel>(labelCombo->itemData(i).toInt()));
-    });
-    f->addRow(tr("Labels:"), labelCombo);
-
-    auto* labelSelOnly = new QCheckBox(tr("Label selected atoms only"), this);
-    labelSelOnly->setToolTip(tr("Show labels only for selected atoms — clearer and faster "
-                                "for large or coarse-grained systems."));
-    connect(labelSelOnly, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setLabelSelectionOnly(on);
-    });
-    f->addRow(QString(), labelSelOnly);
-
     m_forceVectorsCheck = new QCheckBox(tr("Show force vectors while grabbing"), this);
     connect(m_forceVectorsCheck, &QCheckBox::toggled, this, [this](bool on) {
         if (m_viewer) m_viewer->setForceVectorsVisible(on);
@@ -542,16 +561,6 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
     connect(m_rotationModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
         this, &DisplayPanel::onRotationModeChanged);
     f->addRow(tr("Rotation:"), m_rotationModeCombo);
-
-    m_instancingThresholdSpin = new QSpinBox(this);
-    m_instancingThresholdSpin->setRange(1, 100000);
-    m_instancingThresholdSpin->setSingleStep(100);
-    m_instancingThresholdSpin->setValue(500);
-    m_instancingThresholdSpin->setSuffix(tr(" atoms"));
-    m_instancingThresholdSpin->setToolTip(tr("Informational on the Quick3D renderer (always instanced)."));
-    connect(m_instancingThresholdSpin, QOverload<int>::of(&QSpinBox::valueChanged),
-        this, &DisplayPanel::onInstancingThresholdChanged);
-    f->addRow(tr("Instancing threshold:"), m_instancingThresholdSpin);
 
     mainLayout->addWidget(g);
 }
@@ -1126,6 +1135,20 @@ void DisplayPanel::createPresetsGroup(QVBoxLayout* mainLayout)
     mainLayout->addWidget(custom);
 }
 
+// Claude Generated 2026 - Expand one accordion section and scroll it into view
+// (queued so the layout has settled after the expand).
+void DisplayPanel::expandSection(const QString& key)
+{
+    CollapsibleSection* sec = m_sections.value(key);
+    if (!sec)
+        return;
+    sec->setExpanded(true);
+    if (m_scroll)
+        QTimer::singleShot(0, this, [this, sec]() {
+            m_scroll->ensureWidgetVisible(sec, 0, 0);
+        });
+}
+
 // ---------------------------------------------------------------------------
 // Sync all control values from the viewer (read-only; the viewer is the single
 // source of truth for live display state). Claude Generated 2026.
@@ -1140,7 +1163,7 @@ void DisplayPanel::syncFromViewer()
         m_fogIntensitySlider, m_fogDistanceSlider, m_ssaoEnabledCheckBox, m_ssaoIntensitySlider,
         m_ssaoRadiusSpinBox, m_ssaoBiasSpinBox, m_bloomEnabledCheckBox, m_bloomThresholdSpinBox,
         m_bloomIntensitySlider, m_hdrEnabledCheckBox, m_exposureSpinBox, m_rotationModeCombo,
-        m_instancingThresholdSpin, m_forceVectorsCheck, m_wallCheck, m_wallOpacitySlider, m_measureCheck, m_bondEditCombo,
+        m_forceVectorsCheck, m_wallCheck, m_wallOpacitySlider, m_measureCheck, m_bondEditCombo,
         m_cornerLightButtons[0], m_cornerLightButtons[1], m_cornerLightButtons[2], m_cornerLightButtons[3],
         m_nciSourceCombo, m_nciHBondCheck, m_nciXBondCheck, m_nciPiCheck, m_nciContactCheck,
         m_nciHbDistanceSpin, m_nciHbAngleSpin, m_nciLabelCheck, m_nciLiveMdCheck,
@@ -1185,7 +1208,6 @@ void DisplayPanel::syncFromViewer()
     m_exposureSpinBox->setEnabled(hdrOn);
 
     setComboData(m_rotationModeCombo, m_viewer->getRotationMode());
-    m_instancingThresholdSpin->setValue(m_viewer->getInstancingThreshold());
     m_wallCheck->setChecked(m_viewer->getWallVisibleOverride());
     const qreal wallOpacity = m_viewer->getWallOpacity();
     m_wallOpacitySlider->setValue(int(wallOpacity * 100));
@@ -1295,7 +1317,6 @@ void DisplayPanel::onRotationModeChanged(int index)
 {
     if (m_viewer) m_viewer->setRotationMode(m_rotationModeCombo->itemData(index).toInt());
 }
-void DisplayPanel::onInstancingThresholdChanged(int value) { if (m_viewer) m_viewer->setInstancingThreshold(value); }
 
 // ---------------------------------------------------------------------------
 // Footer + presets

@@ -1027,6 +1027,15 @@ void MainWindow::createMenus()
                 [this, source = src.first]() { setNciSourceFromUi(source); });
     }
 
+    QAction* nciOptionsAction = displayMenu->addAction(tr("NCI Op&tions…"));
+    nciOptionsAction->setToolTip(tr("Open the Display panel at the Interactions (NCI) section "
+                                    "(kind filters, thresholds, colours)."));
+    connect(nciOptionsAction, &QAction::triggered, this, [this]() {
+        openVisualizationSettings();
+        if (m_displayPanel)
+            m_displayPanel->expandSection(QStringLiteral("nci"));
+    });
+
     displayMenu->addSeparator();
     QAction* displayPanelAction = displayMenu->addAction(QIcon::fromTheme("configure"), tr("Display &Options…"));
     displayPanelAction->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));

@@ -19,6 +19,13 @@ public:
     void setContentLayout(QLayout* layout);
     /// Expand/collapse programmatically.
     void setExpanded(bool expanded);
+    /// Current expand state (for persistence). Claude Generated 2026.
+    bool isExpanded() const;
+
+signals:
+    /// Claude Generated 2026 - fired on every expand/collapse (user click or
+    /// setExpanded), so the host can persist the state.
+    void expandedChanged(bool expanded);
 
 private:
     QToolButton* m_header = nullptr;

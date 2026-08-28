@@ -18,6 +18,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSettings>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QToolButton>
@@ -89,6 +90,16 @@ void DisplayDock::setupUI(MoleculeViewer* viewer, Settings* settings)
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 2);
     splitter->setStretchFactor(2, 1);
+    // Claude Generated 2026 - Persist the operator's chosen split across restarts.
+    {
+        QSettings uiSettings;
+        const QByteArray state = uiSettings.value(QStringLiteral("ui/displayDock/splitter")).toByteArray();
+        if (!state.isEmpty())
+            splitter->restoreState(state);
+        connect(splitter, &QSplitter::splitterMoved, this, [splitter]() {
+            QSettings().setValue(QStringLiteral("ui/displayDock/splitter"), splitter->saveState());
+        });
+    }
     centralLayout->addWidget(splitter, 1);
 
     connect(m_structureSegmentBtn, &QToolButton::clicked,

@@ -463,3 +463,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - Added test infrastructure: test_vtf_bonds.cpp (validates 199 bonds), test_vtf_frames.cpp (detects 3 frames), test_vtf_full.cpp (end-to-end validation)
 - 2026-08-28: Display state integrity: viewer is single source of truth (currentDisplaySettings/applyDisplaySettings); panel syncFromViewer is read-only; Save/Reset/presets round-trip the full DisplaySettings struct
 - 2026-08-28: NCI quick access: Display menu with NCI Overlay toggle (shortcut N) + source submenu, NCI button with source dropdown in the viewer bar, all mirrored from one viewer signal
+- 2026-08-28: Display panel restructure: NCI as own top-level section, Labels moved to Style, dead instancing row removed, accordion + splitter state persisted, Display menu NCI Options jumps to the section

@@ -27,6 +27,7 @@ CollapsibleSection::CollapsibleSection(const QString& title, QWidget* parent)
     connect(m_header, &QToolButton::toggled, this, [this](bool on) {
         m_header->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
         m_content->setVisible(on);
+        emit expandedChanged(on);
     });
 
     outer->addWidget(m_header);
@@ -42,4 +43,9 @@ void CollapsibleSection::setContentLayout(QLayout* layout)
 void CollapsibleSection::setExpanded(bool expanded)
 {
     m_header->setChecked(expanded);
+}
+
+bool CollapsibleSection::isExpanded() const
+{
+    return m_header->isChecked();
 }

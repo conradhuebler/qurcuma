@@ -23,6 +23,8 @@ class QDoubleSpinBox;
 class QSpinBox;
 class QListWidget;
 class QVBoxLayout;
+class QScrollArea;
+class CollapsibleSection;
 
 class DisplayPanel : public QWidget
 {
@@ -34,6 +36,10 @@ public:
     /// or external changes so the panel stays in sync). Read-only: the viewer is
     /// the single source of truth, this never writes viewer state.
     void syncFromViewer();
+
+    /// Expand one accordion section by its stable key ("style", "nci", "effects",
+    /// "lighting", "tools", "presets") and scroll it into view. Claude Generated 2026.
+    void expandSection(const QString& key);
 
 signals:
     void centerOnLoadChanged(bool enabled);
@@ -71,7 +77,6 @@ private slots:
     void onExposureChanged(double value);
     // Tools / interaction
     void onRotationModeChanged(int index);
-    void onInstancingThresholdChanged(int value);
     // Footer / presets
     void onResetDefaults();
     void onSaveAsDefault();
@@ -147,7 +152,6 @@ private:
     QCheckBox* m_potArrowCheck = nullptr;      // wall force vector field show/hide
     QSpinBox*  m_potArrowResSpin = nullptr;    // vector field resolution (points per axis)
     QComboBox* m_rotationModeCombo = nullptr;
-    QSpinBox* m_instancingThresholdSpin = nullptr;
 
     // Non-covalent interactions
     QComboBox* m_nciSourceCombo = nullptr;
@@ -185,6 +189,10 @@ private:
 
     // Presets
     QListWidget* m_presetList = nullptr;
+
+    // Accordion sections by stable key (expand-state persistence, expandSection).
+    QHash<QString, CollapsibleSection*> m_sections;
+    QScrollArea* m_scroll = nullptr;
 
     MoleculeViewer* m_viewer = nullptr;
     Settings* m_settings = nullptr;
