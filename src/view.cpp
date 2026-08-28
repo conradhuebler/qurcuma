@@ -10,6 +10,7 @@
 #include "bondeditor.h"
 #include "elementdata.h"
 #include "widgets/elementpicker.h"  // Claude Generated 2026 - builder element strip
+#include "buildtools.h"  // Claude Generated 2026 - valence accounting + auto-H
 #include "settings.h"
 
 #include "src/core/elements.h"
@@ -2314,6 +2315,54 @@ void MoleculeViewer::buildAttachAtom(int atomIndex)
     addAtomAt(atoms[atomIndex].position + dir * dist, m_buildElement, atomIndex);
 }
 
+int MoleculeViewer::openValenceCount() const
+{
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return 0;
+    const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    const QVector<Bond> bonds = getCurrentFrameBonds();
+    int open = 0;
+    for (int i = 0; i < atoms.size(); ++i)
+        if (elem::isElementSymbol(atoms[i].element))
+            open += build::openValence(i, atoms, bonds);
+    return open;
+}
+
+void MoleculeViewer::addHydrogens(const QVector<int>& targets)
+{
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    if (!canEditStructure()) {
+        qWarning() << "addHydrogens: only single-frame structures can be edited";
+        return;
+    }
+    QVector<Atom> newH;
+    QVector<Bond> newBonds;
+    build::generateHydrogens(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds(),
+        targets, newH, newBonds);
+    if (newH.isEmpty())
+        return;
+    emit editSnapshotRequested(tr("Before add hydrogens"));
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    atoms += newH;
+    if (m_currentFrame >= m_trajectoryBonds.size())
+        m_trajectoryBonds.resize(m_currentFrame + 1);
+    m_trajectoryBonds[m_currentFrame] += newBonds;  // indices are already absolute
+
+    if (m_bondEditor)
+        m_bondEditor->setAtoms(atoms);
+    if (m_perfOpt)
+        m_perfOpt->setAtomCount(atoms.size());
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/true, /*keepView=*/true);
+    buildForceAdjacency();
+    invalidateNciTopology();
+    emit fragmentsChanged();
+    refreshNciOverlay();
+    computeCollisions();
+    onStructureChanged();
+    emit moleculeUpdated(atoms, getCurrentFrameBonds());
+}
+
 void MoleculeViewer::buildBond(int a, int b)
 {
     if (a == b || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
@@ -3579,6 +3628,42 @@ void MoleculeViewer::setupControlPanel()
             elementStrip->setVisible(m == InteractionMode::Build);
         });
     panelLayout->addWidget(elementStrip);
+
+    // Add-H button + open-valence label, Build mode only (Claude Generated 2026).
+    QToolButton* addHBtn = new QToolButton;
+    addHBtn->setText(tr("Add H"));
+    addHBtn->setToolTip(tr("Saturate all open valences with hydrogens "
+                           "(tetrahedral/trigonal/linear placement)."));
+    addHBtn->setVisible(false);
+    connect(addHBtn, &QToolButton::clicked, this, [this]() { addHydrogens(); });
+    panelLayout->addWidget(addHBtn);
+
+    QLabel* valenceLabel = new QLabel;
+    valenceLabel->setVisible(false);
+    panelLayout->addWidget(valenceLabel);
+    auto updateValenceLabel = [this, valenceLabel]() {
+        if (!buildMode()) {
+            valenceLabel->setVisible(false);
+            return;
+        }
+        const int open = openValenceCount();
+        valenceLabel->setVisible(true);
+        if (open > 0) {
+            valenceLabel->setText(tr("%1 open valence%2").arg(open).arg(open == 1 ? "" : "s"));
+            valenceLabel->setStyleSheet(QStringLiteral("QLabel { color: #e0a030; border: none; }"));
+        } else {
+            valenceLabel->setText(tr("✓ saturated"));
+            valenceLabel->setStyleSheet(QStringLiteral("QLabel { color: #4caf50; border: none; }"));
+        }
+    };
+    connect(this, &MoleculeViewer::interactionModeChanged, valenceLabel,
+        [addHBtn, updateValenceLabel](InteractionMode m) {
+            addHBtn->setVisible(m == InteractionMode::Build);
+            updateValenceLabel();
+        });
+    connect(this, &MoleculeViewer::moleculeUpdated, valenceLabel,
+        [updateValenceLabel](const QVector<MoleculeViewer::Atom>&,
+            const QVector<MoleculeViewer::Bond>&) { updateValenceLabel(); });
 
     // NCI toggle — quick access to the non-covalent interaction overlay (Claude
     // Generated 2026). Click toggles; the dropdown arrow picks the source. The

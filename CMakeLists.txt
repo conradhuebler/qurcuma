@@ -202,6 +202,7 @@ set(SOURCES
     src/forceinjector.cpp  # Claude Generated 2026 - Topological force distribution (Phase 4)
     src/ncianalysis.cpp  # Claude Generated 2026 - non-covalent interaction detection
     src/elementdata.cpp  # Claude Generated 2026 - Quick3D renderer: shared element tables
+    src/buildtools.cpp  # Claude Generated 2026 - builder valence accounting + auto-H placement
     src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.cpp  # Claude Generated 2026 - Quick3D renderer: bond instancing
     src/scenecontroller.cpp  # Claude Generated 2026 - Quick3D renderer: scene view-model
@@ -409,6 +410,25 @@ Qt6::Widgets
 Qt6::Quick3D
 )
 target_include_directories(test_fragments PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+
+# Builder auto-hydrogen test - Claude Generated 2026
+# Header-only use of MoleculeViewer's Atom/Bond types; no GUI, no Quick3D.
+add_executable(test_buildtools test_buildtools.cpp src/buildtools.cpp src/elementdata.cpp)
+target_link_libraries(test_buildtools PRIVATE
+Qt6::Core
+Qt6::Gui
+Qt6::Widgets
+)
+target_include_directories(test_buildtools PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/external/

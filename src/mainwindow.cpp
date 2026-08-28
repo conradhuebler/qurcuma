@@ -2602,6 +2602,12 @@ void MainWindow::showViewportContextMenu(const QPoint& globalPos, int atomIndex)
             m_moleculeView->selectAtoms({ atomIndex }, false);
             m_moleculeView->deleteSelection();
         });
+        QAction* addH = menu.addAction(tr("Add Hydrogens Here"));
+        connect(addH, &QAction::triggered, this,
+            [this, atomIndex]() { m_moleculeView->addHydrogens({ atomIndex }); });
+        QAction* addHAll = menu.addAction(tr("Add Hydrogens (All Atoms)"));
+        connect(addHAll, &QAction::triggered, this,
+            [this]() { m_moleculeView->addHydrogens(); });
         menu.addSeparator();
     }
     for (QAction* a : m_displayMenu->actions())

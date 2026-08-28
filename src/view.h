@@ -312,6 +312,11 @@ public slots:
     void buildAttachAtom(int atomIndex);
     /// Add bond a-b (order 1) or cycle an existing bond's order 1->2->3->1.
     void buildBond(int a, int b);
+    /// Saturate open valences with hydrogens (VSEPR placement, buildtools.h);
+    /// empty @p targets = all atoms. Claude Generated 2026.
+    void addHydrogens(const QVector<int>& targets = {});
+    /// Total open valences in the current frame (0 when nothing is loaded).
+    int openValenceCount() const;
     /// Select all atoms of the connected fragment that @p seedAtom belongs to.
     void selectFragment(int seedAtom, bool append = false);
     /// Bulk-select a list of atom indices (used by fragment/paste/merge).
