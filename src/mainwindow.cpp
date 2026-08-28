@@ -11,6 +11,7 @@
 // Claude Generated 2026 - Phase 6: SimulationDialog removed; the dock widget is the sole sim UI.
 #include <algorithm>  // Claude Generated - for std::min/std::max
 #include <QAbstractSpinBox>
+#include <QActionGroup>
 #include <QApplication>
 #include <QClipboard>
 #include <QCheckBox>
@@ -984,12 +985,6 @@ void MainWindow::createMenus()
     addDockToggle(m_outputViewDock,       tr("&Output"));
     addDockToggle(m_nciDock,              tr("&Interactions"));
 
-    // Display options (raises the Display dock) — moved here from Settings (P4).
-    QAction *displayOptionsAction = viewMenu->addAction(
-        QIcon::fromTheme("preferences-desktop"), tr("Display &Options…"));
-    displayOptionsAction->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
-    connect(displayOptionsAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
-
     viewMenu->addSeparator();
 
     // Reset layout: restore the captured baseline (drops preset caches so they re-derive).
@@ -1001,6 +996,41 @@ void MainWindow::createMenus()
             statusBar()->showMessage(tr("Layout reset to default"), 2000);
         }
     });
+
+    // Claude Generated 2026 - Display menu: frequent viewer toggles reachable in
+    // one click (and via the Ctrl+K palette, which harvests menu-bar actions).
+    // The NCI actions are shared with the viewer-bar button dropdown.
+    QMenu *displayMenu = menuBar->addMenu(tr("&Display"));
+
+    m_nciToggleAction = displayMenu->addAction(QIcon::fromTheme("draw-connector"), tr("&NCI Overlay"));
+    m_nciToggleAction->setCheckable(true);
+    m_nciToggleAction->setShortcut(Qt::Key_N);
+    m_nciToggleAction->setToolTip(tr("Show non-covalent interactions (hydrogen/halogen bonds, "
+                                     "pi stacking, contacts) as dashed lines in the 3D view."));
+    connect(m_nciToggleAction, &QAction::triggered, this, &MainWindow::toggleNciOverlay);
+
+    m_nciSourceMenu = displayMenu->addMenu(tr("NCI &Source"));
+    m_nciSourceGroup = new QActionGroup(this);
+    const QVector<QPair<int, QString>> nciSources = {
+        { 0, tr("Off") },
+        { 1, tr("Geometry (distance/angle)") },
+        { 2, tr("GFN-FF parameters") },
+        { 3, tr("Population analysis (GFN2)") },
+    };
+    for (const auto& src : nciSources) {
+        QAction* a = m_nciSourceMenu->addAction(src.second);
+        a->setCheckable(true);
+        a->setData(src.first);
+        a->setChecked(src.first == 0);
+        m_nciSourceGroup->addAction(a);
+        connect(a, &QAction::triggered, this,
+                [this, source = src.first]() { setNciSourceFromUi(source); });
+    }
+
+    displayMenu->addSeparator();
+    QAction* displayPanelAction = displayMenu->addAction(QIcon::fromTheme("configure"), tr("Display &Options…"));
+    displayPanelAction->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
+    connect(displayPanelAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
 
     // Settings Menu
     QMenu *settingsMenu = menuBar->addMenu(tr("&Settings"));
@@ -4367,6 +4397,31 @@ void MainWindow::setupNciAnalysis()
                 m_nciDock->setResult(result, m_moleculeView->getCurrentFrameAtoms());
         });
 
+    // Claude Generated 2026 - Single mirror for every NCI entry point: whenever
+    // the viewer's source changes (panel combo, dock, menu, bar button, shortcut,
+    // analysis result), all UI representations follow from here.
+    connect(m_moleculeView, &MoleculeViewer::nciSourceChanged, this, [this](int source) {
+        if (source != 0)
+            m_lastNciSource = source;
+        if (m_nciToggleAction)
+            m_nciToggleAction->setChecked(source != 0);
+        if (m_nciSourceGroup)
+            for (QAction* a : m_nciSourceGroup->actions())
+                if (a->data().toInt() == source)
+                    a->setChecked(true);
+        if (m_nciDock) {
+            m_nciDock->setSource(source);
+            if (source != 0)
+                m_nciDock->show();
+        }
+        if (m_displayPanel)
+            m_displayPanel->syncFromViewer();
+    });
+    // The bar button's click + dropdown reuse the shared menu/toggle actions.
+    m_moleculeView->setNciQuickMenu(m_nciSourceMenu);
+    connect(m_moleculeView, &MoleculeViewer::nciToggleRequested,
+        this, &MainWindow::toggleNciOverlay);
+
     // The contact table uses the same interaction colours as the 3D overlay.
     connect(m_moleculeView, &MoleculeViewer::nciPaletteChanged, this, [this]() {
         if (m_nciDock)
@@ -4420,6 +4475,31 @@ void MainWindow::setupNciAnalysis()
         connect(m_displayPanel, &DisplayPanel::nciLiveMdChanged, this,
             [this](bool on) { m_nciLiveMd = on; });
     }
+}
+
+// Claude Generated 2026 - NCI quick access: shortcut N, Display menu, bar button.
+// Toggle-on restores the last-used source (default: geometry, instant); calculated
+// sources go through the analysis worker.
+void MainWindow::toggleNciOverlay()
+{
+    if (!m_moleculeView)
+        return;
+    if (m_moleculeView->getNciSource() != 0)
+        m_moleculeView->setNciSource(0);
+    else if (m_lastNciSource >= 2)
+        startNciAnalysis(m_lastNciSource);
+    else
+        m_moleculeView->setNciSource(1);
+}
+
+void MainWindow::setNciSourceFromUi(int source)
+{
+    if (!m_moleculeView)
+        return;
+    if (source <= 1)
+        m_moleculeView->setNciSource(source);
+    else
+        startNciAnalysis(source);
 }
 
 void MainWindow::startNciAnalysis(int source)

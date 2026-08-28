@@ -47,6 +47,7 @@
 #include "simulationworker.h"  // Claude Generated - for SimulationConfig
 #include "lesson.h"  // Claude Generated 2026 - OER teaching scenarios (Lesson model)
 class MoleculeViewer;
+class QActionGroup;  // Claude Generated 2026 - NCI source radio group
 class DisplayPanel;  // Claude Generated 2026 - docked viewer display options (replaces the modal dialog)
 class CommandPalette;  // Claude Generated 2026 - P3 Ctrl+K command palette
 class RMSDWidget;  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
@@ -485,6 +486,16 @@ private:
     quint64 m_nciRequestId = 0;        // monotonic; late results for old frames are dropped
     bool m_nciLiveMd = false;          // keep the GFN-FF contact list live during MD
     bool m_nciSelectionSyncing = false; // guards table <-> viewer selection feedback
+    // Claude Generated 2026 - NCI quick access: one shared action set feeds the
+    // Display menu, the viewer-bar button dropdown and the command palette.
+    QAction* m_nciToggleAction = nullptr;   // checkable, shortcut N
+    QMenu* m_nciSourceMenu = nullptr;       // Off/Geometry/GFN-FF/GFN2 radio group
+    QActionGroup* m_nciSourceGroup = nullptr;
+    int m_lastNciSource = 1;                // source restored on toggle-on (1 = geometry)
+    /// Toggle the NCI overlay: off -> last-used source, on -> off.
+    void toggleNciOverlay();
+    /// Apply a source picked in the menu/bar dropdown (>= 2 starts the analysis).
+    void setNciSourceFromUi(int source);
     void onSimulationConfigChanged(SimulationConfig cfg);
 
 #ifdef USE_SFTP

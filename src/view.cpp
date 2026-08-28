@@ -625,9 +625,12 @@ void MoleculeViewer::setNciLabelsVisible(bool on)
 void MoleculeViewer::setNciResult(const nci::Result& result)
 {
     m_nciResult = result;
+    const bool changed = (m_nciSource != int(result.source));
     m_nciSource = int(result.source);
     pushNciToScene();
     emit nciResultChanged(m_nciResult);
+    if (changed)
+        emit nciSourceChanged(m_nciSource);
 }
 
 void MoleculeViewer::setAtomCharges(const QVector<float>& charges)
@@ -3005,6 +3008,14 @@ QFrame* MoleculeViewer::createSeparator()
     return separator;
 }
 
+// Claude Generated 2026 - Attach MainWindow's shared NCI source menu to the bar
+// button's dropdown, so bar, Display menu and palette use one action set.
+void MoleculeViewer::setNciQuickMenu(QMenu* menu)
+{
+    if (m_nciButton)
+        m_nciButton->setMenu(menu);
+}
+
 void MoleculeViewer::setupControlPanel()
 {
     m_controlPanel = new QWidget;
@@ -3160,6 +3171,29 @@ void MoleculeViewer::setupControlPanel()
         }
     });
     panelLayout->addWidget(editBtn);
+
+    // NCI toggle — quick access to the non-covalent interaction overlay (Claude
+    // Generated 2026). Click toggles; the dropdown arrow picks the source. The
+    // source menu is injected by MainWindow (setNciQuickMenu), which owns the
+    // last-source memory and the analysis worker paths.
+    m_nciButton = new QToolButton;
+    m_nciButton->setText(tr("NCI"));
+    m_nciButton->setCheckable(true);
+    m_nciButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_nciButton->setPopupMode(QToolButton::MenuButtonPopup);
+    m_nciButton->setToolTip(tr("Show non-covalent interactions (hydrogen/halogen bonds, "
+                               "pi stacking, contacts). Arrow: choose the source. Shortcut: N"));
+    m_nciButton->setChecked(m_nciSource != 0);
+    connect(m_nciButton, &QToolButton::clicked, this, [this]() { emit nciToggleRequested(); });
+    connect(this, &MoleculeViewer::nciSourceChanged, m_nciButton, [this](int source) {
+        const bool on = (source != 0);
+        if (m_nciButton->isChecked() != on) {
+            m_nciButton->blockSignals(true);
+            m_nciButton->setChecked(on);
+            m_nciButton->blockSignals(false);
+        }
+    });
+    panelLayout->addWidget(m_nciButton);
 
     // Photo — one-click image export (no dialog). Sibling of Measure/Edit; the host
     // supplies the working dir + operator settings via quickExportRequested.

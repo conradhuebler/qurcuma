@@ -27,6 +27,8 @@ class MeasurementOverlay;  // Claude Generated - Phase 2B (Quick3D port pending,
 class BondEditor;  // Claude Generated - Phase 4B - Forward declaration
 class PerformanceOptimizer;  // Claude Generated - LOD wire-up
 class SceneController;  // Claude Generated 2026 - Qt Quick 3D scene view-model
+class QMenu;
+class QToolButton;
 class Settings;  // Claude Generated 2026 - operator metadata + view presets for export
 class QQuickView;
 
@@ -388,6 +390,9 @@ signals:
     /// Claude Generated 2026 - NCI overlay source changed via any path (panel,
     /// dock, menu, shortcut) so every UI mirror follows.
     void nciSourceChanged(int source);
+    /// Claude Generated 2026 - The bar's NCI button asks the host to toggle the
+    /// overlay (MainWindow owns the last-source memory and the analysis paths).
+    void nciToggleRequested();
     void measurementModeChanged(int mode);  // 0=off,1=distance,2=angle,3=dihedral
     void displayOptionsRequested();
     // Claude Generated 2026 - Structure editing.
@@ -475,6 +480,10 @@ public slots:
      *  MainWindow forwards it to the simulation worker. Claude Generated 2026. */
     void setNciLiveMd(bool on) { m_nciLiveMd = on; }
     bool getNciLiveMd() const { return m_nciLiveMd; }
+    /** Attach the shared NCI source menu to the bar button's dropdown arrow.
+     *  The menu is owned by MainWindow (it also feeds the Display menu), so all
+     *  entry points stay one action set. Claude Generated 2026. */
+    void setNciQuickMenu(QMenu* menu);
     /** Adopt a calculated result (GFN-FF / population) and draw it. */
     void setNciResult(const nci::Result& result);
     const nci::Result& getNciResult() const { return m_nciResult; }
@@ -688,6 +697,7 @@ private:
     int m_nciSource = 0;               // 0=off, 1=geometry, 2=gfnff, 3=population
     bool m_nciLabelsVisible = true;
     bool m_nciLiveMd = false;          // live GFN-FF contacts during MD (see setNciLiveMd)
+    QToolButton* m_nciButton = nullptr;  // bar toggle, mirrors m_nciSource
     nci::Options m_nciOptions;
     nci::Result m_nciResult;
     QVector<QVector<int>> m_nciRings;  // ring perception cache (topology, not geometry)
