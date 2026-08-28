@@ -162,7 +162,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 m_movingSelection = false;
                 m_rubberBanding = false;
                 m_emptyPressPending = false;
-                if (m_editMode && !m_simulationActive) {
+                if (editMode() && !m_simulationActive) {
                     // Edit mode: press on a selected/picked atom starts a move; press on
                     // empty space clears selection on release (a plain click) or rotates.
                     const int picked = pickAtomAtScreenPos(m_lastMousePos);
@@ -212,7 +212,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
             auto* me = static_cast<QMouseEvent*>(event);
             if (me->button() == Qt::LeftButton) {
                 m_leftMousePressed = false;
-                if (m_editMode && !m_simulationActive) {
+                if (editMode() && !m_simulationActive) {
                     if (m_quickView) m_quickView->setCursor(Qt::ArrowCursor);
                     if (m_container) m_container->setCursor(Qt::ArrowCursor);
                     if (m_rubberBanding) {
@@ -301,7 +301,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
         case QEvent::MouseMove: {
             auto* me = static_cast<QMouseEvent*>(event);
             QPoint pos = me->position().toPoint();
-            if (m_editMode && !m_simulationActive && m_leftMousePressed && m_movingSelection) {
+            if (editMode() && !m_simulationActive && m_leftMousePressed && m_movingSelection) {
                 const QPoint d = pos - m_lastMousePos;
                 if (d.isNull())
                     return true;  // absorbs the synthetic move from a cursor-lock warp
@@ -332,7 +332,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 }
                 return true;
             }
-            if (m_editMode && !m_simulationActive && m_leftMousePressed && m_rubberBanding) {
+            if (editMode() && !m_simulationActive && m_leftMousePressed && m_rubberBanding) {
                 m_leftDragged = true;
                 if (m_scene)
                     m_scene->setRubberBand(QRectF(m_rubberStart, pos).normalized(), true);
@@ -376,7 +376,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
         }
         case QEvent::MouseButtonDblClick: {
             auto* me = static_cast<QMouseEvent*>(event);
-            if (me->button() == Qt::LeftButton && m_editMode && !m_simulationActive) {
+            if (me->button() == Qt::LeftButton && editMode() && !m_simulationActive) {
                 // Double-click selects the whole connected molecule (fragment).
                 const int picked = pickAtomAtScreenPos(me->position().toPoint());
                 const bool append = me->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier);
@@ -445,7 +445,7 @@ void MoleculeViewer::applyModelRotation(float horizDeg, float vertDeg, float rol
 // matter which widget has focus.
 void MoleculeViewer::rotateSceneByKey(int key, bool nudge)
 {
-    if (nudge && m_editMode && !m_selectedAtoms.isEmpty() && m_scene) {
+    if (nudge && editMode() && !m_selectedAtoms.isEmpty() && m_scene) {
         QVector3D worldStep;
         switch (key) {
         case Qt::Key_W: worldStep = QVector3D(0, kNudgeStep, 0); break;
@@ -1154,25 +1154,40 @@ void MoleculeViewer::performBondEdit(int a, int b)
             found = i;
             break;
         }
+    // Claude Generated 2026 - Determine the actual change first so a no-op click
+    // (add on existing bond, delete on missing one) neither snapshots nor rebuilds.
     switch (m_bondEditMode) {
     case 1: // add
-        if (found < 0)
-            bonds.append({ a, b, 1 });
+        if (found >= 0)
+            return;
+        emit editSnapshotRequested(tr("Before bond edit"));  // pre-edit state for undo
+        bonds.append({ a, b, 1 });
         break;
     case 2: // delete
-        if (found >= 0)
-            bonds.remove(found);
+        if (found < 0)
+            return;
+        emit editSnapshotRequested(tr("Before bond edit"));
+        bonds.remove(found);
         break;
     case 3: // cycle order 1->2->3->1
-        if (found >= 0)
-            bonds[found].bondOrder = (bonds[found].bondOrder % 3) + 1;
+        if (found < 0)
+            return;
+        emit editSnapshotRequested(tr("Before bond edit"));
+        bonds[found].bondOrder = (bonds[found].bondOrder % 3) + 1;
         break;
     default:
         return;
     }
+    // Connectivity changed: same follow-up canon as finalizeEdit() so the NCI
+    // overlay, fragment tinting, clash feedback and the atom table stay current.
     refreshVisualization(); // rebuild geometry, keep the camera
     buildForceAdjacency();
+    invalidateNciTopology();
+    emit fragmentsChanged();
+    refreshNciOverlay();
+    computeCollisions();
     onStructureChanged();   // trigger XYZ auto-save (if a file is loaded)
+    emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
 }
 
 // ---------------------------------------------------------------------------
@@ -1289,7 +1304,8 @@ void MoleculeViewer::addMolecule(const QVector<Atom>& atoms, const QVector<Bond>
 
 // Claude Generated 2026 - Merge a molecule into the current scene (single-frame only):
 // append atoms/bonds, select the new atoms, and start placement without a camera jump.
-void MoleculeViewer::appendMolecule(const QVector<Atom>& newAtoms, const QVector<Bond>& newBonds)
+void MoleculeViewer::appendMolecule(const QVector<Atom>& newAtoms, const QVector<Bond>& newBonds,
+    bool startPlacement)
 {
     if (newAtoms.isEmpty())
         return;
@@ -1325,7 +1341,7 @@ void MoleculeViewer::appendMolecule(const QVector<Atom>& newAtoms, const QVector
     syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/true, /*keepView=*/true);
     selectAtoms(added, /*append=*/false);
     buildForceAdjacency();
-    if (!m_editMode)
+    if (startPlacement && !editMode())
         setEditMode(true);          // placement implies edit mode
     m_moveRefLocal = selectionCentroidLocal();
     computeCollisions();
@@ -1968,64 +1984,119 @@ void MoleculeViewer::clearSelection()
     updateMeasurement(); // selection now empty -> clears the measurement display
 }
 
-void MoleculeViewer::setMeasurementMode(int mode)
-{
-    m_measurementMode = qBound(0, mode, 3);
-    if (m_measurementMode != 0 && m_editMode)
-        setEditMode(false);  // mutually exclusive interaction modes
-    updateMeasurement(); // refresh/clear the on-screen measurement for the new mode
-    emit measurementModeChanged(m_measurementMode);
-}
-
-void MoleculeViewer::setBondEditMode(int mode)
-{
-    m_bondEditMode = qBound(0, mode, 3);
-    if (m_bondEditMode != 0 && m_editMode)
-        setEditMode(false);  // mutually exclusive interaction modes
-    if (m_bondEditor) {
-        BondEditor::EditMode editorMode;
-        switch (m_bondEditMode) {
-        case 1: editorMode = BondEditor::EditMode::AddBondMode; break;
-        case 2: editorMode = BondEditor::EditMode::DeleteBondMode; break;
-        case 3: editorMode = BondEditor::EditMode::ChangeBondMode; break;
-        default: editorMode = BondEditor::EditMode::None;
-        }
-        m_bondEditor->setEditMode(editorMode);
-    }
-}
-
 // ===========================================================================
-// Structure editing (Explore-mode "Edit" toggle). Claude Generated 2026.
-// Direct coordinate editing — select atoms/molecules, move, copy/paste, merge a
-// file, with collision feedback. Distinct from the simulation grab-force, which
-// injects forces into a running MD/Opt rather than mutating stored geometry.
+// Interaction modes. Claude Generated 2026.
+// One exclusive mode (None/Edit/Measure/BondEdit/Build) replaces the former
+// parallel bool/int flags with pairwise resets: every mode has its exit and
+// entry code in exactly one place, so no mode can leave stale state or stale
+// UI behind. The public setEditMode/setMeasurementMode/setBondEditMode remain
+// as thin wrappers for the existing callers (bar toggles, Display panel).
 // ===========================================================================
-void MoleculeViewer::setEditMode(bool on)
+void MoleculeViewer::setInteractionMode(InteractionMode mode)
 {
-    if (m_editMode == on)
+    if (m_mode == mode)
         return;
-    m_editMode = on;
-    if (on) {
-        if (m_measurementMode != 0)
-            setMeasurementMode(0);
-        if (m_bondEditMode != 0)
-            setBondEditMode(0);
+    const bool wasEdit = (m_mode == InteractionMode::Edit);
+
+    // Exit code of the mode we are leaving.
+    switch (m_mode) {
+    case InteractionMode::Edit:
+        m_movingSelection = false;
+        m_emptyPressPending = false;
+        m_collisionAtoms.clear();
+        if (m_scene)
+            m_scene->setCollisionAtoms({});
+        emit collisionCountChanged(0);
+        break;
+    case InteractionMode::Measure:
+        m_measurementMode = 0;
+        updateMeasurement();  // clears the on-screen measurement
+        emit measurementModeChanged(0);
+        break;
+    case InteractionMode::BondEdit:
+        m_bondEditMode = 0;
+        if (m_bondEditor)
+            m_bondEditor->setEditMode(BondEditor::EditMode::None);
+        emit bondEditModeChanged(0);
+        break;
+    default:
+        break;
+    }
+
+    m_mode = mode;
+    if (m_scene)
+        m_scene->setEditHint(QString());
+
+    // Entry code of the new mode (sub-states like the measurement type or the
+    // bond-edit action are set by the wrappers after the switch).
+    switch (m_mode) {
+    case InteractionMode::Edit:
         computeCollisions();   // show any pre-existing clashes immediately
         if (m_scene)
             m_scene->setEditHint(tr("Edit  ·  drag: move (Shift = depth)  ·  WASD/QE: rotate"
                                     "  ·  double-click: whole molecule"
-                                    "  ·  Ctrl/Shift+drag: box-select  ·  right-click: clear"));
-    } else {
-        m_movingSelection = false;
-        m_emptyPressPending = false;
-        m_collisionAtoms.clear();
-        if (m_scene) {
-            m_scene->setCollisionAtoms({});
-            m_scene->setEditHint(QString());
-        }
-        emit collisionCountChanged(0);
+                                    "  ·  Ctrl/Shift+drag: box-select"));
+        break;
+    default:
+        break;
     }
-    emit editModeChanged(m_editMode);
+
+    if (wasEdit != (m_mode == InteractionMode::Edit))
+        emit editModeChanged(m_mode == InteractionMode::Edit);
+    emit interactionModeChanged(m_mode);
+}
+
+void MoleculeViewer::setMeasurementMode(int mode)
+{
+    const int m = qBound(0, mode, 3);
+    if (m == 0) {
+        if (m_mode == InteractionMode::Measure)
+            setInteractionMode(InteractionMode::None);  // exit path emits measurementModeChanged(0)
+        return;
+    }
+    setInteractionMode(InteractionMode::Measure);
+    if (m_measurementMode != m) {
+        m_measurementMode = m;
+        updateMeasurement(); // refresh the on-screen measurement for the new type
+        emit measurementModeChanged(m_measurementMode);
+    }
+}
+
+void MoleculeViewer::setBondEditMode(int mode)
+{
+    const int m = qBound(0, mode, 3);
+    if (m == 0) {
+        if (m_mode == InteractionMode::BondEdit)
+            setInteractionMode(InteractionMode::None);  // exit path emits bondEditModeChanged(0)
+        return;
+    }
+    setInteractionMode(InteractionMode::BondEdit);
+    if (m_bondEditMode != m) {
+        m_bondEditMode = m;
+        if (m_bondEditor) {
+            BondEditor::EditMode editorMode;
+            switch (m_bondEditMode) {
+            case 1: editorMode = BondEditor::EditMode::AddBondMode; break;
+            case 2: editorMode = BondEditor::EditMode::DeleteBondMode; break;
+            case 3: editorMode = BondEditor::EditMode::ChangeBondMode; break;
+            default: editorMode = BondEditor::EditMode::None;
+            }
+            m_bondEditor->setEditMode(editorMode);
+        }
+        emit bondEditModeChanged(m_bondEditMode);
+    }
+}
+
+// Structure editing (Explore-mode "Edit" toggle): direct coordinate editing —
+// select atoms/molecules, move, copy/paste, merge a file, with collision
+// feedback. Distinct from the simulation grab-force, which injects forces into
+// a running MD/Opt rather than mutating stored geometry.
+void MoleculeViewer::setEditMode(bool on)
+{
+    if (on)
+        setInteractionMode(InteractionMode::Edit);
+    else if (m_mode == InteractionMode::Edit)
+        setInteractionMode(InteractionMode::None);
 }
 
 QVector3D MoleculeViewer::selectionCentroidLocal() const
@@ -3329,8 +3400,8 @@ void MoleculeViewer::setupControlPanel()
 
     connect(this, &MoleculeViewer::collisionCountChanged, this,
         [this, clashLabel, resolveBtn](int n) {
-            clashLabel->setVisible(m_editMode);
-            resolveBtn->setVisible(m_editMode && n > 0);
+            clashLabel->setVisible(editMode());
+            resolveBtn->setVisible(editMode() && n > 0);
             if (n > 0) {
                 clashLabel->setText(tr("⚠ %1 clash%2").arg(n).arg(n == 1 ? QString() : tr("es")));
                 clashLabel->setStyleSheet(QStringLiteral("QLabel { color: #e63c3c; font-weight: bold; border: none; }"));

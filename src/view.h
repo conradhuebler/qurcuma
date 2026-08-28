@@ -38,6 +38,18 @@ class MoleculeViewer : public QWidget
 
 public:
     // Claude Generated - Rendering modes for molecular visualization
+    // Claude Generated 2026 - One exclusive interaction mode instead of parallel
+    // bool/int flags with pairwise resets (which produced stale-UI bugs). Measure
+    // and BondEdit keep an int sub-state (measurement type, bond-edit action) that
+    // is valid only while their mode is active. Build is the molecule builder.
+    enum class InteractionMode {
+        None,      // plain viewing: click selects, drag rotates
+        Edit,      // move/copy/delete atoms (coordinate editing)
+        Measure,   // click atoms to measure distance/angle/dihedral
+        BondEdit,  // click two atoms to add/delete/cycle a bond
+        Build      // molecule builder: place atoms, draw bonds
+    };
+
     enum class RenderingMode {
         BallAndStick,    // Default: Atoms as spheres, bonds as cylinders
         Wireframe,       // Only bonds (thin cylinders)
@@ -93,7 +105,11 @@ public:
 
     /// Claude Generated 2026 - Merge a molecule into the current scene (single frame
     /// only): append its atoms/bonds, select them, and start placement (no camera jump).
-    void appendMolecule(const QVector<Atom>& atoms, const QVector<Bond>& bonds);
+    /// Append atoms+bonds to the current frame. startPlacement=true (merge from
+    /// file/paste) switches to Edit mode so the new atoms can be dragged into
+    /// place; the builder passes false to stay in Build mode. Claude Generated 2026.
+    void appendMolecule(const QVector<Atom>& atoms, const QVector<Bond>& bonds,
+        bool startPlacement = true);
 
     /// Per-structure overlay descriptor for setOverlayWorkspace() (RMSD workspace). Claude Generated 2026.
     struct OverlaySpec {
@@ -267,12 +283,18 @@ public slots:
     SelectionManager* getSelectionManager() const { return m_selectionManager; }
 
     // ----- Structure editing (Explore-mode "Edit" toggle) -------------------
+    /// Central mode switch: runs the old mode's exit code and the new mode's
+    /// entry code (HUD hint, collision scan), then emits interactionModeChanged.
+    /// Claude Generated 2026 (enum declared next to RenderingMode above).
+    void setInteractionMode(InteractionMode mode);
+    InteractionMode interactionMode() const { return m_mode; }
+
     // Claude Generated 2026 - direct coordinate editing: mark atoms/molecules, move
     // them, copy/paste, merge a file, with collision feedback. Distinct from the
     // simulation grab-force (which injects forces into a running MD/Opt).
-    /// Enable/disable the Edit interaction mode (mutually exclusive with measure/bond-edit).
+    /// Enable/disable the Edit interaction mode (thin wrapper on setInteractionMode).
     void setEditMode(bool on);
-    bool editMode() const { return m_editMode; }
+    bool editMode() const { return m_mode == InteractionMode::Edit; }
     /// Select all atoms of the connected fragment that @p seedAtom belongs to.
     void selectFragment(int seedAtom, bool append = false);
     /// Bulk-select a list of atom indices (used by fragment/paste/merge).
@@ -301,6 +323,7 @@ public slots:
     // Claude Generated - Phase 4B: Bond editing
     BondEditor* getBondEditor() const { return m_bondEditor; }
     void setBondEditMode(int mode);  // 0=None, 1=AddBond, 2=DeleteBond, 3=ChangeBondOrder
+    int getBondEditMode() const { return m_bondEditMode; }  // Claude Generated 2026
 
     // Claude Generated - Phase 2C: Atom data accessors for AtomListPanel
     QVector<QVector3D> getAtomPositions() const;
@@ -411,6 +434,12 @@ signals:
     /// play/pause toggle button's icon).
     void animationStateChanged(bool running);
     void measurementModeChanged(int mode);  // 0=off,1=distance,2=angle,3=dihedral
+    /// Claude Generated 2026 - Bond-edit sub-mode changed (0=off,1=add,2=delete,
+    /// 3=cycle order); lets the Display panel combo follow external mode switches.
+    void bondEditModeChanged(int mode);
+    /// Claude Generated 2026 - The exclusive interaction mode changed (None/Edit/
+    /// Measure/BondEdit/Build); drives mode-conditional UI like the build strip.
+    void interactionModeChanged(MoleculeViewer::InteractionMode mode);
     void displayOptionsRequested();
     // Claude Generated 2026 - Structure editing.
     void editModeChanged(bool on);
@@ -675,7 +704,7 @@ private:
     int m_measurementMode = 0;
 
     // Claude Generated 2026 - Structure editing state
-    bool m_editMode = false;
+    InteractionMode m_mode = InteractionMode::None;
     bool m_movingSelection = false;       // a drag-move of the selection is in progress
     bool m_moveSnapshotTaken = false;     // pre-move undo snapshot taken for this drag
     bool m_emptyPressPending = false;     // left-press on empty space (clears on release)

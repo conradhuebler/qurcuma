@@ -459,6 +459,17 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
     connect(m_bondEditCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int i) {
         if (m_viewer) m_viewer->setBondEditMode(m_bondEditCombo->itemData(i).toInt());
     });
+    // Claude Generated 2026 - Follow external mode switches (e.g. Edit mode turning
+    // bond-edit off), so the combo no longer shows a stale "Add Bond".
+    if (m_viewer)
+        connect(m_viewer, &MoleculeViewer::bondEditModeChanged, this, [this](int mode) {
+            const int i = m_bondEditCombo->findData(mode);
+            if (i >= 0 && i != m_bondEditCombo->currentIndex()) {
+                m_bondEditCombo->blockSignals(true);
+                m_bondEditCombo->setCurrentIndex(i);
+                m_bondEditCombo->blockSignals(false);
+            }
+        });
     f->addRow(tr("Bond Edit:"), m_bondEditCombo);
 
     m_forceVectorsCheck = new QCheckBox(tr("Show force vectors while grabbing"), this);
@@ -1247,6 +1258,11 @@ void DisplayPanel::syncFromViewer()
     m_fogDistanceSlider->setValue(int(m_viewer->getFogDistance() * 100.0f));
     m_forceVectorsCheck->setChecked(m_viewer->getForceVectorsVisible());
     m_measureCheck->setChecked(m_viewer->getMeasurementMode() != 0);
+    if (m_bondEditCombo) {
+        const int i = m_bondEditCombo->findData(m_viewer->getBondEditMode());
+        if (i >= 0)
+            m_bondEditCombo->setCurrentIndex(i);
+    }
     for (int i = 0; i < 4; ++i)
         m_cornerLightButtons[i]->setChecked(m_viewer->isCornerLightEnabled(i));
 
