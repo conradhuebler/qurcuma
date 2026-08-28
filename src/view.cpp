@@ -214,6 +214,16 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 m_rightDragged = false;
                 return true;
             } else if (me->button() == Qt::MiddleButton) {
+                // Claude Generated 2026 - Build mode: middle-click on an atom
+                // attaches a bonded atom of the current element; middle-click on
+                // empty space keeps the usual view reset.
+                if (buildMode() && !m_simulationActive) {
+                    const int picked = pickAtomAtScreenPos(me->position().toPoint());
+                    if (picked >= 0) {
+                        buildAttachAtom(picked);
+                        return true;
+                    }
+                }
                 resetView();
                 return true;
             }
@@ -261,7 +271,13 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                         m_scene->setMeasurement({}, QString());  // clear the bond preview
                     if (from >= 0) {
                         if (!m_leftDragged) {
-                            buildAttachAtom(from);      // click on an atom: attach
+                            // Click on an atom: change it to the current element
+                            // (attach = middle-click, delete = right-click).
+                            QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+                            if (from < atoms.size() && atoms[from].element != m_buildElement) {
+                                requestBuildSnapshot();
+                                setAtomInCurrentFrame(from, m_buildElement, atoms[from].position);
+                            }
                         } else {
                             const int target = pickAtomAtScreenPos(pos);
                             if (target >= 0 && target != from)
@@ -319,10 +335,16 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 return true;
             } else if (me->button() == Qt::RightButton) {
                 m_rightMousePressed = false;
-                // Claude Generated 2026 - Right-click (no pan-drag) opens the shared
-                // display context menu (deselect moved into the menu and Esc).
+                // Claude Generated 2026 - Right-click (no pan-drag): in Build mode
+                // on an atom it deletes that atom; otherwise it opens the shared
+                // display context menu (deselect lives there and on Esc).
                 if (!m_rightDragged) {
                     const int picked = pickAtomAtScreenPos(me->position().toPoint());
+                    if (buildMode() && !m_simulationActive && picked >= 0) {
+                        selectAtoms({ picked }, /*append=*/false);
+                        deleteSelection();
+                        return true;
+                    }
                     emit contextMenuRequested(me->globalPosition().toPoint(), picked);
                 }
                 return true;
@@ -2187,9 +2209,11 @@ void MoleculeViewer::setBuildElement(const QString& symbol)
 void MoleculeViewer::updateBuildHint()
 {
     if (m_scene)
-        m_scene->setEditHint(tr("Build [%1]  ·  click: place atom  ·  click atom: attach"
+        m_scene->setEditHint(tr("Build [%1]  ·  click: place / change element"
+                                "  ·  middle-click atom: attach"
                                 "  ·  drag atom→atom: bond (repeat: order)"
-                                "  ·  X/Del: delete  ·  H C N O S P F L(Cl) R(Br): element")
+                                "  ·  right-click atom: delete"
+                                "  ·  H C N O S P F L(Cl) R(Br): element")
                                  .arg(m_buildElement));
 }
 
@@ -3735,7 +3759,8 @@ void MoleculeViewer::setupControlPanel()
             buildBtn->setIcon(ico);
     }
     buildBtn->setToolTip(tr("Molecule builder: click empty space to place an atom, click an "
-                            "atom to attach one, drag atom to atom to bond. "
+                            "atom to change its element, middle-click an atom to attach one, "
+                            "right-click an atom to delete it, drag atom to atom to bond. "
                             "Keys H C N O S P F L(Cl) R(Br) pick the element. "
                             "Arrow: insert a fragment (docks onto a single selected atom)."));
     connect(buildBtn, &QToolButton::toggled, this, [this](bool on) { setBuildMode(on); });

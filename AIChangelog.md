@@ -471,3 +471,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-28: Auto-hydrogens: VSEPR placement (build::generateHydrogens, tested in test_buildtools), Add-H button + open-valence indicator in Build mode, context-menu entries
 - 2026-08-28: Fragment templates: built-in library (methyl/phenyl/carboxyl/amino/hydroxyl, benzene/cyclohexane/methane/water/ammonia), insert standalone or dock onto a selected atom (sacrificial H consumed)
 - 2026-08-28: Builder Clean up: bounded geometry optimization (startQuickOptimization, shared startWithConfig lifecycle) from the Build strip; Build Mode menu action for the palette; builder docs in src/CLAUDE.md
+- 2026-08-28: Build gestures reworked: left-click on atom changes its element, middle-click attaches, right-click deletes (context menu stays on empty space)
