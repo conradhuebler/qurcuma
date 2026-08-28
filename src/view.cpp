@@ -286,11 +286,11 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 return true;
             } else if (me->button() == Qt::RightButton) {
                 m_rightMousePressed = false;
-                // Right-click (no pan-drag) clears the selection / measurement marks.
-                if (!m_rightDragged && !m_selectedAtoms.isEmpty()) {
-                    clearSelection();
-                    if (m_editMode)
-                        computeCollisions();
+                // Claude Generated 2026 - Right-click (no pan-drag) opens the shared
+                // display context menu (deselect moved into the menu and Esc).
+                if (!m_rightDragged) {
+                    const int picked = pickAtomAtScreenPos(me->position().toPoint());
+                    emit contextMenuRequested(me->globalPosition().toPoint(), picked);
                 }
                 return true;
             }
@@ -1733,8 +1733,10 @@ void MoleculeViewer::setColorScheme(ColorScheme scheme)
 // Claude Generated 2026 - Per-atom overlay labels (element/type/index).
 void MoleculeViewer::setAtomLabelMode(AtomLabel mode)
 {
+    m_atomLabelMode = mode;
     if (m_scene)
         m_scene->setLabelMode(static_cast<int>(mode));
+    emit atomLabelModeChanged(static_cast<int>(mode));
 }
 
 void MoleculeViewer::setLabelSelectionOnly(bool on)

@@ -496,6 +496,19 @@ private:
     void toggleNciOverlay();
     /// Apply a source picked in the menu/bar dropdown (>= 2 starts the analysis).
     void setNciSourceFromUi(int source);
+    // Claude Generated 2026 - Shared display actions (Display menu + viewport
+    // context menu); checked states mirror the viewer's signals.
+    QActionGroup* m_renderStyleGroup = nullptr;
+    QActionGroup* m_colorSchemeGroup = nullptr;
+    QActionGroup* m_labelModeGroup = nullptr;
+    QAction* m_fitViewAction = nullptr;
+    QMenu* m_displayMenu = nullptr;         // reused as the viewport context menu
+    /// Esc: cancel a running calculation, else clear selection/measurement.
+    void handleEscape();
+    /// Build/show the viewport context menu from the shared display actions.
+    void showViewportContextMenu(const QPoint& globalPos, int atomIndex);
+    /// One-click PNG export (viewer-bar Photo button, context menu).
+    void quickExportPhoto();
     void onSimulationConfigChanged(SimulationConfig cfg);
 
 #ifdef USE_SFTP

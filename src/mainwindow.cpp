@@ -224,32 +224,12 @@ void MainWindow::setupUI()
     updateRemoteDirectoriesView();
 #endif
 
-    // Claude Generated - Rendering mode shortcuts (Keys 1-4)
-    new QShortcut(Qt::Key_1, this, this, &MainWindow::setRenderingModeBallAndStick);
-    new QShortcut(Qt::Key_2, this, this, &MainWindow::setRenderingModeSpaceFilling);
-    new QShortcut(Qt::Key_3, this, this, &MainWindow::setRenderingModeWireframe);
-    new QShortcut(Qt::Key_4, this, this, &MainWindow::setRenderingModeSticks);
-
-    // Claude Generated - Atom size shortcuts (Plus/Minus)
-    new QShortcut(Qt::Key_Plus, this, this, &MainWindow::increaseAtomSize);
-    new QShortcut(Qt::Key_Equal, this, this, &MainWindow::increaseAtomSize);  // Plus key often requires Shift on some keyboards
-    new QShortcut(Qt::Key_Minus, this, this, &MainWindow::decreaseAtomSize);
-
-    // Claude Generated - Bond thickness shortcuts (< / >)
-    new QShortcut(Qt::SHIFT | Qt::Key_Less, this, this, &MainWindow::decreaseBondThickness);
-    new QShortcut(Qt::SHIFT | Qt::Key_Greater, this, this, &MainWindow::increaseBondThickness);
-    new QShortcut(Qt::Key_Comma, this, this, &MainWindow::decreaseBondThickness);      // Fallback for < key
-    new QShortcut(Qt::Key_Period, this, this, &MainWindow::increaseBondThickness);     // Fallback for > key
-
-    // Claude Generated - Focus & view shortcuts
-    new QShortcut(Qt::CTRL | Qt::Key_0, this, this, &MainWindow::fitMoleculeInView);   // Ctrl+0 for fit all
-    new QShortcut(Qt::Key_Home, this, this, &MainWindow::fitMoleculeInView);            // Home key also fits
-    new QShortcut(Qt::CTRL | Qt::Key_F, this, this, &MainWindow::centerViewOnSelection); // Ctrl+F for focus
-    new QShortcut(Qt::CTRL | Qt::Key_Backspace, this, this, &MainWindow::centerMoleculeAtOrigin); // Ctrl+Backspace for center at origin
-
-    // Claude Generated - Phase 2A: Selection shortcuts
+    // Claude Generated 2026 - Rendering/size/bond/fit shortcuts moved onto the
+    // Display-menu QActions (createMenus), so they are visible, palette-listed
+    // and registered exactly once. Ctrl+Backspace lives on Molecule ▸ Center at
+    // Origin. Only actions without a menu home stay as bare shortcuts here.
     new QShortcut(Qt::CTRL | Qt::Key_A, this, this, &MainWindow::selectAllAtoms);       // Ctrl+A for select all
-    new QShortcut(Qt::Key_Escape, this, this, &MainWindow::clearAtomSelection);          // Escape for clear selection
+    new QShortcut(Qt::Key_Escape, this, this, &MainWindow::handleEscape);               // cancel calc / clear selection
 
     // Claude Generated 2026 - P3 command palette: Ctrl+K is carried by the View ▸ Command
     // Palette menu action (P4); no standalone QShortcut here to avoid an ambiguous overload.
@@ -999,8 +979,87 @@ void MainWindow::createMenus()
 
     // Claude Generated 2026 - Display menu: frequent viewer toggles reachable in
     // one click (and via the Ctrl+K palette, which harvests menu-bar actions).
-    // The NCI actions are shared with the viewer-bar button dropdown.
+    // The same QActions feed the viewport context menu and the NCI bar dropdown,
+    // so every entry point shows the same checked state.
     QMenu *displayMenu = menuBar->addMenu(tr("&Display"));
+    m_displayMenu = displayMenu;
+
+    QMenu* renderStyleMenu = displayMenu->addMenu(tr("&Render Style"));
+    m_renderStyleGroup = new QActionGroup(this);
+    const struct { int mode; QString label; QKeySequence key; void (MainWindow::*slot)(); } styles[] = {
+        { 0, tr("&Ball and Stick"), QKeySequence(Qt::Key_1), &MainWindow::setRenderingModeBallAndStick },
+        { 1, tr("&Space Filling"), QKeySequence(Qt::Key_2), &MainWindow::setRenderingModeSpaceFilling },
+        { 2, tr("&Wireframe"), QKeySequence(Qt::Key_3), &MainWindow::setRenderingModeWireframe },
+        { 3, tr("S&ticks Only"), QKeySequence(Qt::Key_4), &MainWindow::setRenderingModeSticks },
+    };
+    for (const auto& s : styles) {
+        QAction* a = renderStyleMenu->addAction(s.label);
+        a->setCheckable(true);
+        a->setShortcut(s.key);
+        a->setData(s.mode);
+        a->setChecked(s.mode == 0);
+        m_renderStyleGroup->addAction(a);
+        connect(a, &QAction::triggered, this, s.slot);
+    }
+
+    QMenu* colorSchemeMenu = displayMenu->addMenu(tr("&Colour Scheme"));
+    m_colorSchemeGroup = new QActionGroup(this);
+    const QVector<QPair<int, QString>> schemes = {
+        { int(MoleculeViewer::ColorScheme::CPK), tr("CPK (Element Colors)") },
+        { int(MoleculeViewer::ColorScheme::Monochrome), tr("Monochrome") },
+        { int(MoleculeViewer::ColorScheme::ByCharge), tr("By Charge") },
+        { int(MoleculeViewer::ColorScheme::ByType), tr("By Type (CG beads)") },
+        { int(MoleculeViewer::ColorScheme::Custom), tr("Custom") },
+    };
+    for (const auto& s : schemes) {
+        QAction* a = colorSchemeMenu->addAction(s.second);
+        a->setCheckable(true);
+        a->setData(s.first);
+        a->setChecked(s.first == 0);
+        m_colorSchemeGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, scheme = s.first]() {
+            if (m_moleculeView)
+                m_moleculeView->setColorScheme(static_cast<MoleculeViewer::ColorScheme>(scheme));
+            syncVisualizationDialog();
+        });
+    }
+
+    QMenu* labelMenu = displayMenu->addMenu(tr("Atom &Labels"));
+    m_labelModeGroup = new QActionGroup(this);
+    const QVector<QPair<int, QString>> labelModes = {
+        { int(MoleculeViewer::AtomLabel::None), tr("No Labels") },
+        { int(MoleculeViewer::AtomLabel::Element), tr("Element") },
+        { int(MoleculeViewer::AtomLabel::Type), tr("Type (bead)") },
+        { int(MoleculeViewer::AtomLabel::Index), tr("Index") },
+    };
+    for (const auto& l : labelModes) {
+        QAction* a = labelMenu->addAction(l.second);
+        a->setCheckable(true);
+        a->setData(l.first);
+        a->setChecked(l.first == 0);
+        m_labelModeGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, mode = l.first]() {
+            if (m_moleculeView)
+                m_moleculeView->setAtomLabelMode(static_cast<MoleculeViewer::AtomLabel>(mode));
+        });
+    }
+
+    // Checked states mirror the viewer, whatever path changed it (panel, bar, key).
+    auto checkByData = [](QActionGroup* group, int value) {
+        for (QAction* a : group->actions())
+            if (a->data().toInt() == value)
+                a->setChecked(true);
+    };
+    if (m_moleculeView) {
+        connect(m_moleculeView, &MoleculeViewer::renderingModeChanged, this,
+            [this, checkByData](MoleculeViewer::RenderingMode mode) { checkByData(m_renderStyleGroup, int(mode)); });
+        connect(m_moleculeView, &MoleculeViewer::colorSchemeChanged, this,
+            [this, checkByData](MoleculeViewer::ColorScheme scheme) { checkByData(m_colorSchemeGroup, int(scheme)); });
+        connect(m_moleculeView, &MoleculeViewer::atomLabelModeChanged, this,
+            [this, checkByData](int mode) { checkByData(m_labelModeGroup, mode); });
+    }
+
+    displayMenu->addSeparator();
 
     m_nciToggleAction = displayMenu->addAction(QIcon::fromTheme("draw-connector"), tr("&NCI Overlay"));
     m_nciToggleAction->setCheckable(true);
@@ -1035,6 +1094,30 @@ void MainWindow::createMenus()
         if (m_displayPanel)
             m_displayPanel->expandSection(QStringLiteral("nci"));
     });
+
+    displayMenu->addSeparator();
+
+    QAction* atomsBiggerAction = displayMenu->addAction(tr("Increase Atom Size"));
+    atomsBiggerAction->setShortcuts({ QKeySequence(Qt::Key_Plus), QKeySequence(Qt::Key_Equal) });
+    connect(atomsBiggerAction, &QAction::triggered, this, &MainWindow::increaseAtomSize);
+    QAction* atomsSmallerAction = displayMenu->addAction(tr("Decrease Atom Size"));
+    atomsSmallerAction->setShortcut(QKeySequence(Qt::Key_Minus));
+    connect(atomsSmallerAction, &QAction::triggered, this, &MainWindow::decreaseAtomSize);
+    QAction* bondsThickerAction = displayMenu->addAction(tr("Thicker Bonds"));
+    bondsThickerAction->setShortcuts({ QKeySequence(Qt::Key_Period), QKeySequence(Qt::SHIFT | Qt::Key_Greater) });
+    connect(bondsThickerAction, &QAction::triggered, this, &MainWindow::increaseBondThickness);
+    QAction* bondsThinnerAction = displayMenu->addAction(tr("Thinner Bonds"));
+    bondsThinnerAction->setShortcuts({ QKeySequence(Qt::Key_Comma), QKeySequence(Qt::SHIFT | Qt::Key_Less) });
+    connect(bondsThinnerAction, &QAction::triggered, this, &MainWindow::decreaseBondThickness);
+
+    displayMenu->addSeparator();
+
+    m_fitViewAction = displayMenu->addAction(QIcon::fromTheme("zoom-fit-best"), tr("&Fit in View"));
+    m_fitViewAction->setShortcuts({ QKeySequence(Qt::CTRL | Qt::Key_0), QKeySequence(Qt::Key_Home) });
+    connect(m_fitViewAction, &QAction::triggered, this, &MainWindow::fitMoleculeInView);
+    QAction* centerSelAction = displayMenu->addAction(tr("Center on Selection"));
+    centerSelAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F));
+    connect(centerSelAction, &QAction::triggered, this, &MainWindow::centerViewOnSelection);
 
     displayMenu->addSeparator();
     QAction* displayPanelAction = displayMenu->addAction(QIcon::fromTheme("configure"), tr("Display &Options…"));
@@ -1090,14 +1173,14 @@ void MainWindow::createMenus()
     };
     QAction *mdAction = moleculeMenu->addAction(
         QIcon::fromTheme("media-playback-start"), tr("Run &MD Simulation"));
-    mdAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    mdAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
     mdAction->setToolTip(tr("Focus the simulation dock in MD mode"));
     connect(mdAction, &QAction::triggered, this,
         [showSimDock]() { showSimDock(SimulationConfig::Mode::MolecularDynamics); });
 
     QAction *optAction = moleculeMenu->addAction(
         QIcon::fromTheme("system-run"), tr("&Geometry Optimization"));
-    optAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
+    optAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G));
     optAction->setToolTip(tr("Focus the simulation dock in optimization mode"));
     connect(optAction, &QAction::triggered, this,
         [showSimDock]() { showSimDock(SimulationConfig::Mode::GeometryOptimization); });
@@ -1406,15 +1489,13 @@ void MainWindow::setupShortcuts()
     // (m_saveAction) below, so we deliberately omit a second QShortcut here to
     // avoid double-firing. The editor save behaviour is still reachable via
     // saveCurrentStructureAs() / editor shortcuts.
-    new QShortcut(Qt::Key_Escape, this, this, &MainWindow::cancelCalculation);
+    // Claude Generated 2026 - Escape is handled once in setupUI (handleEscape:
+    // cancel a running calculation, else clear the selection); Ctrl+0/Home live
+    // on Display ▸ Fit in View. The doubled registrations were ambiguous.
     new QShortcut(QKeySequence::NextChild, this, this, &MainWindow::switchEditorTab);  // Ctrl+Tab
-
-    // Claude Generated - Quick Win: Zoom to fit molecule (Home key)
-    new QShortcut(Qt::Key_Home, this, this, &MainWindow::zoomToMolecule);
 
     // Claude Generated - Quick Fix: Additional shortcuts
     new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_L), this, this, &MainWindow::clearOutputView);  // Ctrl+L
-    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_0), this, this, &MainWindow::zoomToMolecule);   // Ctrl+0
 }
 
 void MainWindow::setupProjectViewContextMenu()
@@ -2439,6 +2520,50 @@ void MainWindow::openRecentFile(const QString& path)
 }
 
 // Claude Generated - Phase 1.2: Keyboard shortcut handlers
+// Claude Generated 2026 - Single Escape handler (the key was doubly bound to
+// cancelCalculation and clearAtomSelection, which made it ambiguous): cancel a
+// running calculation first, otherwise clear selection + measurement marks.
+void MainWindow::handleEscape()
+{
+    if (m_calculationRunner && m_calculationRunner->isRunning()) {
+        cancelCalculation();
+        return;
+    }
+    clearAtomSelection();
+}
+
+// Claude Generated 2026 - Viewport context menu: the shared Display-menu actions
+// (render style, colours, labels, NCI, sizes, fit) plus deselect and the quick
+// photo export. Same QActions as the menu bar, so checked states always match.
+void MainWindow::showViewportContextMenu(const QPoint& globalPos, int atomIndex)
+{
+    Q_UNUSED(atomIndex);
+    if (!m_displayMenu)
+        return;
+    QMenu menu(this);
+    for (QAction* a : m_displayMenu->actions())
+        menu.addAction(a);
+    menu.addSeparator();
+    QAction* deselect = menu.addAction(tr("Deselect All"));
+    connect(deselect, &QAction::triggered, this, &MainWindow::clearAtomSelection);
+    QAction* photo = menu.addAction(QIcon::fromTheme("camera-photo"), tr("Photo (Quick Export)"));
+    connect(photo, &QAction::triggered, this, &MainWindow::quickExportPhoto);
+    menu.exec(globalPos);
+}
+
+// Claude Generated 2026 - One-click PNG export into the working directory
+// (viewer-bar Photo button, viewport context menu).
+void MainWindow::quickExportPhoto()
+{
+    if (!m_moleculeView)
+        return;
+    const QString saved = m_moleculeView->quickExportImage(m_workingDirectory, &m_settings);
+    if (!saved.isEmpty())
+        statusBar()->showMessage(tr("Image exported: %1").arg(saved), 5000);
+    else
+        statusBar()->showMessage(tr("Quick export failed — is a molecule loaded?"), 5000);
+}
+
 void MainWindow::cancelCalculation()
 {
     if (m_calculationRunner->isRunning()) {
@@ -3925,16 +4050,11 @@ void MainWindow::createDockWidgets()
 
     // Viewer-bar "Photo" button → dialog-free quick export into the working folder.
     if (m_moleculeView)
-        connect(m_moleculeView, &MoleculeViewer::quickExportRequested, this, [this]() {
-            if (!m_moleculeView)
-                return;
-            const QString saved = m_moleculeView->quickExportImage(m_workingDirectory, &m_settings);
-            if (!saved.isEmpty())
-                statusBar()->showMessage(tr("Image exported: %1").arg(saved), 5000);
-            else
-                statusBar()->showMessage(
-                    tr("Quick export failed — is a molecule loaded?"), 5000);
-        });
+        connect(m_moleculeView, &MoleculeViewer::quickExportRequested,
+            this, &MainWindow::quickExportPhoto);
+        // Claude Generated 2026 - Right-click (no drag) on the 3D view.
+        connect(m_moleculeView, &MoleculeViewer::contextMenuRequested,
+            this, &MainWindow::showViewportContextMenu);
 
     // ==================== PROJECT DOCK (left) ====================
     // Phase 6 redesign: ProjectDock owns a segmented upper panel

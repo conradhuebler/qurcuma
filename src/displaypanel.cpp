@@ -193,6 +193,15 @@ void DisplayPanel::createRenderingGroup(QVBoxLayout* mainLayout)
         if (m_viewer)
             m_viewer->setAtomLabelMode(static_cast<MoleculeViewer::AtomLabel>(labelCombo->itemData(i).toInt()));
     });
+    if (m_viewer)
+        connect(m_viewer, &MoleculeViewer::atomLabelModeChanged, labelCombo, [labelCombo](int mode) {
+            const int i = labelCombo->findData(mode);
+            if (i >= 0 && i != labelCombo->currentIndex()) {
+                labelCombo->blockSignals(true);
+                labelCombo->setCurrentIndex(i);
+                labelCombo->blockSignals(false);
+            }
+        });
     f->addRow(tr("Labels:"), labelCombo);
 
     auto* labelSelOnly = new QCheckBox(tr("Label selected atoms only"), this);

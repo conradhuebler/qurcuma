@@ -148,6 +148,7 @@ public:
 
     // Claude Generated 2026 - Per-atom overlay labels (element/type/index).
     void setAtomLabelMode(AtomLabel mode);
+    AtomLabel getAtomLabelMode() const { return m_atomLabelMode; }  // Claude Generated 2026
     void setLabelSelectionOnly(bool on);  // true = only label selected atoms
 
     void setAtomTransparency(float alpha);  // 0.0 (transparent) to 1.0 (opaque)
@@ -393,6 +394,12 @@ signals:
     /// Claude Generated 2026 - The bar's NCI button asks the host to toggle the
     /// overlay (MainWindow owns the last-source memory and the analysis paths).
     void nciToggleRequested();
+    /// Claude Generated 2026 - Atom-label mode changed (panel combo or Display
+    /// menu), so the other UI mirror follows. Value = int(AtomLabel).
+    void atomLabelModeChanged(int mode);
+    /// Claude Generated 2026 - Right-click (no drag) on the viewport asks the
+    /// host for the shared context menu. atomIndex = picked atom or -1.
+    void contextMenuRequested(const QPoint& globalPos, int atomIndex);
     void measurementModeChanged(int mode);  // 0=off,1=distance,2=angle,3=dihedral
     void displayOptionsRequested();
     // Claude Generated 2026 - Structure editing.
@@ -698,6 +705,7 @@ private:
     bool m_nciLabelsVisible = true;
     bool m_nciLiveMd = false;          // live GFN-FF contacts during MD (see setNciLiveMd)
     QToolButton* m_nciButton = nullptr;  // bar toggle, mirrors m_nciSource
+    AtomLabel m_atomLabelMode = AtomLabel::None;
     nci::Options m_nciOptions;
     nci::Result m_nciResult;
     QVector<QVector<int>> m_nciRings;  // ring perception cache (topology, not geometry)
