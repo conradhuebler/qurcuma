@@ -280,8 +280,21 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                             }
                         } else {
                             const int target = pickAtomAtScreenPos(pos);
-                            if (target >= 0 && target != from)
+                            if (target >= 0 && target != from) {
                                 buildBond(from, target); // drag atom -> atom: bond
+                            } else if (target < 0 && m_scene && m_quickView) {
+                                // Drag onto empty space: move the atom there (at
+                                // its own depth). Bonds stay as drawn — the
+                                // builder never re-detects topology on a move.
+                                QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+                                if (from < atoms.size()) {
+                                    requestBuildSnapshot();
+                                    const QVector3D to = m_scene->screenToModelPoint(
+                                        pos.x(), pos.y(), atoms[from].position,
+                                        m_quickView->width(), m_quickView->height());
+                                    setAtomInCurrentFrame(from, atoms[from].element, to);
+                                }
+                            }
                         }
                     } else if (!m_leftDragged) {
                         placeAtomAtScreen(pos);          // click on empty space: place
@@ -2210,9 +2223,9 @@ void MoleculeViewer::updateBuildHint()
 {
     if (m_scene)
         m_scene->setEditHint(tr("Build [%1]  ·  click: place / change element"
-                                "  ·  middle-click atom: attach"
                                 "  ·  drag atom→atom: bond (repeat: order)"
-                                "  ·  right-click atom: delete"
+                                "  ·  drag atom→empty: move"
+                                "  ·  middle-click: attach  ·  right-click: delete"
                                 "  ·  H C N O S P F L(Cl) R(Br): element")
                                  .arg(m_buildElement));
 }
@@ -3760,7 +3773,8 @@ void MoleculeViewer::setupControlPanel()
     }
     buildBtn->setToolTip(tr("Molecule builder: click empty space to place an atom, click an "
                             "atom to change its element, middle-click an atom to attach one, "
-                            "right-click an atom to delete it, drag atom to atom to bond. "
+                            "right-click an atom to delete it, drag atom to atom to bond, "
+                            "drag an atom onto empty space to move it. "
                             "Keys H C N O S P F L(Cl) R(Br) pick the element. "
                             "Arrow: insert a fragment (docks onto a single selected atom)."));
     connect(buildBtn, &QToolButton::toggled, this, [this](bool on) { setBuildMode(on); });
