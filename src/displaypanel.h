@@ -30,9 +30,10 @@ class DisplayPanel : public QWidget
 public:
     explicit DisplayPanel(MoleculeViewer* viewer, Settings* settings = nullptr, QWidget* parent = nullptr);
 
-    /// Re-read all control values from the viewer/settings (called after shortcuts
-    /// or external changes so the panel stays in sync).
-    void loadCurrentSettings();
+    /// Re-read all control values from the viewer (called after shortcuts, presets
+    /// or external changes so the panel stays in sync). Read-only: the viewer is
+    /// the single source of truth, this never writes viewer state.
+    void syncFromViewer();
 
 signals:
     void centerOnLoadChanged(bool enabled);
@@ -74,6 +75,7 @@ private slots:
     // Footer / presets
     void onResetDefaults();
     void onSaveAsDefault();
+    void onLoadDefaults();
     void onLoadPreset(int index);
     void onSavePreset();
     void onDeletePreset();

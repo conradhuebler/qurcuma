@@ -36,14 +36,14 @@ DisplayPanel::DisplayPanel(MoleculeViewer* viewer, Settings* settings, QWidget* 
     setupUI();
     if (m_settings)
         m_settings->initializeDefaultPresets();
-    loadCurrentSettings();
+    syncFromViewer();
     refreshPresetList();
 
     // Claude Generated 2026 - re-sync controls after a view preset is applied
     // (camera+display) without the dock being raised.
     if (m_viewer)
         connect(m_viewer, &MoleculeViewer::viewPresetApplied,
-                this, [this]() { loadCurrentSettings(); });
+                this, [this]() { syncFromViewer(); });
 }
 
 namespace {
@@ -120,12 +120,16 @@ void DisplayPanel::setupUI()
     auto* footer = new QHBoxLayout;
     footer->setContentsMargins(4, 4, 4, 4);
     auto* resetBtn = new QPushButton(tr("Reset"), this);
-    resetBtn->setToolTip(tr("Reset display options to defaults"));
+    resetBtn->setToolTip(tr("Reset all display options to the built-in defaults"));
     connect(resetBtn, &QPushButton::clicked, this, &DisplayPanel::onResetDefaults);
+    auto* loadBtn = new QPushButton(tr("Load Defaults"), this);
+    loadBtn->setToolTip(tr("Apply the display options saved with \"Save as Default\""));
+    connect(loadBtn, &QPushButton::clicked, this, &DisplayPanel::onLoadDefaults);
     auto* saveBtn = new QPushButton(tr("Save as Default"), this);
     saveBtn->setToolTip(tr("Remember the current display options for future launches"));
     connect(saveBtn, &QPushButton::clicked, this, &DisplayPanel::onSaveAsDefault);
     footer->addWidget(resetBtn);
+    footer->addWidget(loadBtn);
     footer->addStretch();
     footer->addWidget(saveBtn);
     root->addLayout(footer);
@@ -1055,6 +1059,7 @@ void DisplayPanel::createNciGroup(QVBoxLayout* mainLayout)
         "instead of from the geometry. The force field then rebuilds its hydrogen- "
         "and halogen-bond lists every step, which costs simulation speed."));
     connect(m_nciLiveMdCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_viewer) m_viewer->setNciLiveMd(on);
         emit nciLiveMdChanged(on);
     });
     f->addRow(QString(), m_nciLiveMdCheck);
@@ -1122,9 +1127,10 @@ void DisplayPanel::createPresetsGroup(QVBoxLayout* mainLayout)
 }
 
 // ---------------------------------------------------------------------------
-// Load current values into controls (ported from the dialog, minus working-dir)
+// Sync all control values from the viewer (read-only; the viewer is the single
+// source of truth for live display state). Claude Generated 2026.
 // ---------------------------------------------------------------------------
-void DisplayPanel::loadCurrentSettings()
+void DisplayPanel::syncFromViewer()
 {
     if (!m_viewer)
         return;
@@ -1146,102 +1152,62 @@ void DisplayPanel::loadCurrentSettings()
 
     auto setComboData = [](QComboBox* c, int data) { int i = c->findData(data); if (i >= 0) c->setCurrentIndex(i); };
 
-    if (m_settings) {
-        Settings::VisualizationSettings s = m_settings->getVisualizationSettings();
-        setComboData(m_renderingModeCombo, s.renderingMode);
-        setComboData(m_colorSchemeCombo, s.colorScheme);
-        m_transparencySlider->setValue(int(s.atomTransparency * 100));
-        m_transparencyLabel->setText(QString("%1%").arg(int(s.atomTransparency * 100)));
-        m_shininessSpinBox->setValue(s.atomShininess);
-        m_atomScaleSpinBox->setValue(s.atomScaleFactor);
-        m_bondThicknessSpinBox->setValue(s.bondThickness);
-        m_fogEnabledCheckBox->setChecked(s.fogEnabled);
-        m_fogIntensitySlider->setValue(int(s.fogIntensity * 100.0f));
-        m_fogIntensityLabel->setText(QString("%1%").arg(int(s.fogIntensity * 100.0f)));
-        m_ssaoEnabledCheckBox->setChecked(s.ssaoEnabled);
-        m_ssaoIntensitySlider->setValue(int(s.ssaoIntensity * 100.0f));
-        m_ssaoIntensityLabel->setText(QString::number(s.ssaoIntensity, 'f', 2));
-        m_ssaoRadiusSpinBox->setValue(s.ssaoRadius);
-        m_ssaoBiasSpinBox->setValue(s.ssaoBias);
-        m_bloomEnabledCheckBox->setChecked(s.bloomEnabled);
-        m_bloomThresholdSpinBox->setValue(s.bloomThreshold);
-        m_bloomIntensitySlider->setValue(int(s.bloomIntensity * 100.0f));
-        m_bloomIntensityLabel->setText(QString::number(s.bloomIntensity, 'f', 2));
-        m_hdrEnabledCheckBox->setChecked(s.hdrEnabled);
-        m_exposureSpinBox->setValue(s.exposure);
-        setComboData(m_rotationModeCombo, s.rotationMode);
-        m_instancingThresholdSpin->setValue(s.instancingThreshold);
-        m_wallCheck->setChecked(s.wallVisible);
-        m_viewer->setWallVisibleOverride(s.wallVisible);  // apply persisted override
-        m_wallOpacitySlider->setValue(int(s.wallOpacity * 100));
-        m_wallOpacityLabel->setText(QString("%1%").arg(int(s.wallOpacity * 100)));
-        m_viewer->setWallOpacity(s.wallOpacity);
+    setComboData(m_renderingModeCombo, int(m_viewer->getRenderingMode()));
+    setComboData(m_colorSchemeCombo, int(m_viewer->getColorScheme()));
+    m_transparencySlider->setValue(int(m_viewer->getAtomTransparency() * 100));
+    m_transparencyLabel->setText(QString("%1%").arg(int(m_viewer->getAtomTransparency() * 100)));
+    m_shininessSpinBox->setValue(m_viewer->getAtomShininess());
+    m_atomScaleSpinBox->setValue(m_viewer->getAtomScaleFactor());
+    m_bondThicknessSpinBox->setValue(m_viewer->getBondThickness());
+    m_fogEnabledCheckBox->setChecked(m_viewer->getFogEnabled());
+    m_fogIntensitySlider->setValue(int(m_viewer->getFogIntensity() * 100.0f));
+    m_fogIntensityLabel->setText(QString("%1%").arg(int(m_viewer->getFogIntensity() * 100.0f)));
 
-        nci::Options o;
-        o.hydrogenBonds = s.nciHydrogenBonds;
-        o.halogenBonds = s.nciHalogenBonds;
-        o.piStacking = s.nciPiStacking;
-        o.closeContacts = s.nciCloseContacts;
-        o.electrostatics = s.nciElectrostatics;
-        o.dispersion = s.nciDispersion;
-        o.hbMaxDistance = s.nciHbDistance;
-        o.hbMinAngle = s.nciHbAngle;
-        m_nciHBondCheck->setChecked(o.hydrogenBonds);
-        m_nciXBondCheck->setChecked(o.halogenBonds);
-        m_nciPiCheck->setChecked(o.piStacking);
-        m_nciContactCheck->setChecked(o.closeContacts);
-        m_nciElectrostaticCheck->setChecked(o.electrostatics);
-        m_nciDispersionCheck->setChecked(o.dispersion);
-        m_nciHbDistanceSpin->setValue(o.hbMaxDistance);
-        m_nciHbAngleSpin->setValue(int(o.hbMinAngle));
-        m_nciLabelCheck->setChecked(s.nciLabels);
-        m_nciLiveMdCheck->setChecked(s.nciLiveMd);
-        m_fragmentTintCheck->setChecked(s.fragmentTint);
-        // These two are the values a fragment starts from before it gets its own;
-        // the sliders themselves always show the selected fragment (see
-        // refreshSelectedFragment).
-        m_viewer->setFragmentTint(s.fragmentTint, s.fragmentTintStrength);
-        m_viewer->setFragmentScale(s.fragmentScale);
-        setComboData(m_nciSourceCombo, s.nciSource);
-        m_viewer->setNciOptions(o);
-        m_viewer->setNciLabelsVisible(s.nciLabels);
-        // Only the geometric source can be restored without a calculation.
-        m_viewer->setNciSource(s.nciSource <= 1 ? s.nciSource : 0);
-    } else {
-        setComboData(m_renderingModeCombo, int(m_viewer->getRenderingMode()));
-        setComboData(m_colorSchemeCombo, int(m_viewer->getColorScheme()));
-        m_transparencySlider->setValue(int(m_viewer->getAtomTransparency() * 100));
-        m_shininessSpinBox->setValue(m_viewer->getAtomShininess());
-        m_atomScaleSpinBox->setValue(m_viewer->getAtomScaleFactor());
-        m_bondThicknessSpinBox->setValue(m_viewer->getBondThickness());
-        m_fogEnabledCheckBox->setChecked(m_viewer->getFogEnabled());
-        m_fogIntensitySlider->setValue(int(m_viewer->getFogIntensity() * 100.0f));
-        setComboData(m_rotationModeCombo, m_viewer->getRotationMode());
-        m_instancingThresholdSpin->setValue(m_viewer->getInstancingThreshold());
-        m_wallCheck->setChecked(m_viewer->getWallVisibleOverride());
-        const qreal curOpacity = m_viewer->getWallOpacity();
-        m_wallOpacitySlider->setValue(int(curOpacity * 100));
-        m_wallOpacityLabel->setText(QString("%1%").arg(int(curOpacity * 100)));
+    const bool ssaoOn = m_viewer->getSSAOEnabled();
+    m_ssaoEnabledCheckBox->setChecked(ssaoOn);
+    m_ssaoIntensitySlider->setValue(int(m_viewer->getSSAOIntensity() * 100.0f));
+    m_ssaoIntensityLabel->setText(QString::number(m_viewer->getSSAOIntensity(), 'f', 2));
+    m_ssaoRadiusSpinBox->setValue(m_viewer->getSSAORadius());
+    m_ssaoBiasSpinBox->setValue(m_viewer->getSSAOBias());
+    m_ssaoIntensitySlider->setEnabled(ssaoOn);
+    m_ssaoRadiusSpinBox->setEnabled(ssaoOn);
+    m_ssaoBiasSpinBox->setEnabled(ssaoOn);
+    const bool bloomOn = m_viewer->getBloomEnabled();
+    m_bloomEnabledCheckBox->setChecked(bloomOn);
+    m_bloomThresholdSpinBox->setValue(m_viewer->getBloomThreshold());
+    m_bloomIntensitySlider->setValue(int(m_viewer->getBloomIntensity() * 100.0f));
+    m_bloomIntensityLabel->setText(QString::number(m_viewer->getBloomIntensity(), 'f', 2));
+    m_bloomThresholdSpinBox->setEnabled(bloomOn);
+    m_bloomIntensitySlider->setEnabled(bloomOn);
+    const bool hdrOn = m_viewer->getHDREnabled();
+    m_hdrEnabledCheckBox->setChecked(hdrOn);
+    m_exposureSpinBox->setValue(m_viewer->getExposure());
+    m_exposureSpinBox->setEnabled(hdrOn);
 
-        const nci::Options o = m_viewer->getNciOptions();
-        m_nciHBondCheck->setChecked(o.hydrogenBonds);
-        m_nciXBondCheck->setChecked(o.halogenBonds);
-        m_nciPiCheck->setChecked(o.piStacking);
-        m_nciContactCheck->setChecked(o.closeContacts);
-        m_nciElectrostaticCheck->setChecked(o.electrostatics);
-        m_nciDispersionCheck->setChecked(o.dispersion);
-        m_nciHbDistanceSpin->setValue(o.hbMaxDistance);
-        m_nciHbAngleSpin->setValue(int(o.hbMinAngle));
-        m_nciLabelCheck->setChecked(m_viewer->getNciLabelsVisible());
-        m_fragmentTintCheck->setChecked(m_viewer->getFragmentTint());
-        setComboData(m_nciSourceCombo, m_viewer->getNciSource());
-    }
-    // Colour overrides are keyed by content (bead type label, interaction class),
-    // so they come from their own settings groups rather than VisualizationSettings.
-    if (m_settings) {
-        m_viewer->setBeadTypeColors(m_settings->beadTypeColors());
-        m_viewer->setNciPalette(m_settings->nciPalette());
-    }
+    setComboData(m_rotationModeCombo, m_viewer->getRotationMode());
+    m_instancingThresholdSpin->setValue(m_viewer->getInstancingThreshold());
+    m_wallCheck->setChecked(m_viewer->getWallVisibleOverride());
+    const qreal wallOpacity = m_viewer->getWallOpacity();
+    m_wallOpacitySlider->setValue(int(wallOpacity * 100));
+    m_wallOpacityLabel->setText(QString("%1%").arg(int(wallOpacity * 100)));
+
+    const nci::Options o = m_viewer->getNciOptions();
+    m_nciHBondCheck->setChecked(o.hydrogenBonds);
+    m_nciXBondCheck->setChecked(o.halogenBonds);
+    m_nciPiCheck->setChecked(o.piStacking);
+    m_nciContactCheck->setChecked(o.closeContacts);
+    m_nciElectrostaticCheck->setChecked(o.electrostatics);
+    m_nciDispersionCheck->setChecked(o.dispersion);
+    m_nciHbDistanceSpin->setValue(o.hbMaxDistance);
+    m_nciHbAngleSpin->setValue(int(o.hbMinAngle));
+    m_nciLabelCheck->setChecked(m_viewer->getNciLabelsVisible());
+    m_nciLiveMdCheck->setChecked(m_viewer->getNciLiveMd());
+    m_fragmentTintCheck->setChecked(m_viewer->getFragmentTint());
+    setComboData(m_nciSourceCombo, m_viewer->getNciSource());
+    const bool gfnff = m_viewer->getNciSource() == 2;
+    m_nciElectrostaticCheck->setEnabled(gfnff);
+    m_nciDispersionCheck->setEnabled(gfnff);
+
     refreshBeadTypes();
     refreshNciPalette();
     refreshFragments();
@@ -1334,47 +1300,33 @@ void DisplayPanel::onInstancingThresholdChanged(int value) { if (m_viewer) m_vie
 // ---------------------------------------------------------------------------
 // Footer + presets
 // ---------------------------------------------------------------------------
+// Claude Generated 2026 - Reset/save/load work on the full DisplaySettings struct
+// (viewer round-trip), so no field can be forgotten in a hand-maintained list.
 void DisplayPanel::onResetDefaults()
 {
-    m_renderingModeCombo->setCurrentIndex(0);
-    m_colorSchemeCombo->setCurrentIndex(0);
-    m_transparencySlider->setValue(100);
-    m_shininessSpinBox->setValue(80.0);
-    m_atomScaleSpinBox->setValue(1.0);
-    m_bondThicknessSpinBox->setValue(0.15);
-    m_fogEnabledCheckBox->setChecked(false);
-    m_fogIntensitySlider->setValue(70);
-    if (m_rotationModeCombo) m_rotationModeCombo->setCurrentIndex(0);
-    if (m_instancingThresholdSpin) m_instancingThresholdSpin->setValue(500);
+    if (!m_viewer)
+        return;
+    m_viewer->applyDisplaySettings(DisplaySettings{});
+    syncFromViewer();
 }
 
 void DisplayPanel::onSaveAsDefault()
 {
     if (!m_settings || !m_viewer)
         return;
-    Settings::VisualizationSettings c;
-    c.renderingMode = m_renderingModeCombo->currentData().toInt();
-    c.colorScheme = m_colorSchemeCombo->currentData().toInt();
-    c.atomTransparency = m_viewer->getAtomTransparency();
-    c.atomShininess = m_viewer->getAtomShininess();
-    c.atomScaleFactor = m_viewer->getAtomScaleFactor();
-    c.bondThickness = m_viewer->getBondThickness();
-    c.fogEnabled = m_viewer->getFogEnabled();
-    c.fogIntensity = m_viewer->getFogIntensity();
-    c.ssaoEnabled = m_viewer->getSSAOEnabled();
-    c.ssaoIntensity = m_viewer->getSSAOIntensity();
-    c.ssaoRadius = m_viewer->getSSAORadius();
-    c.ssaoBias = m_viewer->getSSAOBias();
-    c.bloomEnabled = m_viewer->getBloomEnabled();
-    c.bloomThreshold = m_viewer->getBloomThreshold();
-    c.bloomIntensity = m_viewer->getBloomIntensity();
-    c.hdrEnabled = m_viewer->getHDREnabled();
-    c.exposure = m_viewer->getExposure();
-    c.rotationMode = m_viewer->getRotationMode();
+    // Read-modify-write: centerOnLoad persists on toggle and stays untouched here.
+    Settings::VisualizationSettings c = m_settings->getVisualizationSettings();
+    static_cast<DisplaySettings&>(c) = m_viewer->currentDisplaySettings();
     c.instancingThreshold = m_viewer->getInstancingThreshold();
-    c.wallVisible = m_wallCheck->isChecked();
-    c.wallOpacity = (m_wallOpacitySlider ? m_wallOpacitySlider->value() / 100.0 : 0.6);
     m_settings->setVisualizationSettings(c);
+}
+
+void DisplayPanel::onLoadDefaults()
+{
+    if (!m_settings || !m_viewer)
+        return;
+    m_viewer->applyDisplaySettings(m_settings->getVisualizationSettings());
+    syncFromViewer();
 }
 
 void DisplayPanel::refreshPresetList()
@@ -1393,16 +1345,8 @@ void DisplayPanel::onLoadPreset(int index)
     auto presets = m_settings->getVisualizationPresets();
     if (index >= presets.size())
         return;
-    const auto& s = presets[index].settings;
-    m_viewer->setRenderingMode(static_cast<MoleculeViewer::RenderingMode>(s.renderingMode));
-    m_viewer->setColorScheme(static_cast<MoleculeViewer::ColorScheme>(s.colorScheme));
-    m_viewer->setAtomTransparency(s.atomTransparency);
-    m_viewer->setAtomShininess(s.atomShininess);
-    m_viewer->setAtomScaleFactor(s.atomScaleFactor);
-    m_viewer->setBondThickness(s.bondThickness);
-    m_viewer->setFogEnabled(s.fogEnabled);
-    m_viewer->setFogIntensity(s.fogIntensity);
-    loadCurrentSettings();
+    m_viewer->applyDisplaySettings(presets[index].settings);
+    syncFromViewer();
 }
 
 void DisplayPanel::onSavePreset()
@@ -1415,14 +1359,8 @@ void DisplayPanel::onSavePreset()
     if (!ok || name.isEmpty())
         return;
     Settings::VisualizationSettings c;
-    c.renderingMode = m_renderingModeCombo->currentData().toInt();
-    c.colorScheme = m_colorSchemeCombo->currentData().toInt();
-    c.atomTransparency = m_viewer->getAtomTransparency();
-    c.atomShininess = m_viewer->getAtomShininess();
-    c.atomScaleFactor = m_viewer->getAtomScaleFactor();
-    c.bondThickness = m_viewer->getBondThickness();
-    c.fogEnabled = m_viewer->getFogEnabled();
-    c.fogIntensity = m_viewer->getFogIntensity();
+    static_cast<DisplaySettings&>(c) = m_viewer->currentDisplaySettings();
+    c.instancingThreshold = m_viewer->getInstancingThreshold();
     m_settings->savePreset(name, c);
     refreshPresetList();
 }

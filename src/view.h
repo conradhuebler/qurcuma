@@ -342,6 +342,15 @@ public slots:
     // Claude Generated 2026 - Reproducible view presets (camera + display).
     ViewPreset currentViewPreset(ZoomMode zoomMode = ZoomMode::Absolute) const;
     void applyViewPreset(const ViewPreset& preset, bool applyCamera = true, bool applyDisplay = true);
+    /** The viewer's complete live display state. The viewer is the single source
+     *  of truth for these fields; UI panels sync FROM this, never the other way.
+     *  Claude Generated 2026. */
+    DisplaySettings currentDisplaySettings() const;
+    /** Apply a full display-state struct (startup defaults, Reset, presets).
+     *  Calculated NCI sources (>= 2) need an analysis run, so they are applied
+     *  only with allowComputedNciSource = true (view presets); otherwise the
+     *  overlay falls back to off. Claude Generated 2026. */
+    void applyDisplaySettings(const DisplaySettings& s, bool allowComputedNciSource = false);
     /// Set only the camera rotation (Quick orientation buttons).
     void setCameraOrientation(const QQuaternion& rotation);
 
@@ -376,6 +385,9 @@ signals:
     // surface the Display dock (the bar's "Display" button).
     void renderingModeChanged(MoleculeViewer::RenderingMode mode);
     void colorSchemeChanged(MoleculeViewer::ColorScheme scheme);
+    /// Claude Generated 2026 - NCI overlay source changed via any path (panel,
+    /// dock, menu, shortcut) so every UI mirror follows.
+    void nciSourceChanged(int source);
     void measurementModeChanged(int mode);  // 0=off,1=distance,2=angle,3=dihedral
     void displayOptionsRequested();
     // Claude Generated 2026 - Structure editing.
@@ -459,6 +471,10 @@ public slots:
     /** Show the interaction distance at the midpoint of each contact. */
     void setNciLabelsVisible(bool on);
     bool getNciLabelsVisible() const { return m_nciLabelsVisible; }
+    /** Live-during-MD flag. Stored here so currentDisplaySettings() captures it;
+     *  MainWindow forwards it to the simulation worker. Claude Generated 2026. */
+    void setNciLiveMd(bool on) { m_nciLiveMd = on; }
+    bool getNciLiveMd() const { return m_nciLiveMd; }
     /** Adopt a calculated result (GFN-FF / population) and draw it. */
     void setNciResult(const nci::Result& result);
     const nci::Result& getNciResult() const { return m_nciResult; }
@@ -671,6 +687,7 @@ private:
     // Claude Generated 2026 - Non-covalent interaction overlay state.
     int m_nciSource = 0;               // 0=off, 1=geometry, 2=gfnff, 3=population
     bool m_nciLabelsVisible = true;
+    bool m_nciLiveMd = false;          // live GFN-FF contacts during MD (see setNciLiveMd)
     nci::Options m_nciOptions;
     nci::Result m_nciResult;
     QVector<QVector<int>> m_nciRings;  // ring perception cache (topology, not geometry)

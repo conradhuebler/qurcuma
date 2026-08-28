@@ -187,19 +187,17 @@ void MainWindow::setupUI()
     // Claude Generated (2026-04) - Dock rewrite: MoleculeViewer is the real central widget.
     // Replaces the old 1x1 dummy — fixes dock resize math and eliminates the tab-support hack.
     m_moleculeView = new MoleculeViewer;
-    Settings::VisualizationSettings vizSettings = m_settings.getVisualizationSettings();
-    m_moleculeView->setRenderingMode(static_cast<MoleculeViewer::RenderingMode>(vizSettings.renderingMode));
-    m_moleculeView->setColorScheme(static_cast<MoleculeViewer::ColorScheme>(vizSettings.colorScheme));
-    m_moleculeView->setAtomTransparency(vizSettings.atomTransparency);
-    m_moleculeView->setAtomShininess(vizSettings.atomShininess);
-    m_moleculeView->setAtomScaleFactor(vizSettings.atomScaleFactor);
-    m_moleculeView->setBondThickness(vizSettings.bondThickness);
-    m_moleculeView->setFogEnabled(vizSettings.fogEnabled);
-    m_moleculeView->setFogIntensity(vizSettings.fogIntensity);
-    // Claude Generated 2026 - Interaction & Performance persisted values
-    m_moleculeView->setRotationMode(vizSettings.rotationMode);
+    // Claude Generated 2026 - The ONLY place persisted display settings are pushed
+    // into the viewer. From here on the viewer is the source of truth; the Display
+    // panel only reads (syncFromViewer) and explicit commands (Reset, Load
+    // Defaults, presets) re-apply a full DisplaySettings struct.
+    const Settings::VisualizationSettings vizSettings = m_settings.getVisualizationSettings();
+    m_moleculeView->applyDisplaySettings(vizSettings);
     m_moleculeView->setInstancingThreshold(vizSettings.instancingThreshold);
+    m_moleculeView->setBeadTypeColors(m_settings.beadTypeColors());
+    m_moleculeView->setNciPalette(m_settings.nciPalette());
     m_centerOnLoad = vizSettings.centerOnLoad;
+    m_nciLiveMd = vizSettings.nciLiveMd;
     setCentralWidget(m_moleculeView);
 
     // Claude Generated 2026 - Dock refactor: set dock options and tab positions
@@ -2874,7 +2872,7 @@ void MainWindow::openVisualizationSettings()
     if (!m_displayDock)
         return;
     if (m_displayPanel)
-        m_displayPanel->loadCurrentSettings();
+        m_displayPanel->syncFromViewer();
     m_displayDock->show();
     m_displayDock->raise();
 }
@@ -3251,7 +3249,7 @@ void MainWindow::syncVisualizationDialog()
 {
     // Keep the Display dock in sync when settings change via shortcuts.
     if (m_displayPanel)
-        m_displayPanel->loadCurrentSettings();
+        m_displayPanel->syncFromViewer();
 }
 
 // Claude Generated - Focus & Centering Commands
@@ -4384,7 +4382,7 @@ void MainWindow::setupNciAnalysis()
         if (m_moleculeView && source <= 1)
             m_moleculeView->setNciSource(source);
         if (m_displayPanel)
-            m_displayPanel->loadCurrentSettings();
+            m_displayPanel->syncFromViewer();
         if (source >= 2)
             startNciAnalysis(source);
     });

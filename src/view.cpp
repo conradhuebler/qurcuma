@@ -606,6 +606,7 @@ void MoleculeViewer::setNciSource(int source)
         m_nciResult.summary.clear();
     }
     refreshNciOverlay();
+    emit nciSourceChanged(m_nciSource);
 }
 
 void MoleculeViewer::setNciOptions(const nci::Options& options)
@@ -2381,43 +2382,8 @@ ViewPreset MoleculeViewer::currentViewPreset(ZoomMode zoomMode) const
         p.zoomFactor = p.cameraDistance / extent;
     }
 
-    p.renderingMode = static_cast<int>(m_renderingMode);
-    p.colorScheme = static_cast<int>(m_colorScheme);
-    p.atomTransparency = m_atomTransparency;
-    p.atomShininess = m_atomShininess;
-    p.atomScaleFactor = m_atomScaleFactor;
-    p.bondThickness = m_bondThickness;
-    p.fogEnabled = m_fogEnabled;
-    p.fogIntensity = m_fogIntensity;
+    static_cast<DisplaySettings&>(p) = currentDisplaySettings();
     p.fogDistance = m_fogDistance;
-    p.ssaoEnabled = m_ssaoEnabled;
-    p.ssaoIntensity = m_ssaoIntensity;
-    p.ssaoRadius = m_ssaoRadius;
-    p.ssaoBias = m_ssaoBias;
-    p.bloomEnabled = m_bloomEnabled;
-    p.bloomThreshold = m_bloomThreshold;
-    p.bloomIntensity = m_bloomIntensity;
-    p.hdrEnabled = m_hdrEnabled;
-    p.exposure = m_exposure;
-    p.rotationMode = static_cast<int>(m_rotationMode);
-    p.wallVisible = m_wallVisibleOverride;
-    p.wallOpacity = getWallOpacity();
-    // Claude Generated 2026 - Non-covalent interaction overlay. ViewPreset inherits
-    // DisplaySettings but is copied field by field, so these must be listed here and
-    // in applyViewPreset() or a preset silently switches the overlay off.
-    p.nciSource = m_nciSource;
-    p.nciHydrogenBonds = m_nciOptions.hydrogenBonds;
-    p.nciHalogenBonds = m_nciOptions.halogenBonds;
-    p.nciPiStacking = m_nciOptions.piStacking;
-    p.nciCloseContacts = m_nciOptions.closeContacts;
-    p.nciElectrostatics = m_nciOptions.electrostatics;
-    p.nciDispersion = m_nciOptions.dispersion;
-    p.nciHbDistance = m_nciOptions.hbMaxDistance;
-    p.nciHbAngle = m_nciOptions.hbMinAngle;
-    p.nciLabels = m_nciLabelsVisible;
-    p.fragmentTint = m_fragmentTint;
-    p.fragmentTintStrength = m_fragmentTintStrength;
-    p.fragmentScale = m_fragmentScale;
     p.backgroundColor = m_backgroundColor;
     for (int i = 0; i < 4; ++i)
         p.cornerLightEnabled[i] = m_cornerLightEnabled[i];
@@ -2449,53 +2415,107 @@ void MoleculeViewer::applyViewPreset(const ViewPreset& preset, bool applyCamera,
         return;
     }
 
-    setRenderingMode(static_cast<RenderingMode>(preset.renderingMode));
-    setColorScheme(static_cast<ColorScheme>(preset.colorScheme));
-    setAtomTransparency(preset.atomTransparency);
-    setAtomShininess(preset.atomShininess);
-    setAtomScaleFactor(preset.atomScaleFactor);
-    setBondThickness(preset.bondThickness);
-    setFogEnabled(preset.fogEnabled);
-    setFogIntensity(preset.fogIntensity);
     setFogDistance(preset.fogDistance);
-    setSSAOEnabled(preset.ssaoEnabled);
-    setSSAOIntensity(preset.ssaoIntensity);
-    setSSAORadius(preset.ssaoRadius);
-    setSSAOBias(preset.ssaoBias);
-    setBloomEnabled(preset.bloomEnabled);
-    setBloomThreshold(preset.bloomThreshold);
-    setBloomIntensity(preset.bloomIntensity);
-    setHDREnabled(preset.hdrEnabled);
-    setExposure(preset.exposure);
-    setRotationMode(preset.rotationMode);
-    setWallVisibleOverride(preset.wallVisible);
-    setWallOpacity(preset.wallOpacity);
-    {
-        nci::Options o = m_nciOptions;
-        o.hydrogenBonds = preset.nciHydrogenBonds;
-        o.halogenBonds = preset.nciHalogenBonds;
-        o.piStacking = preset.nciPiStacking;
-        o.closeContacts = preset.nciCloseContacts;
-        o.electrostatics = preset.nciElectrostatics;
-        o.dispersion = preset.nciDispersion;
-        o.hbMaxDistance = preset.nciHbDistance;
-        o.hbMinAngle = preset.nciHbAngle;
-        m_nciOptions = o;
-    }
-    setFragmentTint(preset.fragmentTint, preset.fragmentTintStrength);
-    setFragmentScale(preset.fragmentScale);
-    setNciLabelsVisible(preset.nciLabels);
-    setNciSource(preset.nciSource);
-    refreshNciOverlay();  // setNciSource() no-ops when the source is unchanged
     setBackgroundColor(preset.backgroundColor);
     for (int i = 0; i < 4; ++i)
         setCornerLightEnabled(i, preset.cornerLightEnabled[i]);
+    applyDisplaySettings(preset, /*allowComputedNciSource=*/true);
+
+    emit viewPresetApplied(); // DisplayPanel re-syncs its controls (no dock raise)
+}
+
+// Claude Generated 2026 - The viewer's complete live display state. Single source
+// of truth: UI panels sync from this struct, persistence saves it verbatim.
+DisplaySettings MoleculeViewer::currentDisplaySettings() const
+{
+    DisplaySettings s;
+    s.renderingMode = static_cast<int>(m_renderingMode);
+    s.colorScheme = static_cast<int>(m_colorScheme);
+    s.atomTransparency = m_atomTransparency;
+    s.atomShininess = m_atomShininess;
+    s.atomScaleFactor = m_atomScaleFactor;
+    s.bondThickness = m_bondThickness;
+    s.fogEnabled = m_fogEnabled;
+    s.fogIntensity = m_fogIntensity;
+    s.ssaoEnabled = m_ssaoEnabled;
+    s.ssaoIntensity = m_ssaoIntensity;
+    s.ssaoRadius = m_ssaoRadius;
+    s.ssaoBias = m_ssaoBias;
+    s.bloomEnabled = m_bloomEnabled;
+    s.bloomThreshold = m_bloomThreshold;
+    s.bloomIntensity = m_bloomIntensity;
+    s.hdrEnabled = m_hdrEnabled;
+    s.exposure = m_exposure;
+    s.rotationMode = static_cast<int>(m_rotationMode);
+    s.wallVisible = m_wallVisibleOverride;
+    s.wallOpacity = getWallOpacity();
+    s.nciSource = m_nciSource;
+    s.nciHydrogenBonds = m_nciOptions.hydrogenBonds;
+    s.nciHalogenBonds = m_nciOptions.halogenBonds;
+    s.nciPiStacking = m_nciOptions.piStacking;
+    s.nciCloseContacts = m_nciOptions.closeContacts;
+    s.nciElectrostatics = m_nciOptions.electrostatics;
+    s.nciDispersion = m_nciOptions.dispersion;
+    s.nciHbDistance = m_nciOptions.hbMaxDistance;
+    s.nciHbAngle = m_nciOptions.hbMinAngle;
+    s.nciLabels = m_nciLabelsVisible;
+    s.nciLiveMd = m_nciLiveMd;
+    s.fragmentTint = m_fragmentTint;
+    s.fragmentTintStrength = m_fragmentTintStrength;
+    s.fragmentScale = m_fragmentScale;
+    return s;
+}
+
+// Claude Generated 2026 - Apply a full display-state struct (startup, Reset,
+// presets). Counterpart of currentDisplaySettings(); the field-by-field setter
+// lists that used to live in applyViewPreset() and DisplayPanel are gone.
+void MoleculeViewer::applyDisplaySettings(const DisplaySettings& s, bool allowComputedNciSource)
+{
+    setRenderingMode(static_cast<RenderingMode>(s.renderingMode));
+    setColorScheme(static_cast<ColorScheme>(s.colorScheme));
+    setAtomTransparency(s.atomTransparency);
+    setAtomShininess(s.atomShininess);
+    setAtomScaleFactor(s.atomScaleFactor);
+    setBondThickness(s.bondThickness);
+    setFogEnabled(s.fogEnabled);
+    setFogIntensity(s.fogIntensity);
+    setSSAOEnabled(s.ssaoEnabled);
+    setSSAOIntensity(s.ssaoIntensity);
+    setSSAORadius(s.ssaoRadius);
+    setSSAOBias(s.ssaoBias);
+    setBloomEnabled(s.bloomEnabled);
+    setBloomThreshold(s.bloomThreshold);
+    setBloomIntensity(s.bloomIntensity);
+    setHDREnabled(s.hdrEnabled);
+    setExposure(s.exposure);
+    setRotationMode(s.rotationMode);
+    setWallVisibleOverride(s.wallVisible);
+    setWallOpacity(s.wallOpacity);
+    {
+        nci::Options o = m_nciOptions;
+        o.hydrogenBonds = s.nciHydrogenBonds;
+        o.halogenBonds = s.nciHalogenBonds;
+        o.piStacking = s.nciPiStacking;
+        o.closeContacts = s.nciCloseContacts;
+        o.electrostatics = s.nciElectrostatics;
+        o.dispersion = s.nciDispersion;
+        o.hbMaxDistance = s.nciHbDistance;
+        o.hbMinAngle = s.nciHbAngle;
+        m_nciOptions = o;
+    }
+    setFragmentTint(s.fragmentTint, s.fragmentTintStrength);
+    setFragmentScale(s.fragmentScale);
+    setNciLabelsVisible(s.nciLabels);
+    m_nciLiveMd = s.nciLiveMd;
+    // Calculated sources (>= 2) only make sense when analysis results follow.
+    const int source = (s.nciSource <= 1 || allowComputedNciSource) ? s.nciSource : 0;
+    setNciSource(source);
+    refreshNciOverlay();  // setNciSource() no-ops when the source is unchanged
 
     applyAppearanceToController();
 
     emit renderingModeChanged(m_renderingMode);
     emit colorSchemeChanged(m_colorScheme);
-    emit viewPresetApplied(); // DisplayPanel re-syncs its controls (no dock raise)
 }
 
 void MoleculeViewer::setCameraOrientation(const QQuaternion& rotation)
