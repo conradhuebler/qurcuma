@@ -3789,6 +3789,14 @@ void MoleculeViewer::setupControlPanel()
     connect(addHBtn, &QToolButton::clicked, this, [this]() { addHydrogens(); });
     panelLayout->addWidget(addHBtn);
 
+    QToolButton* cleanupBtn = new QToolButton;
+    cleanupBtn->setText(tr("Clean up"));
+    cleanupBtn->setToolTip(tr("Relax the built structure with a short geometry "
+                              "optimization (current method, ~50 steps)."));
+    cleanupBtn->setVisible(false);
+    connect(cleanupBtn, &QToolButton::clicked, this, [this]() { emit cleanupRequested(); });
+    panelLayout->addWidget(cleanupBtn);
+
     QLabel* valenceLabel = new QLabel;
     valenceLabel->setVisible(false);
     panelLayout->addWidget(valenceLabel);
@@ -3808,8 +3816,9 @@ void MoleculeViewer::setupControlPanel()
         }
     };
     connect(this, &MoleculeViewer::interactionModeChanged, valenceLabel,
-        [addHBtn, updateValenceLabel](InteractionMode m) {
+        [addHBtn, cleanupBtn, updateValenceLabel](InteractionMode m) {
             addHBtn->setVisible(m == InteractionMode::Build);
+            cleanupBtn->setVisible(m == InteractionMode::Build);
             updateValenceLabel();
         });
     connect(this, &MoleculeViewer::moleculeUpdated, valenceLabel,

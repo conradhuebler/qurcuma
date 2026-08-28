@@ -1295,6 +1295,29 @@ void SimulationControlWidget::addRegionRow(const QString& atoms, double temperat
 
 void SimulationControlWidget::onStartClicked()
 {
+    startWithConfig(buildConfig());
+}
+
+// Claude Generated 2026 - Bounded geometry optimization for the builder's
+// "Clean up" button: optimize with the currently selected method for at most
+// @p maxSteps iterations. Refuses while another run is active (the worker
+// thread is busy then).
+void SimulationControlWidget::startQuickOptimization(int maxSteps)
+{
+    if (m_thread && m_thread->isRunning()) {
+        m_statusLabel->setText(tr("A simulation is already running — stop it first."));
+        return;
+    }
+    SimulationConfig cfg = buildConfig();
+    cfg.mode = SimulationConfig::Mode::GeometryOptimization;
+    cfg.steps = maxSteps;
+    startWithConfig(cfg);
+}
+
+// Claude Generated 2026 - Shared worker spawn (was the body of onStartClicked),
+// so Start and the quick optimization use one identical lifecycle.
+void SimulationControlWidget::startWithConfig(const SimulationConfig& cfg)
+{
     if (m_atoms.isEmpty()) {
         m_statusLabel->setText(tr("No molecule loaded."));
         return;
@@ -1318,7 +1341,7 @@ void SimulationControlWidget::onStartClicked()
     emit workerStarted(m_worker);
     m_worker->setMolecule(m_atoms);
     m_worker->setBonds(m_bonds);
-    m_worker->setConfig(buildConfig());
+    m_worker->setConfig(cfg);
 
     m_thread = new QThread(this);
     m_worker->moveToThread(m_thread);
@@ -1339,7 +1362,7 @@ void SimulationControlWidget::onStartClicked()
     connect(m_worker, &SimulationWorker::finished, m_worker, &QObject::deleteLater);
     connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
 
-    m_config = buildConfig();
+    m_config = cfg;
 
     // Reset FPS measurement for the new simulation run
     m_frameCount = 0;

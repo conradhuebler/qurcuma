@@ -57,6 +57,10 @@ public:
      *  (-md / -opt). Claude Generated 2026. */
     void setMode(SimulationConfig::Mode mode);
 
+    /** @brief Bounded geometry optimization with the current method — the
+     *  builder's "Clean up" (refuses while a run is active). Claude Generated 2026. */
+    void startQuickOptimization(int maxSteps = 50);
+
     /** @brief Grab strength (world Å/Bohr per screen pixel) for the viewer. */
     double grabStrength() const { return m_grabStrengthSpin ? m_grabStrengthSpin->value() : 0.1; }
     double grabAlpha() const { return m_grabAlphaSpin ? m_grabAlphaSpin->value() : 0.4; }
@@ -140,6 +144,8 @@ private:
     void setRunning(bool running);
     void setState(const QString& label, const QString& color);  // Claude Generated 2026 - state pill
     SimulationConfig buildConfig() const;
+    /// Shared worker spawn for Start and the quick optimization. Claude Generated 2026.
+    void startWithConfig(const SimulationConfig& cfg);
 
     // Claude Generated 2026 - temperature ramp / region table row helpers
     void addRampSegmentRow(double target, const QString& mode, double value);

@@ -1194,6 +1194,22 @@ void MainWindow::createMenus()
     connect(optAction, &QAction::triggered, this,
         [showSimDock]() { showSimDock(SimulationConfig::Mode::GeometryOptimization); });
 
+    // Claude Generated 2026 - Build mode as a menu action so the Ctrl+K palette
+    // lists it; mirrors the viewer-bar toggle via interactionModeChanged.
+    QAction *buildModeAction = moleculeMenu->addAction(tr("&Build Mode"));
+    buildModeAction->setCheckable(true);
+    buildModeAction->setToolTip(tr("Molecule builder: place atoms, draw bonds, add "
+                                   "hydrogens, insert fragments."));
+    connect(buildModeAction, &QAction::triggered, this, [this](bool on) {
+        if (m_moleculeView)
+            m_moleculeView->setBuildMode(on);
+    });
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::interactionModeChanged, buildModeAction,
+            [buildModeAction](MoleculeViewer::InteractionMode m) {
+                buildModeAction->setChecked(m == MoleculeViewer::InteractionMode::Build);
+            });
+
     // Claude Generated 2026 - open the live temperature/energy charts (modeless dialog).
     QAction *chartsAction = moleculeMenu->addAction(
         QIcon::fromTheme("office-chart-line"), tr("Simulation &Charts…"));
@@ -4156,6 +4172,14 @@ void MainWindow::createDockWidgets()
         // Claude Generated 2026 - Right-click (no drag) on the 3D view.
         connect(m_moleculeView, &MoleculeViewer::contextMenuRequested,
             this, &MainWindow::showViewportContextMenu);
+        // Claude Generated 2026 - Builder "Clean up": snapshot, then a bounded
+        // optimization through the existing simulation worker lifecycle.
+        connect(m_moleculeView, &MoleculeViewer::cleanupRequested, this, [this]() {
+            if (!m_simulationControlWidget)
+                return;
+            takeSnapshot(tr("Before cleanup"));
+            m_simulationControlWidget->startQuickOptimization(50);
+        });
 
     // ==================== PROJECT DOCK (left) ====================
     // Phase 6 redesign: ProjectDock owns a segmented upper panel
