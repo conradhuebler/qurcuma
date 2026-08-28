@@ -12,6 +12,9 @@ using json = nlohmann::json;
 #include <src/capabilities/optimizer_factory.h>
 #include <src/capabilities/optimizer_interface.h>
 #include <src/core/energycalculator.h>
+#include <src/core/energy_calculators/ff_methods/gfnff.h>
+#include <src/core/energy_calculators/ff_methods/gfnff_parameters.h>
+#include <src/core/energy_calculators/qm_methods/gfnff_method.h>
 #include <src/core/elements.h>
 
 #include <QCoreApplication>
@@ -503,6 +506,13 @@ void SimulationWorker::startMD()
     // per the user's writeTrajectory setting.
     json controller = buildMdController(m_config, /*singleStep=*/false);
 
+    // Claude Generated 2026 - Live interaction overlay: GFN-FF rebuilds its HB/XB
+    // lists only when its RMSD trigger fires, so the lists would visibly lag the
+    // geometry. Forcing a rebuild on every gradient step keeps the drawn contacts
+    // in step with what is on screen; that cost is why the option is opt-in.
+    if (m_liveNci && m_config.method == QLatin1String("gfnff"))
+        controller["gfnff"]["hb_update_force_every"] = 1;
+
     m_md = std::make_unique<SimpleMD>(controller, true);
     m_md->setMolecule(atomsToMolecule(m_initialAtoms));
 
@@ -530,6 +540,42 @@ void SimulationWorker::startMD()
     m_mdTimer->setInterval(1000 / effectiveFps);
     connect(m_mdTimer, &QTimer::timeout, this, &SimulationWorker::performMDStep);
     m_mdTimer->start();
+}
+
+// Claude Generated 2026 - Live non-covalent contacts straight out of the running
+// force field. GFN-FF keeps its own hydrogen- and halogen-bond lists (the very
+// terms it evaluates), so this shows the interactions the simulation actually
+// feels, not a geometric re-derivation. Only the atom triples are taken; the
+// distances and angles are re-fitted on the GUI side against the drawn frame.
+void SimulationWorker::collectLiveNci(SimulationFrame& frame) const
+{
+    if (!m_md)
+        return;
+    EnergyCalculator* calc = m_md->energyCalculator();
+    if (!calc)
+        return;
+    auto* method = dynamic_cast<GFNFFComputationalMethod*>(calc->Interface());
+    GFNFF* ff = method ? method->getGFNFF() : nullptr;
+    if (!ff)
+        return;   // any method other than GFN-FF has no such list
+
+    for (const GFNFFHydrogenBond& hb : ff->getLastHBonds()) {
+        nci::Contact c;
+        c.kind = nci::Kind::HydrogenBond;
+        c.donor = hb.i;
+        c.bridge = hb.j;
+        c.acceptor = hb.k;
+        c.motif = hb.case_type;
+        frame.nciContacts.append(c);
+    }
+    for (const GFNFFHalogenBond& xb : ff->getLastXBonds()) {
+        nci::Contact c;
+        c.kind = nci::Kind::HalogenBond;
+        c.donor = xb.i;
+        c.bridge = xb.j;
+        c.acceptor = xb.k;
+        frame.nciContacts.append(c);
+    }
 }
 
 void SimulationWorker::performMDStep()
@@ -588,6 +634,13 @@ void SimulationWorker::performMDStep()
         m_md->currentMolecule(), m_initialAtoms.size(),
         m_md->potentialEnergy(), m_md->kineticEnergy(), m_md->stepCount(),
         m_md->currentTemperature(), m_md->targetTemperature());
+
+    if (m_liveNci) {
+        // moleculeToFrame returns a shared pointer to const; the contacts are the
+        // one field filled after construction, so take a writable handle here.
+        auto* mutableFrame = const_cast<SimulationFrame*>(frame.data());
+        collectLiveNci(*mutableFrame);
+    }
 
     emit frameReady(frame);
 

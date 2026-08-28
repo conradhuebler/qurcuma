@@ -219,6 +219,24 @@ Item {
                     alphaMode: PrincipledMaterial.Blend
                 }
             }
+
+            // Non-covalent interaction overlay: dashed contact lines (hydrogen
+            // bonds, halogen bonds, pi stacking, close contacts). Each dash is a
+            // short #Cylinder built by SceneController::rebuildNci(); the endpoints
+            // are in intrinsic atom coordinates, so this belongs under moleculeRoot
+            // and follows the structure without any C++ recompute.
+            // The per-instance colour carries RGB *and* alpha (strength-coded), so
+            // the material is always Blend - Opaque would silently discard it.
+            Model {
+                source: "#Cylinder"
+                visible: controller.nciVisible
+                instancing: controller.nciInstancing
+                materials: PrincipledMaterial {
+                    baseColor: "white"
+                    lighting: PrincipledMaterial.NoLighting
+                    alphaMode: PrincipledMaterial.Blend
+                }
+            }
         }
 
         // Force-vector arrows (opt-in). C++ computes them in WORLD space (post model
@@ -343,6 +361,40 @@ Item {
             text: modelData.text
             color: "#ffffff"
             font.pixelSize: 11
+            font.bold: true
+            style: Text.Outline
+            styleColor: "#000000"
+        }
+    }
+
+    // Contact labels of the NCI overlay (the interaction distance, drawn at the
+    // midpoint of each contact). Same {px,py,pz,text} map shape and the same
+    // projection bindings as the atom-label Repeater above - keep the two in sync
+    // when the camera model changes; only size and colour differ here.
+    Repeater {
+        model: controller.nciLabels
+        delegate: Text {
+            readonly property real rx: modelData.px - controller.sceneCenter.x
+            readonly property real ry: modelData.py - controller.sceneCenter.y
+            readonly property real rz: modelData.pz - controller.sceneCenter.z
+            readonly property quaternion q: controller.rootRotation
+            readonly property real tx: 2 * (q.y * rz - q.z * ry)
+            readonly property real ty: 2 * (q.z * rx - q.x * rz)
+            readonly property real tz: 2 * (q.x * ry - q.y * rx)
+            readonly property real wx: controller.sceneCenter.x + rx + q.scalar * tx + (q.y * tz - q.z * ty)
+            readonly property real wy: controller.sceneCenter.y + ry + q.scalar * ty + (q.z * tx - q.x * tz)
+            readonly property real wz: controller.sceneCenter.z + rz + q.scalar * tz + (q.x * ty - q.y * tx)
+            readonly property real depth: (controller.pivotPosition.z + controller.cameraDistance) - wz
+            readonly property real halfH: Math.tan(controller.fieldOfView * Math.PI / 360.0)
+            readonly property real halfW: halfH * (root.width / Math.max(1, root.height))
+            readonly property real ndcX: (wx - controller.pivotPosition.x) / (Math.max(depth, 0.0001) * halfW)
+            readonly property real ndcY: (wy - controller.pivotPosition.y) / (Math.max(depth, 0.0001) * halfH)
+            visible: depth > 0.0001
+            x: (ndcX + 1) * 0.5 * root.width - width / 2
+            y: (1 - ndcY) * 0.5 * root.height - height / 2
+            text: modelData.text
+            color: modelData.color !== undefined ? modelData.color : "#cfe9ff"
+            font.pixelSize: 10
             font.bold: true
             style: Text.Outline
             styleColor: "#000000"

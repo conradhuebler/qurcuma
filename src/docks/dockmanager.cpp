@@ -12,6 +12,7 @@
 #include "simulationdock.h"
 #include "displaydock.h"
 #include "imagegallerydock.h"
+#include "ncidock.h"
 
 #include <QDockWidget>
 #include <QMainWindow>
@@ -29,6 +30,7 @@ QDockWidget* DockManager::displayDock() const { return m_displayDock; }
 QDockWidget* DockManager::simulationDock() const { return m_simulationDock; }
 QDockWidget* DockManager::outputDock() const { return m_outputViewDock; }
 QDockWidget* DockManager::imageGalleryDock() const { return m_imageGalleryDock; }
+QDockWidget* DockManager::nciDock() const { return m_nciDock; }
 
 QTabWidget* DockManager::simulationTabs() const
 {
@@ -90,6 +92,11 @@ ProjectDock* DockManager::projectDockImpl() const
 ImageGalleryDock* DockManager::imageGalleryDockImpl() const
 {
     return qobject_cast<ImageGalleryDock*>(m_imageGalleryDock);
+}
+
+NciDock* DockManager::nciDockImpl() const
+{
+    return qobject_cast<NciDock*>(m_nciDock);
 }
 
 namespace {
@@ -266,6 +273,7 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
     m_simulationDock = new SimulationDock(m_mainWindow);
     m_projectDock = new ProjectDock(settings, m_mainWindow);
     m_imageGalleryDock = new ImageGalleryDock(m_mainWindow);
+    m_nciDock = new NciDock(m_mainWindow);
 }
 
 void DockManager::placeDocks()
@@ -296,6 +304,17 @@ void DockManager::placeDocks()
 
     if (m_outputViewDock)
         m_mainWindow->addDockWidget(DockConfig::OutputViewDockArea, m_outputViewDock);
+
+    // The interaction dock joins the right-hand tab group (Display / Simulation)
+    // and starts hidden: the NCI overlay is off by default, so an empty contact
+    // table would only take space. View > Dock Panels brings it up.
+    // Claude Generated 2026.
+    if (m_nciDock) {
+        m_mainWindow->addDockWidget(DockConfig::NciDockArea, m_nciDock);
+        if (m_displayDock)
+            m_mainWindow->tabifyDockWidget(m_displayDock, m_nciDock);
+        m_nciDock->hide();
+    }
 
     // The image-gallery dock shares the bottom area (tabified with Output) and
     // stays hidden until the first image is exported (ImageGalleryDock shows

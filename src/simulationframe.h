@@ -10,8 +10,11 @@
 
 #include <QMetaType>
 #include <QSharedPointer>
+#include <QVector>
 #include <QVector3D>
 #include <vector>
+
+#include "ncitypes.h"
 
 struct SimulationFrame {
     std::vector<QVector3D> positions;  // One entry per atom, same order as initial molecule
@@ -20,6 +23,10 @@ struct SimulationFrame {
     int step = 0;                       // Current MD step / optimisation iteration
     double temperature = 0.0;           // Instantaneous temperature [K] (MD only; 0 for opt). Claude Generated 2026
     double targetTemperature = 0.0;     // Thermostat setpoint [K] (MD only; tracks the ramp). Claude Generated 2026
+    // Claude Generated 2026 - Live non-covalent contacts read out of the running
+    // GFN-FF force field. Empty unless the live overlay is switched on, and empty
+    // for every other method, so the default MD path carries no extra cost.
+    QVector<nci::Contact> nciContacts;
 };
 
 using SimulationFramePtr = QSharedPointer<const SimulationFrame>;

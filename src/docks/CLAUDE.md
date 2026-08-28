@@ -11,6 +11,7 @@
 - `SimulationDock` — right-side dock with tabs [Simulation | Snapshots | RMSD / Align | Input].
 - `OutputDock` — output log + clear button.
 - `ImageGalleryDock` — bottom dock (tabified with Output), hidden until the first image export; thumbnail grid of exported images. "Show:" combo = session / folder all-PNG / resized-only / originals-only. Common border-trim analysis (flip-book: centre all frames on a max-size canvas, `imagecrop::commonContentRect` = union of content → one crop at identical position, uniform X×Y even for differently-sized sources; the crop rect is drawn dashed-red onto the analyzed thumbnails) → saves metadata-preserving `<name>.resized.png`. Fed by `MoleculeViewer::imageExported` (export dialog + viewer-bar "Photo" quick-export with transparent/colour-preset controls). Context menu / double-click: view image (fit-to-window + zoom slider) + embedded-metadata table, remove from gallery, delete file from disk (confirmed).
+- `NciDock` — right-side dock (tabified with Display, hidden by default) with the non-covalent interaction contact table (`NciWidget`): source combo, "Analyse current frame" for the calculated sources, summary line, table Typ/Atome/d/Winkel/Score/E/Notiz, TSV copy. Row click selects the contact's atoms in the viewer, double-click zooms to them; signals only, MainWindow drives the viewer (same split as `RMSDWidget`).
 
 ## Shared Config (`dockconfig.h`)
 - `DockConfig::LayoutPreset` — Visualization, Editing, Calculation, Analysis, Teaching.

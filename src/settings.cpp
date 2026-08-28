@@ -375,6 +375,20 @@ void writeVizSettings(QSettings& s, const QString& prefix, const Settings::Visua
     s.setValue(prefix + "wallVisible", v.wallVisible);
     s.setValue(prefix + "wallOpacity", v.wallOpacity);
     s.setValue(prefix + "centerOnLoad", v.centerOnLoad);
+    s.setValue(prefix + "nciSource", v.nciSource);
+    s.setValue(prefix + "nciHydrogenBonds", v.nciHydrogenBonds);
+    s.setValue(prefix + "nciHalogenBonds", v.nciHalogenBonds);
+    s.setValue(prefix + "nciPiStacking", v.nciPiStacking);
+    s.setValue(prefix + "nciCloseContacts", v.nciCloseContacts);
+    s.setValue(prefix + "nciElectrostatics", v.nciElectrostatics);
+    s.setValue(prefix + "nciDispersion", v.nciDispersion);
+    s.setValue(prefix + "nciHbDistance", v.nciHbDistance);
+    s.setValue(prefix + "nciHbAngle", v.nciHbAngle);
+    s.setValue(prefix + "nciLabels", v.nciLabels);
+    s.setValue(prefix + "nciLiveMd", v.nciLiveMd);
+    s.setValue(prefix + "fragmentTint", v.fragmentTint);
+    s.setValue(prefix + "fragmentTintStrength", v.fragmentTintStrength);
+    s.setValue(prefix + "fragmentScale", v.fragmentScale);
 }
 
 Settings::VisualizationSettings readVizSettings(const QSettings& s, const QString& prefix)
@@ -402,6 +416,20 @@ Settings::VisualizationSettings readVizSettings(const QSettings& s, const QStrin
     v.wallVisible = s.value(prefix + "wallVisible", v.wallVisible).toBool();
     v.wallOpacity = s.value(prefix + "wallOpacity", v.wallOpacity).toDouble();
     v.centerOnLoad = s.value(prefix + "centerOnLoad", v.centerOnLoad).toBool();
+    v.nciSource = s.value(prefix + "nciSource", v.nciSource).toInt();
+    v.nciHydrogenBonds = s.value(prefix + "nciHydrogenBonds", v.nciHydrogenBonds).toBool();
+    v.nciHalogenBonds = s.value(prefix + "nciHalogenBonds", v.nciHalogenBonds).toBool();
+    v.nciPiStacking = s.value(prefix + "nciPiStacking", v.nciPiStacking).toBool();
+    v.nciCloseContacts = s.value(prefix + "nciCloseContacts", v.nciCloseContacts).toBool();
+    v.nciElectrostatics = s.value(prefix + "nciElectrostatics", v.nciElectrostatics).toBool();
+    v.nciDispersion = s.value(prefix + "nciDispersion", v.nciDispersion).toBool();
+    v.nciHbDistance = s.value(prefix + "nciHbDistance", v.nciHbDistance).toFloat();
+    v.nciHbAngle = s.value(prefix + "nciHbAngle", v.nciHbAngle).toFloat();
+    v.nciLabels = s.value(prefix + "nciLabels", v.nciLabels).toBool();
+    v.nciLiveMd = s.value(prefix + "nciLiveMd", v.nciLiveMd).toBool();
+    v.fragmentTint = s.value(prefix + "fragmentTint", v.fragmentTint).toBool();
+    v.fragmentTintStrength = s.value(prefix + "fragmentTintStrength", v.fragmentTintStrength).toFloat();
+    v.fragmentScale = s.value(prefix + "fragmentScale", v.fragmentScale).toFloat();
     return v;
 }
 }  // namespace
@@ -414,6 +442,63 @@ Settings::VisualizationSettings Settings::getVisualizationSettings() const
 void Settings::setVisualizationSettings(const VisualizationSettings& settings)
 {
     writeVizSettings(m_settings, VIZ_SETTINGS_PREFIX, settings);
+    m_settings.sync();
+}
+
+// Claude Generated 2026 - Bead-type and interaction colours. Both maps are keyed
+// by content (a VTF type label, an interaction class) rather than by a fixed
+// field, so they get their own QSettings groups instead of a slot in
+// VisualizationSettings. Bead type labels recur across files of the same system,
+// which is why the colours are remembered globally rather than per file.
+QHash<QString, QColor> Settings::beadTypeColors()
+{
+    QHash<QString, QColor> colors;
+    m_settings.beginGroup(VIZ_SETTINGS_PREFIX + "beadColors");
+    for (const QString& key : m_settings.childKeys()) {
+        const QColor c = m_settings.value(key).value<QColor>();
+        if (c.isValid())
+            colors.insert(key, c);
+    }
+    m_settings.endGroup();
+    return colors;
+}
+
+void Settings::setBeadTypeColors(const QHash<QString, QColor>& colors)
+{
+    m_settings.beginGroup(VIZ_SETTINGS_PREFIX + "beadColors");
+    m_settings.remove(QString());   // drop entries the user reset
+    for (auto it = colors.constBegin(); it != colors.constEnd(); ++it) {
+        if (it.value().isValid())
+            m_settings.setValue(it.key(), it.value());
+    }
+    m_settings.endGroup();
+    m_settings.sync();
+}
+
+QHash<int, QColor> Settings::nciPalette()
+{
+    QHash<int, QColor> palette;
+    m_settings.beginGroup(VIZ_SETTINGS_PREFIX + "nciColors");
+    for (const QString& key : m_settings.childKeys()) {
+        bool ok = false;
+        const int paletteKey = key.toInt(&ok);
+        const QColor c = m_settings.value(key).value<QColor>();
+        if (ok && c.isValid())
+            palette.insert(paletteKey, c);
+    }
+    m_settings.endGroup();
+    return palette;
+}
+
+void Settings::setNciPalette(const QHash<int, QColor>& palette)
+{
+    m_settings.beginGroup(VIZ_SETTINGS_PREFIX + "nciColors");
+    m_settings.remove(QString());
+    for (auto it = palette.constBegin(); it != palette.constEnd(); ++it) {
+        if (it.value().isValid())
+            m_settings.setValue(QString::number(it.key()), it.value());
+    }
+    m_settings.endGroup();
     m_settings.sync();
 }
 

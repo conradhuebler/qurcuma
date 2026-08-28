@@ -58,6 +58,9 @@ class SimulationDock;       // Claude Generated 2026 - Simulation dock wrapper
 class DisplayDock; // Claude Generated 2026 - Structure & Display dock wrapper
 class ProjectDock;            // Claude Generated 2026 - Project dock wrapper
 class ImageGalleryDock;       // Claude Generated 2026 - batch border-trim gallery (bottom)
+class NciDock;                // Claude Generated 2026 - non-covalent interaction dock
+class NciAnalysisWorker;      // Claude Generated 2026 - off-thread NCI analysis
+class QThread;
 class QSortFilterProxyModel;  // Claude Generated 2026 - ProjectDock file filter proxy
 #ifdef USE_SFTP
 class SftpItemModel;  // Claude Generated - Remote Directory Mounting
@@ -452,6 +455,7 @@ private:
     SimulationDock* m_simulationDock = nullptr;     // Right: Simulation/Snapshots/RMSD/Input tabs (tabified with Structure&Display)
     OutputDock* m_outputViewDock = nullptr;         // Bottom: output log
     ImageGalleryDock* m_imageGalleryDock = nullptr; // Bottom (tabified): batch border-trim gallery
+    NciDock* m_nciDock = nullptr;                   // Right (tabified): non-covalent interaction contacts
     QDialog* m_simulationChartDialog = nullptr;     // Modeless dialog: live MD temperature/energy charts
     QTabWidget* m_simulationTabs = nullptr;         // Internal tabs inside m_simulationDock
 
@@ -468,6 +472,19 @@ private:
     // Claude Generated - Interactive Simulation Integration
     QElapsedTimer m_simStatusBarTimer;  // Throttle status bar updates to ~5 Hz
     void wireSimulationWorker(SimulationWorker* worker);  // Claude Generated - Direct worker->view wiring
+
+    // Claude Generated 2026 - Non-covalent interaction analysis. The worker lives
+    // on its own thread for the whole session so an analysis can run while an MD
+    // does (the simulation thread is busy with its MD timer).
+    void setupNciAnalysis();
+    /// Send the current frame to the analysis worker. @p source is 2 (GFN-FF
+    /// parameters) or 3 (population analysis); anything else is ignored.
+    void startNciAnalysis(int source);
+    QThread* m_nciThread = nullptr;
+    NciAnalysisWorker* m_nciWorker = nullptr;
+    quint64 m_nciRequestId = 0;        // monotonic; late results for old frames are dropped
+    bool m_nciLiveMd = false;          // keep the GFN-FF contact list live during MD
+    bool m_nciSelectionSyncing = false; // guards table <-> viewer selection feedback
     void onSimulationConfigChanged(SimulationConfig cfg);
 
 #ifdef USE_SFTP

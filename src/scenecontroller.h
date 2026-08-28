@@ -8,7 +8,9 @@
 #pragma once
 
 #include <QColor>
+#include <QHash>
 #include <QObject>
+#include <QPair>
 #include <QQuaternion>
 #include <QRectF>
 #include <QVariant>
@@ -55,6 +57,14 @@ class SceneController : public QObject
     Q_PROPERTY(QQuick3DInstancing* wallForceShaftsInstancing READ wallForceShaftsInstancing CONSTANT)
     Q_PROPERTY(QQuick3DInstancing* wallForceTipsInstancing READ wallForceTipsInstancing CONSTANT)
     Q_PROPERTY(bool wallForceArrowsVisible READ wallForceArrowsVisible NOTIFY wallChanged)
+    // Claude Generated 2026 - Non-covalent interaction overlay: dashed lines
+    // between contact partners. Endpoints are in intrinsic atom coordinates (like
+    // the wall), so the Model lives under moleculeRoot and rotates with the
+    // structure. nciLabels uses the same {px,py,pz,text} map shape as atomLabels
+    // (plus a "color" key) and is drawn by the same reprojecting QML delegate.
+    Q_PROPERTY(QQuick3DInstancing* nciInstancing READ nciInstancing CONSTANT)
+    Q_PROPERTY(bool nciVisible READ nciVisible NOTIFY nciChanged)
+    Q_PROPERTY(QVariantList nciLabels READ nciLabels NOTIFY nciChanged)
     // Rubber-band (box) selection rectangle in viewport pixels (structure editing).
     Q_PROPERTY(bool rubberBandActive READ rubberBandActive NOTIFY rubberBandChanged)
     Q_PROPERTY(QRectF rubberBandRect READ rubberBandRect NOTIFY rubberBandChanged)
@@ -193,6 +203,26 @@ public:
     bool wallForceArrowsVisible() const { return m_wallVisible && m_potArrowsEnabled && m_wallGeom != 0; }
     void setWallVectorField(bool enabled, int resolution);
 
+    // Claude Generated 2026 - Non-covalent interaction overlay.
+    /// One contact line. @c atomA / @c atomB are optional: when set, the dashes are
+    /// pulled back to that atom's drawn sphere surface so the overlay still reads in
+    /// Space Filling. Pi-stacking passes ring centroids and leaves both at -1.
+    struct NciSegment {
+        QVector3D a;
+        QVector3D b;
+        int atomA = -1;
+        int atomB = -1;
+        QColor color{ 200, 200, 205 };
+        float radius = 0.05f;
+        QString label;   // empty = no label
+    };
+    QQuick3DInstancing* nciInstancing() const;
+    bool nciVisible() const { return m_nciVisible && !m_nciSegments.isEmpty(); }
+    QVariantList nciLabels() const { return m_nciLabels; }
+    void setNciContacts(const QVector<NciSegment>& contacts);
+    void setNciVisible(bool on);
+    void setNciLabelsVisible(bool on);
+
     bool atomsVisible() const { return m_atomsVisible; }
     bool bondsVisible() const { return m_bondsVisible; }
     bool blendEnabled() const { return m_transparency < 0.999f; }
@@ -249,6 +279,58 @@ public:
     void setBackgroundColor(const QColor& c);
     void setSelection(const QVector<int>& indices);
     void setHoverAtom(int index);  // mouse-over highlight (-1 = none)
+    // Claude Generated 2026 - Coarse-grained bead types. VTF beads carry a type
+    // label instead of an element; the "By Type" scheme derives a stable colour
+    // from it, and these let the user override that colour per type.
+    /// Colour the "By Type" scheme draws a bead type with (override or derived).
+    QColor typeColor(const QString& type) const;
+
+    // Claude Generated 2026 - Fragment tinting for host-guest systems. Each
+    // connected component of the bond graph is a fragment; the largest one keeps
+    // its plain scheme colour and the others are shifted toward a distinct hue, so
+    // guest molecules stand out without losing element identity.
+    struct FragmentInfo {
+        QString formula;   ///< Hill notation, or bead-type composition for CG beads
+        int atomCount = 0;
+    };
+    /// Fragments of the current structure, largest first. Fewer than two means
+    /// there is nothing to distinguish.
+    QVector<FragmentInfo> fragments() const;
+    /// Master switch plus the strength a fragment uses until it gets its own.
+    void setFragmentTint(bool on, float defaultStrength);
+    bool fragmentTint() const { return m_fragmentTint; }
+    float fragmentTintStrength() const { return m_fragmentTintStrength; }
+    /// Tint strength of one fragment (override, else the default; 0 for the reference).
+    float fragmentTintStrengthFor(int fragment) const;
+    /// A negative strength clears the override for that fragment.
+    void setFragmentTintStrengthOverride(int fragment, float strength);
+    /// Clear every per-fragment override at once (colour, strength, size).
+    void clearFragmentOverrides();
+    /// Tint colour of a fragment (override or the automatic hue). Fragment 0 is the
+    /// reference and is never tinted, so this returns an invalid colour for it.
+    QColor fragmentColor(int fragment) const;
+    /// An invalid colour clears the override, restoring the automatic hue.
+    void setFragmentColorOverride(int fragment, const QColor& color);
+    /// Whether this fragment carries a picked colour rather than the automatic one.
+    bool hasFragmentColorOverride(int fragment) const;
+    void clearFragmentColorOverrides();
+    /// Draw scale applied to every fragment except the reference (1.0 = unchanged).
+    /// Shrinking the guests, or the host via an override, is often what actually
+    /// makes a complex readable.
+    void setFragmentScale(float nonReferenceScale);
+    float fragmentScale() const { return m_fragmentScale; }
+    /// Effective draw scale of a fragment (override, else the global value above).
+    float fragmentScaleFor(int fragment) const;
+    /// A scale <= 0 clears the override for that fragment.
+    void setFragmentScaleOverride(int fragment, float scale);
+    void clearFragmentScaleOverrides();
+    /// Distinct bead type labels in the current structure with their atom counts,
+    /// alphabetically ordered. Empty for all-atom structures.
+    QVector<QPair<QString, int>> beadTypes() const;
+    void setTypeColorOverride(const QString& type, const QColor& color);
+    void clearTypeColorOverrides();
+    QHash<QString, QColor> typeColorOverrides() const { return m_typeColors; }
+    void setTypeColorOverrides(const QHash<QString, QColor>& overrides);
     // Claude Generated 2026 - Per-atom overlay labels.
     QVariantList atomLabels() const { return m_atomLabels; }
     void setLabelMode(int mode);          // MoleculeViewer::AtomLabel as int
@@ -320,6 +402,7 @@ signals:
     void measurementChanged();
     void overlayChanged();
     void wallChanged();
+    void nciChanged();
     void rubberBandChanged();
     void editHintChanged();
 
@@ -332,7 +415,6 @@ private:
     // Base scheme colour for an element/charge (CPK/Monochrome/ByCharge), ignoring the
     // transient selection/hover/collision state — used as the tint base for overlays.
     QColor schemeColor(const AtomDatum& a) const;
-    QColor typeColor(const QString& type) const;  // stable distinct colour per bead type
     float atomDrawRadius(const AtomDatum& a) const;  // per-atom radius (bead override or vdW)
 
     AtomInstancing* m_atomInstancing = nullptr;
@@ -360,6 +442,13 @@ private:
     int  m_potArrowResolution = 4;
     void rebuildWall();            // regenerate segments from m_wallGeom + m_wallColor
     void rebuildWallVectorField(); // regenerate force arrows
+    // Claude Generated 2026 - Non-covalent interaction overlay (dashed lines).
+    BondInstancing* m_nciLines = nullptr;
+    QVector<NciSegment> m_nciSegments;
+    bool m_nciVisible = false;
+    bool m_nciLabelsVisible = true;
+    QVariantList m_nciLabels;
+    void rebuildNci();             // trim endpoints, expand dashes, build labels
     AtomInstancing* m_overlayAtoms = nullptr; // combined overlay spheres (all structures)
     BondInstancing* m_overlayBonds = nullptr; // combined overlay cylinders (all structures)
     bool m_overlayVisible = false;            // true if any overlay structure is visible
@@ -373,6 +462,27 @@ private:
     bool m_labelSelectionOnly = false;
     QVariantList m_atomLabels;
     void rebuildLabels();
+    // Claude Generated 2026 - Fragment (connected component) state. Recomputed
+    // lazily because every structure and bond change invalidates it.
+    mutable QVector<int> m_fragmentOf;          // atom index -> fragment index
+    mutable QVector<FragmentInfo> m_fragmentInfo;
+    mutable bool m_fragmentsDirty = true;
+    bool m_fragmentTint = false;
+    float m_fragmentTintStrength = 0.6f;
+    QHash<int, QColor> m_fragmentColors;        // per-fragment colour overrides
+    float m_fragmentScale = 1.0f;               // draw scale of the non-reference fragments
+    QHash<int, float> m_fragmentScales;         // per-fragment scale overrides
+    QHash<int, float> m_fragmentStrengths;      // per-fragment tint-strength overrides
+    /// Per-atom draw radius including its fragment's scale.
+    float atomDrawRadiusFor(int atomIndex) const;
+    void ensureFragments() const;
+    QColor applyFragmentTint(const QColor& base, int atomIndex) const;
+    /// Scheme colour of one atom including its fragment tint.
+    QColor schemeColorFor(int atomIndex) const;
+
+    // Claude Generated 2026 - User-chosen colours per bead type; empty = the
+    // deterministic hue from typeColor() is used.
+    QHash<QString, QColor> m_typeColors;
     QVector<int> m_collisionAtoms;  // Claude Generated 2026 - clashing atoms (drawn red)
     int m_hoverAtom = -1;
     bool m_rubberBandActive = false;        // Claude Generated 2026 - box-select overlay

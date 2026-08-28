@@ -161,6 +161,14 @@ public:
     /** @brief Set simulation parameters before calling run(). */
     void setConfig(const SimulationConfig& config) { m_config = config; }
 
+    /** @brief Enable the live non-covalent interaction overlay for this run.
+     *
+     *  Must be called before run(): it forces GFN-FF to rebuild its hydrogen- and
+     *  halogen-bond lists on every gradient step (hb_update_force_every), which
+     *  costs simulation speed and is therefore opt-in. Only GFN-FF provides the
+     *  lists; for other methods the flag is ignored. Claude Generated 2026. */
+    void setLiveNci(bool enabled) { m_liveNci = enabled; }
+
     /** @brief Request simulation stop after current step completes. Thread-safe. */
     void requestStop() { m_stopRequested.storeRelaxed(1); }
 
@@ -231,6 +239,9 @@ private slots:
 
 private:
     void startMD();             // build SimpleMD, start m_mdTimer; returns so the thread's event loop can drive it
+    /// Read the running GFN-FF force field's current hydrogen- and halogen-bond
+    /// lists into the next frame (live interaction overlay). No-op unless enabled.
+    void collectLiveNci(SimulationFrame& frame) const;
     void finalizeMDRun();       // stop timer, finalizeRun, emit finished
     void runOptimization();     // synchronous — drives its own step callback inside Optimizer::Optimize()
 
@@ -252,6 +263,7 @@ private:
     QElapsedTimer m_lastEmitTimer;  // FPS throttle for OPT step callback
 
     // MD state persisted across QTimer fires (lives in the worker thread)
+    bool m_liveNci = false;  // live GFN-FF interaction list in each frame
     std::unique_ptr<SimpleMD> m_md;
     QTimer* m_mdTimer = nullptr;    // parent = this, auto-cleaned
 

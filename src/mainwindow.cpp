@@ -88,7 +88,10 @@
 #include "docks/workspacepanel.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/remotedirectoriespanel.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/projectdock.h"  // Claude Generated 2026 - Dock system restructuring
-#include "docks/imagegallerydock.h"  // Claude Generated 2026 - batch border-trim gallery
+#include "docks/imagegallerydock.h"
+#include "docks/ncidock.h"
+#include "ncianalysisworker.h"
+#include "nciwidget.h"  // Claude Generated 2026 - batch border-trim gallery
 #include "mainwindow.h"
 
 // Claude Generated - Conditional debug logging
@@ -166,7 +169,15 @@ MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     applyStylesheet(m_darkModeEnabled);
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // Claude Generated 2026 - The NCI analysis thread outlives individual jobs, so
+    // it has to be stopped here; QThread would otherwise be destroyed while running.
+    if (m_nciThread) {
+        m_nciThread->quit();
+        m_nciThread->wait();
+    }
+}
 
 void MainWindow::setupUI()
 {
@@ -973,6 +984,7 @@ void MainWindow::createMenus()
     addDockToggle(m_displayDock, tr("Structure & Display"));
     addDockToggle(m_simulationDock,       tr("&Simulation"));
     addDockToggle(m_outputViewDock,       tr("&Output"));
+    addDockToggle(m_nciDock,              tr("&Interactions"));
 
     // Display options (raises the Display dock) — moved here from Settings (P4).
     QAction *displayOptionsAction = viewMenu->addAction(
@@ -3868,6 +3880,12 @@ void MainWindow::createDockWidgets()
                 m_imageGalleryDock, &ImageGalleryDock::addExportedImage);
     }
 
+    // Claude Generated 2026 - Non-covalent interaction dock (right, tabified with
+    // Display, hidden until the overlay is switched on). The table lists the
+    // contacts the 3D overlay draws; selecting a row highlights its atoms.
+    m_nciDock = m_dockManager->nciDockImpl();
+    setupNciAnalysis();
+
     // Viewer-bar "Photo" button → dialog-free quick export into the working folder.
     if (m_moleculeView)
         connect(m_moleculeView, &MoleculeViewer::quickExportRequested, this, [this]() {
@@ -4292,10 +4310,158 @@ void MainWindow::onSimulationConfigChanged(SimulationConfig cfg)
 // Claude Generated - Connect a freshly-created worker to the viewer + status bar directly.
 // Avoids widget/dialog acting as an atom-data forwarder; eliminates two queued signal hops
 // per frame. Connections auto-clean when the worker is deleteLater'd at simulation end.
+// Claude Generated 2026 - Non-covalent interaction analysis.
+//
+// The worker gets its own thread for the whole session: the simulation thread is
+// occupied by the MD timer, so a parameter generation posted there would stall a
+// running simulation - and the analysis is meant to be usable while one runs.
+void MainWindow::setupNciAnalysis()
+{
+    if (m_nciWorker || !m_moleculeView)
+        return;
+
+    m_nciThread = new QThread(this);
+    m_nciWorker = new NciAnalysisWorker;
+    m_nciWorker->moveToThread(m_nciThread);
+    connect(m_nciThread, &QThread::finished, m_nciWorker, &QObject::deleteLater);
+    m_nciThread->start();
+
+    connect(m_nciWorker, &NciAnalysisWorker::resultReady, this,
+        [this](quint64 requestId, const nci::Result& result) {
+            if (requestId != m_nciRequestId)
+                return;  // a newer request is already on its way
+            if (m_nciDock)
+                m_nciDock->setBusy(false);
+            if (m_moleculeView)
+                m_moleculeView->setNciResult(result);
+        },
+        Qt::QueuedConnection);
+
+    connect(m_nciWorker, &NciAnalysisWorker::chargesReady, this,
+        [this](quint64 requestId, int frame, const QVector<float>& charges) {
+            if (requestId != m_nciRequestId || !m_moleculeView)
+                return;
+            if (frame != m_moleculeView->getCurrentFrame())
+                return;
+            m_moleculeView->setAtomCharges(charges);
+            statusBar()->showMessage(
+                tr("Atomic charges available - select \"By Charge\" in the Display panel "
+                   "to colour the structure by them."),
+                6000);
+        },
+        Qt::QueuedConnection);
+
+    connect(m_nciWorker, &NciAnalysisWorker::errorOccurred, this,
+        [this](const QString& message) {
+            if (m_nciDock) {
+                m_nciDock->setBusy(false);
+                m_nciDock->setStatus(message);
+            }
+            statusBar()->showMessage(message, 8000);
+        },
+        Qt::QueuedConnection);
+
+    // Viewer -> table. The geometric source recomputes on every frame, so this is
+    // the single path that keeps the contact table in step with the overlay.
+    connect(m_moleculeView, &MoleculeViewer::nciResultChanged, this,
+        [this](const nci::Result& result) {
+            if (m_nciDock)
+                m_nciDock->setResult(result, m_moleculeView->getCurrentFrameAtoms());
+        });
+
+    // The contact table uses the same interaction colours as the 3D overlay.
+    connect(m_moleculeView, &MoleculeViewer::nciPaletteChanged, this, [this]() {
+        if (m_nciDock)
+            m_nciDock->setKindPalette(m_moleculeView->getNciPalette());
+    });
+    if (m_nciDock)
+        m_nciDock->setKindPalette(m_moleculeView->getNciPalette());
+
+    if (!m_nciDock)
+        return;
+
+    connect(m_nciDock, &NciDock::sourceChanged, this, [this](int source) {
+        if (m_moleculeView && source <= 1)
+            m_moleculeView->setNciSource(source);
+        if (m_displayPanel)
+            m_displayPanel->loadCurrentSettings();
+        if (source >= 2)
+            startNciAnalysis(source);
+    });
+    connect(m_nciDock, &NciDock::analysisRequested, this,
+        [this](int source) { startNciAnalysis(source); });
+
+    // Row click -> highlight the contact's atoms in the 3D view. The guard stops
+    // the viewer's own selectionChanged from bouncing back into the table.
+    connect(m_nciDock, &NciDock::contactSelected, this, [this](const QVector<int>& atoms) {
+        if (m_nciSelectionSyncing || !m_moleculeView || atoms.isEmpty())
+            return;
+        m_nciSelectionSyncing = true;
+        m_moleculeView->selectAtoms(atoms, false);
+        m_nciSelectionSyncing = false;
+    });
+    connect(m_nciDock, &NciDock::contactFocused, this, [this](const QVector<int>& atoms) {
+        if (m_nciSelectionSyncing || !m_moleculeView || atoms.isEmpty())
+            return;
+        m_nciSelectionSyncing = true;
+        m_moleculeView->selectAtoms(atoms, false);
+        m_moleculeView->zoomToSelection(atoms);
+        m_nciSelectionSyncing = false;
+    });
+
+    if (m_displayPanel) {
+        connect(m_displayPanel, &DisplayPanel::nciSourceChanged, this, [this](int source) {
+            if (m_nciDock) {
+                m_nciDock->setSource(source);
+                if (source != 0)
+                    m_nciDock->show();
+            }
+            if (source >= 2)
+                startNciAnalysis(source);
+        });
+        connect(m_displayPanel, &DisplayPanel::nciLiveMdChanged, this,
+            [this](bool on) { m_nciLiveMd = on; });
+    }
+}
+
+void MainWindow::startNciAnalysis(int source)
+{
+    if (source < 2 || !m_nciWorker || !m_moleculeView)
+        return;
+
+    NciAnalysisWorker::Request request;
+    request.atoms = m_moleculeView->getCurrentFrameAtoms();
+    request.bonds = m_moleculeView->getCurrentFrameBonds();
+    if (request.atoms.isEmpty()) {
+        statusBar()->showMessage(tr("No structure loaded."), 4000);
+        return;
+    }
+    request.method = (source == 2) ? QStringLiteral("gfnff") : QStringLiteral("gfn2");
+    request.frame = m_moleculeView->getCurrentFrame();
+    request.options = m_moleculeView->getNciOptions();
+    request.requestId = ++m_nciRequestId;
+
+    if (m_nciDock) {
+        m_nciDock->setBusy(true);
+        m_nciDock->setStatus(tr("Calculating (%1)...").arg(request.method));
+        m_nciDock->show();
+    }
+
+    QMetaObject::invokeMethod(m_nciWorker, "analyse", Qt::QueuedConnection,
+        Q_ARG(NciAnalysisWorker::Request, request));
+}
+
 void MainWindow::wireSimulationWorker(SimulationWorker* worker)
 {
     if (!worker)
         return;
+
+    // Claude Generated 2026 - Live interaction overlay. Only worth the cost when
+    // the GFN-FF source is the one on screen: it makes the force field rebuild its
+    // hydrogen- and halogen-bond lists on every gradient step. Must be set before
+    // the worker's thread starts, which workerStarted guarantees.
+    worker->setLiveNci(m_nciLiveMd && m_moleculeView
+        && m_moleculeView->getNciSource() == int(nci::Source::GfnffParameters));
 
     if (m_moleculeView) {
         // Claude Generated 2026 - Critical: a new worker run must re-arm the

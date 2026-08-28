@@ -14,6 +14,7 @@
 #include "src/core/elements.h"
 #include "forceinjector.h"
 #include "performanceoptimizer.h"
+#include "ncianalysis.h"
 #include "scenecontroller.h"
 #include "selectionmanager.h"
 #include "xyzparser.h"
@@ -584,6 +585,330 @@ void MoleculeViewer::setWallVectorField(bool enabled, int resolution)
         m_scene->setWallVectorField(enabled, resolution);
 }
 
+// ---- Non-covalent interaction overlay (Claude Generated 2026) ----
+//
+// The geometric source is recomputed for every frame: its candidate loops are
+// restricted to donor-bound hydrogens and to Cl/Br/I, so a default pass costs less
+// than the bond detection the viewer already pays for on each live frame. The two
+// calculated sources (GFN-FF parameters, population analysis) are pushed in from
+// the analysis worker and are never triggered by a frame change - only their
+// geometry is re-fitted, so the contact list stays the one that was calculated.
+
+void MoleculeViewer::setNciSource(int source)
+{
+    if (m_nciSource == source)
+        return;
+    m_nciSource = source;
+    if (m_nciSource != int(nci::Source::Geometry)) {
+        // Leaving the geometric source: the contacts on screen no longer belong to
+        // the newly selected source until a calculation delivers them.
+        m_nciResult.contacts.clear();
+        m_nciResult.summary.clear();
+    }
+    refreshNciOverlay();
+}
+
+void MoleculeViewer::setNciOptions(const nci::Options& options)
+{
+    m_nciOptions = options;
+    refreshNciOverlay();
+}
+
+void MoleculeViewer::setNciLabelsVisible(bool on)
+{
+    m_nciLabelsVisible = on;
+    if (m_scene)
+        m_scene->setNciLabelsVisible(on);
+}
+
+void MoleculeViewer::setNciResult(const nci::Result& result)
+{
+    m_nciResult = result;
+    m_nciSource = int(result.source);
+    pushNciToScene();
+    emit nciResultChanged(m_nciResult);
+}
+
+void MoleculeViewer::setAtomCharges(const QVector<float>& charges)
+{
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (charges.size() != atoms.size())
+        return;
+    for (int i = 0; i < atoms.size(); ++i)
+        atoms[i].charge = charges[i];
+    // Full rebuild: the "By Charge" scheme colours atoms AND bonds from this.
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/true,
+        /*keepView=*/true);
+}
+
+// ---- Fragment tinting for host-guest systems (Claude Generated 2026) ----
+//
+// Fragments are the connected components of the bond graph; the scene controller
+// owns them because it owns the structure. The largest fragment stays in its plain
+// scheme colour and the others are shifted, which is what makes a guest read as a
+// guest inside a host.
+
+QVector<QPair<QString, int>> MoleculeViewer::getFragments() const
+{
+    QVector<QPair<QString, int>> out;
+    if (!m_scene)
+        return out;
+    for (const SceneController::FragmentInfo& f : m_scene->fragments())
+        out.append({ f.formula, f.atomCount });
+    return out;
+}
+
+void MoleculeViewer::setFragmentTint(bool on, float strength)
+{
+    m_fragmentTint = on;
+    m_fragmentTintStrength = strength;
+    if (m_scene)
+        m_scene->setFragmentTint(on, strength);
+}
+
+QColor MoleculeViewer::getFragmentColor(int fragment) const
+{
+    return m_scene ? m_scene->fragmentColor(fragment) : QColor();
+}
+
+void MoleculeViewer::setFragmentColor(int fragment, const QColor& color)
+{
+    if (m_scene)
+        m_scene->setFragmentColorOverride(fragment, color);
+}
+
+bool MoleculeViewer::hasFragmentColorOverride(int fragment) const
+{
+    return m_scene && m_scene->hasFragmentColorOverride(fragment);
+}
+
+void MoleculeViewer::setFragmentScale(float scale)
+{
+    m_fragmentScale = scale;
+    if (m_scene)
+        m_scene->setFragmentScale(scale);
+}
+
+float MoleculeViewer::getFragmentScaleFor(int fragment) const
+{
+    return m_scene ? m_scene->fragmentScaleFor(fragment) : 1.0f;
+}
+
+void MoleculeViewer::setFragmentScaleOverride(int fragment, float scale)
+{
+    if (m_scene)
+        m_scene->setFragmentScaleOverride(fragment, scale);
+}
+
+float MoleculeViewer::getFragmentTintStrengthFor(int fragment) const
+{
+    return m_scene ? m_scene->fragmentTintStrengthFor(fragment) : 0.0f;
+}
+
+void MoleculeViewer::setFragmentTintStrengthOverride(int fragment, float strength)
+{
+    if (m_scene)
+        m_scene->setFragmentTintStrengthOverride(fragment, strength);
+}
+
+void MoleculeViewer::resetFragmentOverrides()
+{
+    if (m_scene)
+        m_scene->clearFragmentOverrides();
+}
+
+void MoleculeViewer::setNciKindColor(int paletteKey, const QColor& color)
+{
+    if (color.isValid())
+        m_nciPalette.insert(paletteKey, color);
+    else
+        m_nciPalette.remove(paletteKey);
+    pushNciToScene();
+    emit nciPaletteChanged();
+}
+
+QColor MoleculeViewer::getNciKindColor(int paletteKey) const
+{
+    const auto it = m_nciPalette.constFind(paletteKey);
+    if (it != m_nciPalette.constEnd() && it.value().isValid())
+        return it.value();
+    // Default colour of that key: the repulsive electrostatic key needs a positive
+    // energy to select the repulsive half of the default palette.
+    if (paletteKey == nci::ElectrostaticRepulsiveKey)
+        return nci::kindColor(nci::Kind::Electrostatic, 1.0);
+    return nci::kindColor(static_cast<nci::Kind>(paletteKey), -1.0);
+}
+
+void MoleculeViewer::resetNciKindColors()
+{
+    if (m_nciPalette.isEmpty())
+        return;
+    m_nciPalette.clear();
+    pushNciToScene();
+    emit nciPaletteChanged();
+}
+
+void MoleculeViewer::setNciPalette(const nci::Palette& palette)
+{
+    if (m_nciPalette == palette)
+        return;
+    m_nciPalette = palette;
+    pushNciToScene();
+    emit nciPaletteChanged();
+}
+
+// ---- Coarse-grained bead types (Claude Generated 2026) ----
+//
+// VTF beads carry a type label instead of an element, and the "By Type" scheme
+// derives a stable colour from it. These forward to the scene controller, which
+// owns the structure and therefore knows which types are actually present.
+
+QVector<QPair<QString, int>> MoleculeViewer::getBeadTypes() const
+{
+    return m_scene ? m_scene->beadTypes() : QVector<QPair<QString, int>>();
+}
+
+QColor MoleculeViewer::getBeadTypeColor(const QString& type) const
+{
+    return m_scene ? m_scene->typeColor(type) : QColor();
+}
+
+void MoleculeViewer::setBeadTypeColor(const QString& type, const QColor& color)
+{
+    if (m_scene)
+        m_scene->setTypeColorOverride(type, color);
+}
+
+void MoleculeViewer::resetBeadTypeColors()
+{
+    if (m_scene)
+        m_scene->clearTypeColorOverrides();
+}
+
+QHash<QString, QColor> MoleculeViewer::getBeadTypeColors() const
+{
+    return m_scene ? m_scene->typeColorOverrides() : QHash<QString, QColor>();
+}
+
+void MoleculeViewer::setBeadTypeColors(const QHash<QString, QColor>& colors)
+{
+    if (m_scene)
+        m_scene->setTypeColorOverrides(colors);
+}
+
+void MoleculeViewer::refreshNciOverlay()
+{
+    if (!m_scene)
+        return;
+    if (m_nciSource == 0) {
+        m_scene->setNciVisible(false);
+        return;
+    }
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size()) {
+        m_scene->setNciVisible(false);
+        return;
+    }
+
+    const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (atoms.size() > kNciAtomLimit) {
+        m_scene->setNciVisible(false);
+        return;
+    }
+
+    if (m_nciSource == int(nci::Source::Geometry)) {
+        const QVector<Bond> bonds = m_currentFrame < m_trajectoryBonds.size()
+            ? m_trajectoryBonds[m_currentFrame]
+            : QVector<Bond>();
+        if (m_nciOptions.piStacking && !m_nciRingsValid) {
+            m_nciRings = nci::findAromaticRings(atoms.size(), bonds);
+            m_nciRingsValid = true;
+        }
+        m_nciResult.source = nci::Source::Geometry;
+        m_nciResult.frame = m_currentFrame;
+        m_nciResult.contacts = nci::detectGeometric(atoms, bonds, m_nciOptions, &m_nciRings);
+        m_nciResult.summary = nci::summarize(m_nciResult.contacts, nci::Source::Geometry);
+        if (m_nciResult.contacts.size() >= m_nciOptions.maxContacts)
+            m_nciResult.summary += tr(" (list capped at %1)").arg(m_nciOptions.maxContacts);
+    } else {
+        // Calculated source: keep the pairs, refresh their geometry for this frame.
+        nci::refreshGeometry(m_nciResult.contacts, atoms, m_nciOptions);
+    }
+    if (m_nciLiveContacts) {
+        // Live GFN-FF frame: the force field ships its full candidate enumeration,
+        // so gate it down to the terms engaged in this frame before drawing.
+        nci::applyGeometricGate(m_nciResult.contacts, atoms, m_nciOptions);
+        const int dropped = nci::rankAndTruncate(m_nciResult.contacts, m_nciOptions);
+        m_nciResult.summary = nci::summarize(m_nciResult.contacts, m_nciResult.source)
+            + nci::truncationNote(dropped);
+        m_nciLiveContacts = false;
+    }
+
+    pushNciToScene();
+    emit nciResultChanged(m_nciResult);
+}
+
+void MoleculeViewer::pushNciToScene()
+{
+    if (!m_scene)
+        return;
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size()) {
+        m_scene->setNciVisible(false);
+        return;
+    }
+    const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+
+    const auto centroid = [&atoms](const QVector<int>& ring) {
+        QVector3D c;
+        int used = 0;
+        for (int idx : ring) {
+            if (idx >= 0 && idx < atoms.size()) {
+                c += atoms[idx].position;
+                ++used;
+            }
+        }
+        return used > 0 ? c / float(used) : QVector3D();
+    };
+
+    QVector<SceneController::NciSegment> segs;
+    segs.reserve(m_nciResult.contacts.size());
+    for (const nci::Contact& c : m_nciResult.contacts) {
+        SceneController::NciSegment seg;
+        if (c.kind == nci::Kind::PiStacking) {
+            if (c.ringA.isEmpty() || c.ringB.isEmpty())
+                continue;
+            seg.a = centroid(c.ringA);
+            seg.b = centroid(c.ringB);   // centroids: nothing to trim against
+        } else {
+            const int from = c.bridge >= 0 ? c.bridge : c.donor;
+            if (from < 0 || from >= atoms.size() || c.acceptor < 0 || c.acceptor >= atoms.size())
+                continue;
+            seg.a = atoms[from].position;
+            seg.b = atoms[c.acceptor].position;
+            seg.atomA = from;
+            seg.atomB = c.acceptor;
+        }
+
+        // Strength is encoded twice - line thickness and alpha - so a weak contact
+        // reads as a faint thin line without needing a legend.
+        QColor colour = nci::kindColor(c.kind, c.energy, m_nciPalette);
+        colour.setAlpha(qBound(60, int(120.0f + 135.0f * c.score), 255));
+        seg.color = colour;
+        seg.radius = 0.03f + 0.05f * qBound(0.0f, c.score, 1.0f);
+
+        if (c.hasEnergy)
+            seg.label = QStringLiteral("%1 kJ/mol").arg(c.energy, 0, 'f', 1);
+        else
+            seg.label = QStringLiteral("%1 \u00C5").arg(c.distance, 0, 'f', 2);
+        segs.append(seg);
+    }
+
+    m_scene->setNciLabelsVisible(m_nciLabelsVisible);
+    m_scene->setNciContacts(segs);
+    m_scene->setNciVisible(!segs.isEmpty());
+}
+
 void MoleculeViewer::applyWallVisibility()
 {
     if (!m_scene)
@@ -883,6 +1208,20 @@ void MoleculeViewer::syncSceneToController(int frameIndex, bool resetCamera, boo
             pos.append(a.position);
         m_scene->updatePositions(pos);
     }
+
+    // A full rebuild means the atom or bond set itself changed (load, edit, paste,
+    // delete), so ring perception has to run again - and the set of bead types may
+    // have changed with it.
+    if (fullRebuild) {
+        invalidateNciTopology();
+        emit beadTypesChanged();
+        emit fragmentsChanged();
+    }
+
+    // The NCI overlay follows every geometry change through this one funnel
+    // (frame change, live MD/Opt step, structure edit, refresh). Cheap no-op when
+    // the overlay is off, which is the default.
+    refreshNciOverlay();
 }
 
 void MoleculeViewer::clearScene()
@@ -1195,6 +1534,16 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
     const auto& positions = frame->positions;
     const int n = static_cast<int>(positions.size());
 
+    // Claude Generated 2026 - Live interaction overlay: while the GFN-FF source is
+    // selected the contacts come from the running force field itself, so what is
+    // drawn is what the simulation actually evaluates. Distances, angles and scores
+    // are re-fitted against this frame further down (refreshNciOverlay).
+    if (m_nciSource == int(nci::Source::GfnffParameters) && !frame->nciContacts.isEmpty()) {
+        m_nciResult.source = nci::Source::GfnffParameters;
+        m_nciResult.contacts = frame->nciContacts;
+        m_nciLiveContacts = true;   // needs the geometric gate in refreshNciOverlay()
+    }
+
     // Topology change -> rebuild (carry element/charge where possible).
     if (m_trajectoryAtoms.isEmpty() || m_trajectoryAtoms[0].size() != n) {
         QVector<Atom> atoms;
@@ -1231,6 +1580,8 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
         if (!bondSetEqual(newBonds, m_trajectoryBonds[0])) {
             m_trajectoryBonds[0] = newBonds;
             topologyChanged = true;
+            invalidateNciTopology();  // rings may have opened/closed
+            emit fragmentsChanged();  // a broken bond can split a fragment
         }
     }
 
@@ -1786,6 +2137,9 @@ void MoleculeViewer::finalizeEdit()
                 m_scene->updateBonds(sb);  // bonds only, no bounds/camera change
             }
             buildForceAdjacency();
+            invalidateNciTopology();
+            emit fragmentsChanged();
+            refreshNciOverlay();  // the 1-2/1-3 exclusion set just changed
         }
     }
     computeCollisions();
@@ -2048,6 +2402,22 @@ ViewPreset MoleculeViewer::currentViewPreset(ZoomMode zoomMode) const
     p.rotationMode = static_cast<int>(m_rotationMode);
     p.wallVisible = m_wallVisibleOverride;
     p.wallOpacity = getWallOpacity();
+    // Claude Generated 2026 - Non-covalent interaction overlay. ViewPreset inherits
+    // DisplaySettings but is copied field by field, so these must be listed here and
+    // in applyViewPreset() or a preset silently switches the overlay off.
+    p.nciSource = m_nciSource;
+    p.nciHydrogenBonds = m_nciOptions.hydrogenBonds;
+    p.nciHalogenBonds = m_nciOptions.halogenBonds;
+    p.nciPiStacking = m_nciOptions.piStacking;
+    p.nciCloseContacts = m_nciOptions.closeContacts;
+    p.nciElectrostatics = m_nciOptions.electrostatics;
+    p.nciDispersion = m_nciOptions.dispersion;
+    p.nciHbDistance = m_nciOptions.hbMaxDistance;
+    p.nciHbAngle = m_nciOptions.hbMinAngle;
+    p.nciLabels = m_nciLabelsVisible;
+    p.fragmentTint = m_fragmentTint;
+    p.fragmentTintStrength = m_fragmentTintStrength;
+    p.fragmentScale = m_fragmentScale;
     p.backgroundColor = m_backgroundColor;
     for (int i = 0; i < 4; ++i)
         p.cornerLightEnabled[i] = m_cornerLightEnabled[i];
@@ -2100,6 +2470,23 @@ void MoleculeViewer::applyViewPreset(const ViewPreset& preset, bool applyCamera,
     setRotationMode(preset.rotationMode);
     setWallVisibleOverride(preset.wallVisible);
     setWallOpacity(preset.wallOpacity);
+    {
+        nci::Options o = m_nciOptions;
+        o.hydrogenBonds = preset.nciHydrogenBonds;
+        o.halogenBonds = preset.nciHalogenBonds;
+        o.piStacking = preset.nciPiStacking;
+        o.closeContacts = preset.nciCloseContacts;
+        o.electrostatics = preset.nciElectrostatics;
+        o.dispersion = preset.nciDispersion;
+        o.hbMaxDistance = preset.nciHbDistance;
+        o.hbMinAngle = preset.nciHbAngle;
+        m_nciOptions = o;
+    }
+    setFragmentTint(preset.fragmentTint, preset.fragmentTintStrength);
+    setFragmentScale(preset.fragmentScale);
+    setNciLabelsVisible(preset.nciLabels);
+    setNciSource(preset.nciSource);
+    refreshNciOverlay();  // setNciSource() no-ops when the source is unchanged
     setBackgroundColor(preset.backgroundColor);
     for (int i = 0; i < 4; ++i)
         setCornerLightEnabled(i, preset.cornerLightEnabled[i]);

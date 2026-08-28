@@ -5,6 +5,8 @@
 
 #include "widgets/collapsiblesection.h"
 
+#include "ncianalysis.h"
+
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
@@ -44,6 +46,34 @@ DisplayPanel::DisplayPanel(MoleculeViewer* viewer, Settings* settings, QWidget* 
                 this, [this]() { loadCurrentSettings(); });
 }
 
+namespace {
+// Claude Generated 2026 - Paint a colour button so the button itself is the swatch.
+// Used by both colour selectors (bead types, interaction classes).
+void applySwatch(QPushButton* button, const QColor& color)
+{
+    if (!button)
+        return;
+    const QString text = color.isValid() ? color.name(QColor::HexRgb) : QString();
+    button->setText(text);
+    if (!color.isValid()) {
+        button->setStyleSheet(QString());
+        return;
+    }
+    // Readable label on both light and dark swatches.
+    const bool dark = color.lightness() < 128;
+    button->setStyleSheet(QStringLiteral("background-color: %1; color: %2;")
+                              .arg(color.name(QColor::HexRgb), dark ? "#ffffff" : "#000000"));
+}
+
+// Small colour square for a combo-box entry, so the whole palette is visible at a glance.
+QIcon swatchIcon(const QColor& color)
+{
+    QPixmap pm(14, 14);
+    pm.fill(color.isValid() ? color : QColor(Qt::transparent));
+    return QIcon(pm);
+}
+} // namespace
+
 void DisplayPanel::setupUI()
 {
     auto* root = new QVBoxLayout(this);
@@ -72,12 +102,14 @@ void DisplayPanel::setupUI()
 
     addSection(tr("Style"), [this](QVBoxLayout* l) {
         createRenderingGroup(l);
+        createFragmentGroup(l);
+        createBeadTypeGroup(l);
         createMaterialGroup(l);
         createSizeGroup(l);
     }, true);
     addSection(tr("Effects"), [this](QVBoxLayout* l) { createAppearanceGroup(l); }, false);
     addSection(tr("Lighting"), [this](QVBoxLayout* l) { createLightingGroup(l); }, false);
-    addSection(tr("Tools"), [this](QVBoxLayout* l) { createToolsGroup(l); }, false);
+    addSection(tr("Tools"), [this](QVBoxLayout* l) { createToolsGroup(l); createNciGroup(l); }, false);
     addSection(tr("Presets"), [this](QVBoxLayout* l) { createPresetsGroup(l); }, false);
 
     col->addStretch();
@@ -520,6 +552,544 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
     mainLayout->addWidget(g);
 }
 
+// Claude Generated 2026 - Fragment tinting for host-guest systems.
+//
+// A fragment is a connected component of the bond graph. The largest one keeps its
+// plain colours (in a host-guest complex that is the host) and every other one is
+// shifted toward a distinct hue, so a guest stands out without its elements
+// becoming unrecognisable. The strength slider is the "wie deutlich" control; a
+// fragment's hue can also be picked outright. The group hides itself when the
+// structure has only one fragment - there is then nothing to distinguish.
+void DisplayPanel::createFragmentGroup(QVBoxLayout* mainLayout)
+{
+    m_fragmentGroup = new QGroupBox(tr("Fragments (host-guest)"), this);
+    auto* outer = new QVBoxLayout(m_fragmentGroup);
+
+    m_fragmentTintCheck = new QCheckBox(tr("Tint fragments apart"), this);
+    m_fragmentTintCheck->setToolTip(tr("Shift the colours of every fragment except the "
+                                       "largest one, so separate molecules are told apart "
+                                       "at a glance."));
+    outer->addWidget(m_fragmentTintCheck);
+
+    auto* pick = new QHBoxLayout;
+    pick->setContentsMargins(0, 0, 0, 0);
+    pick->addWidget(new QLabel(tr("Fragment:"), this));
+    m_fragmentCombo = new QComboBox(this);
+    m_fragmentCombo->setToolTip(tr("Fragments of the loaded structure, largest first, with "
+                                   "their formula and atom count. Everything below applies "
+                                   "to the fragment picked here."));
+    pick->addWidget(m_fragmentCombo, 1);
+    outer->addLayout(pick);
+
+    // Everything below the combo edits exactly the fragment named in this box's
+    // title. That naming is the whole point: a slider that silently applied to
+    // "all guests" while a single fragment was selected above it read as ambiguous.
+    m_fragmentSelectedGroup = new QGroupBox(this);
+    QFormLayout* f = new QFormLayout(m_fragmentSelectedGroup);
+
+    auto* colourRow = new QWidget(this);
+    auto* colourLayout = new QHBoxLayout(colourRow);
+    colourLayout->setContentsMargins(0, 0, 0, 0);
+    m_fragmentColorButton = new QPushButton(this);
+    m_fragmentColorButton->setMinimumWidth(80);
+    m_fragmentColorButton->setToolTip(tr("Hue this fragment is shifted toward."));
+    colourLayout->addWidget(m_fragmentColorButton, 1);
+    // A picked hue cannot be un-picked through the colour dialog, so this fragment
+    // needs its own way back to the automatic one - "Reset all" would also throw
+    // away its tint strength and size.
+    m_fragmentColorResetButton = new QPushButton(tr("Auto"), this);
+    m_fragmentColorResetButton->setToolTip(tr("Back to the automatically derived hue for "
+                                              "this fragment."));
+    colourLayout->addWidget(m_fragmentColorResetButton);
+    f->addRow(tr("Colour:"), colourRow);
+
+    auto* strengthRow = new QWidget(this);
+    auto* sh = new QHBoxLayout(strengthRow);
+    sh->setContentsMargins(0, 0, 0, 0);
+    m_fragmentStrengthSlider = new QSlider(Qt::Horizontal, this);
+    m_fragmentStrengthSlider->setRange(0, 100);
+    m_fragmentStrengthSlider->setValue(60);
+    m_fragmentStrengthSlider->setToolTip(tr("How far this fragment's hues are rotated. Low keeps "
+                                            "element colours almost intact, high makes it "
+                                            "unmistakable."));
+    m_fragmentStrengthLabel = new QLabel(QStringLiteral("60%"), this);
+    m_fragmentStrengthLabel->setMinimumWidth(40);
+    sh->addWidget(m_fragmentStrengthSlider, 1);
+    sh->addWidget(m_fragmentStrengthLabel);
+    f->addRow(tr("Tint:"), strengthRow);
+
+    auto* scaleRow = new QWidget(this);
+    auto* sc = new QHBoxLayout(scaleRow);
+    sc->setContentsMargins(0, 0, 0, 0);
+    m_fragmentScaleSlider = new QSlider(Qt::Horizontal, this);
+    m_fragmentScaleSlider->setRange(20, 200);   // 0.2x .. 2.0x
+    m_fragmentScaleSlider->setValue(100);
+    m_fragmentScaleSlider->setToolTip(tr("Draw size of this fragment. Shrinking the host is how "
+                                         "you look into its cavity; shrinking a guest keeps it "
+                                         "from hiding the host."));
+    m_fragmentScaleLabel = new QLabel(QStringLiteral("100%"), this);
+    m_fragmentScaleLabel->setMinimumWidth(40);
+    sc->addWidget(m_fragmentScaleSlider, 1);
+    sc->addWidget(m_fragmentScaleLabel);
+    f->addRow(tr("Size:"), scaleRow);
+
+    auto* buttons = new QHBoxLayout;
+    buttons->setContentsMargins(0, 0, 0, 0);
+    auto* applyAllButton = new QPushButton(tr("Apply to all guests"), this);
+    applyAllButton->setToolTip(tr("Give every fragment except the largest the tint strength "
+                                  "and size set here."));
+    auto* resetButton = new QPushButton(tr("Reset all"), this);
+    resetButton->setToolTip(tr("Drop the custom hue, tint strength and size of every fragment."));
+    buttons->addWidget(applyAllButton);
+    buttons->addWidget(resetButton);
+    buttons->addStretch();
+    f->addRow(buttons);
+
+    outer->addWidget(m_fragmentSelectedGroup);
+
+    connect(m_fragmentTintCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_viewer)
+            m_viewer->setFragmentTint(on, m_viewer->getFragmentTintStrength());
+        refreshFragments();
+    });
+
+    connect(m_fragmentCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int) { refreshSelectedFragment(); });
+
+    connect(m_fragmentColorButton, &QPushButton::clicked, this, [this]() {
+        if (!m_viewer || m_fragmentCombo->currentIndex() < 0)
+            return;
+        const int fragment = m_fragmentCombo->currentData().toInt();
+        if (fragment <= 0)
+            return;
+        const QColor chosen = QColorDialog::getColor(m_viewer->getFragmentColor(fragment), this,
+            tr("Hue for %1").arg(m_fragmentCombo->currentText()));
+        if (!chosen.isValid())
+            return;
+        m_viewer->setFragmentColor(fragment, chosen);
+        refreshFragments();
+    });
+
+    connect(m_fragmentColorResetButton, &QPushButton::clicked, this, [this]() {
+        if (!m_viewer || m_fragmentCombo->currentIndex() < 0)
+            return;
+        // An invalid colour clears the override in the scene controller.
+        m_viewer->setFragmentColor(m_fragmentCombo->currentData().toInt(), QColor());
+        refreshFragments();
+    });
+
+    connect(m_fragmentStrengthSlider, &QSlider::valueChanged, this, [this](int v) {
+        m_fragmentStrengthLabel->setText(QStringLiteral("%1%").arg(v));
+        if (!m_viewer || m_fragmentCombo->currentIndex() < 0)
+            return;
+        m_viewer->setFragmentTintStrengthOverride(m_fragmentCombo->currentData().toInt(),
+            v / 100.0f);
+    });
+
+    connect(m_fragmentScaleSlider, &QSlider::valueChanged, this, [this](int v) {
+        m_fragmentScaleLabel->setText(QStringLiteral("%1%").arg(v));
+        if (!m_viewer || m_fragmentCombo->currentIndex() < 0)
+            return;
+        m_viewer->setFragmentScaleOverride(m_fragmentCombo->currentData().toInt(), v / 100.0f);
+    });
+
+    connect(applyAllButton, &QPushButton::clicked, this, [this]() {
+        if (!m_viewer)
+            return;
+        const float strength = m_fragmentStrengthSlider->value() / 100.0f;
+        const float scale = m_fragmentScaleSlider->value() / 100.0f;
+        const int count = m_viewer->getFragments().size();
+        for (int fragment = 1; fragment < count; ++fragment) {
+            m_viewer->setFragmentTintStrengthOverride(fragment, strength);
+            m_viewer->setFragmentScaleOverride(fragment, scale);
+        }
+        refreshFragments();
+    });
+
+    connect(resetButton, &QPushButton::clicked, this, [this]() {
+        if (!m_viewer)
+            return;
+        m_viewer->resetFragmentOverrides();
+        refreshFragments();
+    });
+
+    mainLayout->addWidget(m_fragmentGroup);
+    m_fragmentGroup->setVisible(false);
+
+    if (m_viewer)
+        connect(m_viewer, &MoleculeViewer::fragmentsChanged, this, &DisplayPanel::refreshFragments);
+}
+
+void DisplayPanel::refreshFragments()
+{
+    if (!m_viewer || !m_fragmentGroup)
+        return;
+
+    const QVector<QPair<QString, int>> fragments = m_viewer->getFragments();
+    // One fragment means one molecule - nothing to tell apart.
+    m_fragmentGroup->setVisible(fragments.size() > 1);
+    if (fragments.size() < 2)
+        return;
+
+    const int previous = m_fragmentCombo->currentData().toInt();
+    m_fragmentCombo->blockSignals(true);
+    m_fragmentCombo->clear();
+    for (int i = 0; i < fragments.size(); ++i) {
+        const QString formula = fragments[i].first.isEmpty() ? tr("(no formula)") : fragments[i].first;
+        const QString label = i == 0
+            ? tr("1: %1  (%2 atoms, reference)").arg(formula).arg(fragments[i].second)
+            : tr("%1: %2  (%3 atoms)").arg(i + 1).arg(formula).arg(fragments[i].second);
+        m_fragmentCombo->addItem(swatchIcon(m_viewer->getFragmentColor(i)), label, i);
+    }
+    const int restore = m_fragmentCombo->findData(previous);
+    // Default to the first tinted fragment: that is the one a user wants to adjust.
+    m_fragmentCombo->setCurrentIndex(restore >= 0 ? restore : qMin(1, fragments.size() - 1));
+    m_fragmentCombo->blockSignals(false);
+
+    refreshSelectedFragment();
+}
+
+// Load the selected fragment's own values into the controls and say in the box
+// title which fragment they belong to.
+void DisplayPanel::refreshSelectedFragment()
+{
+    if (!m_viewer || !m_fragmentSelectedGroup || m_fragmentCombo->currentIndex() < 0)
+        return;
+    const int fragment = m_fragmentCombo->currentData().toInt();
+    const bool isReference = fragment <= 0;
+
+    m_fragmentSelectedGroup->setTitle(tr("Applies to: %1").arg(m_fragmentCombo->currentText()));
+
+    applySwatch(m_fragmentColorButton, m_viewer->getFragmentColor(fragment));
+    // The reference fragment is never tinted, so it has neither a hue nor a
+    // strength - but it can still be resized, which is the "look inside" case.
+    const bool tintable = !isReference && m_fragmentTintCheck->isChecked();
+    m_fragmentColorButton->setEnabled(tintable);
+    // Enabled only where there is something to undo, so the button also says
+    // whether this fragment carries a picked hue at all.
+    m_fragmentColorResetButton->setEnabled(tintable && m_viewer->hasFragmentColorOverride(fragment));
+    m_fragmentStrengthSlider->setEnabled(!isReference && m_fragmentTintCheck->isChecked());
+
+    const int strength = int(m_viewer->getFragmentTintStrengthFor(fragment) * 100);
+    m_fragmentStrengthSlider->blockSignals(true);
+    m_fragmentStrengthSlider->setValue(isReference ? 0 : strength);
+    m_fragmentStrengthSlider->blockSignals(false);
+    m_fragmentStrengthLabel->setText(QStringLiteral("%1%").arg(isReference ? 0 : strength));
+
+    const int scale = int(m_viewer->getFragmentScaleFor(fragment) * 100);
+    m_fragmentScaleSlider->blockSignals(true);
+    m_fragmentScaleSlider->setValue(scale);
+    m_fragmentScaleSlider->blockSignals(false);
+    m_fragmentScaleLabel->setText(QStringLiteral("%1%").arg(scale));
+}
+
+// Claude Generated 2026 - Colours of coarse-grained bead types.
+//
+// VTF beads carry a type label instead of an element, and the "By Type" scheme
+// derives a stable colour from that label. The selector is built from the loaded
+// structure - it offers exactly the types present, with their bead counts - so it
+// scales from the four types of a typical polymer file to whatever a file brings.
+// The whole group hides itself for all-atom structures.
+void DisplayPanel::createBeadTypeGroup(QVBoxLayout* mainLayout)
+{
+    m_beadTypeGroup = new QGroupBox(tr("Bead type colours"), this);
+    QFormLayout* f = new QFormLayout(m_beadTypeGroup);
+
+    m_beadInfoLabel = new QLabel(this);
+    m_beadInfoLabel->setWordWrap(true);
+    f->addRow(m_beadInfoLabel);
+
+    auto* row = new QWidget(this);
+    auto* h = new QHBoxLayout(row);
+    h->setContentsMargins(0, 0, 0, 0);
+
+    m_beadTypeCombo = new QComboBox(this);
+    m_beadTypeCombo->setToolTip(tr("Bead types found in the loaded structure, with their bead count."));
+    h->addWidget(m_beadTypeCombo, 1);
+
+    m_beadColorButton = new QPushButton(this);
+    m_beadColorButton->setToolTip(tr("Pick the colour this bead type is drawn with."));
+    m_beadColorButton->setMinimumWidth(80);
+    h->addWidget(m_beadColorButton);
+
+    auto* resetButton = new QPushButton(tr("Auto"), this);
+    resetButton->setToolTip(tr("Drop all custom bead colours and go back to the automatically "
+                               "derived ones."));
+    h->addWidget(resetButton);
+    f->addRow(tr("Type:"), row);
+
+    m_beadSchemeHint = new QLabel(tr("These colours are drawn in the \"By Type\" colour scheme."), this);
+    m_beadSchemeHint->setWordWrap(true);
+    f->addRow(m_beadSchemeHint);
+
+    connect(m_beadTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int i) {
+            if (!m_viewer || i < 0)
+                return;
+            applySwatch(m_beadColorButton,
+                m_viewer->getBeadTypeColor(m_beadTypeCombo->itemData(i).toString()));
+        });
+
+    connect(m_beadColorButton, &QPushButton::clicked, this, [this]() {
+        if (!m_viewer || m_beadTypeCombo->currentIndex() < 0)
+            return;
+        const QString type = m_beadTypeCombo->currentData().toString();
+        const QColor chosen = QColorDialog::getColor(m_viewer->getBeadTypeColor(type), this,
+            tr("Colour for bead type \"%1\"").arg(type));
+        if (!chosen.isValid())
+            return;
+        m_viewer->setBeadTypeColor(type, chosen);
+        if (m_settings)
+            m_settings->setBeadTypeColors(m_viewer->getBeadTypeColors());
+        refreshBeadTypes();
+    });
+
+    connect(resetButton, &QPushButton::clicked, this, [this]() {
+        if (!m_viewer)
+            return;
+        m_viewer->resetBeadTypeColors();
+        if (m_settings)
+            m_settings->setBeadTypeColors({});
+        refreshBeadTypes();
+    });
+
+    mainLayout->addWidget(m_beadTypeGroup);
+    m_beadTypeGroup->setVisible(false);   // shown once a structure brings bead types
+
+    if (m_viewer) {
+        connect(m_viewer, &MoleculeViewer::beadTypesChanged, this, &DisplayPanel::refreshBeadTypes);
+        connect(m_viewer, &MoleculeViewer::colorSchemeChanged, this,
+            [this]() { refreshBeadTypes(); });
+    }
+}
+
+void DisplayPanel::refreshBeadTypes()
+{
+    if (!m_viewer || !m_beadTypeGroup)
+        return;
+
+    const QVector<QPair<QString, int>> types = m_viewer->getBeadTypes();
+    m_beadTypeGroup->setVisible(!types.isEmpty());
+    if (types.isEmpty())
+        return;
+
+    int beads = 0;
+    for (const auto& t : types)
+        beads += t.second;
+    m_beadInfoLabel->setText(types.size() == 1
+            ? tr("1 bead type, %1 beads").arg(beads)
+            : tr("%1 bead types, %2 beads").arg(types.size()).arg(beads));
+
+    const QString previous = m_beadTypeCombo->currentData().toString();
+    m_beadTypeCombo->blockSignals(true);
+    m_beadTypeCombo->clear();
+    for (const auto& t : types) {
+        const QColor c = m_viewer->getBeadTypeColor(t.first);
+        m_beadTypeCombo->addItem(swatchIcon(c),
+            tr("%1  (%2 beads)").arg(t.first).arg(t.second), t.first);
+    }
+    const int restore = m_beadTypeCombo->findData(previous);
+    m_beadTypeCombo->setCurrentIndex(restore >= 0 ? restore : 0);
+    m_beadTypeCombo->blockSignals(false);
+
+    applySwatch(m_beadColorButton, m_viewer->getBeadTypeColor(m_beadTypeCombo->currentData().toString()));
+
+    // A colour set here only shows up in the "By Type" scheme; say so rather than
+    // letting the user wonder why nothing changed.
+    m_beadSchemeHint->setVisible(
+        m_viewer->getColorScheme() != MoleculeViewer::ColorScheme::ByType);
+}
+
+// Claude Generated 2026 - Non-covalent interaction overlay.
+//
+// Only the two hydrogen-bond numbers are exposed: they are the ones worth moving
+// when looking at a structure. The halogen-bond and van-der-Waals fractions keep
+// their literature defaults (see nci::detectGeometric) rather than adding a wall
+// of spin boxes.
+void DisplayPanel::createNciGroup(QVBoxLayout* mainLayout)
+{
+    QGroupBox* g = new QGroupBox(tr("Non-covalent interactions"), this);
+    QFormLayout* f = new QFormLayout(g);
+
+    m_nciSourceCombo = new QComboBox(this);
+    m_nciSourceCombo->addItem(tr("Off"), 0);
+    m_nciSourceCombo->addItem(tr("Geometry (distance/angle)"), 1);
+    m_nciSourceCombo->addItem(tr("GFN-FF parameters"), 2);
+    m_nciSourceCombo->addItem(tr("Population analysis (GFN2)"), 3);
+    m_nciSourceCombo->setToolTip(tr(
+        "Geometry evaluates distance and angle criteria on the displayed frame. "
+        "GFN-FF reads the hydrogen- and halogen-bond terms of the force field, "
+        "population analysis the charges of a GFN2 calculation."));
+    connect(m_nciSourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int i) {
+            const int source = m_nciSourceCombo->itemData(i).toInt();
+            if (m_viewer && source <= 1)
+                m_viewer->setNciSource(source);
+            emit nciSourceChanged(source);
+        });
+    f->addRow(tr("Overlay:"), m_nciSourceCombo);
+
+    auto* kinds = new QWidget(this);
+    auto* kindRow = new QHBoxLayout(kinds);
+    kindRow->setContentsMargins(0, 0, 0, 0);
+    m_nciHBondCheck = new QCheckBox(tr("H"), this);
+    m_nciHBondCheck->setToolTip(tr("Hydrogen bonds D-H...A with D, A from N, O, F, S"));
+    m_nciXBondCheck = new QCheckBox(tr("X"), this);
+    m_nciXBondCheck->setToolTip(tr("Halogen bonds C-X...A with X = Cl, Br, I"));
+    m_nciPiCheck = new QCheckBox(QString::fromUtf8("\xcf\x80"), this);
+    m_nciPiCheck->setToolTip(tr("Pi stacking between planar five- and six-rings"));
+    m_nciContactCheck = new QCheckBox(tr("vdW"), this);
+    m_nciContactCheck->setToolTip(tr("Undirected close contacts below 0.9 times the sum of "
+                                     "the van der Waals radii. Can produce many lines."));
+    m_nciElectrostaticCheck = new QCheckBox(tr("q"), this);
+    m_nciElectrostaticCheck->setToolTip(tr("GFN-FF source only: electrostatic atom pairs with "
+                                           "their Coulomb pair energy, coloured by sign."));
+    m_nciDispersionCheck = new QCheckBox(tr("disp"), this);
+    m_nciDispersionCheck->setToolTip(tr("GFN-FF source only: dispersion atom pairs with their "
+                                        "D4 pair energy."));
+    for (QCheckBox* c : { m_nciHBondCheck, m_nciXBondCheck, m_nciPiCheck, m_nciContactCheck,
+             m_nciElectrostaticCheck, m_nciDispersionCheck }) {
+        kindRow->addWidget(c);
+        connect(c, &QCheckBox::toggled, this, [this]() { applyNciOptions(); });
+    }
+    kindRow->addStretch();
+    f->addRow(tr("Show:"), kinds);
+
+    // The two pair terms exist only in the force-field parameter set.
+    const auto updatePairKindState = [this]() {
+        const bool gfnff = m_nciSourceCombo->currentData().toInt() == 2;
+        m_nciElectrostaticCheck->setEnabled(gfnff);
+        m_nciDispersionCheck->setEnabled(gfnff);
+    };
+    connect(m_nciSourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [updatePairKindState](int) { updatePairKindState(); });
+    updatePairKindState();
+
+    auto* gate = new QWidget(this);
+    auto* gateRow = new QHBoxLayout(gate);
+    gateRow->setContentsMargins(0, 0, 0, 0);
+    m_nciHbDistanceSpin = new QDoubleSpinBox(this);
+    m_nciHbDistanceSpin->setRange(2.0, 3.5);
+    m_nciHbDistanceSpin->setSingleStep(0.05);
+    m_nciHbDistanceSpin->setDecimals(2);
+    m_nciHbDistanceSpin->setSuffix(QString::fromUtf8(" \xc3\x85"));
+    m_nciHbDistanceSpin->setToolTip(tr(
+        "Maximum H...A distance. 2.50 A covers the strong and moderate bands and the "
+        "top of the weak band (Jeffrey, An Introduction to Hydrogen Bonding, 1997)."));
+    m_nciHbAngleSpin = new QSpinBox(this);
+    m_nciHbAngleSpin->setRange(90, 180);
+    m_nciHbAngleSpin->setSuffix(QString::fromUtf8(" \xc2\xb0"));
+    m_nciHbAngleSpin->setToolTip(tr(
+        "Minimum D-H...A angle. The IUPAC definition requires the angle to tend "
+        "towards linearity (Arunan et al., Pure Appl. Chem. 2011, 83, 1637)."));
+    gateRow->addWidget(m_nciHbDistanceSpin);
+    gateRow->addWidget(m_nciHbAngleSpin);
+    gateRow->addStretch();
+    connect(m_nciHbDistanceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+        [this]() { applyNciOptions(); });
+    connect(m_nciHbAngleSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
+        [this]() { applyNciOptions(); });
+    f->addRow(tr("H...A / angle:"), gate);
+
+    // Colours per interaction class. Same selector shape as the bead types: pick a
+    // class, pick its colour. The electrostatic term is listed twice because the
+    // default palette splits it by sign (attractive vs repulsive).
+    auto* colourRow = new QWidget(this);
+    auto* colourLayout = new QHBoxLayout(colourRow);
+    colourLayout->setContentsMargins(0, 0, 0, 0);
+
+    m_nciKindCombo = new QComboBox(this);
+    for (const auto& entry : nci::paletteEntries())
+        m_nciKindCombo->addItem(entry.second, entry.first);
+    m_nciKindCombo->setToolTip(tr("Interaction class whose overlay colour you want to change."));
+    colourLayout->addWidget(m_nciKindCombo, 1);
+
+    m_nciKindColorButton = new QPushButton(this);
+    m_nciKindColorButton->setMinimumWidth(80);
+    m_nciKindColorButton->setToolTip(tr("Colour of this interaction class in the 3D overlay "
+                                        "and in the contact table."));
+    colourLayout->addWidget(m_nciKindColorButton);
+
+    auto* nciColourReset = new QPushButton(tr("Auto"), this);
+    nciColourReset->setToolTip(tr("Drop all custom interaction colours."));
+    colourLayout->addWidget(nciColourReset);
+    f->addRow(tr("Colour:"), colourRow);
+
+    connect(m_nciKindCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int i) {
+            if (m_viewer && i >= 0)
+                applySwatch(m_nciKindColorButton,
+                    m_viewer->getNciKindColor(m_nciKindCombo->itemData(i).toInt()));
+        });
+    connect(m_nciKindColorButton, &QPushButton::clicked, this, [this]() {
+        if (!m_viewer)
+            return;
+        const int key = m_nciKindCombo->currentData().toInt();
+        const QColor chosen = QColorDialog::getColor(m_viewer->getNciKindColor(key), this,
+            tr("Colour for %1").arg(m_nciKindCombo->currentText()));
+        if (!chosen.isValid())
+            return;
+        m_viewer->setNciKindColor(key, chosen);
+        if (m_settings)
+            m_settings->setNciPalette(m_viewer->getNciPalette());
+        refreshNciPalette();
+    });
+    connect(nciColourReset, &QPushButton::clicked, this, [this]() {
+        if (!m_viewer)
+            return;
+        m_viewer->resetNciKindColors();
+        if (m_settings)
+            m_settings->setNciPalette({});
+        refreshNciPalette();
+    });
+
+    m_nciLabelCheck = new QCheckBox(tr("Label contacts with the distance"), this);
+    connect(m_nciLabelCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_viewer) m_viewer->setNciLabelsVisible(on);
+    });
+    f->addRow(QString(), m_nciLabelCheck);
+
+    m_nciLiveMdCheck = new QCheckBox(tr("Live from GFN-FF during MD"), this);
+    m_nciLiveMdCheck->setToolTip(tr(
+        "Take the contact list from the running GFN-FF force field on every step "
+        "instead of from the geometry. The force field then rebuilds its hydrogen- "
+        "and halogen-bond lists every step, which costs simulation speed."));
+    connect(m_nciLiveMdCheck, &QCheckBox::toggled, this, [this](bool on) {
+        emit nciLiveMdChanged(on);
+    });
+    f->addRow(QString(), m_nciLiveMdCheck);
+
+    mainLayout->addWidget(g);
+}
+
+void DisplayPanel::refreshNciPalette()
+{
+    if (!m_viewer || !m_nciKindCombo)
+        return;
+    for (int i = 0; i < m_nciKindCombo->count(); ++i) {
+        const int key = m_nciKindCombo->itemData(i).toInt();
+        m_nciKindCombo->setItemIcon(i, swatchIcon(m_viewer->getNciKindColor(key)));
+    }
+    applySwatch(m_nciKindColorButton,
+        m_viewer->getNciKindColor(m_nciKindCombo->currentData().toInt()));
+}
+
+void DisplayPanel::applyNciOptions()
+{
+    if (!m_viewer)
+        return;
+    nci::Options o = m_viewer->getNciOptions();
+    if (m_nciHBondCheck) o.hydrogenBonds = m_nciHBondCheck->isChecked();
+    if (m_nciXBondCheck) o.halogenBonds = m_nciXBondCheck->isChecked();
+    if (m_nciPiCheck) o.piStacking = m_nciPiCheck->isChecked();
+    if (m_nciContactCheck) o.closeContacts = m_nciContactCheck->isChecked();
+    if (m_nciElectrostaticCheck) o.electrostatics = m_nciElectrostaticCheck->isChecked();
+    if (m_nciDispersionCheck) o.dispersion = m_nciDispersionCheck->isChecked();
+    if (m_nciHbDistanceSpin) o.hbMaxDistance = float(m_nciHbDistanceSpin->value());
+    if (m_nciHbAngleSpin) o.hbMinAngle = float(m_nciHbAngleSpin->value());
+    m_viewer->setNciOptions(o);
+}
+
 void DisplayPanel::createPresetsGroup(QVBoxLayout* mainLayout)
 {
     QGroupBox* quick = new QGroupBox(tr("Quick Presets"), this);
@@ -565,7 +1135,12 @@ void DisplayPanel::loadCurrentSettings()
         m_ssaoRadiusSpinBox, m_ssaoBiasSpinBox, m_bloomEnabledCheckBox, m_bloomThresholdSpinBox,
         m_bloomIntensitySlider, m_hdrEnabledCheckBox, m_exposureSpinBox, m_rotationModeCombo,
         m_instancingThresholdSpin, m_forceVectorsCheck, m_wallCheck, m_wallOpacitySlider, m_measureCheck, m_bondEditCombo,
-        m_cornerLightButtons[0], m_cornerLightButtons[1], m_cornerLightButtons[2], m_cornerLightButtons[3] };
+        m_cornerLightButtons[0], m_cornerLightButtons[1], m_cornerLightButtons[2], m_cornerLightButtons[3],
+        m_nciSourceCombo, m_nciHBondCheck, m_nciXBondCheck, m_nciPiCheck, m_nciContactCheck,
+        m_nciHbDistanceSpin, m_nciHbAngleSpin, m_nciLabelCheck, m_nciLiveMdCheck,
+        m_nciElectrostaticCheck, m_nciDispersionCheck, m_nciKindCombo, m_beadTypeCombo,
+        m_fragmentTintCheck, m_fragmentStrengthSlider, m_fragmentCombo,
+        m_fragmentScaleSlider };
     for (const QWidget* w : all)
         if (w) const_cast<QWidget*>(w)->blockSignals(true);
 
@@ -601,6 +1176,37 @@ void DisplayPanel::loadCurrentSettings()
         m_wallOpacitySlider->setValue(int(s.wallOpacity * 100));
         m_wallOpacityLabel->setText(QString("%1%").arg(int(s.wallOpacity * 100)));
         m_viewer->setWallOpacity(s.wallOpacity);
+
+        nci::Options o;
+        o.hydrogenBonds = s.nciHydrogenBonds;
+        o.halogenBonds = s.nciHalogenBonds;
+        o.piStacking = s.nciPiStacking;
+        o.closeContacts = s.nciCloseContacts;
+        o.electrostatics = s.nciElectrostatics;
+        o.dispersion = s.nciDispersion;
+        o.hbMaxDistance = s.nciHbDistance;
+        o.hbMinAngle = s.nciHbAngle;
+        m_nciHBondCheck->setChecked(o.hydrogenBonds);
+        m_nciXBondCheck->setChecked(o.halogenBonds);
+        m_nciPiCheck->setChecked(o.piStacking);
+        m_nciContactCheck->setChecked(o.closeContacts);
+        m_nciElectrostaticCheck->setChecked(o.electrostatics);
+        m_nciDispersionCheck->setChecked(o.dispersion);
+        m_nciHbDistanceSpin->setValue(o.hbMaxDistance);
+        m_nciHbAngleSpin->setValue(int(o.hbMinAngle));
+        m_nciLabelCheck->setChecked(s.nciLabels);
+        m_nciLiveMdCheck->setChecked(s.nciLiveMd);
+        m_fragmentTintCheck->setChecked(s.fragmentTint);
+        // These two are the values a fragment starts from before it gets its own;
+        // the sliders themselves always show the selected fragment (see
+        // refreshSelectedFragment).
+        m_viewer->setFragmentTint(s.fragmentTint, s.fragmentTintStrength);
+        m_viewer->setFragmentScale(s.fragmentScale);
+        setComboData(m_nciSourceCombo, s.nciSource);
+        m_viewer->setNciOptions(o);
+        m_viewer->setNciLabelsVisible(s.nciLabels);
+        // Only the geometric source can be restored without a calculation.
+        m_viewer->setNciSource(s.nciSource <= 1 ? s.nciSource : 0);
     } else {
         setComboData(m_renderingModeCombo, int(m_viewer->getRenderingMode()));
         setComboData(m_colorSchemeCombo, int(m_viewer->getColorScheme()));
@@ -616,7 +1222,30 @@ void DisplayPanel::loadCurrentSettings()
         const qreal curOpacity = m_viewer->getWallOpacity();
         m_wallOpacitySlider->setValue(int(curOpacity * 100));
         m_wallOpacityLabel->setText(QString("%1%").arg(int(curOpacity * 100)));
+
+        const nci::Options o = m_viewer->getNciOptions();
+        m_nciHBondCheck->setChecked(o.hydrogenBonds);
+        m_nciXBondCheck->setChecked(o.halogenBonds);
+        m_nciPiCheck->setChecked(o.piStacking);
+        m_nciContactCheck->setChecked(o.closeContacts);
+        m_nciElectrostaticCheck->setChecked(o.electrostatics);
+        m_nciDispersionCheck->setChecked(o.dispersion);
+        m_nciHbDistanceSpin->setValue(o.hbMaxDistance);
+        m_nciHbAngleSpin->setValue(int(o.hbMinAngle));
+        m_nciLabelCheck->setChecked(m_viewer->getNciLabelsVisible());
+        m_fragmentTintCheck->setChecked(m_viewer->getFragmentTint());
+        setComboData(m_nciSourceCombo, m_viewer->getNciSource());
     }
+    // Colour overrides are keyed by content (bead type label, interaction class),
+    // so they come from their own settings groups rather than VisualizationSettings.
+    if (m_settings) {
+        m_viewer->setBeadTypeColors(m_settings->beadTypeColors());
+        m_viewer->setNciPalette(m_settings->nciPalette());
+    }
+    refreshBeadTypes();
+    refreshNciPalette();
+    refreshFragments();
+
     m_fogIntensitySlider->setEnabled(m_fogEnabledCheckBox->isChecked());
     m_fogDistanceSlider->setValue(int(m_viewer->getFogDistance() * 100.0f));
     m_forceVectorsCheck->setChecked(m_viewer->getForceVectorsVisible());

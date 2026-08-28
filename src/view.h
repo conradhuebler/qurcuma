@@ -14,10 +14,13 @@
 #include <QColor>
 #include <QQuaternion>
 #include <QVector3D>
+#include <QHash>
+#include <QPair>
 #include <QVector>
 #include "simulationframe.h"  // Claude Generated - Zero-copy simulation payload
 #include "viewpreset.h"  // Claude Generated 2026 - reproducible camera/display presets
 #include "imagemetadata.h"  // Claude Generated 2026 - export image provenance
+#include "ncitypes.h"  // Claude Generated 2026 - non-covalent interaction results
 
 class SelectionManager;  // Forward declaration
 class MeasurementOverlay;  // Claude Generated - Phase 2B (Quick3D port pending, M2)
@@ -350,6 +353,20 @@ signals:
     void moleculeUpdated(const QVector<MoleculeViewer::Atom>& atoms,
         const QVector<MoleculeViewer::Bond>& bonds);
 
+    /// Claude Generated 2026 - New NCI contact list for the current frame.
+    void nciResultChanged(const nci::Result& result);
+
+    /// Claude Generated 2026 - The set of bead types changed (structure loaded or
+    /// edited), so a type-colour selector has to be rebuilt.
+    void beadTypesChanged();
+
+    /// Claude Generated 2026 - The interaction colour palette changed.
+    void nciPaletteChanged();
+
+    /// Claude Generated 2026 - The fragment decomposition changed (structure loaded
+    /// or bonds edited), so a fragment selector has to be rebuilt.
+    void fragmentsChanged();
+
     void atomForceRequested(int atomIndex, QVector3D force, double alpha, int maxShells);
     void atomGrabReleased();
     void grabStatusChanged(QString message);
@@ -429,6 +446,72 @@ public slots:
     void setWallVectorField(bool enabled, int resolution);
     bool getPotArrowsEnabled() const { return m_potArrowsEnabled; }
     int  getPotArrowResolution() const { return m_potArrowResolution; }
+
+    // Claude Generated 2026 - Non-covalent interaction (NCI) overlay.
+    /** Overlay source: 0 = off, 1 = geometry, 2 = GFN-FF parameters,
+     *  3 = population analysis. Geometry recomputes per frame; the two calculated
+     *  sources are pushed in from the analysis worker via setNciResult(). */
+    void setNciSource(int source);
+    int getNciSource() const { return m_nciSource; }
+    /** Detection thresholds and type filters (Display panel). */
+    void setNciOptions(const nci::Options& options);
+    const nci::Options& getNciOptions() const { return m_nciOptions; }
+    /** Show the interaction distance at the midpoint of each contact. */
+    void setNciLabelsVisible(bool on);
+    bool getNciLabelsVisible() const { return m_nciLabelsVisible; }
+    /** Adopt a calculated result (GFN-FF / population) and draw it. */
+    void setNciResult(const nci::Result& result);
+    const nci::Result& getNciResult() const { return m_nciResult; }
+    /** Per-atom charges from a calculation, feeding the "By Charge" colour scheme. */
+    void setAtomCharges(const QVector<float>& charges);
+    /** Overlay colour of one interaction class (see nci::paletteEntries()). */
+    void setNciKindColor(int paletteKey, const QColor& color);
+    QColor getNciKindColor(int paletteKey) const;
+    /** Drop all overrides and go back to the default palette. */
+    void resetNciKindColors();
+    const nci::Palette& getNciPalette() const { return m_nciPalette; }
+    void setNciPalette(const nci::Palette& palette);
+
+    // Claude Generated 2026 - Coarse-grained bead types (VTF). The type list comes
+    // from the loaded structure, so the UI can offer exactly the types present.
+    /** Distinct bead type labels with their bead counts; empty for all-atom structures. */
+    QVector<QPair<QString, int>> getBeadTypes() const;
+    /** Colour the "By Type" scheme currently draws this type with. */
+    QColor getBeadTypeColor(const QString& type) const;
+    /** Override the colour of one bead type; an invalid colour restores the automatic one. */
+    void setBeadTypeColor(const QString& type, const QColor& color);
+    /** Drop all overrides and go back to the derived colours. */
+    void resetBeadTypeColors();
+    /** Only the user-set overrides, for persisting them. */
+    QHash<QString, QColor> getBeadTypeColors() const;
+    void setBeadTypeColors(const QHash<QString, QColor>& colors);
+
+    // Claude Generated 2026 - Fragment tinting, for host-guest systems: every
+    // connected component of the bond graph gets a colour shift so guest molecules
+    // stand out against the host without losing element identity.
+    /** Fragments of the current structure as (formula, atom count), largest first. */
+    QVector<QPair<QString, int>> getFragments() const;
+    void setFragmentTint(bool on, float strength);
+    bool getFragmentTint() const { return m_fragmentTint; }
+    float getFragmentTintStrength() const { return m_fragmentTintStrength; }
+    /** Tint colour of a fragment; invalid for fragment 0 (the untinted reference). */
+    QColor getFragmentColor(int fragment) const;
+    /** Set a fragment's hue; an invalid colour restores the automatic one. */
+    void setFragmentColor(int fragment, const QColor& color);
+    /** Whether this fragment carries a picked hue rather than the automatic one. */
+    bool hasFragmentColorOverride(int fragment) const;
+    /** Draw scale of the non-reference fragments (1.0 = unchanged). */
+    void setFragmentScale(float scale);
+    float getFragmentScale() const { return m_fragmentScale; }
+    /** Effective scale of one fragment (override, else the global value). */
+    float getFragmentScaleFor(int fragment) const;
+    /** A scale <= 0 clears the override for that fragment. */
+    void setFragmentScaleOverride(int fragment, float scale);
+    /** Tint strength of one fragment; a negative value clears its override. */
+    float getFragmentTintStrengthFor(int fragment) const;
+    void setFragmentTintStrengthOverride(int fragment, float strength);
+    /** Clear every per-fragment override (colour, tint strength, size). */
+    void resetFragmentOverrides();
 
 public:
     void clearScenePublic();  // Public wrapper for file loading
@@ -584,6 +667,29 @@ private:
 
     bool m_moleculeDirty = false;
     bool m_dynamicBonds = true;  // Claude Generated 2026 - re-detect bonds each live frame (reactions)
+
+    // Claude Generated 2026 - Non-covalent interaction overlay state.
+    int m_nciSource = 0;               // 0=off, 1=geometry, 2=gfnff, 3=population
+    bool m_nciLabelsVisible = true;
+    nci::Options m_nciOptions;
+    nci::Result m_nciResult;
+    QVector<QVector<int>> m_nciRings;  // ring perception cache (topology, not geometry)
+    bool m_nciRingsValid = false;
+    bool m_nciLiveContacts = false;    // next refresh got a raw list from the force field
+    nci::Palette m_nciPalette;        // user overrides of the interaction colours
+    bool m_fragmentTint = false;      // mirrored for view presets
+    float m_fragmentTintStrength = 0.6f;
+    float m_fragmentScale = 1.0f;     // mirrored for view presets
+    /// Recompute (geometry source) or re-fit (calculated sources) the overlay for
+    /// the current frame and push it to the scene.
+    void refreshNciOverlay();
+    /// Translate the current contact list into scene overlay segments.
+    void pushNciToScene();
+    /// Drop the ring cache after a topology change (bond edit, dynamic bonds).
+    void invalidateNciTopology() { m_nciRingsValid = false; }
+    /// Above this atom count the per-frame geometric scan is skipped unless the
+    /// user explicitly asks for it (the close-contact pass is a full O(N^2)).
+    static constexpr int kNciAtomLimit = 5000;
 
     // Instancing threshold kept for API compatibility (informational).
     static constexpr int kAtomInstancingThresholdDefault = 500;

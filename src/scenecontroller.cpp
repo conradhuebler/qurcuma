@@ -8,8 +8,12 @@
 
 #include "src/core/elements.h"
 
+#include <QMap>
 #include <QPair>
 #include <QtMath>
+#include <algorithm>
+#include <cmath>
+#include <numeric>
 #include <limits>
 
 namespace {
@@ -44,6 +48,49 @@ QColor shiftOverlayColor(const QColor& base, const QColor& tint)
     const int s = qBound(80, qMax(sb, st), 255);    // ensure a visible tint, even on greys
     const int v = qBound(40, int(vb * 0.95f), 255); // keep brightness identity, read as secondary
     return QColor::fromHsv(h, s, v);
+}
+
+/// Shift @p base toward @p tint by @p amount (0..1), hue only. Unlike
+/// shiftOverlayColor() this does not dim the result: a tinted fragment is a
+/// primary structure, not a secondary overlay. Achromatic atoms (carbon grey,
+/// hydrogen white) take the tint hue directly and get a saturation floor so the
+/// shift is visible on them at all; chromatic atoms rotate part-way, keeping
+/// oxygen recognisably red and nitrogen blue inside the tinted fragment.
+/// Claude Generated 2026.
+QColor tintFragmentColor(const QColor& base, const QColor& tint, float amount)
+{
+    if (!tint.isValid() || amount <= 0.0f)
+        return base;
+    const float a = qBound(0.0f, amount, 1.0f);
+
+    int hb, sb, vb, ab;
+    base.getHsv(&hb, &sb, &vb, &ab);
+    int ht, st, vt, at;
+    tint.getHsv(&ht, &st, &vt, &at);
+    if (ht < 0)
+        return base;   // achromatic tint carries no hue to shift toward
+
+    int h;
+    if (hb < 0) {
+        h = ht;
+    } else {
+        const int dh = ((ht - hb + 540) % 360) - 180;
+        h = (hb + int(a * dh) + 360) % 360;
+    }
+    const int floorSat = int(a * 140);              // greys must pick up the hue
+    const int s = qBound(qMin(floorSat, 255), sb, 255);
+    QColor out = QColor::fromHsv(h, qMax(s, floorSat), vb);
+    out.setAlpha(ab);
+    return out;
+}
+
+/// Automatic tint hue of fragment @p index (1-based; fragment 0 is the untinted
+/// reference). Golden-angle spacing keeps consecutive fragments far apart in hue.
+/// Claude Generated 2026.
+QColor automaticFragmentTint(int index)
+{
+    const float hue = std::fmod(0.08f + 0.381966f * float(index), 1.0f);
+    return QColor::fromHsvF(hue, 0.75f, 0.95f);
 }
 
 /// Quaternion rotating local +Y onto a unit bond direction (== view.cpp:1345).
@@ -81,6 +128,8 @@ SceneController::SceneController(QObject* parent)
     m_wallForceShafts->setParent(this);
     m_wallForceTips = new BondInstancing(nullptr);
     m_wallForceTips->setParent(this);
+    m_nciLines = new BondInstancing(nullptr);
+    m_nciLines->setParent(this);
     m_overlayAtoms = new AtomInstancing(nullptr);
     m_overlayAtoms->setParent(this);
     m_overlayBonds = new BondInstancing(nullptr);
@@ -272,6 +321,37 @@ void appendWallEdge(QVector<BondInstancing::Segment>& segs,
     s.rotation = bondRotation(dir / length);
     s.color = color;
     segs.append(s);
+}
+
+// Claude Generated 2026 - Fake a dashed line: Qt Quick 3D has no dashed-line
+// primitive, so a dash is a short #Cylinder. The dash count is rounded from the
+// line length and the step recomputed from it, so the dashes always fit exactly
+// and no stub is left at the far end. At least two dashes, so even a short
+// contact still reads as dashed rather than solid.
+void appendDashedLine(QVector<BondInstancing::Segment>& segs,
+    const QVector3D& a, const QVector3D& b, float r, const QColor& color,
+    float dashPeriod = 0.30f, float dashFraction = 0.6f)
+{
+    const QVector3D delta = b - a;
+    const float length = delta.length();
+    if (length < 1e-3f)
+        return;
+    const QVector3D dir = delta / length;
+    const QQuaternion rot = bondRotation(dir);
+
+    const int count = qMax(2, int(qRound(length / dashPeriod)));
+    const float step = length / count;
+    const float halfDash = 0.5f * dashFraction * step;
+    const float sxz = r / kCylBaseRadius;
+
+    for (int k = 0; k < count; ++k) {
+        BondInstancing::Segment s;
+        s.center = a + dir * ((k + 0.5f) * step);
+        s.scale = QVector3D(sxz, halfDash / kCylBaseHalfHeight, sxz);
+        s.rotation = rot;
+        s.color = color;
+        segs.append(s);
+    }
 }
 
 // Build 12-edge wireframe for a cuboid [mn..mx].
@@ -661,6 +741,7 @@ void SceneController::setStructure(const QVector<AtomDatum>& atoms, const QVecto
 {
     m_atoms = atoms;
     m_bonds = bonds;
+    m_fragmentsDirty = true;
     if (keepView) {
         // Structure editing: atom count changed but keep the current view. Don't
         // recompute bounds (that would shift a rotated molecule) or reset the camera;
@@ -694,6 +775,7 @@ void SceneController::updatePositions(const QVector<QVector3D>& positions)
 void SceneController::updateBonds(const QVector<BondDatum>& bonds)
 {
     m_bonds = bonds;
+    m_fragmentsDirty = true;   // bond breaking/forming splits or merges fragments
     rebuildGeometry();
 }
 
@@ -702,6 +784,7 @@ void SceneController::clear()
     m_atoms.clear();
     m_bonds.clear();
     m_selection.clear();
+    m_fragmentsDirty = true;
     rebuildGeometry();
     emit structureChanged();
 }
@@ -735,11 +818,304 @@ void SceneController::recomputeBounds()
 // type always maps to the same hue across runs. Spreads hues by the golden angle.
 QColor SceneController::typeColor(const QString& type) const
 {
+    // A colour the user picked for this type wins over the derived hue.
+    const auto it = m_typeColors.constFind(type);
+    if (it != m_typeColors.constEnd() && it.value().isValid())
+        return it.value();
+
     uint h = 2166136261u;
     for (const QChar c : type) { h ^= c.unicode(); h *= 16777619u; }
     const float hue = (h % 3600) / 3600.0f;             // 0.0 .. 1.0
     const float sat = 0.55f + (h >> 8 & 0x3) * 0.10f;   // 0.55 .. 0.85
     return QColor::fromHsvF(hue, qBound(0.0f, sat, 1.0f), 0.90f);
+}
+
+// Claude Generated 2026 - Which bead types the loaded structure actually contains,
+// and how many beads each. Drives the Display panel's per-type colour selector:
+// the list is built from the structure, not from a fixed table.
+QVector<QPair<QString, int>> SceneController::beadTypes() const
+{
+    QHash<QString, int> counts;
+    for (const AtomDatum& a : m_atoms) {
+        if (!a.type.isEmpty())
+            ++counts[a.type];
+    }
+    QVector<QPair<QString, int>> out;
+    out.reserve(counts.size());
+    for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
+        out.append({ it.key(), it.value() });
+    std::sort(out.begin(), out.end(),
+        [](const QPair<QString, int>& a, const QPair<QString, int>& b) { return a.first < b.first; });
+    return out;
+}
+
+void SceneController::setTypeColorOverride(const QString& type, const QColor& color)
+{
+    if (type.isEmpty())
+        return;
+    if (color.isValid())
+        m_typeColors.insert(type, color);
+    else
+        m_typeColors.remove(type);
+    // Colours reach atoms, bonds and overlays through schemeColor(), so this is a
+    // full geometry rebuild rather than the atoms-only path.
+    rebuildGeometry();
+}
+
+void SceneController::clearTypeColorOverrides()
+{
+    if (m_typeColors.isEmpty())
+        return;
+    m_typeColors.clear();
+    rebuildGeometry();
+}
+
+void SceneController::setTypeColorOverrides(const QHash<QString, QColor>& overrides)
+{
+    if (m_typeColors == overrides)
+        return;
+    m_typeColors = overrides;
+    rebuildGeometry();
+}
+
+// Claude Generated 2026 - Fragments = connected components of the bond graph.
+// Ordered by descending atom count, so fragment 0 is the largest: in a host-guest
+// complex that is the host, and leaving it untinted is what makes the guests read
+// as guests. Recomputed lazily; every structure or bond change marks it dirty.
+void SceneController::ensureFragments() const
+{
+    if (!m_fragmentsDirty)
+        return;
+    m_fragmentsDirty = false;
+    m_fragmentOf.assign(m_atoms.size(), -1);
+    m_fragmentInfo.clear();
+    if (m_atoms.isEmpty())
+        return;
+
+    QVector<QVector<int>> adjacency(m_atoms.size());
+    for (const BondDatum& b : m_bonds) {
+        if (b.a >= 0 && b.a < m_atoms.size() && b.b >= 0 && b.b < m_atoms.size()) {
+            adjacency[b.a].append(b.b);
+            adjacency[b.b].append(b.a);
+        }
+    }
+
+    QVector<QVector<int>> components;
+    QVector<int> raw(m_atoms.size(), -1);
+    for (int start = 0; start < m_atoms.size(); ++start) {
+        if (raw[start] >= 0)
+            continue;
+        const int id = components.size();
+        QVector<int> members { start };
+        QVector<int> stack { start };
+        raw[start] = id;
+        while (!stack.isEmpty()) {
+            const int atom = stack.takeLast();
+            for (int nb : adjacency[atom]) {
+                if (raw[nb] < 0) {
+                    raw[nb] = id;
+                    members.append(nb);
+                    stack.append(nb);
+                }
+            }
+        }
+        components.append(members);
+    }
+
+    // Largest first; ties keep file order so the mapping is reproducible.
+    QVector<int> order(components.size());
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(), [&components](int lhs, int rhs) {
+        if (components[lhs].size() != components[rhs].size())
+            return components[lhs].size() > components[rhs].size();
+        return components[lhs].first() < components[rhs].first();
+    });
+
+    for (int rank = 0; rank < order.size(); ++rank) {
+        const QVector<int>& members = components[order[rank]];
+        for (int atom : members)
+            m_fragmentOf[atom] = rank;
+
+        // Hill notation (C, then H, then the rest alphabetically) so a fragment is
+        // recognisable as "the host" or "the guest" at a glance. Coarse-grained
+        // beads have no element, so they are counted by their type label instead.
+        QMap<QString, int> counts;
+        bool anyElement = false;
+        for (int atom : members) {
+            const QString& e = m_atoms[atom].element;
+            if (!e.isEmpty()) {
+                ++counts[e];
+                anyElement = true;
+            } else if (!m_atoms[atom].type.isEmpty()) {
+                ++counts[m_atoms[atom].type];
+            }
+        }
+        QString formula;
+        const auto append = [&formula](const QString& symbol, int n) {
+            formula += n > 1 ? QStringLiteral("%1%2").arg(symbol).arg(n) : symbol;
+        };
+        if (anyElement) {
+            if (counts.contains(QStringLiteral("C")))
+                append(QStringLiteral("C"), counts.take(QStringLiteral("C")));
+            if (counts.contains(QStringLiteral("H")))
+                append(QStringLiteral("H"), counts.take(QStringLiteral("H")));
+        }
+        for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
+            append(it.key(), it.value());
+
+        m_fragmentInfo.append({ formula, members.size() });
+    }
+}
+
+QVector<SceneController::FragmentInfo> SceneController::fragments() const
+{
+    ensureFragments();
+    return m_fragmentInfo;
+}
+
+QColor SceneController::fragmentColor(int fragment) const
+{
+    if (fragment <= 0)
+        return QColor();   // the largest fragment is the untinted reference
+    const auto it = m_fragmentColors.constFind(fragment);
+    if (it != m_fragmentColors.constEnd() && it.value().isValid())
+        return it.value();
+    return automaticFragmentTint(fragment);
+}
+
+void SceneController::setFragmentTint(bool on, float defaultStrength)
+{
+    const float clamped = qBound(0.0f, defaultStrength, 1.0f);
+    if (m_fragmentTint == on && qFuzzyCompare(m_fragmentTintStrength + 1.0f, clamped + 1.0f))
+        return;
+    m_fragmentTint = on;
+    m_fragmentTintStrength = clamped;
+    rebuildGeometry();
+}
+
+void SceneController::setFragmentColorOverride(int fragment, const QColor& color)
+{
+    if (fragment <= 0)
+        return;
+    if (color.isValid())
+        m_fragmentColors.insert(fragment, color);
+    else
+        m_fragmentColors.remove(fragment);
+    rebuildGeometry();
+}
+
+bool SceneController::hasFragmentColorOverride(int fragment) const
+{
+    const auto it = m_fragmentColors.constFind(fragment);
+    return it != m_fragmentColors.constEnd() && it.value().isValid();
+}
+
+void SceneController::clearFragmentColorOverrides()
+{
+    if (m_fragmentColors.isEmpty())
+        return;
+    m_fragmentColors.clear();
+    rebuildGeometry();
+}
+
+void SceneController::setFragmentScale(float nonReferenceScale)
+{
+    const float clamped = qBound(0.1f, nonReferenceScale, 3.0f);
+    if (qFuzzyCompare(m_fragmentScale + 1.0f, clamped + 1.0f))
+        return;
+    m_fragmentScale = clamped;
+    rebuildGeometry();
+}
+
+float SceneController::fragmentScaleFor(int fragment) const
+{
+    const auto it = m_fragmentScales.constFind(fragment);
+    if (it != m_fragmentScales.constEnd() && it.value() > 0.0f)
+        return it.value();
+    // The reference fragment keeps its size unless the user says otherwise, so a
+    // complex opens up by shrinking the guests rather than by rescaling everything.
+    return fragment <= 0 ? 1.0f : m_fragmentScale;
+}
+
+void SceneController::setFragmentScaleOverride(int fragment, float scale)
+{
+    if (fragment < 0)
+        return;
+    if (scale > 0.0f)
+        m_fragmentScales.insert(fragment, qBound(0.1f, scale, 3.0f));
+    else
+        m_fragmentScales.remove(fragment);
+    rebuildGeometry();
+}
+
+void SceneController::clearFragmentScaleOverrides()
+{
+    if (m_fragmentScales.isEmpty())
+        return;
+    m_fragmentScales.clear();
+    rebuildGeometry();
+}
+
+float SceneController::atomDrawRadiusFor(int atomIndex) const
+{
+    if (atomIndex < 0 || atomIndex >= m_atoms.size())
+        return 0.0f;
+    const float base = atomDrawRadius(m_atoms[atomIndex]);
+    ensureFragments();
+    if (m_fragmentInfo.size() < 2 || atomIndex >= m_fragmentOf.size())
+        return base;
+    return base * fragmentScaleFor(m_fragmentOf[atomIndex]);
+}
+
+float SceneController::fragmentTintStrengthFor(int fragment) const
+{
+    if (fragment <= 0)
+        return 0.0f;   // the reference fragment is never tinted
+    const auto it = m_fragmentStrengths.constFind(fragment);
+    if (it != m_fragmentStrengths.constEnd() && it.value() >= 0.0f)
+        return it.value();
+    return m_fragmentTintStrength;
+}
+
+void SceneController::setFragmentTintStrengthOverride(int fragment, float strength)
+{
+    if (fragment <= 0)
+        return;
+    if (strength >= 0.0f)
+        m_fragmentStrengths.insert(fragment, qBound(0.0f, strength, 1.0f));
+    else
+        m_fragmentStrengths.remove(fragment);
+    rebuildGeometry();
+}
+
+void SceneController::clearFragmentOverrides()
+{
+    if (m_fragmentColors.isEmpty() && m_fragmentScales.isEmpty() && m_fragmentStrengths.isEmpty())
+        return;
+    m_fragmentColors.clear();
+    m_fragmentScales.clear();
+    m_fragmentStrengths.clear();
+    rebuildGeometry();
+}
+
+QColor SceneController::applyFragmentTint(const QColor& base, int atomIndex) const
+{
+    if (!m_fragmentTint)
+        return base;
+    ensureFragments();
+    if (m_fragmentInfo.size() < 2 || atomIndex < 0 || atomIndex >= m_fragmentOf.size())
+        return base;   // a single fragment has nothing to be distinguished from
+    const int fragment = m_fragmentOf[atomIndex];
+    if (fragment <= 0)
+        return base;
+    return tintFragmentColor(base, fragmentColor(fragment), fragmentTintStrengthFor(fragment));
+}
+
+QColor SceneController::schemeColorFor(int atomIndex) const
+{
+    if (atomIndex < 0 || atomIndex >= m_atoms.size())
+        return QColor();
+    return applyFragmentTint(schemeColor(m_atoms[atomIndex]), atomIndex);
 }
 
 QColor SceneController::schemeColor(const AtomDatum& a) const
@@ -784,14 +1160,13 @@ QColor SceneController::atomColor(int index) const
         h.setAlphaF(1.0f);
         return h;
     }
-    const AtomDatum& a = m_atoms[index];
     // Hover feedback: brighten the atom under the cursor (below selection).
     if (index == m_hoverAtom) {
-        QColor hl = schemeColor(a).lighter(170);
+        QColor hl = schemeColorFor(index).lighter(170);
         hl.setAlphaF(m_transparency);
         return hl;
     }
-    QColor c = schemeColor(a);
+    QColor c = schemeColorFor(index);
     c.setAlphaF(m_transparency);
     return c;
 }
@@ -807,7 +1182,7 @@ void SceneController::rebuildAtoms()
         for (int i = 0; i < m_atoms.size(); ++i) {
             AtomInstancing::Item it;
             it.position = m_atoms[i].position;
-            it.scale = radiusFactor * m_atomScaleFactor * atomDrawRadius(m_atoms[i]);
+            it.scale = radiusFactor * m_atomScaleFactor * atomDrawRadiusFor(i);
             it.color = atomColor(i);
             items.append(it);
         }
@@ -835,8 +1210,9 @@ void SceneController::rebuildGeometry()
         const float bondRadius = (m_renderingMode == Wireframe)
             ? qMin(m_bondRadius, 0.06f)
             : m_bondRadius;
-        const float sxz = bondRadius / kCylBaseRadius;
         segs.reserve(m_bonds.size() * 2);
+        ensureFragments();
+        const bool scaleByFragment = m_fragmentInfo.size() > 1;
         for (const BondDatum& b : m_bonds) {
             if (b.a < 0 || b.b < 0 || b.a >= m_atoms.size() || b.b >= m_atoms.size())
                 continue;
@@ -849,10 +1225,16 @@ void SceneController::rebuildGeometry()
             const QQuaternion rot = bondRotation(dir / length);
             const QVector3D mid = 0.5f * (posA + posB);
             const float halfLength = length * 0.25f;
+            // A bond always connects two atoms of the same fragment, so its
+            // thickness follows that fragment's scale unambiguously.
+            const float bondScale = scaleByFragment && b.a < m_fragmentOf.size()
+                ? fragmentScaleFor(m_fragmentOf[b.a])
+                : 1.0f;
+            const float sxz = bondRadius * bondScale / kCylBaseRadius;
             const QVector3D scale(sxz, halfLength / kCylBaseHalfHeight, sxz);
 
-            QColor cA = schemeColor(m_atoms[b.a]);
-            QColor cB = schemeColor(m_atoms[b.b]);
+            QColor cA = schemeColorFor(b.a);
+            QColor cB = schemeColorFor(b.b);
             cA.setAlphaF(m_transparency);
             cB.setAlphaF(m_transparency);
 
@@ -865,6 +1247,10 @@ void SceneController::rebuildGeometry()
     // Overlays inherit the global styles just touched here; repack them too (cheap
     // early-return when there are none, so the MD updatePositions path stays fast).
     rebuildOverlays();
+
+    // The NCI dashes are trimmed to the drawn sphere surfaces, so a rendering-mode
+    // or atom-scale change moves their endpoints. Cheap no-op when nothing is shown.
+    rebuildNci();
 }
 
 // ---- appearance setters ----
@@ -966,15 +1352,120 @@ void SceneController::cloneStateFrom(const SceneController* src)
     m_potArrowsEnabled = src->m_potArrowsEnabled;
     m_potArrowResolution = src->m_potArrowResolution;
 
+    m_typeColors = src->m_typeColors;   // per-bead-type colours belong to the look
+    m_fragmentTint = src->m_fragmentTint;
+    m_fragmentTintStrength = src->m_fragmentTintStrength;
+    m_fragmentColors = src->m_fragmentColors;
+    m_fragmentScale = src->m_fragmentScale;
+    m_fragmentScales = src->m_fragmentScales;
+    m_fragmentStrengths = src->m_fragmentStrengths;
+    m_fragmentsDirty = true;
+
+    // Non-covalent interaction overlay: a deliberate display option like the walls,
+    // so an exported image shows it too (unlike the transient interaction hints).
+    m_nciSegments = src->m_nciSegments;
+    m_nciVisible = src->m_nciVisible;
+    m_nciLabelsVisible = src->m_nciLabelsVisible;
+
     rebuildGeometry();          // atoms + bonds + overlays
     rebuildWall();
     rebuildWallVectorField();
+    rebuildNci();
     emit appearanceChanged();
     emit effectsChanged();
     emit structureChanged();
     emit transformChanged();
     emit overlayChanged();
     emit wallChanged();
+    emit nciChanged();
+}
+
+// ---- Non-covalent interaction overlay (Claude Generated 2026) ----
+//
+// The contact lines are supplied in intrinsic atom coordinates, so the QML Model
+// sits under moleculeRoot and rotates/zooms with the structure without any C++
+// recompute. Each line is drawn as a row of short cylinders (see appendDashedLine)
+// and carries its alpha inside the per-instance colour - the QML material must be
+// alphaMode: Blend, or PrincipledMaterial's Opaque default discards it silently
+// (the same trap the wall wireframe documents).
+
+QQuick3DInstancing* SceneController::nciInstancing() const { return m_nciLines; }
+
+void SceneController::setNciContacts(const QVector<NciSegment>& contacts)
+{
+    m_nciSegments = contacts;
+    rebuildNci();
+}
+
+void SceneController::setNciVisible(bool on)
+{
+    if (m_nciVisible == on)
+        return;
+    m_nciVisible = on;
+    rebuildNci();
+}
+
+void SceneController::setNciLabelsVisible(bool on)
+{
+    if (m_nciLabelsVisible == on)
+        return;
+    m_nciLabelsVisible = on;
+    rebuildNci();
+}
+
+void SceneController::rebuildNci()
+{
+    QVector<BondInstancing::Segment> segs;
+    QVariantList labels;
+
+    if (m_nciVisible && !m_nciSegments.isEmpty()) {
+        // Space Filling draws full van der Waals spheres, so a line between the atom
+        // centres would vanish inside them. Pull each end back to the drawn sphere
+        // surface, using the radius the atoms are actually rendered with.
+        const float radiusFactor = (m_renderingMode == SpaceFilling) ? 1.0f : 0.30f;
+        const auto drawnRadius = [&](int index) -> float {
+            if (!m_atomsVisible || index < 0 || index >= m_atoms.size())
+                return 0.0f;
+            return radiusFactor * m_atomScaleFactor * atomDrawRadiusFor(index);
+        };
+
+        for (const NciSegment& c : m_nciSegments) {
+            QVector3D from = c.a;
+            QVector3D to = c.b;
+            const QVector3D delta = to - from;
+            const float length = delta.length();
+            if (length < 1e-3f)
+                continue;
+            const QVector3D dir = delta / length;
+
+            const float trimA = drawnRadius(c.atomA);
+            const float trimB = drawnRadius(c.atomB);
+            // Keep a visible stub if the two spheres almost touch.
+            if (trimA + trimB < length - 0.15f) {
+                from += dir * trimA;
+                to -= dir * trimB;
+            }
+
+            appendDashedLine(segs, from, to, c.radius, c.color);
+
+            if (m_nciLabelsVisible && !c.label.isEmpty()) {
+                const QVector3D mid = 0.5f * (c.a + c.b);
+                QVariantMap m;
+                m["px"] = mid.x();
+                m["py"] = mid.y();
+                m["pz"] = mid.z();
+                m["text"] = c.label;
+                QColor bright = c.color;
+                bright.setAlpha(255);
+                m["color"] = bright.name();
+                labels.append(m);
+            }
+        }
+    }
+
+    m_nciLines->setSegments(segs);
+    m_nciLabels = labels;
+    emit nciChanged();
 }
 
 void SceneController::setRenderingMode(int mode)

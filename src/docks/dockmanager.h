@@ -19,6 +19,7 @@ class DisplayDock;
 class OutputDock;
 class ProjectDock;
 class ImageGalleryDock;
+class NciDock;
 class Settings;
 class QDockWidget;
 class QMainWindow;
@@ -40,6 +41,7 @@ public:
     SimulationDock* simulationDockImpl() const;
     ProjectDock* projectDockImpl() const;
     ImageGalleryDock* imageGalleryDockImpl() const;
+    NciDock* nciDockImpl() const;
 
     // Accessors (return nullptr until the corresponding dock has been created).
     QDockWidget* projectDock() const;
@@ -47,6 +49,7 @@ public:
     QDockWidget* simulationDock() const;
     QDockWidget* outputDock() const;
     QDockWidget* imageGalleryDock() const;
+    QDockWidget* nciDock() const;
 
     // Internal tab widgets, exposed so callers can switch tabs without knowing
     // whether the content lives in a dock wrapper.
@@ -94,6 +97,7 @@ private:
     QDockWidget* m_simulationDock = nullptr;
     QDockWidget* m_outputViewDock = nullptr;
     QDockWidget* m_imageGalleryDock = nullptr;
+    QDockWidget* m_nciDock = nullptr;
 
     QTabWidget* m_simulationTabs = nullptr;
 

@@ -194,8 +194,12 @@ set(SOURCES
     src/docks/remotedirectoriespanel.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/projectdock.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/imagegallerydock.cpp  # Claude Generated 2026 - batch border-trim gallery
+    src/docks/ncidock.cpp  # Claude Generated 2026 - non-covalent interaction dock
+    src/nciwidget.cpp  # Claude Generated 2026 - non-covalent interaction contact table
+    src/ncianalysisworker.cpp  # Claude Generated 2026 - off-thread NCI analysis (GFN-FF/GFN2)
     src/imagecrop.cpp  # Claude Generated 2026 - image border-trim analysis (metadata-preserving)
     src/forceinjector.cpp  # Claude Generated 2026 - Topological force distribution (Phase 4)
+    src/ncianalysis.cpp  # Claude Generated 2026 - non-covalent interaction detection
     src/elementdata.cpp  # Claude Generated 2026 - Quick3D renderer: shared element tables
     src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.cpp  # Claude Generated 2026 - Quick3D renderer: bond instancing
@@ -374,6 +378,79 @@ target_include_directories(test_vtf_full PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/external/
 )
+
+# NCI Detection Test - Claude Generated 2026
+add_executable(test_nci test_nci.cpp src/ncianalysis.cpp src/forceinjector.cpp)
+target_link_libraries(test_nci PRIVATE
+Qt6::Core
+Qt6::Widgets
+)
+target_include_directories(test_nci PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+)
+
+# Fragment Decomposition Test - Claude Generated 2026
+# Needs Quick3D only because SceneController owns the instancing objects; no window
+# is created (offscreen platform is enough).
+add_executable(test_fragments test_fragments.cpp src/scenecontroller.cpp
+    src/atominstancing.cpp src/bondinstancing.cpp src/elementdata.cpp src/ncianalysis.cpp
+    src/forceinjector.cpp)
+target_link_libraries(test_fragments PRIVATE
+Qt6::Core
+Qt6::Gui
+Qt6::Widgets
+Qt6::Quick3D
+)
+target_include_directories(test_fragments PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+
+# NCI GFN-FF Integration Test - Claude Generated 2026
+# Links curcuma so the analysis worker's real curcuma path is exercised.
+add_executable(test_nci_gfnff test_nci_gfnff.cpp src/ncianalysisworker.cpp src/ncianalysis.cpp
+    src/forceinjector.cpp src/xyzparser.cpp src/elementdata.cpp)
+target_link_libraries(test_nci_gfnff PRIVATE
+Qt6::Core
+Qt6::Widgets
+curcuma_core
+curcuma_cap
+)
+# Mirrors the qurcuma target's include list: the analysis worker pulls in the
+# same curcuma headers, which reach for curcuma's own dependencies.
+target_include_directories(test_nci_gfnff PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/LBFGSpp/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/fmt/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/ripser
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/cpp-d4/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/CxxThreadPool/include
+)
+if(USE_MARCH_NATIVE)
+    target_compile_options(test_nci_gfnff PRIVATE -march=native)
+elseif(USE_AVX512)
+    target_compile_options(test_nci_gfnff PRIVATE -mavx512f -mavx512vl -mavx512dq -mfma)
+elseif(USE_AVX2)
+    target_compile_options(test_nci_gfnff PRIVATE -mavx2 -mfma)
+endif()
 
 # Claude Generated 2026 - install()/CPack were never configured: the CI workflow's
 # "Package with CPack" step (windows/macos, `cpack -G ZIP`) always failed with

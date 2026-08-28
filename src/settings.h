@@ -8,6 +8,7 @@
 #include <QDateTime>
 #include <QVector>
 #include <QColor>
+#include <QHash>
 #include <QUuid>
 
 #include "displaysettings.h"
@@ -81,6 +82,15 @@ public:
 
     VisualizationSettings getVisualizationSettings() const;
     void setVisualizationSettings(const VisualizationSettings& settings);
+
+    // Claude Generated 2026 - Colour overrides that are keyed by content rather
+    // than by a fixed field, so they live outside VisualizationSettings.
+    /** User-chosen colour per coarse-grained bead type (VTF type label). */
+    QHash<QString, QColor> beadTypeColors();
+    void setBeadTypeColors(const QHash<QString, QColor>& colors);
+    /** User-chosen colour per non-covalent interaction class (nci::paletteKey()). */
+    QHash<int, QColor> nciPalette();
+    void setNciPalette(const QHash<int, QColor>& palette);
 
     // Claude Generated - Visualization Preset Management
     struct VisualizationPreset {
