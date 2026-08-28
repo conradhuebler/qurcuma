@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "elementdata.h"  // Claude Generated 2026 - element validation for the context menu
+#include "fragmentlibrary.h"  // Claude Generated 2026 - builder fragment templates
 #include "selectionmanager.h"  // Claude Generated - Phase 2A
 #include "atomlistpanel.h"  // Claude Generated - Phase 2C
 #ifdef USE_SFTP
@@ -2608,6 +2609,17 @@ void MainWindow::showViewportContextMenu(const QPoint& globalPos, int atomIndex)
         QAction* addHAll = menu.addAction(tr("Add Hydrogens (All Atoms)"));
         connect(addHAll, &QAction::triggered, this,
             [this]() { m_moleculeView->addHydrogens(); });
+        // Claude Generated 2026 - Dock a substituent fragment onto this atom.
+        QMenu* fragMenu = menu.addMenu(tr("Attach Fragment"));
+        const auto& library = build::fragmentLibrary();
+        for (int i = 0; i < library.size(); ++i) {
+            if (library[i].attachAtom < 0)
+                continue;
+            QAction* fa = fragMenu->addAction(library[i].name);
+            connect(fa, &QAction::triggered, this, [this, i, atomIndex]() {
+                m_moleculeView->attachFragment(build::fragmentLibrary()[i], atomIndex);
+            });
+        }
         menu.addSeparator();
     }
     for (QAction* a : m_displayMenu->actions())

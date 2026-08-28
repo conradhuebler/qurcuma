@@ -469,3 +469,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-28: Build mode core: place/attach atoms with chosen element, bond by dragging atom to atom (order cycles), element hotkeys, HUD, per-atom context menu, coalesced undo snapshots
 - 2026-08-28: Element picker: quick strip (H C N O S P F Cl Br) + full periodic-table popup in the viewer bar (Build mode only); element tables extended via curcuma literature data for all 118 elements
 - 2026-08-28: Auto-hydrogens: VSEPR placement (build::generateHydrogens, tested in test_buildtools), Add-H button + open-valence indicator in Build mode, context-menu entries
+- 2026-08-28: Fragment templates: built-in library (methyl/phenyl/carboxyl/amino/hydroxyl, benzene/cyclohexane/methane/water/ammonia), insert standalone or dock onto a selected atom (sacrificial H consumed)

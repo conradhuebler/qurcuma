@@ -24,6 +24,7 @@
 #include "ncitypes.h"  // Claude Generated 2026 - non-covalent interaction results
 
 class SelectionManager;  // Forward declaration
+namespace build { struct Fragment; }  // Claude Generated 2026 - fragmentlibrary.h
 class MeasurementOverlay;  // Claude Generated - Phase 2B (Quick3D port pending, M2)
 class BondEditor;  // Claude Generated - Phase 4B - Forward declaration
 class PerformanceOptimizer;  // Claude Generated - LOD wire-up
@@ -317,6 +318,12 @@ public slots:
     void addHydrogens(const QVector<int>& targets = {});
     /// Total open valences in the current frame (0 when nothing is loaded).
     int openValenceCount() const;
+    /// Insert a library fragment as a standalone molecule next to the current
+    /// structure (selected, movable). Claude Generated 2026.
+    void insertFragment(const build::Fragment& fragment);
+    /// Dock a substituent fragment onto @p targetAtom: rotate its open valence
+    /// toward the target, consume a sacrificial H pointing that way, bond it.
+    void attachFragment(const build::Fragment& fragment, int targetAtom);
     /// Select all atoms of the connected fragment that @p seedAtom belongs to.
     void selectFragment(int seedAtom, bool append = false);
     /// Bulk-select a list of atom indices (used by fragment/paste/merge).

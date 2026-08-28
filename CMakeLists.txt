@@ -203,6 +203,7 @@ set(SOURCES
     src/ncianalysis.cpp  # Claude Generated 2026 - non-covalent interaction detection
     src/elementdata.cpp  # Claude Generated 2026 - Quick3D renderer: shared element tables
     src/buildtools.cpp  # Claude Generated 2026 - builder valence accounting + auto-H placement
+    src/fragmentlibrary.cpp  # Claude Generated 2026 - built-in builder fragments
     src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.cpp  # Claude Generated 2026 - Quick3D renderer: bond instancing
     src/scenecontroller.cpp  # Claude Generated 2026 - Quick3D renderer: scene view-model

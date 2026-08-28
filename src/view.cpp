@@ -11,6 +11,7 @@
 #include "elementdata.h"
 #include "widgets/elementpicker.h"  // Claude Generated 2026 - builder element strip
 #include "buildtools.h"  // Claude Generated 2026 - valence accounting + auto-H
+#include "fragmentlibrary.h"  // Claude Generated 2026 - built-in builder fragments
 #include "settings.h"
 
 #include "src/core/elements.h"
@@ -2315,6 +2316,139 @@ void MoleculeViewer::buildAttachAtom(int atomIndex)
     addAtomAt(atoms[atomIndex].position + dir * dist, m_buildElement, atomIndex);
 }
 
+// Claude Generated 2026 - Insert a library fragment as its own molecule next to
+// the loaded structure; appendMolecule selects it and (outside Build mode)
+// starts Edit-mode placement.
+void MoleculeViewer::insertFragment(const build::Fragment& fragment)
+{
+    QVector<Atom> shifted = fragment.atoms;
+    if (!m_trajectoryAtoms.isEmpty()
+        && m_currentFrame < m_trajectoryAtoms.size()
+        && !m_trajectoryAtoms[m_currentFrame].isEmpty()) {
+        const QVector3D offset = m_moleculeCenter
+            + QVector3D(m_moleculeRadius + 2.5f, 0, 0);
+        for (Atom& a : shifted)
+            a.position += offset;
+    }
+    appendMolecule(shifted, fragment.bonds, /*startPlacement=*/!buildMode());
+}
+
+// Claude Generated 2026 - Dock a substituent fragment: the fragment's open
+// valence (free direction of its attach atom) is rotated to point toward the
+// target's free valence; an H on the target that already points that way is
+// consumed (as in a condensation drawing), then the connecting bond is added.
+void MoleculeViewer::attachFragment(const build::Fragment& fragment, int targetAtom)
+{
+    if (fragment.attachAtom < 0) {
+        insertFragment(fragment);
+        return;
+    }
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    if (!canEditStructure()) {
+        qWarning() << "attachFragment: only single-frame structures can be edited";
+        return;
+    }
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (targetAtom < 0 || targetAtom >= atoms.size())
+        return;
+    emit editSnapshotRequested(tr("Before attach fragment"));
+    if (m_currentFrame >= m_trajectoryBonds.size())
+        m_trajectoryBonds.resize(m_currentFrame + 1);
+    QVector<Bond>& bonds = m_trajectoryBonds[m_currentFrame];
+
+    const QVector3D dirT = freeValenceDirection(targetAtom);
+
+    // Sacrificial H: a hydrogen bonded to the target whose direction roughly
+    // matches where the fragment will dock.
+    int hIndex = -1;
+    float bestDot = 0.7f;
+    for (const Bond& b : bonds) {
+        int other = -1;
+        if (b.atom1 == targetAtom)
+            other = b.atom2;
+        else if (b.atom2 == targetAtom)
+            other = b.atom1;
+        if (other < 0 || other >= atoms.size()
+            || atoms[other].element != QLatin1String("H"))
+            continue;
+        const QVector3D d = (atoms[other].position - atoms[targetAtom].position).normalized();
+        const float dot = QVector3D::dotProduct(d, dirT);
+        if (dot > bestDot) {
+            bestDot = dot;
+            hIndex = other;
+        }
+    }
+    if (hIndex >= 0) {
+        atoms.remove(hIndex);
+        for (int i = bonds.size() - 1; i >= 0; --i) {
+            if (bonds[i].atom1 == hIndex || bonds[i].atom2 == hIndex) {
+                bonds.remove(i);
+                continue;
+            }
+            if (bonds[i].atom1 > hIndex)
+                --bonds[i].atom1;
+            if (bonds[i].atom2 > hIndex)
+                --bonds[i].atom2;
+        }
+        if (targetAtom > hIndex)
+            --targetAtom;
+    }
+
+    // Fragment-local open-valence direction of its attach atom.
+    QVector3D dirF(1, 0, 0);
+    {
+        QVector3D sum;
+        for (const Bond& b : fragment.bonds) {
+            int other = -1;
+            if (b.atom1 == fragment.attachAtom)
+                other = b.atom2;
+            else if (b.atom2 == fragment.attachAtom)
+                other = b.atom1;
+            if (other >= 0 && other < fragment.atoms.size())
+                sum += (fragment.atoms[other].position
+                    - fragment.atoms[fragment.attachAtom].position)
+                           .normalized();
+        }
+        if (sum.lengthSquared() > 1e-6f)
+            dirF = (-sum).normalized();
+    }
+
+    // Rotate the fragment so its open valence points back at the target, and
+    // put its attach atom at covalent-bond distance along the target's valence.
+    const QQuaternion rot = QQuaternion::rotationTo(dirF, -dirT);
+    const float dist = elem::covalentRadius(atoms[targetAtom].element)
+        + elem::covalentRadius(fragment.atoms[fragment.attachAtom].element);
+    const QVector3D anchor = atoms[targetAtom].position + dirT * dist;
+    const int base = atoms.size();
+    for (const Atom& fa : fragment.atoms) {
+        Atom copy = fa;
+        copy.position = anchor
+            + rot.rotatedVector(fa.position - fragment.atoms[fragment.attachAtom].position);
+        atoms.append(copy);
+    }
+    for (const Bond& fb : fragment.bonds)
+        bonds.append({ fb.atom1 + base, fb.atom2 + base, fb.bondOrder });
+    bonds.append({ targetAtom, base + fragment.attachAtom, 1 });
+
+    if (m_bondEditor)
+        m_bondEditor->setAtoms(atoms);
+    if (m_perfOpt)
+        m_perfOpt->setAtomCount(atoms.size());
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/true, /*keepView=*/true);
+    QVector<int> added;
+    for (int i = base; i < atoms.size(); ++i)
+        added.append(i);
+    selectAtoms(added, /*append=*/false);
+    buildForceAdjacency();
+    invalidateNciTopology();
+    emit fragmentsChanged();
+    refreshNciOverlay();
+    computeCollisions();
+    onStructureChanged();
+    emit moleculeUpdated(atoms, getCurrentFrameBonds());
+}
+
 int MoleculeViewer::openValenceCount() const
 {
     if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
@@ -3602,8 +3736,25 @@ void MoleculeViewer::setupControlPanel()
     }
     buildBtn->setToolTip(tr("Molecule builder: click empty space to place an atom, click an "
                             "atom to attach one, drag atom to atom to bond. "
-                            "Keys H C N O S P F L(Cl) R(Br) pick the element."));
+                            "Keys H C N O S P F L(Cl) R(Br) pick the element. "
+                            "Arrow: insert a fragment (docks onto a single selected atom)."));
     connect(buildBtn, &QToolButton::toggled, this, [this](bool on) { setBuildMode(on); });
+    // Claude Generated 2026 - Fragment dropdown: with exactly one selected atom a
+    // substituent docks onto it, otherwise the fragment lands standalone.
+    buildBtn->setPopupMode(QToolButton::MenuButtonPopup);
+    QMenu* fragmentMenu = new QMenu(buildBtn);
+    const auto& library = build::fragmentLibrary();
+    for (int i = 0; i < library.size(); ++i) {
+        QAction* a = fragmentMenu->addAction(library[i].name);
+        connect(a, &QAction::triggered, this, [this, i]() {
+            const build::Fragment& f = build::fragmentLibrary()[i];
+            if (f.attachAtom >= 0 && m_selectedAtoms.size() == 1)
+                attachFragment(f, m_selectedAtoms.first());
+            else
+                insertFragment(f);
+        });
+    }
+    buildBtn->setMenu(fragmentMenu);
     connect(this, &MoleculeViewer::interactionModeChanged, buildBtn, [buildBtn](InteractionMode m) {
         const bool on = (m == InteractionMode::Build);
         if (buildBtn->isChecked() != on) {
