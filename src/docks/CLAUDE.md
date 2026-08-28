@@ -33,7 +33,7 @@
 - `ViewPresetWidget` lives below the `DisplayPanel`; manages reproducible camera + display presets (one preset = camera + display together).
 - Presets are stored under `viewPresets/` in `QSettings` and survive restarts; the list starts empty.
 - `ViewPreset` (`src/viewpreset.h`) holds camera (`rootRotation`, `pan`, `fieldOfView`, `cameraDistance`, `zoomFactor`, `zoomMode`) + display state. `ZoomMode::Absolute` applies the stored distance verbatim; `ZoomMode::Relative` reconstructs distance = `zoomFactor * sceneExtent` so the molecule keeps its on-screen size across different structures.
-- `MoleculeViewer::currentViewPreset(ZoomMode)` captures; `applyViewPreset()` restores via the atomic `SceneController::setCameraTransform` + `m_quickView->update()`, then emits `viewPresetApplied()` so `DisplayPanel::loadCurrentSettings()` re-syncs its controls (no dock raise).
+- `MoleculeViewer::currentViewPreset(ZoomMode)` captures; `applyViewPreset()` restores via the atomic `SceneController::setCameraTransform` + `m_quickView->update()`, then emits `viewPresetApplied()` so `DisplayPanel::syncFromViewer()` re-syncs its controls (no dock raise).
 - Quick buttons `Front`/`Top`/`Side` call `MoleculeViewer::setCameraOrientation()` — only rotation, zoom and display stay.
 
 ## Explore / Compute Mode

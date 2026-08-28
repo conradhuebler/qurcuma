@@ -21,9 +21,11 @@
 
 #include <QApplication>
 #include <QFileInfo>
+#include <QActionGroup>
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
+#include <QMenu>
 #include <QCursor>
 #include <QDateTime>
 #include <QDialog>
@@ -3258,40 +3260,48 @@ void MoleculeViewer::setupControlPanel()
             photoBtn->setIcon(ico);
     }
     photoBtn->setToolTip(tr("Quick export: save a PNG (2× view, metadata embedded) to the "
-                            "working folder without a dialog. Ctrl+Shift+E opens the full dialog."));
+                            "working folder without a dialog. Arrow: background options. "
+                            "Ctrl+Shift+E opens the full dialog."));
     connect(photoBtn, &QToolButton::clicked, this, [this] { emit quickExportRequested(); });
-    panelLayout->addWidget(photoBtn);
-
-    // Photo background options: transparent toggle + colour preset (used when opaque).
-    QCheckBox* photoTransp = new QCheckBox(tr("Transparent"));
-    photoTransp->setChecked(m_photoTransparent);
-    photoTransp->setToolTip(tr("Quick-export with a transparent background (alpha PNG)."));
-    panelLayout->addWidget(photoTransp);
-
-    QComboBox* photoBg = new QComboBox;
-    photoBg->addItem(tr("Scene"), QVariant::fromValue(QColor()));  // invalid = scene colour
-    photoBg->addItem(tr("White"), QVariant::fromValue(QColor(Qt::white)));
-    photoBg->addItem(tr("Black"), QVariant::fromValue(QColor(Qt::black)));
-    photoBg->addItem(tr("Light grey"), QVariant::fromValue(QColor(0xDD, 0xDD, 0xDD)));
-    photoBg->addItem(tr("Dark grey"), QVariant::fromValue(QColor(0x28, 0x28, 0x28)));
-    photoBg->setMaximumWidth(110);
-    photoBg->setEnabled(!m_photoTransparent);
-    photoBg->setToolTip(tr("Background colour preset for the quick export (used when not transparent)."));
-    m_photoBgColor = photoBg->currentData().value<QColor>();
-    panelLayout->addWidget(photoBg);
-
-    connect(photoTransp, &QCheckBox::toggled, this, [this, photoBg](bool on) {
+    // Claude Generated 2026 - Background options moved from two permanent bar
+    // widgets (checkbox + combo) into the button's dropdown menu.
+    photoBtn->setPopupMode(QToolButton::MenuButtonPopup);
+    QMenu* photoMenu = new QMenu(photoBtn);
+    QAction* photoTranspAct = photoMenu->addAction(tr("Transparent background"));
+    photoTranspAct->setCheckable(true);
+    photoTranspAct->setChecked(m_photoTransparent);
+    photoMenu->addSeparator();
+    auto* photoBgGroup = new QActionGroup(photoMenu);
+    const QVector<QPair<QString, QColor>> photoBgs = {
+        { tr("Scene background"), QColor() },  // invalid = scene colour
+        { tr("White"), QColor(Qt::white) },
+        { tr("Black"), QColor(Qt::black) },
+        { tr("Light grey"), QColor(0xDD, 0xDD, 0xDD) },
+        { tr("Dark grey"), QColor(0x28, 0x28, 0x28) },
+    };
+    for (const auto& bg : photoBgs) {
+        QAction* a = photoMenu->addAction(bg.first);
+        a->setCheckable(true);
+        a->setChecked(!bg.second.isValid());
+        a->setEnabled(!m_photoTransparent);
+        photoBgGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, color = bg.second]() { m_photoBgColor = color; });
+    }
+    m_photoBgColor = QColor();
+    connect(photoTranspAct, &QAction::toggled, this, [this, photoBgGroup](bool on) {
         m_photoTransparent = on;
-        photoBg->setEnabled(!on);
+        for (QAction* a : photoBgGroup->actions())
+            a->setEnabled(!on);
     });
-    connect(photoBg, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this, photoBg](int) { m_photoBgColor = photoBg->currentData().value<QColor>(); });
+    photoBtn->setMenu(photoMenu);
+    panelLayout->addWidget(photoBtn);
 
     QComboBox* colorCombo = new QComboBox;
     colorCombo->addItem(tr("CPK"), static_cast<int>(ColorScheme::CPK));
     colorCombo->addItem(tr("Monochrome"), static_cast<int>(ColorScheme::Monochrome));
     colorCombo->addItem(tr("By Charge"), static_cast<int>(ColorScheme::ByCharge));
     colorCombo->addItem(tr("By Type"), static_cast<int>(ColorScheme::ByType));
+    colorCombo->addItem(tr("Custom"), static_cast<int>(ColorScheme::Custom));
     colorCombo->setMaximumWidth(100);
     connect(colorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, colorCombo](int index) {
         setColorScheme(static_cast<ColorScheme>(colorCombo->itemData(index).toInt()));

@@ -943,6 +943,13 @@ void MainWindow::createMenus()
     connect(analysisLayoutAction, &QAction::triggered, this,
             [this]() { applyLayoutPreset(DockConfig::LayoutPreset::Analysis); });
 
+    // Claude Generated 2026 - Teaching existed as a preset but had no UI entry.
+    QAction *teachingLayoutAction = layoutMenu->addAction(tr("&Teaching Mode"));
+    teachingLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_5));
+    teachingLayoutAction->setToolTip(tr("Lesson / interactive-demo layout (Ctrl+Alt+5)"));
+    connect(teachingLayoutAction, &QAction::triggered, this,
+            [this]() { applyLayoutPreset(DockConfig::LayoutPreset::Teaching); });
+
     viewMenu->addSeparator();
 
     // Claude Generated (2026-04) - Dock rewrite: toggle actions for the dock architecture.
