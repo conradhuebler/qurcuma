@@ -15,6 +15,7 @@ namespace build {
  *  -1 = standalone molecule. */
 struct Fragment {
     QString name;
+    QString category;  // menu section: Substituents / Molecules / Gases / Materials
     QVector<MoleculeViewer::Atom> atoms;
     QVector<MoleculeViewer::Bond> bonds;
     int attachAtom = -1;

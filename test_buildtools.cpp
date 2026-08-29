@@ -227,6 +227,37 @@ int main(int, char**)
         }
     }
 
+    // --- Dimers and the graphene flake. ------------------------------------
+    {
+        const build::Fragment* n2 = nullptr;
+        const build::Fragment* graphene = nullptr;
+        for (const build::Fragment& f : build::fragmentLibrary()) {
+            if (f.name == QLatin1String("N2"))
+                n2 = &f;
+            if (f.name == QLatin1String("Graphene flake"))
+                graphene = &f;
+        }
+        check(n2 && n2->atoms.size() == 2 && n2->bonds.size() == 1
+                && n2->bonds[0].bondOrder == 3,
+            "N2 dimer: two atoms, one triple bond");
+        check(graphene != nullptr, "graphene flake exists");
+        if (graphene) {
+            bool planarC = true;
+            int carbons = 0;
+            for (const auto& a : graphene->atoms)
+                if (a.element == QLatin1String("C")) {
+                    ++carbons;
+                    planarC = planarC && std::abs(a.position.z()) < 1e-4f;
+                }
+            check(carbons >= 20, "graphene flake: a real patch of carbons");
+            check(planarC, "graphene flake: carbon sheet is planar");
+            int open = 0;
+            for (int i = 0; i < graphene->atoms.size(); ++i)
+                open += build::openValence(i, graphene->atoms, graphene->bonds);
+            check(open == 0, "graphene flake: fully saturated (Kekule + rim H)");
+        }
+    }
+
     std::cout << (g_failures == 0 ? "ALL PASS" : "FAILURES") << std::endl;
     return g_failures;
 }

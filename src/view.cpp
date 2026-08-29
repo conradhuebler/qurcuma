@@ -4698,7 +4698,12 @@ void MoleculeViewer::setupControlPanel()
     buildBtn->setPopupMode(QToolButton::MenuButtonPopup);
     QMenu* fragmentMenu = new QMenu(buildBtn);
     const auto& library = build::fragmentLibrary();
+    QString lastCategory;
     for (int i = 0; i < library.size(); ++i) {
+        if (library[i].category != lastCategory) {
+            lastCategory = library[i].category;
+            fragmentMenu->addSection(lastCategory);
+        }
         QAction* a = fragmentMenu->addAction(library[i].name);
         connect(a, &QAction::triggered, this, [this, i]() {
             // Claude Generated 2026 - The fragment hangs on the mouse (carry mode):
