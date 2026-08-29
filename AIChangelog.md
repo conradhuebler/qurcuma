@@ -484,3 +484,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-29: Snapshot coverage completed: resolve clashes, nudge (coalesced), structure-text apply, center at origin, table edits, context-menu element change and the first atom on an empty scene are now all undoable
 - 2026-08-29: Fragments carry an explicit Xx/R1 attachment point (curcuma polymerbuild convention); docking aligns the Xx axis and picks the roll with maximum clearance (dockRotation); carry-drop re-docks properly, free drop strips the Xx
 - 2026-08-29: Carry-drop no longer places a stray atom: the drop happens on press and the matching release is swallowed (also for rapid Shift+click series via double-click events)
+- 2026-08-29: Carried fragments appear under the cursor immediately (no visible flash at the insertion position)

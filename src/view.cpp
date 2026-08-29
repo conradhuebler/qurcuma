@@ -2863,6 +2863,16 @@ void MoleculeViewer::startFragmentCarry(const build::Fragment& fragment)
                                 "  ·  click: drop  ·  Shift+click: drop a copy & keep carrying"
                                 "  ·  right-click/Esc: cancel")
                                  .arg(fragment.name));
+    // Claude Generated 2026 - Move it under the cursor immediately (same event,
+    // before the next rendered frame) — otherwise the fragment is briefly
+    // visible at its insertion position until the first mouse move. A cursor
+    // outside the viewport (dropdown menu) is clamped to the viewport edge.
+    if (m_container) {
+        QPoint pos = m_container->mapFromGlobal(QCursor::pos());
+        pos.setX(qBound(0, pos.x(), qMax(1, m_container->width())));
+        pos.setY(qBound(0, pos.y(), qMax(1, m_container->height())));
+        updateFragmentCarry(pos);
+    }
 }
 
 // Translate the carried group so its centroid sits under the cursor, and show
