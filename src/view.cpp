@@ -195,8 +195,11 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 if (buildMode() && !m_simulationActive) {
                     // Claude Generated 2026 - A carried fragment is dropped by the
                     // click (Shift held: drop a copy and keep carrying, Anno-style).
+                    // The matching release must then do nothing, or it would count
+                    // as a fresh click and place an extra atom on top of the drop.
                     if (m_carryActive) {
                         dropFragmentCarry(me->modifiers() & Qt::ShiftModifier);
+                        m_buildPressConsumed = true;
                         return true;
                     }
                     // Build mode: remember the atom under the
@@ -278,6 +281,10 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 }
                 if (buildMode() && !m_simulationActive) {
                     // Claude Generated 2026 - Build mode gestures resolve on release.
+                    if (m_buildPressConsumed) {
+                        m_buildPressConsumed = false;  // the press was a carry drop
+                        return true;
+                    }
                     const QPoint pos = me->position().toPoint();
                     const int from = m_buildDragFrom;
                     m_buildDragFrom = -1;
@@ -565,7 +572,14 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
         case QEvent::MouseButtonDblClick: {
             auto* me = static_cast<QMouseEvent*>(event);
             if (me->button() == Qt::LeftButton && buildMode() && !m_simulationActive) {
-                // Claude Generated 2026 - A double-click replaces the second press
+                // Claude Generated 2026 - While carrying, the double-click's second
+                // press drops just like a normal press (rapid Shift+click series).
+                if (m_carryActive) {
+                    dropFragmentCarry(me->modifiers() & Qt::ShiftModifier);
+                    m_buildPressConsumed = true;
+                    return true;
+                }
+                // A double-click replaces the second press
                 // with this event; treat it like a press so the follow-up release
                 // doesn't run with stale state and place a second stacked atom.
                 m_leftMousePressed = true;

@@ -759,6 +759,7 @@ private:
     QVector3D m_buildDragStartPos;       // its pre-drag position (restored on bond)
     bool m_buildDragMoved = false;       // the drag has displaced it live
     bool m_buildNavDrag = false;         // Ctrl+drag: pure navigation, no build action
+    bool m_buildPressConsumed = false;   // press already acted (carry drop): swallow the release
     int m_buildPreviewA = -1;            // endpoints of the live preview bond drawn
     int m_buildPreviewB = -1;            // while dragging over a target (-1 = none)
     /// Remove the temporary preview bond (drag left the target / drag ended).
