@@ -192,10 +192,14 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 }
                 if (buildMode() && !m_simulationActive) {
                     // Claude Generated 2026 - Build mode: remember the atom under the
-                    // press. A drag from it becomes a bond-drag (handled in MouseMove/
-                    // Release); a press on empty space stays a rotate-drag, and a plain
-                    // click places a new atom on release.
+                    // press. A drag from it moves it live (or bonds when released on
+                    // another atom); a press on empty space stays a rotate-drag, and a
+                    // plain click places a new atom on release.
                     m_buildDragFrom = pickAtomAtScreenPos(m_lastMousePos);
+                    m_buildDragMoved = false;
+                    if (m_buildDragFrom >= 0 && m_currentFrame < m_trajectoryAtoms.size()
+                        && m_buildDragFrom < m_trajectoryAtoms[m_currentFrame].size())
+                        m_buildDragStartPos = m_trajectoryAtoms[m_currentFrame][m_buildDragFrom].position;
                     return true;
                 }
                 if (m_simulationActive) {
@@ -278,24 +282,27 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                                 requestBuildSnapshot();
                                 setAtomInCurrentFrame(from, m_buildElement, atoms[from].position);
                             }
-                        } else {
-                            const int target = pickAtomAtScreenPos(pos);
-                            if (target >= 0 && target != from) {
-                                buildBond(from, target); // drag atom -> atom: bond
-                            } else if (target < 0 && m_scene && m_quickView) {
-                                // Drag onto empty space: move the atom there (at
-                                // its own depth). Bonds stay as drawn — the
+                        } else if (m_currentFrame < m_trajectoryAtoms.size()
+                            && from < m_trajectoryAtoms[m_currentFrame].size()) {
+                            QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+                            const int target = pickAtomAtScreenPos(pos, /*excludeIndex=*/from);
+                            if (m_scene)
+                                m_scene->setHoverAtom(-1);
+                            if (target >= 0) {
+                                // Bond, not move: the atom was parked during the drag.
+                                atoms[from].position = m_buildDragStartPos;
+                                buildBond(from, target);
+                            } else if (m_buildDragMoved) {
+                                // The move already happened live — finish with the
+                                // usual notifications. Bonds stay as drawn; the
                                 // builder never re-detects topology on a move.
-                                QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
-                                if (from < atoms.size()) {
-                                    requestBuildSnapshot();
-                                    const QVector3D to = m_scene->screenToModelPoint(
-                                        pos.x(), pos.y(), atoms[from].position,
-                                        m_quickView->width(), m_quickView->height());
-                                    setAtomInCurrentFrame(from, atoms[from].element, to);
-                                }
+                                syncSceneToController(m_currentFrame, false, false);
+                                computeCollisions();
+                                onStructureChanged();
+                                emit moleculeUpdated(atoms, getCurrentFrameBonds());
                             }
                         }
+                        m_buildDragMoved = false;
                     } else if (!m_leftDragged) {
                         placeAtomAtScreen(pos);          // click on empty space: place
                     }
@@ -406,17 +413,32 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 return true;
             }
             if (buildMode() && !m_simulationActive && m_leftMousePressed && m_buildDragFrom >= 0) {
-                // Claude Generated 2026 - Bond-drag preview: a dashed line from the
-                // pressed atom to the point under the cursor (at that atom's depth).
+                // Claude Generated 2026 - Live drag feedback: the atom follows the
+                // cursor (move intent); over another atom it parks at its origin and
+                // a preview line + highlight show the bond that release will create.
                 if ((pos - m_leftPressPos).manhattanLength() > 3)
                     m_leftDragged = true;
                 if (m_leftDragged && m_scene && m_quickView
                     && m_currentFrame < m_trajectoryAtoms.size()
                     && m_buildDragFrom < m_trajectoryAtoms[m_currentFrame].size()) {
-                    const QVector3D from = m_trajectoryAtoms[m_currentFrame][m_buildDragFrom].position;
-                    const QVector3D to = m_scene->screenToModelPoint(pos.x(), pos.y(), from,
-                        m_quickView->width(), m_quickView->height());
-                    m_scene->setMeasurement({ qMakePair(from, to) }, QString());
+                    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+                    if (!m_buildDragMoved)
+                        requestBuildSnapshot();  // before the first live displacement
+                    const int target = pickAtomAtScreenPos(pos, /*excludeIndex=*/m_buildDragFrom);
+                    if (target >= 0) {
+                        atoms[m_buildDragFrom].position = m_buildDragStartPos;
+                        m_scene->setMeasurement(
+                            { qMakePair(m_buildDragStartPos, atoms[target].position) }, QString());
+                        m_scene->setHoverAtom(target);
+                    } else {
+                        atoms[m_buildDragFrom].position = m_scene->screenToModelPoint(
+                            pos.x(), pos.y(), m_buildDragStartPos,
+                            m_quickView->width(), m_quickView->height());
+                        m_scene->setMeasurement({}, QString());
+                        m_scene->setHoverAtom(-1);
+                    }
+                    m_buildDragMoved = true;
+                    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/false);
                 }
                 m_lastMousePos = pos;
                 return true;
@@ -572,12 +594,12 @@ void MoleculeViewer::handleMouseZoom(int delta)
     m_scene->setCameraDistance(m_scene->cameraDistance() * factor);
 }
 
-int MoleculeViewer::pickAtomAtScreenPos(const QPoint& screenPos) const
+int MoleculeViewer::pickAtomAtScreenPos(const QPoint& screenPos, int excludeIndex) const
 {
     if (!m_scene || !m_quickView)
         return -1;
     return m_scene->pickAtom(screenPos.x(), screenPos.y(),
-        m_quickView->width(), m_quickView->height());
+        m_quickView->width(), m_quickView->height(), excludeIndex);
 }
 
 QVector3D MoleculeViewer::computeGrabForce(const QPoint& mousePos, int atomIndex) const
@@ -2290,8 +2312,29 @@ int MoleculeViewer::addAtomAt(const QVector3D& modelPos, const QString& element,
     atom.element = element;
 
     if (m_trajectoryAtoms.isEmpty()) {
-        addMolecule({ atom }, {});   // nothing loaded yet -> behave like a load
+        // Claude Generated 2026 - Seed the scene WITHOUT the camera reset a normal
+        // load performs (addMolecule would recentre), so the first built atom
+        // stays under the cursor instead of jumping to the screen centre.
+        m_trajectoryAtoms.append(QVector<Atom>{ atom });
+        m_trajectoryBonds.append(QVector<Bond>{});
+        m_frameCount = 1;
+        m_currentFrame = 0;
+        m_moleculeCenter = modelPos;
+        m_moleculeRadius = 10.0f;
+        if (m_frameControlWidget)
+            m_frameControlWidget->setVisible(false);
+        if (m_playbackWidget)
+            m_playbackWidget->setVisible(false);
+        if (m_bondEditor)
+            m_bondEditor->setAtoms(m_trajectoryAtoms[0]);
+        if (m_perfOpt)
+            m_perfOpt->setAtomCount(1);
+        syncSceneToController(0, /*resetCamera=*/false, /*fullRebuild=*/true, /*keepView=*/true);
         selectAtoms({ 0 }, false);
+        buildForceAdjacency();
+        computeCollisions();
+        onStructureChanged();
+        emit moleculeUpdated(m_trajectoryAtoms[0], m_trajectoryBonds[0]);
         return 0;
     }
     if (!canEditStructure()) {
@@ -2325,14 +2368,15 @@ int MoleculeViewer::addAtomAt(const QVector3D& modelPos, const QString& element,
 
 void MoleculeViewer::placeAtomAtScreen(const QPoint& pos)
 {
-    if (m_trajectoryAtoms.isEmpty()
-        || (m_currentFrame < m_trajectoryAtoms.size() && m_trajectoryAtoms[m_currentFrame].isEmpty())) {
-        addAtomAt(QVector3D(0, 0, 0), m_buildElement);  // first atom: origin
-        return;
-    }
     // Depth reference: the selection's centroid keeps consecutive placements in
-    // one plane; without a selection, the molecule centre.
-    const QVector3D depthRef = m_selectedAtoms.isEmpty() ? m_moleculeCenter : selectionCentroidLocal();
+    // one plane; without a selection, the molecule centre; on an empty scene the
+    // origin (the default camera looks at it, so the mapping matches the view).
+    QVector3D depthRef(0, 0, 0);
+    const bool haveAtoms = !m_trajectoryAtoms.isEmpty()
+        && m_currentFrame < m_trajectoryAtoms.size()
+        && !m_trajectoryAtoms[m_currentFrame].isEmpty();
+    if (haveAtoms)
+        depthRef = m_selectedAtoms.isEmpty() ? m_moleculeCenter : selectionCentroidLocal();
     QVector3D p = depthRef;
     if (m_scene && m_quickView)
         p = m_scene->screenToModelPoint(pos.x(), pos.y(), depthRef,

@@ -1738,7 +1738,9 @@ bool projectToScreen(const QVector3D& world, const QVector3D& camPos, float fovD
 }
 }
 
-int SceneController::pickAtom(float sx, float sy, float viewW, float viewH) const
+// excludeIndex: skip one atom (the builder's live-dragged atom would always
+// occlude the pick under the cursor). Claude Generated 2026.
+int SceneController::pickAtom(float sx, float sy, float viewW, float viewH, int excludeIndex) const
 {
     if (m_atoms.isEmpty() || viewW <= 0 || viewH <= 0)
         return -1;
@@ -1753,6 +1755,8 @@ int SceneController::pickAtom(float sx, float sy, float viewW, float viewH) cons
     int best = -1;
     float bestT = 1e20f;
     for (int i = 0; i < m_atoms.size(); ++i) {
+        if (i == excludeIndex)
+            continue;
         const QVector3D center = modelToWorld(m_atoms[i].position);
         const float radius = elem::vdwRadius(m_atoms[i].element) * 1.5f; // generous hit
         const QVector3D oc = camPos - center;

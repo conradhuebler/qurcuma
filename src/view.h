@@ -666,7 +666,7 @@ private:
     void performBondEdit(int a, int b);
 
     // Mouse interaction (drives the SceneController transform).
-    int pickAtomAtScreenPos(const QPoint &screenPos) const;
+    int pickAtomAtScreenPos(const QPoint &screenPos, int excludeIndex = -1) const;
     QVector3D computeGrabForce(const QPoint &mousePos, int atomIndex) const;
     void handleMouseRotation(const QPoint& currentPos);
     // Claude Generated 2026 - apply an incremental model rotation (degrees about the
@@ -743,7 +743,9 @@ private:
     // Molecule builder state (Build mode). Claude Generated 2026.
     QString m_buildElement = QStringLiteral("C");
     QElapsedTimer m_buildSnapshotTimer;  // coalesces undo snapshots (5 s window)
-    int m_buildDragFrom = -1;            // atom under the press starting a bond-drag
+    int m_buildDragFrom = -1;            // atom under the press starting a bond/move drag
+    QVector3D m_buildDragStartPos;       // its pre-drag position (restored on bond)
+    bool m_buildDragMoved = false;       // the drag has displaced it live
     /// Append one atom (optionally bonded to @p bondTo) with full notifications.
     int addAtomAt(const QVector3D& modelPos, const QString& element, int bondTo = -1);
     /// Place an atom of the current element under the cursor (click on empty space).

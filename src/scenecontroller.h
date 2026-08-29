@@ -381,7 +381,7 @@ public:
     QVector3D modelToWorld(const QVector3D& local) const;
     QVector3D cameraWorldPos() const { return m_sceneCenter + m_pan + QVector3D(0, 0, m_cameraDistance); }
     /// Pick nearest atom under viewport pixel (sx,sy); returns index or -1.
-    int pickAtom(float sx, float sy, float viewW, float viewH) const;
+    int pickAtom(float sx, float sy, float viewW, float viewH, int excludeIndex = -1) const;
     /** Inverse of the pick ray at a reference depth: the model-local point under
      *  the screen position (sx,sy), taken on the camera-facing plane through
      *  @p depthRefLocal. Used by the molecule builder to place atoms where the
