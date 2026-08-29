@@ -1311,6 +1311,8 @@ void SimulationControlWidget::startQuickOptimization(int maxSteps)
     SimulationConfig cfg = buildConfig();
     cfg.mode = SimulationConfig::Mode::GeometryOptimization;
     cfg.steps = maxSteps;
+    cfg.optSingleShot = true;      // one bounded pass, no keep-alive restarts
+    cfg.writeTrajectory = false;   // a relax should not spray .trj files
     startWithConfig(cfg);
 }
 

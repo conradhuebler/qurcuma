@@ -52,6 +52,9 @@ struct SimulationConfig {
     // keep-alive restarts (no rebuild from grab-distorted geometry). Default ON —
     // rebuilding GFN-FF from a heavily distorted geometry is slow and can crash.
     bool optKeepParameters = true;
+    // Claude Generated 2026 - Builder "Relax": run ONE bounded Optimize() and
+    // finish, instead of the interactive keep-alive loop that restarts forever.
+    bool optSingleShot = false;
     bool writeTrajectory = false; // Also write .trj.xyz file to disk
     int fpsLimit = 30;            // Simulation speed in steps/sec (0 = unlimited)
     bool performanceAnalysis = false; // Per-frame timing stats every N steps

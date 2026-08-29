@@ -865,6 +865,11 @@ void SimulationWorker::runOptimization()
             emit frameReady(moleculeToFrame(current, m_initialAtoms.size(),
                 result.final_energy, 0.0, result.iterations_performed));
 
+            // Claude Generated 2026 - Builder "Relax": one bounded pass, then done.
+            // The keep-alive restarts below exist only for the interactive grab.
+            if (m_config.optSingleShot)
+                break;
+
             // Anti-spin: when it converged in ~0 iterations (idle at the minimum,
             // no grab), throttle the restart to the FPS budget so we don't busy
             // re-evaluate the energy. A held grab does many iterations → no sleep.
