@@ -485,3 +485,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-29: Fragments carry an explicit Xx/R1 attachment point (curcuma polymerbuild convention); docking aligns the Xx axis and picks the roll with maximum clearance (dockRotation); carry-drop re-docks properly, free drop strips the Xx
 - 2026-08-29: Carry-drop no longer places a stray atom: the drop happens on press and the matching release is swallowed (also for rapid Shift+click series via double-click events)
 - 2026-08-29: Carried fragments appear under the cursor immediately (no visible flash at the insertion position)
+- 2026-08-29: Open UX decisions resolved: Shift+drag = depth move, held Space = navigation override, keys 1/2/3 force the previewed bond order; plane drags keep the atom's current depth; middle-click reset kept

@@ -314,6 +314,11 @@ public slots:
     /// Add bond a-b (with @p newOrder, e.g. implied by the drag distance) or
     /// cycle an existing bond's order 1->2->3->1.
     void buildBond(int a, int b, int newOrder = 1);
+    /// A live bond preview (drag or carry) is on screen. Claude Generated 2026.
+    bool bondPreviewActive() const { return m_buildPreviewB >= 0; }
+    /// Keys 1/2/3 during a preview: force that order (overrides the distance
+    /// rule until the preview target changes or the drag ends).
+    void setForcedBondOrder(int order);
     /// Saturate open valences with hydrogens (VSEPR placement, buildtools.h);
     /// empty @p targets = all atoms. Claude Generated 2026.
     void addHydrogens(const QVector<int>& targets = {});
@@ -760,6 +765,8 @@ private:
     bool m_buildDragMoved = false;       // the drag has displaced it live
     bool m_buildNavDrag = false;         // Ctrl+drag: pure navigation, no build action
     bool m_buildPressConsumed = false;   // press already acted (carry drop): swallow the release
+    bool m_spaceNavHeld = false;         // Space held: navigation override like Ctrl
+    int m_buildForcedOrder = 0;          // 1..3 = keys override the distance-implied order
     int m_buildPreviewA = -1;            // endpoints of the live preview bond drawn
     int m_buildPreviewB = -1;            // while dragging over a target (-1 = none)
     /// Remove the temporary preview bond (drag left the target / drag ended).

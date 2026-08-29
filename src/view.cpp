@@ -207,7 +207,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     // another atom); a press on empty space stays a rotate-drag, and a
                     // plain click places a new atom on release. Ctrl+drag is pure
                     // navigation (rotate) even when the press hits an atom.
-                    m_buildNavDrag = me->modifiers() & Qt::ControlModifier;
+                    m_buildNavDrag = (me->modifiers() & Qt::ControlModifier) || m_spaceNavHeld;
                     m_buildDragFrom = m_buildNavDrag ? -1 : pickAtomAtScreenPos(m_lastMousePos);
                     m_buildDragMoved = false;
                     if (m_buildDragFrom >= 0 && m_currentFrame < m_trajectoryAtoms.size()
@@ -288,6 +288,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     const QPoint pos = me->position().toPoint();
                     const int from = m_buildDragFrom;
                     m_buildDragFrom = -1;
+                    const int forcedOrder = m_buildForcedOrder;  // survives the clear below
                     clearBuildBondPreview();  // release commits via buildBond below
                     if (m_buildNavDrag) {
                         m_buildNavDrag = false;  // Ctrl+drag was pure navigation
@@ -318,8 +319,10 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                                     - atoms[from].position)
                                                     .length();
                                 buildBond(from, proximity,
-                                    build::bondOrderFromDistance(
-                                        atoms[from].element, atoms[proximity].element, d));
+                                    forcedOrder > 0 ? forcedOrder
+                                                    : build::bondOrderFromDistance(
+                                                          atoms[from].element,
+                                                          atoms[proximity].element, d));
                             } else if (picked >= 0) {
                                 atoms[from].position = m_buildDragStartPos;
                                 buildBond(from, picked);  // existing bond -> cycle order
@@ -478,9 +481,19 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
                     if (!m_buildDragMoved)
                         requestBuildSnapshot();  // before the first live displacement
-                    atoms[m_buildDragFrom].position = m_scene->screenToModelPoint(
-                        pos.x(), pos.y(), m_buildDragStartPos,
-                        m_quickView->width(), m_quickView->height());
+                    // Shift+drag = depth (toward/away from the viewer), like the
+                    // Edit mode convention; plain drag follows the cursor in the
+                    // plane of the atom's CURRENT depth (a depth move sticks).
+                    if (me->modifiers() & Qt::ShiftModifier) {
+                        const QPoint d = pos - m_lastMousePos;
+                        atoms[m_buildDragFrom].position += m_scene->screenDragToModelDelta(
+                            0, 0, d.y(), atoms[m_buildDragFrom].position,
+                            m_quickView->width(), m_quickView->height());
+                    } else {
+                        atoms[m_buildDragFrom].position = m_scene->screenToModelPoint(
+                            pos.x(), pos.y(), atoms[m_buildDragFrom].position,
+                            m_quickView->width(), m_quickView->height());
+                    }
                     const int target = nearestBondableAtom(m_buildDragFrom);
                     if (target >= 0) {
                         m_scene->setHoverAtom(target);
@@ -489,8 +502,10 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                         const float d = (atoms[target].position
                             - atoms[m_buildDragFrom].position)
                                             .length();
-                        const int order = build::bondOrderFromDistance(
-                            atoms[m_buildDragFrom].element, atoms[target].element, d);
+                        const int order = (m_buildForcedOrder > 0)
+                            ? m_buildForcedOrder
+                            : build::bondOrderFromDistance(
+                                  atoms[m_buildDragFrom].element, atoms[target].element, d);
                         if (target != m_buildPreviewB) {
                             clearBuildBondPreview();
                             if (m_currentFrame >= m_trajectoryBonds.size())
@@ -613,6 +628,30 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
             handleMouseZoom(we->angleDelta().y());
             return true;
         }
+        case QEvent::KeyPress: {
+            // Claude Generated 2026 - Held Space = navigation override in Build
+            // mode (Photoshop pattern); the playback Space only exists for
+            // multi-frame files and is consumed by MainWindow's filter first.
+            auto* ke = static_cast<QKeyEvent*>(event);
+            if (buildMode() && ke->key() == Qt::Key_Space) {
+                if (!ke->isAutoRepeat())
+                    m_spaceNavHeld = true;
+                return true;
+            }
+            break;
+        }
+        case QEvent::KeyRelease: {
+            auto* ke = static_cast<QKeyEvent*>(event);
+            if (buildMode() && ke->key() == Qt::Key_Space) {
+                if (!ke->isAutoRepeat())
+                    m_spaceNavHeld = false;
+                return true;
+            }
+            break;
+        }
+        case QEvent::FocusOut:
+            m_spaceNavHeld = false;  // never leave the override stuck
+            break;
         case QEvent::Leave: {
             if (m_scene)
                 m_scene->setHoverAtom(-1); // drop hover highlight when leaving the view
@@ -2245,6 +2284,7 @@ void MoleculeViewer::setInteractionMode(InteractionMode mode)
         m_buildDragFrom = -1;
         m_buildDragMoved = false;
         m_buildNavDrag = false;
+        m_spaceNavHeld = false;
         m_collisionAtoms.clear();
         if (m_scene)
             m_scene->setCollisionAtoms({});
@@ -2363,9 +2403,10 @@ void MoleculeViewer::updateBuildHint()
 {
     if (m_scene)
         m_scene->setEditHint(tr("Build [%1]  ·  click: place / change element"
-                                "  ·  drag: move — near an atom it bonds, distance sets the order"
+                                "  ·  drag: move (Shift: depth) — near an atom it bonds,"
+                                " distance or keys 1/2/3 set the order"
                                 "  ·  middle-click: attach  ·  right-click: delete"
-                                "  ·  Ctrl+drag: rotate"
+                                "  ·  Ctrl/Space+drag: rotate"
                                 "  ·  H C N O S P F L(Cl) R(Br): element")
                                  .arg(m_buildElement));
 }
@@ -2782,6 +2823,25 @@ void MoleculeViewer::pushBondsToScene()
 // kBuildBondFormFactor * (rcov_a + rcov_b) that `from` is not yet bonded to.
 // The live preview bond itself is ignored, otherwise the current target would
 // count as "already bonded" and the intent would flicker off every move.
+// Claude Generated 2026 - Keys 1/2/3 while a bond preview is on screen force
+// that order immediately (the distance rule takes over again for the next bond).
+void MoleculeViewer::setForcedBondOrder(int order)
+{
+    m_buildForcedOrder = qBound(1, order, 3);
+    if (m_buildPreviewA < 0 || m_currentFrame < 0 || m_currentFrame >= m_trajectoryBonds.size())
+        return;
+    QVector<Bond>& bonds = m_trajectoryBonds[m_currentFrame];
+    for (int i = bonds.size() - 1; i >= 0; --i)
+        if ((bonds[i].atom1 == m_buildPreviewA && bonds[i].atom2 == m_buildPreviewB)
+            || (bonds[i].atom1 == m_buildPreviewB && bonds[i].atom2 == m_buildPreviewA)) {
+            if (bonds[i].bondOrder != m_buildForcedOrder) {
+                bonds[i].bondOrder = m_buildForcedOrder;
+                pushBondsToScene();
+            }
+            break;
+        }
+}
+
 int MoleculeViewer::nearestBondableAtom(int from, const QVector<int>& exclude) const
 {
     if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
@@ -2821,6 +2881,7 @@ int MoleculeViewer::nearestBondableAtom(int from, const QVector<int>& exclude) c
 
 void MoleculeViewer::clearBuildBondPreview()
 {
+    m_buildForcedOrder = 0;  // a forced order lives only as long as its preview
     if (m_buildPreviewA < 0)
         return;
     if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryBonds.size()) {
@@ -2901,9 +2962,8 @@ void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
         : -1;
     if (target >= 0) {
         m_scene->setHoverAtom(target);
-        const float d = (atoms[target].position - atoms[m_carryAttach].position).length();
-        const int order = build::bondOrderFromDistance(
-            atoms[m_carryAttach].element, atoms[target].element, d);
+        // Docking always commits a single bond, so the preview shows order 1.
+        const int order = 1;
         if (target != m_buildPreviewB) {
             clearBuildBondPreview();
             if (m_currentFrame >= m_trajectoryBonds.size())

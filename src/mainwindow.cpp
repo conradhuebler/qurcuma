@@ -4624,6 +4624,18 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         && m_moleculeView->viewportHasFocus() && !isTextInputFocused()) {
         auto* ke = static_cast<QKeyEvent*>(event);
         if (!(ke->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
+            // Claude Generated 2026 - While a bond preview is on screen, 1/2/3
+            // force the bond order (override the distance rule). Without a
+            // preview the keys keep their render-style shortcuts.
+            if (ke->key() >= Qt::Key_1 && ke->key() <= Qt::Key_3
+                && m_moleculeView->bondPreviewActive()) {
+                if (event->type() == QEvent::ShortcutOverride) {
+                    event->accept();
+                    return true;
+                }
+                m_moleculeView->setForcedBondOrder(ke->key() - Qt::Key_0);
+                return true;
+            }
             QString element;
             switch (ke->key()) {
             case Qt::Key_H: element = QStringLiteral("H"); break;
