@@ -23,6 +23,13 @@ int usedValence(int atomIndex, const QVector<MoleculeViewer::Bond>& bonds);
 int openValence(int atomIndex, const QVector<MoleculeViewer::Atom>& atoms,
     const QVector<MoleculeViewer::Bond>& bonds);
 
+/** @brief Hydrogens the atom must give up because it is over-valent (typical
+ *  case: a saturated ring carbon whose bond order was raised afterwards —
+ *  "build, add H, aromatize"). Returns the indices of bonded H atoms, one per
+ *  excess valence unit; empty when the atom is not over-valent or carries no H. */
+QVector<int> excessHydrogens(int atomIndex, const QVector<MoleculeViewer::Atom>& atoms,
+    const QVector<MoleculeViewer::Bond>& bonds);
+
 /** @brief Generate hydrogens for the open valences of the target atoms
  *  (@p targets empty = all atoms).
  *

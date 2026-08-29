@@ -46,6 +46,33 @@ int openValence(int atomIndex, const QVector<MoleculeViewer::Atom>& atoms,
     return qMax(0, target - usedValence(atomIndex, bonds));
 }
 
+QVector<int> excessHydrogens(int atomIndex, const QVector<MoleculeViewer::Atom>& atoms,
+    const QVector<MoleculeViewer::Bond>& bonds)
+{
+    QVector<int> giveUp;
+    if (atomIndex < 0 || atomIndex >= atoms.size())
+        return giveUp;
+    const int maxV = maxValence(atoms[atomIndex].element);
+    if (maxV <= 0)
+        return giveUp;
+    int excess = usedValence(atomIndex, bonds) - maxV;
+    for (const MoleculeViewer::Bond& b : bonds) {
+        if (excess <= 0)
+            break;
+        int other = -1;
+        if (b.atom1 == atomIndex)
+            other = b.atom2;
+        else if (b.atom2 == atomIndex)
+            other = b.atom1;
+        if (other < 0 || other >= atoms.size()
+            || atoms[other].element != QLatin1String("H") || giveUp.contains(other))
+            continue;
+        giveUp.append(other);
+        excess -= qMax(1, b.bondOrder);
+    }
+    return giveUp;
+}
+
 namespace {
 
 // Lone pairs entering the steric number (VSEPR): O/S/Se 2, N/P/As 1, halogens 3.

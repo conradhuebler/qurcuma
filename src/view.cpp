@@ -24,6 +24,7 @@
 
 #include <QApplication>
 #include <QFileInfo>
+#include <algorithm>
 #include <QActionGroup>
 #include <QCheckBox>
 #include <QColorDialog>
@@ -294,8 +295,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                             if (m_scene)
                                 m_scene->setHoverAtom(-1);
                             if (target >= 0) {
-                                // Bond, not move: the atom was parked during the drag.
-                                atoms[from].position = m_buildDragStartPos;
+                                // The atom keeps its snapped live-preview position.
                                 buildBond(from, target);
                             } else if (m_buildDragMoved) {
                                 // The move already happened live — finish with the
@@ -446,8 +446,22 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     if (!m_buildDragMoved)
                         requestBuildSnapshot();  // before the first live displacement
                     const int target = pickAtomAtScreenPos(pos, /*excludeIndex=*/m_buildDragFrom);
-                    if (target >= 0) {
-                        atoms[m_buildDragFrom].position = m_buildDragStartPos;
+                    if (target >= 0 && target < m_trajectoryAtoms[m_currentFrame].size()) {
+                        // Snap the dragged atom to covalent-bond distance from the
+                        // target, on the side the drag approaches from — it keeps
+                        // the pulled position instead of jumping back to its start.
+                        const QVector3D cursorPt = m_scene->screenToModelPoint(
+                            pos.x(), pos.y(), m_buildDragStartPos,
+                            m_quickView->width(), m_quickView->height());
+                        QVector3D dir = cursorPt - atoms[target].position;
+                        if (dir.lengthSquared() < 1e-4f)
+                            dir = m_buildDragStartPos - atoms[target].position;
+                        if (dir.lengthSquared() < 1e-4f)
+                            dir = QVector3D(1, 0, 0);
+                        dir.normalize();
+                        const float dist = elem::covalentRadius(atoms[target].element)
+                            + elem::covalentRadius(atoms[m_buildDragFrom].element);
+                        atoms[m_buildDragFrom].position = atoms[target].position + dir * dist;
                         m_scene->setHoverAtom(target);
                         if (target != m_buildPreviewB) {
                             clearBuildBondPreview();
@@ -2693,8 +2707,41 @@ void MoleculeViewer::buildBond(int a, int b)
         bonds.append({ a, b, 1 });
     else
         bonds[found].bondOrder = (bonds[found].bondOrder % 3) + 1;  // 1->2->3->1
-    // Connectivity changed: same follow-up canon as performBondEdit.
-    refreshVisualization();
+
+    // Claude Generated 2026 - Keep hydrogens consistent: raising a bond order can
+    // over-saturate an endpoint that was already H-saturated ("build ring, add H,
+    // then aromatize") — such endpoints give up one bonded H per excess valence.
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    QVector<int> doomed = build::excessHydrogens(a, atoms, bonds);
+    for (int h : build::excessHydrogens(b, atoms, bonds))
+        if (!doomed.contains(h))
+            doomed.append(h);
+    doomed.removeAll(a);  // never remove the two atoms just bonded
+    doomed.removeAll(b);
+    if (!doomed.isEmpty()) {
+        std::sort(doomed.begin(), doomed.end(), std::greater<int>());
+        for (int h : doomed) {
+            atoms.remove(h);
+            for (int i = bonds.size() - 1; i >= 0; --i) {
+                if (bonds[i].atom1 == h || bonds[i].atom2 == h) {
+                    bonds.remove(i);
+                    continue;
+                }
+                if (bonds[i].atom1 > h)
+                    --bonds[i].atom1;
+                if (bonds[i].atom2 > h)
+                    --bonds[i].atom2;
+            }
+        }
+        clearSelection();  // indices shifted
+        if (m_bondEditor)
+            m_bondEditor->setAtoms(atoms);
+        if (m_perfOpt)
+            m_perfOpt->setAtomCount(atoms.size());
+        syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/true, /*keepView=*/true);
+    } else {
+        refreshVisualization();
+    }
     buildForceAdjacency();
     invalidateNciTopology();
     emit fragmentsChanged();

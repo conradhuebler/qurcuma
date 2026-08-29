@@ -134,6 +134,63 @@ int main(int, char**)
             "sulfur auto-fill targets H2S, not hypervalent SF6");
     }
 
+    // --- Hand-built rings: per-carbon H counts. ----------------------------
+    {
+        // Planar hexagon, all single bonds (cyclohexane connectivity).
+        QVector<MoleculeViewer::Atom> atoms;
+        QVector<MoleculeViewer::Bond> bonds;
+        for (int i = 0; i < 6; ++i) {
+            const float phi = float(i) * float(M_PI) / 3.0f;
+            atoms.append(atom("C", 1.45f * std::cos(phi), 1.45f * std::sin(phi)));
+            bonds.append({ i, (i + 1) % 6, 1 });
+        }
+        QVector<MoleculeViewer::Atom> h;
+        QVector<MoleculeViewer::Bond> hb;
+        build::generateHydrogens(atoms, bonds, {}, h, hb);
+        check(h.size() == 12, "hexagon (single bonds): 12 hydrogens");
+        QVector<int> perC(6, 0);
+        for (const auto& b : hb)
+            ++perC[b.atom1];
+        bool twoEach = true;
+        for (int c : perC)
+            twoEach = twoEach && c == 2;
+        check(twoEach, "hexagon: exactly 2 H per carbon");
+
+        // Same ring with Kekule alternating orders (benzene).
+        for (int i = 0; i < 6; ++i)
+            bonds[i].bondOrder = (i % 2 == 0) ? 2 : 1;
+        build::generateHydrogens(atoms, bonds, {}, h, hb);
+        check(h.size() == 6, "benzene (Kekule): 6 hydrogens");
+        // A ring carbon that already carries its H gets no second one.
+        QVector<MoleculeViewer::Atom> atoms2 = atoms;
+        QVector<MoleculeViewer::Bond> bonds2 = bonds;
+        atoms2.append(atom("H", 2.5f, 0));
+        bonds2.append({ 0, 6, 1 });
+        build::generateHydrogens(atoms2, bonds2, {}, h, hb);
+        check(h.size() == 5, "benzene with one existing H: only 5 more");
+    }
+
+    // --- Excess-H detection: aromatizing an already saturated ring. --------
+    {
+        // CH2-CH2 fragment of a saturated ring, then the C-C bond is raised to 2:
+        // each carbon is now at valence 5 and must give up one H.
+        QVector<MoleculeViewer::Atom> atoms = { atom("C", 0), atom("C", 1.5f) };
+        QVector<MoleculeViewer::Bond> bonds = { { 0, 1, 2 } };
+        for (int c = 0; c < 2; ++c)
+            for (int k = 0; k < 3; ++k) {
+                atoms.append(atom("H", float(c) + 0.3f * (k + 1), 1.0f));
+                bonds.append({ c, int(atoms.size()) - 1, 1 });
+            }
+        const QVector<int> excess0 = build::excessHydrogens(0, atoms, bonds);
+        const QVector<int> excess1 = build::excessHydrogens(1, atoms, bonds);
+        check(excess0.size() == 1 && excess1.size() == 1,
+            "over-valent sp3 carbons surrender one H each");
+        check(excess0.first() != excess1.first(), "each carbon gives up its own H");
+        const QVector<MoleculeViewer::Atom> ok = { atom("C", 0) };
+        check(build::excessHydrogens(0, ok, {}).isEmpty(),
+            "no excess on an under-valent atom");
+    }
+
     std::cout << (g_failures == 0 ? "ALL PASS" : "FAILURES") << std::endl;
     return g_failures;
 }
