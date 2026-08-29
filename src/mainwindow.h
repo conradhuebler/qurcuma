@@ -509,6 +509,8 @@ private:
     void showViewportContextMenu(const QPoint& globalPos, int atomIndex);
     /// One-click PNG export (viewer-bar Photo button, context menu).
     void quickExportPhoto();
+    /// File ▸ New Scene: clear the scene and enter Build mode. Claude Generated 2026.
+    void newScene();
     // Claude Generated 2026 - Permanent status-bar indicators (file · atoms · frame),
     // so the current state survives the transient showMessage() notices.
     QLabel* m_statusFileLabel = nullptr;

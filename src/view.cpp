@@ -66,6 +66,7 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QPainter>
 #include <QtMath>
 
 MoleculeViewer::MoleculeViewer(QWidget* parent)
@@ -2482,6 +2483,46 @@ void MoleculeViewer::buildAttachAtom(int atomIndex)
     addAtomAt(atoms[atomIndex].position + dir * dist, m_buildElement, atomIndex);
 }
 
+// Claude Generated 2026 - Empty the scene for a fresh build. The camera is left
+// alone deliberately: the next placed atom then lands under the cursor.
+void MoleculeViewer::newScene()
+{
+    if (!m_trajectoryAtoms.isEmpty())
+        emit editSnapshotRequested(tr("Before new scene"));
+    stopAnimation();
+    m_trajectoryAtoms.clear();
+    m_trajectoryBonds.clear();
+    m_frameCount = 0;
+    m_currentFrame = 0;
+    m_selectedAtoms.clear();
+    if (m_selectionManager)
+        m_selectionManager->clearSelection();
+    m_collisionAtoms.clear();
+    m_buildDragFrom = -1;
+    m_buildPreviewA = -1;
+    m_buildPreviewB = -1;
+    m_nciResult.contacts.clear();
+    m_nciResult.summary.clear();
+    if (m_frameControlWidget)
+        m_frameControlWidget->setVisible(false);
+    if (m_playbackWidget)
+        m_playbackWidget->setVisible(false);
+    if (m_bondEditor)
+        m_bondEditor->setAtoms({});
+    if (m_perfOpt)
+        m_perfOpt->setAtomCount(0);
+    if (m_scene) {
+        m_scene->clear();
+        m_scene->setCollisionAtoms({});
+        m_scene->setMeasurement({}, QString());
+    }
+    invalidateNciTopology();
+    emit fragmentsChanged();
+    emit selectionChanged(m_selectedAtoms);
+    emit collisionCountChanged(0);
+    emit moleculeUpdated({}, {});
+}
+
 // Claude Generated 2026 - Insert a library fragment as its own molecule next to
 // the loaded structure; appendMolecule selects it and (outside Build mode)
 // starts Edit-mode placement.
@@ -3817,6 +3858,103 @@ QFrame* MoleculeViewer::createSeparator()
     return separator;
 }
 
+namespace {
+
+// Claude Generated 2026 - Drawn icons for the viewer bar. Theme icons vary
+// wildly between desktops (and were often missing entirely); these render
+// crisp, consistent glyphs from the palette's text colour, so they fit both
+// light and dark themes and every button actually has an icon.
+QIcon barIcon(const QString& kind, const QColor& color)
+{
+    constexpr int size = 20;
+    constexpr qreal dpr = 2.0;  // crisp on HiDPI
+    QPixmap pm(int(size * dpr), int(size * dpr));
+    pm.setDevicePixelRatio(dpr);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    QPen pen(color, 1.6);
+    pen.setCapStyle(Qt::RoundCap);
+    p.setPen(pen);
+
+    if (kind == QLatin1String("measure")) {
+        // Diagonal ruler with tick marks.
+        p.drawLine(QPointF(4, 16), QPointF(16, 4));
+        p.drawLine(QPointF(7, 13), QPointF(9, 15));
+        p.drawLine(QPointF(10, 10), QPointF(12, 12));
+        p.drawLine(QPointF(13, 7), QPointF(15, 9));
+    } else if (kind == QLatin1String("edit")) {
+        // Four-direction move cross.
+        p.drawLine(QPointF(10, 4), QPointF(10, 16));
+        p.drawLine(QPointF(4, 10), QPointF(16, 10));
+        p.drawLine(QPointF(8, 6), QPointF(10, 4));
+        p.drawLine(QPointF(12, 6), QPointF(10, 4));
+        p.drawLine(QPointF(8, 14), QPointF(10, 16));
+        p.drawLine(QPointF(12, 14), QPointF(10, 16));
+        p.drawLine(QPointF(6, 8), QPointF(4, 10));
+        p.drawLine(QPointF(6, 12), QPointF(4, 10));
+        p.drawLine(QPointF(14, 8), QPointF(16, 10));
+        p.drawLine(QPointF(14, 12), QPointF(16, 10));
+    } else if (kind == QLatin1String("build")) {
+        // Hexagon (ring) with a plus for the new atom.
+        QPolygonF hex;
+        for (int i = 0; i < 6; ++i) {
+            const qreal a = qDegreesToRadians(60.0 * i - 90.0);
+            hex << QPointF(9 + 5.5 * std::cos(a), 11 + 5.5 * std::sin(a));
+        }
+        p.drawPolygon(hex);
+        p.drawLine(QPointF(16, 3), QPointF(16, 7));
+        p.drawLine(QPointF(14, 5), QPointF(18, 5));
+    } else if (kind == QLatin1String("nci")) {
+        // Two atoms with a dashed contact between them.
+        p.setBrush(color);
+        p.drawEllipse(QPointF(4.5, 10), 2.2, 2.2);
+        p.drawEllipse(QPointF(15.5, 10), 2.2, 2.2);
+        p.setBrush(Qt::NoBrush);
+        QPen dashed(color, 1.6, Qt::DashLine);
+        dashed.setDashPattern({ 2.0, 2.0 });
+        p.setPen(dashed);
+        p.drawLine(QPointF(7.5, 10), QPointF(12.5, 10));
+    } else if (kind == QLatin1String("photo")) {
+        // Camera body, viewfinder bump and lens.
+        p.drawRoundedRect(QRectF(3, 6.5, 14, 10), 2, 2);
+        p.drawLine(QPointF(7.5, 6.5), QPointF(8.5, 4.5));
+        p.drawLine(QPointF(8.5, 4.5), QPointF(11.5, 4.5));
+        p.drawLine(QPointF(11.5, 4.5), QPointF(12.5, 6.5))
+            ;
+        p.drawEllipse(QPointF(10, 11.5), 3.2, 3.2);
+    } else if (kind == QLatin1String("addh")) {
+        // Circled H with a small plus.
+        p.drawEllipse(QPointF(9, 11), 6, 6);
+        QFont f = p.font();
+        f.setBold(true);
+        f.setPixelSize(8);
+        p.setFont(f);
+        p.drawText(QRectF(3, 5, 12, 12), Qt::AlignCenter, QStringLiteral("H"));
+        p.drawLine(QPointF(16.5, 3), QPointF(16.5, 7));
+        p.drawLine(QPointF(14.5, 5), QPointF(18.5, 5));
+    } else if (kind == QLatin1String("clean")) {
+        // Sparkle: one big and one small four-point star.
+        p.drawLine(QPointF(8, 3.5), QPointF(8, 12.5));
+        p.drawLine(QPointF(3.5, 8), QPointF(12.5, 8));
+        p.drawLine(QPointF(5.5, 5.5), QPointF(10.5, 10.5));
+        p.drawLine(QPointF(10.5, 5.5), QPointF(5.5, 10.5));
+        p.drawLine(QPointF(15.5, 12), QPointF(15.5, 17));
+        p.drawLine(QPointF(13, 14.5), QPointF(18, 14.5));
+    } else if (kind == QLatin1String("gear")) {
+        // Gear: ring with radial teeth.
+        p.drawEllipse(QPointF(10, 10), 4, 4);
+        for (int i = 0; i < 8; ++i) {
+            const qreal a = qDegreesToRadians(45.0 * i);
+            p.drawLine(QPointF(10 + 5 * std::cos(a), 10 + 5 * std::sin(a)),
+                QPointF(10 + 7 * std::cos(a), 10 + 7 * std::sin(a)));
+        }
+    }
+    return QIcon(pm);
+}
+
+} // namespace
+
 // Claude Generated 2026 - Attach MainWindow's shared NCI source menu to the bar
 // button's dropdown, so bar, Display menu and palette use one action set.
 void MoleculeViewer::setNciQuickMenu(QMenu* menu)
@@ -3827,6 +3965,8 @@ void MoleculeViewer::setNciQuickMenu(QMenu* menu)
 
 void MoleculeViewer::setupControlPanel()
 {
+    // Claude Generated 2026 - One palette-derived colour for all drawn bar icons.
+    const QColor iconColor = palette().color(QPalette::ButtonText);
     m_controlPanel = new QWidget;
     m_controlPanel->setMaximumHeight(50);
     m_controlPanel->setAutoFillBackground(true);
@@ -3946,15 +4086,7 @@ void MoleculeViewer::setupControlPanel()
     measureBtn->setText(tr("Measure"));
     measureBtn->setCheckable(true);
     measureBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    {
-        QIcon ico = QIcon::fromTheme(QStringLiteral("measure"));
-        if (ico.isNull())
-            ico = QIcon::fromTheme(QStringLiteral("applications-engineering"));
-        if (ico.isNull())
-            ico = QIcon::fromTheme(QStringLiteral("draw-line"));
-        if (!ico.isNull())
-            measureBtn->setIcon(ico);
-    }
+    measureBtn->setIcon(barIcon(QStringLiteral("measure"), iconColor));
     measureBtn->setToolTip(tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral. "
                               "Click a marked atom again to deselect; Esc clears."));
     connect(measureBtn, &QToolButton::toggled, this, [this](bool on) { setMeasurementMode(on ? 1 : 0); });
@@ -3974,15 +4106,7 @@ void MoleculeViewer::setupControlPanel()
     editBtn->setText(tr("Edit"));
     editBtn->setCheckable(true);
     editBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    {
-        QIcon ico = QIcon::fromTheme(QStringLiteral("transform-move"));
-        if (ico.isNull())
-            ico = QIcon::fromTheme(QStringLiteral("edit-select-all"));
-        if (ico.isNull())
-            ico = QIcon::fromTheme(QStringLiteral("document-edit"));
-        if (!ico.isNull())
-            editBtn->setIcon(ico);
-    }
+    editBtn->setIcon(barIcon(QStringLiteral("edit"), iconColor));
     editBtn->setToolTip(tr("Edit mode: click to select an atom, double-click for the whole molecule, "
                            "drag to move (Shift = depth, arrow keys = nudge). Overlapping atoms turn red."));
     connect(editBtn, &QToolButton::toggled, this, [this](bool on) { setEditMode(on); });
@@ -4001,13 +4125,7 @@ void MoleculeViewer::setupControlPanel()
     buildBtn->setText(tr("Build"));
     buildBtn->setCheckable(true);
     buildBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    {
-        QIcon ico = QIcon::fromTheme(QStringLiteral("draw-freehand"));
-        if (ico.isNull())
-            ico = QIcon::fromTheme(QStringLiteral("list-add"));
-        if (!ico.isNull())
-            buildBtn->setIcon(ico);
-    }
+    buildBtn->setIcon(barIcon(QStringLiteral("build"), iconColor));
     buildBtn->setToolTip(tr("Molecule builder: click empty space to place an atom, click an "
                             "atom to change its element, middle-click an atom to attach one, "
                             "right-click an atom to delete it, drag atom to atom to bond, "
@@ -4059,6 +4177,8 @@ void MoleculeViewer::setupControlPanel()
     // Add-H button + open-valence label, Build mode only (Claude Generated 2026).
     QToolButton* addHBtn = new QToolButton;
     addHBtn->setText(tr("Add H"));
+    addHBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    addHBtn->setIcon(barIcon(QStringLiteral("addh"), iconColor));
     addHBtn->setToolTip(tr("Saturate all open valences with hydrogens "
                            "(tetrahedral/trigonal/linear placement)."));
     addHBtn->setVisible(false);
@@ -4067,6 +4187,8 @@ void MoleculeViewer::setupControlPanel()
 
     QToolButton* cleanupBtn = new QToolButton;
     cleanupBtn->setText(tr("Clean up"));
+    cleanupBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    cleanupBtn->setIcon(barIcon(QStringLiteral("clean"), iconColor));
     cleanupBtn->setToolTip(tr("Relax the built structure with a short geometry "
                               "optimization (current method, ~50 steps)."));
     cleanupBtn->setVisible(false);
@@ -4109,6 +4231,7 @@ void MoleculeViewer::setupControlPanel()
     m_nciButton->setText(tr("NCI"));
     m_nciButton->setCheckable(true);
     m_nciButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_nciButton->setIcon(barIcon(QStringLiteral("nci"), iconColor));
     m_nciButton->setPopupMode(QToolButton::MenuButtonPopup);
     m_nciButton->setToolTip(tr("Show non-covalent interactions (hydrogen/halogen bonds, "
                                "pi stacking, contacts). Arrow: choose the source. Shortcut: N"));
@@ -4129,15 +4252,7 @@ void MoleculeViewer::setupControlPanel()
     QToolButton* photoBtn = new QToolButton;
     photoBtn->setText(tr("Photo"));
     photoBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    {
-        QIcon ico = QIcon::fromTheme(QStringLiteral("camera-photo"));
-        if (ico.isNull())
-            ico = QIcon::fromTheme(QStringLiteral("camera"));
-        if (ico.isNull())
-            ico = QIcon::fromTheme(QStringLiteral("image-x-generic"));
-        if (!ico.isNull())
-            photoBtn->setIcon(ico);
-    }
+    photoBtn->setIcon(barIcon(QStringLiteral("photo"), iconColor));
     photoBtn->setToolTip(tr("Quick export: save a PNG (2× view, metadata embedded) to the "
                             "working folder without a dialog. Arrow: background options. "
                             "Ctrl+Shift+E opens the full dialog."));
@@ -4229,7 +4344,8 @@ void MoleculeViewer::setupControlPanel()
 
     // Everything else (material, glow, measure, bond-edit, force, fog, lights,
     // background, …) now lives in the "Display" dock — opened by this button.
-    QPushButton* displayBtn = new QPushButton(tr("Display ⚙"));
+    QPushButton* displayBtn = new QPushButton(tr("Display"));
+    displayBtn->setIcon(barIcon(QStringLiteral("gear"), iconColor));
     displayBtn->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
     connect(displayBtn, &QPushButton::clicked, this, &MoleculeViewer::displayOptionsRequested);
     panelLayout->addWidget(displayBtn);

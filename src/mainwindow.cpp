@@ -714,6 +714,12 @@ void MainWindow::createMenus()
     // File Menu
     QMenu *fileMenu = menuBar->addMenu(tr("&File"));
 
+    // Claude Generated 2026 - Empty scene for the molecule builder.
+    QAction *newSceneAction = fileMenu->addAction(QIcon::fromTheme("document-new"), tr("&New Scene"));
+    newSceneAction->setToolTip(tr("Clear the scene and start building from scratch "
+                                  "(enters Build mode; the old structure stays in Snapshots)."));
+    connect(newSceneAction, &QAction::triggered, this, &MainWindow::newScene);
+
     // Claude Generated 2026 - Local file open. The previous File menu only
     // exposed "Open Remote File..."; the standard "Open File..." action was
     // missing. The action uses the current Working Directory as the dialog's
@@ -2664,6 +2670,30 @@ void MainWindow::updateStatusIndicators()
     } else {
         m_statusFrameLabel->setVisible(false);
     }
+}
+
+// Claude Generated 2026 - File ▸ New Scene: clear everything and enter Build
+// mode. The previous structure is asked about when modified and always remains
+// reachable through the Snapshots tab.
+void MainWindow::newScene()
+{
+    if (!m_moleculeView)
+        return;
+    if (m_structureModified) {
+        const auto answer = QMessageBox::question(this, tr("New Scene"),
+            tr("Discard the current (modified) structure and start an empty scene?\n"
+               "The current state stays available in the Snapshots tab."),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes)
+            return;
+    }
+    m_moleculeView->newScene();
+    m_structureModified = false;
+    if (m_statusFileLabel)
+        m_statusFileLabel->clear();
+    m_moleculeView->setBuildMode(true);
+    statusBar()->showMessage(
+        tr("New empty scene — click in the viewport to place the first atom."), 4000);
 }
 
 // Claude Generated 2026 - One-click PNG export into the working directory

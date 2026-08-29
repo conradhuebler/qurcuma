@@ -319,6 +319,10 @@ public slots:
     void addHydrogens(const QVector<int>& targets = {});
     /// Total open valences in the current frame (0 when nothing is loaded).
     int openValenceCount() const;
+    /// Empty the scene for building from scratch: drops trajectory, selection,
+    /// overlays and NCI state but KEEPS the camera, so the first placed atom
+    /// appears under the cursor. Undoable via the snapshot. Claude Generated 2026.
+    void newScene();
     /// Insert a library fragment as a standalone molecule next to the current
     /// structure (selected, movable). Claude Generated 2026.
     void insertFragment(const build::Fragment& fragment);
