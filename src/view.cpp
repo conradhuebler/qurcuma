@@ -2999,6 +2999,7 @@ void MoleculeViewer::startFragmentCarry(const build::Fragment& fragment)
     }
     if (m_carryXxSlot >= 0 && fragment.attachAtom >= 0)
         m_carryDirF = m_carryOffsets[m_carryXxSlot].normalized();
+    m_carryRot = QQuaternion();
     m_carryActive = true;
     if (m_scene)
         m_scene->setEditHint(tr("Carrying %1  ·  move: position it"
@@ -3043,8 +3044,11 @@ void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
         centroidOffset += off;
     centroidOffset /= float(m_carryOffsets.size());
     const int attachSlot = m_carryAtoms.indexOf(m_carryAttach);
-    const QVector3D freeAttachPos = cursorPt - centroidOffset
-        + (attachSlot >= 0 ? m_carryOffsets[attachSlot] : QVector3D());
+    // Free pose keeps the orientation the fragment currently shows (a docked
+    // orientation survives leaving the target instead of resetting).
+    const QVector3D freeAttachPos = cursorPt
+        + m_carryRot.rotatedVector((attachSlot >= 0 ? m_carryOffsets[attachSlot] : QVector3D())
+            - centroidOffset);
 
     // Bond target: evaluated from the free-follow attach position (the cursor
     // decides), so a docked preview never sticks to its target on its own.
@@ -3106,6 +3110,7 @@ void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
         if (hIdx >= 0)
             ignore.append(hIdx);
         const QQuaternion rot = dockRotation(m_carryDirF, dirT, anchor, dockOffsets, ignore);
+        m_carryRot = rot;  // leaving the target keeps this orientation
         for (int slot = 0; slot < m_carryAtoms.size(); ++slot) {
             const int idx = m_carryAtoms[slot];
             if (slot == m_carryXxSlot)
@@ -3127,7 +3132,8 @@ void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
     } else if (target >= 0) {
         // Dock preview disabled: keep the cursor-follow pose, just show the bond.
         for (int slot = 0; slot < m_carryAtoms.size(); ++slot)
-            atoms[m_carryAtoms[slot]].position = cursorPt + m_carryOffsets[slot] - centroidOffset;
+            atoms[m_carryAtoms[slot]].position = cursorPt
+                + m_carryRot.rotatedVector(m_carryOffsets[slot] - centroidOffset);
         m_scene->setHoverAtom(target);
         if (target != m_buildPreviewB) {
             clearBuildBondPreview();
@@ -3140,7 +3146,8 @@ void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
         }
     } else {
         for (int slot = 0; slot < m_carryAtoms.size(); ++slot)
-            atoms[m_carryAtoms[slot]].position = cursorPt + m_carryOffsets[slot] - centroidOffset;
+            atoms[m_carryAtoms[slot]].position = cursorPt
+                + m_carryRot.rotatedVector(m_carryOffsets[slot] - centroidOffset);
         clearBuildBondPreview();
         m_scene->setHoverAtom(-1);
     }
@@ -3155,6 +3162,7 @@ void MoleculeViewer::dropFragmentCarry(bool keepCarrying)
     // pose could pick a DIFFERENT atom (the docked position may sit closer to
     // some bystander than to the previewed target).
     const int previewTarget = m_buildPreviewB;
+    const int previewH = m_dockPreviewH;  // the sacrificial H the preview shows
     clearBuildBondPreview();
     const int attach = m_carryAttach;
     QVector<int> carried = m_carryAtoms;
@@ -3169,12 +3177,58 @@ void MoleculeViewer::dropFragmentCarry(bool keepCarrying)
     int target = previewTarget;
     if (target < 0)
         target = (attach >= 0) ? nearestBondableAtom(attach, carried) : -1;
-    if (target >= 0 && fragment) {
-        // Claude Generated 2026 - Proper docking: the free-floating copy is
-        // replaced by attachFragment's placement (Xx axis aligned onto the
-        // target's valence, roll chosen for maximum clearance, Xx and a
-        // sacrificial target H consumed). The carried atoms are the appended
-        // tail, so removing them keeps the target's index stable.
+    if (target >= 0 && fragment && m_dockPreviewEnabled && previewTarget >= 0 && attach >= 0) {
+        // Claude Generated 2026 - WYSIWYG commit: freeze exactly the previewed
+        // pose. Nothing is recomputed — the atoms stay where the preview put
+        // them, the Xx and the PREVIEWED sacrificial H are removed, the bond is
+        // added. Any recomputation here re-introduced preview/commit mismatches.
+        int xxGlobal = -1;
+        for (int idx : carried)
+            if (idx >= 0 && idx < atoms.size() && atoms[idx].element == QLatin1String("Xx"))
+                xxGlobal = idx;
+        QVector<int> doomed;
+        if (xxGlobal >= 0)
+            doomed.append(xxGlobal);
+        if (previewH >= 0 && previewH < atoms.size())
+            doomed.append(previewH);
+        std::sort(doomed.begin(), doomed.end(), std::greater<int>());
+        int attachIdx = attach;
+        int targetIdx = target;
+        for (int d : doomed) {
+            removeAtomAt(d);
+            if (attachIdx > d)
+                --attachIdx;
+            if (targetIdx > d)
+                --targetIdx;
+        }
+        if (m_currentFrame >= m_trajectoryBonds.size())
+            m_trajectoryBonds.resize(m_currentFrame + 1);
+        m_trajectoryBonds[m_currentFrame].append({ targetIdx, attachIdx, 1 });
+        QVector<int> keep;
+        for (int idx : carried) {
+            if (idx == xxGlobal)
+                continue;
+            int j = idx;
+            for (int d : doomed)
+                if (j > d)
+                    --j;
+            keep.append(j);
+        }
+        if (m_bondEditor)
+            m_bondEditor->setAtoms(m_trajectoryAtoms[m_currentFrame]);
+        if (m_perfOpt)
+            m_perfOpt->setAtomCount(m_trajectoryAtoms[m_currentFrame].size());
+        syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/true, /*keepView=*/true);
+        selectAtoms(keep, /*append=*/false);
+        buildForceAdjacency();
+        invalidateNciTopology();
+        emit fragmentsChanged();
+        refreshNciOverlay();
+        computeCollisions();
+        onStructureChanged();
+        emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
+    } else if (target >= 0 && fragment) {
+        // Dock preview disabled: compute the docking now (attachFragment).
         QVector3D approach;
         if (attach >= 0 && attach < atoms.size() && target < atoms.size())
             approach = atoms[attach].position - atoms[target].position;

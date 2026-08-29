@@ -489,3 +489,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-29: Live docking preview while carrying fragments (final pose incl. clearance roll shown before the drop; cursor-based target detection, drift-free from captured library pose; opt-out in Display > Tools); saturated targets dock along the approach-side sacrificial H
 - 2026-08-29: Docking preview stabilised: preview target and sacrificial H are sticky (115 percent keep-range), and drop/release commit exactly the previewed target instead of re-searching
 - 2026-08-29: Docking preview fixed for real: bare atoms dock on the approach side (was fixed +x, fighting the mouse), sacrificial-H choice follows the mouse with hysteresis instead of a hard lock, Xx renders as a small magenta marker
+- 2026-08-29: Carry commit is now literally WYSIWYG (previewed pose frozen: positions kept, previewed H + Xx removed, bond added - no recomputation); un-docking keeps the fragment's shown orientation
