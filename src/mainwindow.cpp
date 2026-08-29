@@ -4241,6 +4241,8 @@ void MainWindow::createDockWidgets()
             this, &MainWindow::showViewportContextMenu);
         // Claude Generated 2026 - Builder "Clean up": snapshot, then a bounded
         // optimization through the existing simulation worker lifecycle.
+        connect(m_moleculeView, &MoleculeViewer::newSceneRequested,
+            this, &MainWindow::newScene);
         connect(m_moleculeView, &MoleculeViewer::cleanupRequested, this, [this]() {
             if (!m_simulationControlWidget)
                 return;

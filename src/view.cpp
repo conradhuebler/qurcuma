@@ -2612,6 +2612,8 @@ void MoleculeViewer::newScene()
         m_scene->setCollisionAtoms({});
         m_scene->setMeasurement({}, QString());
     }
+    clearOverlays();        // stale RMSD overlays would survive the clear
+    refreshNciOverlay();    // pushes the now-empty contact list to the renderer
     invalidateNciTopology();
     emit fragmentsChanged();
     emit selectionChanged(m_selectedAtoms);
@@ -4501,6 +4503,15 @@ QIcon barIcon(const QString& kind, const QColor& color)
         p.drawLine(QPointF(10.5, 5.5), QPointF(5.5, 10.5));
         p.drawLine(QPointF(15.5, 12), QPointF(15.5, 17));
         p.drawLine(QPointF(13, 14.5), QPointF(18, 14.5));
+    } else if (kind == QLatin1String("new")) {
+        // Blank page with a folded corner.
+        p.drawLine(QPointF(5, 3), QPointF(12, 3));
+        p.drawLine(QPointF(12, 3), QPointF(15, 6));
+        p.drawLine(QPointF(15, 6), QPointF(15, 17));
+        p.drawLine(QPointF(15, 17), QPointF(5, 17));
+        p.drawLine(QPointF(5, 17), QPointF(5, 3));
+        p.drawLine(QPointF(12, 3), QPointF(12, 6));
+        p.drawLine(QPointF(12, 6), QPointF(15, 6));
     } else if (kind == QLatin1String("gear")) {
         // Gear: ring with radial teeth.
         p.drawEllipse(QPointF(10, 10), 4, 4);
@@ -4737,6 +4748,18 @@ void MoleculeViewer::setupControlPanel()
         });
     panelLayout->addWidget(elementStrip);
 
+    // New-scene button, Build mode only (Claude Generated 2026): empties the
+    // scene right where the building happens (same action as File > New Scene).
+    QToolButton* newSceneBtn = new QToolButton;
+    newSceneBtn->setText(tr("New"));
+    newSceneBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    newSceneBtn->setIcon(barIcon(QStringLiteral("new"), iconColor));
+    newSceneBtn->setToolTip(tr("Clear the scene and build from scratch (the current "
+                               "structure stays in Snapshots; undo with Ctrl+Z)."));
+    newSceneBtn->setVisible(false);
+    connect(newSceneBtn, &QToolButton::clicked, this, [this]() { emit newSceneRequested(); });
+    panelLayout->addWidget(newSceneBtn);
+
     // Add-H button + open-valence label, Build mode only (Claude Generated 2026).
     QToolButton* addHBtn = new QToolButton;
     addHBtn->setText(tr("Add H"));
@@ -4749,7 +4772,10 @@ void MoleculeViewer::setupControlPanel()
     panelLayout->addWidget(addHBtn);
 
     QToolButton* cleanupBtn = new QToolButton;
-    cleanupBtn->setText(tr("Clean up"));
+    // Claude Generated 2026 - Renamed from "Clean up": that read like clearing
+    // the scene; this is the short relaxation. Clearing = the New button / File
+    // menu's New Scene.
+    cleanupBtn->setText(tr("Relax"));
     cleanupBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     cleanupBtn->setIcon(barIcon(QStringLiteral("clean"), iconColor));
     cleanupBtn->setToolTip(tr("Relax the built structure with a short geometry "
@@ -4777,9 +4803,10 @@ void MoleculeViewer::setupControlPanel()
         }
     };
     connect(this, &MoleculeViewer::interactionModeChanged, valenceLabel,
-        [addHBtn, cleanupBtn, updateValenceLabel](InteractionMode m) {
+        [addHBtn, cleanupBtn, newSceneBtn, updateValenceLabel](InteractionMode m) {
             addHBtn->setVisible(m == InteractionMode::Build);
             cleanupBtn->setVisible(m == InteractionMode::Build);
+            newSceneBtn->setVisible(m == InteractionMode::Build);
             updateValenceLabel();
         });
     connect(this, &MoleculeViewer::moleculeUpdated, valenceLabel,

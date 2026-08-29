@@ -495,9 +495,12 @@ signals:
     /// Claude Generated 2026 - The builder's current element changed (hotkey or
     /// picker); keeps the element strip and HUD in sync.
     void buildElementChanged(const QString& symbol);
-    /// Claude Generated 2026 - The bar's "Clean up" button asks the host to run
+    /// Claude Generated 2026 - The bar's "Relax" button asks the host to run
     /// a bounded geometry optimization (MainWindow owns the worker lifecycle).
     void cleanupRequested();
+    /// Claude Generated 2026 - The bar's "New" button asks the host to start an
+    /// empty scene (MainWindow owns the confirmation + snapshot bookkeeping).
+    void newSceneRequested();
     void displayOptionsRequested();
     // Claude Generated 2026 - Structure editing.
     void editModeChanged(bool on);

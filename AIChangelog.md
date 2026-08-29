@@ -491,3 +491,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-29: Docking preview fixed for real: bare atoms dock on the approach side (was fixed +x, fighting the mouse), sacrificial-H choice follows the mouse with hysteresis instead of a hard lock, Xx renders as a small magenta marker
 - 2026-08-29: Carry commit is now literally WYSIWYG (previewed pose frozen: positions kept, previewed H + Xx removed, bond added - no recomputation); un-docking keeps the fragment's shown orientation
 - 2026-08-29: Fragment library gains Gases (H2/N2/O2/F2/Cl2/Br2/I2 with experimental lengths and orders) and Materials (planar graphene flake, greedy Kekule matching + rim H, fully saturated); Build dropdown grouped by category
+- 2026-08-29: New-scene button in the Build strip (page icon; same action as File > New Scene), optimization button renamed Clean up -> Relax to end the naming confusion; newScene also clears stale RMSD overlays and the NCI overlay
