@@ -193,7 +193,13 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     return true;
                 }
                 if (buildMode() && !m_simulationActive) {
-                    // Claude Generated 2026 - Build mode: remember the atom under the
+                    // Claude Generated 2026 - A carried fragment is dropped by the
+                    // click (Shift held: drop a copy and keep carrying, Anno-style).
+                    if (m_carryActive) {
+                        dropFragmentCarry(me->modifiers() & Qt::ShiftModifier);
+                        return true;
+                    }
+                    // Build mode: remember the atom under the
                     // press. A drag from it moves it live (or bonds when released on
                     // another atom); a press on empty space stays a rotate-drag, and a
                     // plain click places a new atom on release. Ctrl+drag is pure
@@ -377,6 +383,10 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 // on an atom it deletes that atom; otherwise it opens the shared
                 // display context menu (deselect lives there and on Esc).
                 if (!m_rightDragged) {
+                    if (buildMode() && !m_simulationActive && m_carryActive) {
+                        cancelFragmentCarry();  // right-click aborts the carry
+                        return true;
+                    }
                     const int picked = pickAtomAtScreenPos(me->position().toPoint());
                     if (buildMode() && !m_simulationActive && picked >= 0) {
                         selectAtoms({ picked }, /*append=*/false);
@@ -532,6 +542,11 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     m_rightDragged = true;
                 handleMousePan(pos);
                 m_lastMousePos = pos;
+                return true;
+            }
+            // Claude Generated 2026 - A carried fragment follows the mouse.
+            if (buildMode() && !m_simulationActive && m_carryActive) {
+                updateFragmentCarry(pos);
                 return true;
             }
             // No button: hover feedback — highlight the atom under the cursor.
@@ -2209,6 +2224,7 @@ void MoleculeViewer::setInteractionMode(InteractionMode mode)
         emit bondEditModeChanged(0);
         break;
     case InteractionMode::Build:
+        cancelFragmentCarry();  // a carried fragment does not survive the mode
         clearBuildBondPreview();
         m_buildDragFrom = -1;
         m_buildDragMoved = false;
@@ -2676,7 +2692,7 @@ void MoleculeViewer::pushBondsToScene()
 // kBuildBondFormFactor * (rcov_a + rcov_b) that `from` is not yet bonded to.
 // The live preview bond itself is ignored, otherwise the current target would
 // count as "already bonded" and the intent would flicker off every move.
-int MoleculeViewer::nearestBondableAtom(int from) const
+int MoleculeViewer::nearestBondableAtom(int from, const QVector<int>& exclude) const
 {
     if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
         return -1;
@@ -2690,7 +2706,7 @@ int MoleculeViewer::nearestBondableAtom(int from) const
     int best = -1;
     float bestDist = 1e9f;
     for (int i = 0; i < atoms.size(); ++i) {
-        if (i == from)
+        if (i == from || exclude.contains(i))
             continue;
         const float d = (atoms[i].position - atoms[from].position).length();
         const float form = (rFrom + elem::covalentRadius(atoms[i].element)) * kBuildBondFormFactor;
@@ -2729,6 +2745,129 @@ void MoleculeViewer::clearBuildBondPreview()
     }
     m_buildPreviewA = -1;
     m_buildPreviewB = -1;
+}
+
+// ===========================================================================
+// Fragment carry: the fragment hangs on the mouse until it is dropped.
+// Claude Generated 2026.
+// ===========================================================================
+void MoleculeViewer::startFragmentCarry(const build::Fragment& fragment)
+{
+    cancelFragmentCarry();
+    if (!buildMode())
+        setBuildMode(true);
+    if (!m_trajectoryAtoms.isEmpty() && !canEditStructure())
+        return;  // insertFragment would refuse anyway (multi-frame)
+    insertFragment(fragment);  // snapshot + append + select
+    if (m_selectedAtoms.size() != fragment.atoms.size())
+        return;  // insertion did not happen
+    m_carryAtoms = m_selectedAtoms;
+    m_carryAttach = (fragment.attachAtom >= 0)
+        ? m_carryAtoms.value(fragment.attachAtom, -1)
+        : -1;
+    m_carryFragment = &fragment;
+    m_carryActive = true;
+    if (m_scene)
+        m_scene->setEditHint(tr("Carrying %1  ·  move: position it"
+                                "  ·  near an atom: bond preview"
+                                "  ·  click: drop  ·  Shift+click: drop a copy & keep carrying"
+                                "  ·  right-click/Esc: cancel")
+                                 .arg(fragment.name));
+}
+
+// Translate the carried group so its centroid sits under the cursor, and show
+// the bond its attach atom would form with the nearest unbonded neighbour.
+void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
+{
+    if (!m_carryActive || !m_scene || !m_quickView
+        || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    QVector3D centroid;
+    for (int idx : m_carryAtoms) {
+        if (idx < 0 || idx >= atoms.size())
+            return;  // structure changed under us — safety net
+        centroid += atoms[idx].position;
+    }
+    centroid /= float(m_carryAtoms.size());
+    const QVector3D to = m_scene->screenToModelPoint(pos.x(), pos.y(), centroid,
+        m_quickView->width(), m_quickView->height());
+    const QVector3D delta = to - centroid;
+    for (int idx : m_carryAtoms)
+        atoms[idx].position += delta;
+
+    const int target = (m_carryAttach >= 0)
+        ? nearestBondableAtom(m_carryAttach, m_carryAtoms)
+        : -1;
+    if (target >= 0) {
+        m_scene->setHoverAtom(target);
+        const float d = (atoms[target].position - atoms[m_carryAttach].position).length();
+        const int order = build::bondOrderFromDistance(
+            atoms[m_carryAttach].element, atoms[target].element, d);
+        if (target != m_buildPreviewB) {
+            clearBuildBondPreview();
+            if (m_currentFrame >= m_trajectoryBonds.size())
+                m_trajectoryBonds.resize(m_currentFrame + 1);
+            m_trajectoryBonds[m_currentFrame].append({ m_carryAttach, target, order });
+            m_buildPreviewA = m_carryAttach;
+            m_buildPreviewB = target;
+            pushBondsToScene();
+        }
+    } else {
+        clearBuildBondPreview();
+        m_scene->setHoverAtom(-1);
+    }
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/false);
+}
+
+void MoleculeViewer::dropFragmentCarry(bool keepCarrying)
+{
+    if (!m_carryActive)
+        return;
+    clearBuildBondPreview();
+    const int attach = m_carryAttach;
+    const QVector<int> carried = m_carryAtoms;
+    const build::Fragment* fragment = m_carryFragment;
+    m_carryActive = false;
+    m_carryAtoms.clear();
+    m_carryAttach = -1;
+    m_carryFragment = nullptr;
+    if (m_scene)
+        m_scene->setHoverAtom(-1);
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    const int target = (attach >= 0) ? nearestBondableAtom(attach, carried) : -1;
+    if (target >= 0) {
+        const float d = (atoms[target].position - atoms[attach].position).length();
+        buildBond(attach, target,
+            build::bondOrderFromDistance(atoms[attach].element, atoms[target].element, d));
+    } else {
+        computeCollisions();
+        onStructureChanged();
+        emit moleculeUpdated(atoms, getCurrentFrameBonds());
+    }
+    if (keepCarrying && fragment) {
+        startFragmentCarry(*fragment);  // Shift held: pick up the next copy
+        return;
+    }
+    updateBuildHint();
+}
+
+void MoleculeViewer::cancelFragmentCarry()
+{
+    if (!m_carryActive)
+        return;
+    clearBuildBondPreview();
+    const QVector<int> carried = m_carryAtoms;
+    m_carryActive = false;
+    m_carryAtoms.clear();
+    m_carryAttach = -1;
+    m_carryFragment = nullptr;
+    if (m_scene)
+        m_scene->setHoverAtom(-1);
+    selectAtoms(carried, /*append=*/false);
+    deleteSelection();  // removes the carried atoms again (own undo snapshot)
+    if (buildMode())
+        updateBuildHint();
 }
 
 int MoleculeViewer::openValenceCount() const
@@ -4141,11 +4280,9 @@ void MoleculeViewer::setupControlPanel()
     for (int i = 0; i < library.size(); ++i) {
         QAction* a = fragmentMenu->addAction(library[i].name);
         connect(a, &QAction::triggered, this, [this, i]() {
-            const build::Fragment& f = build::fragmentLibrary()[i];
-            if (f.attachAtom >= 0 && m_selectedAtoms.size() == 1)
-                attachFragment(f, m_selectedAtoms.first());
-            else
-                insertFragment(f);
+            // Claude Generated 2026 - The fragment hangs on the mouse (carry mode):
+            // move it into place, click drops it, Shift+click drops a copy.
+            startFragmentCarry(build::fragmentLibrary()[i]);
         });
     }
     buildBtn->setMenu(fragmentMenu);

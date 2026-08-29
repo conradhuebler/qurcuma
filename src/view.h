@@ -329,6 +329,13 @@ public slots:
     /// Dock a substituent fragment onto @p targetAtom: rotate its open valence
     /// toward the target, consume a sacrificial H pointing that way, bond it.
     void attachFragment(const build::Fragment& fragment, int targetAtom);
+    /// Start carrying a fragment: it hangs on the mouse and follows it; nearing
+    /// an unbonded atom shows the bond it will form (via the fragment's attach
+    /// atom); click drops it, Esc/right-click cancels. Claude Generated 2026.
+    void startFragmentCarry(const build::Fragment& fragment);
+    bool fragmentCarryActive() const { return m_carryActive; }
+    /// Abort the carry: the carried atoms are removed again.
+    void cancelFragmentCarry();
     /// Select all atoms of the connected fragment that @p seedAtom belongs to.
     void selectFragment(int seedAtom, bool append = false);
     /// Bulk-select a list of atom indices (used by fragment/paste/merge).
@@ -758,7 +765,19 @@ private:
     void clearBuildBondPreview();
     /// Nearest atom within bond-forming distance of @p from that it is not yet
     /// bonded to (the live preview bond does not count as bonded); -1 = none.
-    int nearestBondableAtom(int from) const;
+    /// @p exclude: additional atoms to skip (the rest of a carried fragment).
+    int nearestBondableAtom(int from, const QVector<int>& exclude = {}) const;
+    // Fragment carry state (startFragmentCarry). Claude Generated 2026.
+    bool m_carryActive = false;
+    QVector<int> m_carryAtoms;   // global indices of the carried atoms
+    int m_carryAttach = -1;      // global index of the fragment's attach atom (-1 none)
+    // Points into the static fragmentLibrary() (stable storage) so Shift+drop
+    // can immediately pick up a fresh copy (serial placement).
+    const build::Fragment* m_carryFragment = nullptr;
+    void updateFragmentCarry(const QPoint& pos);  // follow the mouse + bond intent
+    /// Commit at the current position; keepCarrying = Shift held: drop a copy
+    /// and immediately carry the next one (serial placement).
+    void dropFragmentCarry(bool keepCarrying = false);
     /// Push the current frame's bond list to the renderer (bonds only, no camera).
     void pushBondsToScene();
     /// Append one atom (optionally bonded to @p bondTo) with full notifications.

@@ -46,6 +46,10 @@ public:
     /** Replace the displayed list (used when loading a new molecule). */
     void clearSnapshots();
 
+    /** Remove one snapshot row (Ctrl+Z undo consumes the newest entry, keeping
+     *  the tab in sync with MainWindow's list). Claude Generated 2026. */
+    void removeSnapshotAt(int index);
+
     /** Number of stored snapshots. */
     int count() const;
 

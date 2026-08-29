@@ -93,6 +93,17 @@ void SnapshotsWidget::clearSnapshots()
     updateButtonStates();
 }
 
+// Claude Generated 2026 - Remove one row (used by the Ctrl+Z snapshot undo).
+void SnapshotsWidget::removeSnapshotAt(int index)
+{
+    if (index < 0 || index >= m_snapshots.size())
+        return;
+    m_snapshots.removeAt(index);
+    if (m_listWidget)
+        delete m_listWidget->takeItem(index);
+    updateButtonStates();
+}
+
 int SnapshotsWidget::count() const
 {
     return m_snapshots.size();

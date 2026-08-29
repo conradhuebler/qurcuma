@@ -480,3 +480,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-29: Bond-drag no longer snaps to the tabulated covalent distance: the atom freezes at the pulled position while hovering the target and stays there when the bond forms
 - 2026-08-29: Bond drag reworked: atom always follows the mouse, bond intent is proximity-based, preview bond order follows the drag distance live (bondOrderFromDistance, C-C series ratios) and commits as shown
 - 2026-08-29: File > New Scene (empty scene, keeps camera, enters Build mode, Snapshots-undoable); drawn palette-coloured icons for all viewer-bar buttons (theme icons were inconsistent/missing)
+- 2026-08-29: Ctrl+Z undo (restores+consumes newest snapshot, in sync with the Snapshots tab); fragment carry mode: fragment hangs on the mouse with live bond preview, click drops, Shift+click serial-places, right-click/Esc cancels

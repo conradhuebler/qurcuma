@@ -849,6 +849,16 @@ void MainWindow::createMenus()
     // Claude Generated - Quick Win: Edit Menu with Copy/Paste
     QMenu *editMenu = menuBar->addMenu(tr("&Edit"));
 
+    // Claude Generated 2026 - Ctrl+Z restores (and consumes) the newest snapshot,
+    // keeping the Snapshots tab in sync. Text widgets keep their own Ctrl+Z (they
+    // accept the ShortcutOverride first). Snapshot 0 (original) is never consumed.
+    QAction *undoAction = editMenu->addAction(QIcon::fromTheme("edit-undo"), tr("&Undo (Snapshot)"));
+    undoAction->setShortcut(QKeySequence::Undo);
+    undoAction->setToolTip(tr("Restore the newest snapshot (move/build/bond edits "
+                              "create them automatically) and remove it from the list."));
+    connect(undoAction, &QAction::triggered, this, &MainWindow::undoLastSnapshot);
+    editMenu->addSeparator();
+
     // Claude Generated 2026 - context-aware Copy/Paste: in viewer Edit mode they act on
     // the selected atoms/molecule (in-app); otherwise on the structure text (clipboard).
     QAction *copyAction = editMenu->addAction(QIcon::fromTheme("edit-copy"), tr("&Copy"));
@@ -2577,9 +2587,14 @@ void MainWindow::handleEscape()
         cancelCalculation();
         return;
     }
-    // Claude Generated 2026 - In Build mode, Esc leaves the builder first.
+    // Claude Generated 2026 - In Build mode, Esc first drops a carried fragment,
+    // then leaves the builder.
     if (m_moleculeView
         && m_moleculeView->interactionMode() == MoleculeViewer::InteractionMode::Build) {
+        if (m_moleculeView->fragmentCarryActive()) {
+            m_moleculeView->cancelFragmentCarry();
+            return;
+        }
         m_moleculeView->setBuildMode(false);
         return;
     }
@@ -2670,6 +2685,26 @@ void MainWindow::updateStatusIndicators()
     } else {
         m_statusFrameLabel->setVisible(false);
     }
+}
+
+// Claude Generated 2026 - Edit ▸ Undo (Ctrl+Z): restore the newest snapshot and
+// consume it, so repeated Ctrl+Z walks back through the history. Snapshot 0
+// (the original geometry) is restored but never removed.
+void MainWindow::undoLastSnapshot()
+{
+    if (m_snapshots.isEmpty()) {
+        statusBar()->showMessage(tr("Nothing to undo — no snapshots yet."), 2500);
+        return;
+    }
+    const int last = m_snapshots.size() - 1;
+    const MoleculeSnapshot snap = m_snapshots[last];
+    restoreSnapshot(snap);
+    if (last > 0) {
+        m_snapshots.removeAt(last);
+        if (m_snapshotsWidget)
+            m_snapshotsWidget->removeSnapshotAt(last);
+    }
+    statusBar()->showMessage(tr("Undo: %1").arg(snap.name), 2500);
 }
 
 // Claude Generated 2026 - File ▸ New Scene: clear everything and enter Build

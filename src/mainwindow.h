@@ -511,6 +511,8 @@ private:
     void quickExportPhoto();
     /// File ▸ New Scene: clear the scene and enter Build mode. Claude Generated 2026.
     void newScene();
+    /// Edit ▸ Undo (Ctrl+Z): restore + consume the newest snapshot. Claude Generated 2026.
+    void undoLastSnapshot();
     // Claude Generated 2026 - Permanent status-bar indicators (file · atoms · frame),
     // so the current state survives the transient showMessage() notices.
     QLabel* m_statusFileLabel = nullptr;
