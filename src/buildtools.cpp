@@ -73,6 +73,19 @@ QVector<int> excessHydrogens(int atomIndex, const QVector<MoleculeViewer::Atom>&
     return giveUp;
 }
 
+int bondOrderFromDistance(const QString& elementA, const QString& elementB, float distance)
+{
+    const float single = elem::covalentRadius(elementA) + elem::covalentRadius(elementB);
+    if (single <= 0.0f)
+        return 1;
+    const float ratio = distance / single;
+    if (ratio < 0.81f)
+        return 3;
+    if (ratio < 0.90f)
+        return 2;
+    return 1;
+}
+
 namespace {
 
 // Lone pairs entering the steric number (VSEPR): O/S/Se 2, N/P/As 1, halogens 3.

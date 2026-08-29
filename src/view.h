@@ -311,8 +311,9 @@ public slots:
     /// along its free-valence direction at covalent-bond distance. Also used by
     /// the viewport context menu outside Build mode.
     void buildAttachAtom(int atomIndex);
-    /// Add bond a-b (order 1) or cycle an existing bond's order 1->2->3->1.
-    void buildBond(int a, int b);
+    /// Add bond a-b (with @p newOrder, e.g. implied by the drag distance) or
+    /// cycle an existing bond's order 1->2->3->1.
+    void buildBond(int a, int b, int newOrder = 1);
     /// Saturate open valences with hydrogens (VSEPR placement, buildtools.h);
     /// empty @p targets = all atoms. Claude Generated 2026.
     void addHydrogens(const QVector<int>& targets = {});
@@ -751,6 +752,9 @@ private:
     int m_buildPreviewB = -1;            // while dragging over a target (-1 = none)
     /// Remove the temporary preview bond (drag left the target / drag ended).
     void clearBuildBondPreview();
+    /// Nearest atom within bond-forming distance of @p from that it is not yet
+    /// bonded to (the live preview bond does not count as bonded); -1 = none.
+    int nearestBondableAtom(int from) const;
     /// Push the current frame's bond list to the renderer (bonds only, no camera).
     void pushBondsToScene();
     /// Append one atom (optionally bonded to @p bondTo) with full notifications.
@@ -779,6 +783,11 @@ private:
     // with 3 px, normal click jitter cancelled the placement and produced a tiny
     // rotation instead ("rotates instead of adding").
     static constexpr int kBuildDragThresholdPx = 8;
+    // Bond-intent distance while dragging: preview/create a bond when the pulled
+    // atom comes within factor * (rcov_a + rcov_b) of an unbonded atom. Slightly
+    // above the 1.25 the automatic bond detection uses, so the intent shows a
+    // touch before the detector would consider it a bond.
+    static constexpr float kBuildBondFormFactor = 1.35f;
     // Helpers
     QVector3D selectionCentroidLocal() const;     // mean position of selected atoms (current frame)
     void computeCollisions();                      // recolour clashes + emit collisionCountChanged

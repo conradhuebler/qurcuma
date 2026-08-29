@@ -478,3 +478,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-29: Rotate-instead-of-add fixed properly: 8 px click threshold in Build mode and no rotation below it (click jitter neither nudged the view nor cancelled the placement)
 - 2026-08-29: Bond-drag keeps the pulled position (snaps to covalent distance on the approach side); buildBond strips excess H from over-valent endpoints (build ring, add H, aromatize); ring H-count pins added to test_buildtools
 - 2026-08-29: Bond-drag no longer snaps to the tabulated covalent distance: the atom freezes at the pulled position while hovering the target and stays there when the bond forms
+- 2026-08-29: Bond drag reworked: atom always follows the mouse, bond intent is proximity-based, preview bond order follows the drag distance live (bondOrderFromDistance, C-C series ratios) and commits as shown

@@ -30,6 +30,12 @@ int openValence(int atomIndex, const QVector<MoleculeViewer::Atom>& atoms,
 QVector<int> excessHydrogens(int atomIndex, const QVector<MoleculeViewer::Atom>& atoms,
     const QVector<MoleculeViewer::Bond>& bonds);
 
+/** @brief Bond order implied by the interatomic distance, relative to the
+ *  single-bond length r1 = rcov(a) + rcov(b): d < 0.81*r1 -> 3, d < 0.90*r1 -> 2,
+ *  else 1. The ratios follow the typical C-C series (1.54 / 1.34 / 1.20 Å,
+ *  i.e. ~0.87 and ~0.78 of the single bond, with a little slack). */
+int bondOrderFromDistance(const QString& elementA, const QString& elementB, float distance);
+
 /** @brief Generate hydrogens for the open valences of the target atoms
  *  (@p targets empty = all atoms).
  *

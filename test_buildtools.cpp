@@ -191,6 +191,15 @@ int main(int, char**)
             "no excess on an under-valent atom");
     }
 
+    // --- Distance-implied bond order (C-C single bond length 1.52 A). ------
+    {
+        check(build::bondOrderFromDistance("C", "C", 1.54f) == 1, "C-C at 1.54 A: single");
+        check(build::bondOrderFromDistance("C", "C", 1.34f) == 2, "C-C at 1.34 A: double");
+        check(build::bondOrderFromDistance("C", "C", 1.20f) == 3, "C-C at 1.20 A: triple");
+        check(build::bondOrderFromDistance("C", "O", 1.21f) == 2, "C-O at 1.21 A: carbonyl double");
+        check(build::bondOrderFromDistance("C", "C", 2.00f) == 1, "long distance stays single");
+    }
+
     std::cout << (g_failures == 0 ? "ALL PASS" : "FAILURES") << std::endl;
     return g_failures;
 }
