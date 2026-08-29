@@ -489,6 +489,17 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
     });
     f->addRow(QString(), dynamicBondsCheck);
 
+    // Claude Generated 2026 - Builder: live docked pose while carrying a fragment.
+    m_dockPreviewCheck = new QCheckBox(tr("Live docking preview (fragments)"), this);
+    m_dockPreviewCheck->setToolTip(tr("While carrying a fragment near a bonding partner, show "
+        "the final docked pose (orientation and clash-avoiding roll) live instead of only "
+        "on drop."));
+    m_dockPreviewCheck->setChecked(true);
+    connect(m_dockPreviewCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_viewer) m_viewer->setDockPreviewEnabled(on);
+    });
+    f->addRow(QString(), m_dockPreviewCheck);
+
     // Claude Generated 2026 - Auto-center on load: shift COM to origin when a file is opened.
     auto* centerOnLoadCheck = new QCheckBox(tr("Center molecule at origin on load"), this);
     centerOnLoadCheck->setToolTip(tr("When opening a file, translate all frames so the "
@@ -1184,6 +1195,7 @@ void DisplayPanel::syncFromViewer()
         m_ssaoRadiusSpinBox, m_ssaoBiasSpinBox, m_bloomEnabledCheckBox, m_bloomThresholdSpinBox,
         m_bloomIntensitySlider, m_hdrEnabledCheckBox, m_exposureSpinBox, m_rotationModeCombo,
         m_forceVectorsCheck, m_wallCheck, m_wallOpacitySlider, m_measureCheck, m_bondEditCombo,
+        m_dockPreviewCheck,
         m_cornerLightButtons[0], m_cornerLightButtons[1], m_cornerLightButtons[2], m_cornerLightButtons[3],
         m_nciSourceCombo, m_nciHBondCheck, m_nciXBondCheck, m_nciPiCheck, m_nciContactCheck,
         m_nciHbDistanceSpin, m_nciHbAngleSpin, m_nciLabelCheck, m_nciLiveMdCheck,
@@ -1258,6 +1270,8 @@ void DisplayPanel::syncFromViewer()
     m_fogDistanceSlider->setValue(int(m_viewer->getFogDistance() * 100.0f));
     m_forceVectorsCheck->setChecked(m_viewer->getForceVectorsVisible());
     m_measureCheck->setChecked(m_viewer->getMeasurementMode() != 0);
+    if (m_dockPreviewCheck)
+        m_dockPreviewCheck->setChecked(m_viewer->dockPreviewEnabled());
     if (m_bondEditCombo) {
         const int i = m_bondEditCombo->findData(m_viewer->getBondEditMode());
         if (i >= 0)

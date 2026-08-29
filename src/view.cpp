@@ -2648,6 +2648,49 @@ void MoleculeViewer::removeAtomAt(int index)
     }
 }
 
+// Claude Generated 2026 - Where a substituent docks: an unsaturated target uses
+// its free valence; a saturated one must give up an H, and the one closest to
+// the approach direction is chosen — so the fragment replaces the H on the side
+// the user brings it in from.
+QVector3D MoleculeViewer::dockDirection(int target, const QVector3D& preferredDir,
+    int* sacrificialH) const
+{
+    if (sacrificialH)
+        *sacrificialH = -1;
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return QVector3D(1, 0, 0);
+    const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (target < 0 || target >= atoms.size())
+        return QVector3D(1, 0, 0);
+    const QVector<Bond> bonds = getCurrentFrameBonds();
+    if (build::openValence(target, atoms, bonds) > 0)
+        return freeValenceDirection(target);
+    int bestH = -1;
+    float bestDot = -2.0f;
+    for (const Bond& b : bonds) {
+        int other = -1;
+        if (b.atom1 == target)
+            other = b.atom2;
+        else if (b.atom2 == target)
+            other = b.atom1;
+        if (other < 0 || other >= atoms.size()
+            || atoms[other].element != QLatin1String("H"))
+            continue;
+        const QVector3D d = (atoms[other].position - atoms[target].position).normalized();
+        const float dot = QVector3D::dotProduct(d, preferredDir);
+        if (dot > bestDot) {
+            bestDot = dot;
+            bestH = other;
+        }
+    }
+    if (bestH >= 0) {
+        if (sacrificialH)
+            *sacrificialH = bestH;
+        return (atoms[bestH].position - atoms[target].position).normalized();
+    }
+    return freeValenceDirection(target);
+}
+
 // Claude Generated 2026 - Docking pose: align the fragment's attachment axis
 // (attach -> Xx) onto the target's free valence, then scan the remaining degree
 // of freedom (roll about the new bond axis, 30-degree steps) and keep the pose
@@ -2682,7 +2725,8 @@ QQuaternion MoleculeViewer::dockRotation(const QVector3D& dirF, const QVector3D&
     return best;
 }
 
-void MoleculeViewer::attachFragment(const build::Fragment& fragment, int targetAtom)
+void MoleculeViewer::attachFragment(const build::Fragment& fragment, int targetAtom,
+    const QVector3D& approachHint)
 {
     if (fragment.attachAtom < 0) {
         insertFragment(fragment);
@@ -2702,28 +2746,14 @@ void MoleculeViewer::attachFragment(const build::Fragment& fragment, int targetA
         m_trajectoryBonds.resize(m_currentFrame + 1);
     QVector<Bond>& bonds = m_trajectoryBonds[m_currentFrame];
 
-    const QVector3D dirT = freeValenceDirection(targetAtom);
-
-    // Sacrificial H: a hydrogen bonded to the target whose direction roughly
-    // matches where the fragment will dock.
+    // Docking direction: free valence, or (saturated target) the direction of
+    // the sacrificial H nearest the approach — the carry preview passes the side
+    // the user brings the fragment in from, so preview and commit agree.
+    const QVector3D preferred = (approachHint.lengthSquared() > 1e-6f)
+        ? approachHint.normalized()
+        : freeValenceDirection(targetAtom);
     int hIndex = -1;
-    float bestDot = 0.7f;
-    for (const Bond& b : bonds) {
-        int other = -1;
-        if (b.atom1 == targetAtom)
-            other = b.atom2;
-        else if (b.atom2 == targetAtom)
-            other = b.atom1;
-        if (other < 0 || other >= atoms.size()
-            || atoms[other].element != QLatin1String("H"))
-            continue;
-        const QVector3D d = (atoms[other].position - atoms[targetAtom].position).normalized();
-        const float dot = QVector3D::dotProduct(d, dirT);
-        if (dot > bestDot) {
-            bestDot = dot;
-            hIndex = other;
-        }
-    }
+    const QVector3D dirT = dockDirection(targetAtom, preferred, &hIndex);
     if (hIndex >= 0) {
         removeAtomAt(hIndex);
         if (targetAtom > hIndex)
@@ -2917,6 +2947,27 @@ void MoleculeViewer::startFragmentCarry(const build::Fragment& fragment)
         ? m_carryAtoms.value(fragment.attachAtom, -1)
         : -1;
     m_carryFragment = &fragment;
+    // Capture the library pose once: the live pose (cursor-follow or docked
+    // preview) is recomputed from these offsets every move, so switching between
+    // the two never accumulates drift.
+    m_carryOffsets.clear();
+    m_carryXxSlot = -1;
+    m_carryDirF = QVector3D();
+    QVector3D base;
+    if (fragment.attachAtom >= 0) {
+        base = fragment.atoms[fragment.attachAtom].position;
+    } else {
+        for (const Atom& a : fragment.atoms)
+            base += a.position;
+        base /= float(fragment.atoms.size());
+    }
+    for (int i = 0; i < fragment.atoms.size(); ++i) {
+        m_carryOffsets.append(fragment.atoms[i].position - base);
+        if (fragment.atoms[i].element == QLatin1String("Xx"))
+            m_carryXxSlot = i;
+    }
+    if (m_carryXxSlot >= 0 && fragment.attachAtom >= 0)
+        m_carryDirF = m_carryOffsets[m_carryXxSlot].normalized();
     m_carryActive = true;
     if (m_scene)
         m_scene->setEditHint(tr("Carrying %1  ·  move: position it"
@@ -2941,39 +2992,107 @@ void MoleculeViewer::startFragmentCarry(const build::Fragment& fragment)
 void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
 {
     if (!m_carryActive || !m_scene || !m_quickView
-        || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size()
+        || m_carryOffsets.size() != m_carryAtoms.size())
         return;
     QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
-    QVector3D centroid;
+    QVector3D centroidNow;
     for (int idx : m_carryAtoms) {
         if (idx < 0 || idx >= atoms.size())
             return;  // structure changed under us — safety net
-        centroid += atoms[idx].position;
+        centroidNow += atoms[idx].position;
     }
-    centroid /= float(m_carryAtoms.size());
-    const QVector3D to = m_scene->screenToModelPoint(pos.x(), pos.y(), centroid,
+    centroidNow /= float(m_carryAtoms.size());
+    const QVector3D cursorPt = m_scene->screenToModelPoint(pos.x(), pos.y(), centroidNow,
         m_quickView->width(), m_quickView->height());
-    const QVector3D delta = to - centroid;
-    for (int idx : m_carryAtoms)
-        atoms[idx].position += delta;
 
-    const int target = (m_carryAttach >= 0)
-        ? nearestBondableAtom(m_carryAttach, m_carryAtoms)
-        : -1;
-    if (target >= 0) {
+    // Free-follow pose: library orientation with the centroid under the cursor.
+    QVector3D centroidOffset;
+    for (const QVector3D& off : m_carryOffsets)
+        centroidOffset += off;
+    centroidOffset /= float(m_carryOffsets.size());
+    const int attachSlot = m_carryAtoms.indexOf(m_carryAttach);
+    const QVector3D freeAttachPos = cursorPt - centroidOffset
+        + (attachSlot >= 0 ? m_carryOffsets[attachSlot] : QVector3D());
+
+    // Bond target: evaluated from the free-follow attach position (the cursor
+    // decides), so a docked preview never sticks to its target on its own.
+    int target = -1;
+    if (m_carryAttach >= 0) {
+        float bestDist = 1e9f;
+        const float rAttach = elem::covalentRadius(atoms[m_carryAttach].element);
+        for (int i = 0; i < atoms.size(); ++i) {
+            if (m_carryAtoms.contains(i))
+                continue;
+            const float d = (atoms[i].position - freeAttachPos).length();
+            const float form = (rAttach + elem::covalentRadius(atoms[i].element))
+                * kBuildBondFormFactor;
+            if (d < form && d < bestDist) {
+                bestDist = d;
+                target = i;
+            }
+        }
+    }
+
+    if (target >= 0 && m_dockPreviewEnabled && m_carryDirF.lengthSquared() > 1e-6f
+        && attachSlot >= 0) {
+        // Claude Generated 2026 - LIVE docking preview: show the final pose
+        // (alignment + clearance-optimal roll + covalent distance) while still
+        // carrying, exactly as the drop will commit it.
+        const QVector3D targetPos = atoms[target].position;
+        QVector3D approach = freeAttachPos - targetPos;
+        if (approach.lengthSquared() < 1e-6f)
+            approach = QVector3D(1, 0, 0);
+        approach.normalize();
+        int hIdx = -1;
+        const QVector3D dirT = dockDirection(target, approach, &hIdx);
+        const float dist = elem::covalentRadius(atoms[target].element)
+            + elem::covalentRadius(atoms[m_carryAttach].element);
+        const QVector3D anchor = targetPos + dirT * dist;
+        QVector<QVector3D> dockOffsets;
+        for (int slot = 0; slot < m_carryOffsets.size(); ++slot)
+            if (slot != attachSlot && slot != m_carryXxSlot)
+                dockOffsets.append(m_carryOffsets[slot] - m_carryOffsets[attachSlot]);
+        QVector<int> ignore = m_carryAtoms;
+        ignore.append(target);
+        if (hIdx >= 0)
+            ignore.append(hIdx);
+        const QQuaternion rot = dockRotation(m_carryDirF, dirT, anchor, dockOffsets, ignore);
+        for (int slot = 0; slot < m_carryAtoms.size(); ++slot) {
+            const int idx = m_carryAtoms[slot];
+            if (slot == m_carryXxSlot)
+                atoms[idx].position = anchor;  // hide the Xx inside the attach atom
+            else
+                atoms[idx].position = anchor
+                    + rot.rotatedVector(m_carryOffsets[slot] - m_carryOffsets[attachSlot]);
+        }
         m_scene->setHoverAtom(target);
-        // Docking always commits a single bond, so the preview shows order 1.
-        const int order = 1;
         if (target != m_buildPreviewB) {
             clearBuildBondPreview();
             if (m_currentFrame >= m_trajectoryBonds.size())
                 m_trajectoryBonds.resize(m_currentFrame + 1);
-            m_trajectoryBonds[m_currentFrame].append({ m_carryAttach, target, order });
+            m_trajectoryBonds[m_currentFrame].append({ m_carryAttach, target, 1 });
+            m_buildPreviewA = m_carryAttach;
+            m_buildPreviewB = target;
+            pushBondsToScene();
+        }
+    } else if (target >= 0) {
+        // Dock preview disabled: keep the cursor-follow pose, just show the bond.
+        for (int slot = 0; slot < m_carryAtoms.size(); ++slot)
+            atoms[m_carryAtoms[slot]].position = cursorPt + m_carryOffsets[slot] - centroidOffset;
+        m_scene->setHoverAtom(target);
+        if (target != m_buildPreviewB) {
+            clearBuildBondPreview();
+            if (m_currentFrame >= m_trajectoryBonds.size())
+                m_trajectoryBonds.resize(m_currentFrame + 1);
+            m_trajectoryBonds[m_currentFrame].append({ m_carryAttach, target, 1 });
             m_buildPreviewA = m_carryAttach;
             m_buildPreviewB = target;
             pushBondsToScene();
         }
     } else {
+        for (int slot = 0; slot < m_carryAtoms.size(); ++slot)
+            atoms[m_carryAtoms[slot]].position = cursorPt + m_carryOffsets[slot] - centroidOffset;
         clearBuildBondPreview();
         m_scene->setHoverAtom(-1);
     }
@@ -3002,10 +3121,13 @@ void MoleculeViewer::dropFragmentCarry(bool keepCarrying)
         // target's valence, roll chosen for maximum clearance, Xx and a
         // sacrificial target H consumed). The carried atoms are the appended
         // tail, so removing them keeps the target's index stable.
+        QVector3D approach;
+        if (attach >= 0 && attach < atoms.size() && target < atoms.size())
+            approach = atoms[attach].position - atoms[target].position;
         std::sort(carried.begin(), carried.end(), std::greater<int>());
         for (int idx : carried)
             removeAtomAt(idx);
-        attachFragment(*fragment, target);
+        attachFragment(*fragment, target, approach);
     } else {
         // Free drop: the Xx attachment point does not survive outside a carry —
         // the open bonding site is tracked by the valence indicator instead.
@@ -3625,6 +3747,7 @@ DisplaySettings MoleculeViewer::currentDisplaySettings() const
     s.fragmentTint = m_fragmentTint;
     s.fragmentTintStrength = m_fragmentTintStrength;
     s.fragmentScale = m_fragmentScale;
+    s.buildDockPreview = m_dockPreviewEnabled;
     return s;
 }
 
@@ -3667,6 +3790,7 @@ void MoleculeViewer::applyDisplaySettings(const DisplaySettings& s, bool allowCo
     }
     setFragmentTint(s.fragmentTint, s.fragmentTintStrength);
     setFragmentScale(s.fragmentScale);
+    m_dockPreviewEnabled = s.buildDockPreview;
     setNciLabelsVisible(s.nciLabels);
     m_nciLiveMd = s.nciLiveMd;
     // Calculated sources (>= 2) only make sense when analysis results follow.

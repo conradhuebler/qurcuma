@@ -389,6 +389,7 @@ void writeVizSettings(QSettings& s, const QString& prefix, const Settings::Visua
     s.setValue(prefix + "fragmentTint", v.fragmentTint);
     s.setValue(prefix + "fragmentTintStrength", v.fragmentTintStrength);
     s.setValue(prefix + "fragmentScale", v.fragmentScale);
+    s.setValue(prefix + "buildDockPreview", v.buildDockPreview);
 }
 
 Settings::VisualizationSettings readVizSettings(const QSettings& s, const QString& prefix)
@@ -430,6 +431,7 @@ Settings::VisualizationSettings readVizSettings(const QSettings& s, const QStrin
     v.fragmentTint = s.value(prefix + "fragmentTint", v.fragmentTint).toBool();
     v.fragmentTintStrength = s.value(prefix + "fragmentTintStrength", v.fragmentTintStrength).toFloat();
     v.fragmentScale = s.value(prefix + "fragmentScale", v.fragmentScale).toFloat();
+    v.buildDockPreview = s.value(prefix + "buildDockPreview", v.buildDockPreview).toBool();
     return v;
 }
 }  // namespace

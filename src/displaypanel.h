@@ -152,6 +152,7 @@ private:
     QCheckBox* m_potArrowCheck = nullptr;      // wall force vector field show/hide
     QSpinBox*  m_potArrowResSpin = nullptr;    // vector field resolution (points per axis)
     QComboBox* m_rotationModeCombo = nullptr;
+    QCheckBox* m_dockPreviewCheck = nullptr;   // builder: live docking preview (opt-out)
 
     // Non-covalent interactions
     QComboBox* m_nciSourceCombo = nullptr;

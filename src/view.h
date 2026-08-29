@@ -316,6 +316,10 @@ public slots:
     void buildBond(int a, int b, int newOrder = 1);
     /// A live bond preview (drag or carry) is on screen. Claude Generated 2026.
     bool bondPreviewActive() const { return m_buildPreviewB >= 0; }
+    /// Carried fragments show their final docked pose live (opt-out in the
+    /// Display panel; persisted in DisplaySettings). Claude Generated 2026.
+    void setDockPreviewEnabled(bool on) { m_dockPreviewEnabled = on; }
+    bool dockPreviewEnabled() const { return m_dockPreviewEnabled; }
     /// Keys 1/2/3 during a preview: force that order (overrides the distance
     /// rule until the preview target changes or the drag ends).
     void setForcedBondOrder(int order);
@@ -331,9 +335,11 @@ public slots:
     /// Insert a library fragment as a standalone molecule next to the current
     /// structure (selected, movable). Claude Generated 2026.
     void insertFragment(const build::Fragment& fragment);
-    /// Dock a substituent fragment onto @p targetAtom: rotate its open valence
-    /// toward the target, consume a sacrificial H pointing that way, bond it.
-    void attachFragment(const build::Fragment& fragment, int targetAtom);
+    /// Dock a substituent fragment onto @p targetAtom: rotate its Xx axis onto
+    /// the docking direction, consume the sacrificial H, bond it. @p approachHint
+    /// (from the carry preview) steers which H is replaced on a saturated target.
+    void attachFragment(const build::Fragment& fragment, int targetAtom,
+        const QVector3D& approachHint = QVector3D());
     /// Start carrying a fragment: it hangs on the mouse and follows it; nearing
     /// an unbonded atom shows the bond it will form (via the fragment's attach
     /// atom); click drops it, Esc/right-click cancels. Claude Generated 2026.
@@ -767,6 +773,7 @@ private:
     bool m_buildPressConsumed = false;   // press already acted (carry drop): swallow the release
     bool m_spaceNavHeld = false;         // Space held: navigation override like Ctrl
     int m_buildForcedOrder = 0;          // 1..3 = keys override the distance-implied order
+    bool m_dockPreviewEnabled = true;    // live docked pose while carrying (opt-out)
     int m_buildPreviewA = -1;            // endpoints of the live preview bond drawn
     int m_buildPreviewB = -1;            // while dragging over a target (-1 = none)
     /// Remove the temporary preview bond (drag left the target / drag ended).
@@ -778,6 +785,10 @@ private:
     /// Remove one atom + its bonds, shifting higher indices down. No snapshot,
     /// no notifications — callers batch removals and run the canon themselves.
     void removeAtomAt(int index);
+    /// Where a new substituent docks on @p target: prefer the free valence; a
+    /// saturated target instead gives the direction of the sacrificial H closest
+    /// to @p preferredDir (reported via @p sacrificialH). Claude Generated 2026.
+    QVector3D dockDirection(int target, const QVector3D& preferredDir, int* sacrificialH) const;
     /// Docking rotation: align the fragment's Xx axis @p dirF onto -@p dirT,
     /// then pick the roll about the bond axis that keeps the fragment atoms
     /// (given as offsets relative to the attach atom) farthest from the scene.
@@ -791,6 +802,11 @@ private:
     // Points into the static fragmentLibrary() (stable storage) so Shift+drop
     // can immediately pick up a fresh copy (serial placement).
     const build::Fragment* m_carryFragment = nullptr;
+    // Library-pose geometry captured at pick-up, so the live pose (cursor-follow
+    // vs docked preview) is always computed fresh from it - no cumulative drift.
+    QVector<QVector3D> m_carryOffsets;  // per carried atom, relative to the attach atom (or centroid)
+    QVector3D m_carryDirF;              // attach->Xx bond direction in library pose (zero = none)
+    int m_carryXxSlot = -1;             // slot of the Xx within the carried set (-1 = none)
     void updateFragmentCarry(const QPoint& pos);  // follow the mouse + bond intent
     /// Commit at the current position; keepCarrying = Shift held: drop a copy
     /// and immediately carry the next one (serial placement).

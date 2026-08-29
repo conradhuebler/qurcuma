@@ -54,4 +54,6 @@ struct DisplaySettings {
     bool fragmentTint = false;
     float fragmentTintStrength = 0.6f;
     float fragmentScale = 1.0f;   // draw scale of the non-reference fragments
+    // Claude Generated 2026 - Molecule builder.
+    bool buildDockPreview = true; // carried fragments show the docked pose live
 };
