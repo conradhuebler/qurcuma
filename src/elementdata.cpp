@@ -67,7 +67,10 @@ QColor cpkColor(const QString& element)
         { "As", QColor(189, 128, 227) }, { "Se", QColor(255, 161, 0) },
         { "Ag", QColor(192, 192, 192) }, { "Au", QColor(255, 209, 35) },
         { "Pt", QColor(208, 208, 224) }, { "Hg", QColor(184, 184, 208) },
-        { "Pb", QColor(87, 89, 97) }, { "Sn", QColor(102, 128, 128) }
+        { "Pb", QColor(87, 89, 97) }, { "Sn", QColor(102, 128, 128) },
+        // Claude Generated 2026 - Xx = builder attachment point (R1): a signal
+        // colour so the docking site stands out from real atoms while carrying.
+        { "Xx", QColor(240, 80, 220) }
     };
     const auto it = colors.constFind(element);
     if (it != colors.constEnd())
@@ -87,7 +90,8 @@ float vdwRadius(const QString& element)
         { "H", 0.5f }, { "C", 0.7f }, { "N", 0.65f }, { "O", 0.6f },
         { "P", 1.0f }, { "S", 1.0f }, { "Cl", 1.0f }, { "Br", 1.15f },
         { "I", 1.4f }, { "F", 0.5f }, { "Na", 1.8f }, { "K", 2.2f },
-        { "Mg", 1.7f }, { "Ca", 2.0f }, { "Fe", 1.4f }, { "Zn", 1.35f }
+        { "Mg", 1.7f }, { "Ca", 2.0f }, { "Fe", 1.4f }, { "Zn", 1.35f },
+        { "Xx", 0.4f }  // builder attachment point: small marker sphere
     };
     const auto it = radii.constFind(element);
     if (it != radii.constEnd())

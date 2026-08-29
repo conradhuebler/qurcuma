@@ -786,10 +786,14 @@ private:
     /// Remove one atom + its bonds, shifting higher indices down. No snapshot,
     /// no notifications — callers batch removals and run the canon themselves.
     void removeAtomAt(int index);
-    /// Where a new substituent docks on @p target: prefer the free valence; a
-    /// saturated target instead gives the direction of the sacrificial H closest
-    /// to @p preferredDir (reported via @p sacrificialH). Claude Generated 2026.
-    QVector3D dockDirection(int target, const QVector3D& preferredDir, int* sacrificialH) const;
+    /// Where a new substituent docks on @p target: a bare atom docks along the
+    /// approach itself (any side is fine — following the mouse); a partially
+    /// bonded one along its free valence; a saturated one along the sacrificial
+    /// H closest to @p preferredDir (reported via @p sacrificialH). @p preferH
+    /// gets a scoring bonus so the preview tracks the mouse without flipping on
+    /// near-ties. Claude Generated 2026.
+    QVector3D dockDirection(int target, const QVector3D& preferredDir, int* sacrificialH,
+        int preferH = -1) const;
     /// Docking rotation: align the fragment's Xx axis @p dirF onto -@p dirT,
     /// then pick the roll about the bond axis that keeps the fragment atoms
     /// (given as offsets relative to the attach atom) farthest from the scene.

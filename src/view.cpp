@@ -2670,7 +2670,7 @@ void MoleculeViewer::removeAtomAt(int index)
 // the approach direction is chosen — so the fragment replaces the H on the side
 // the user brings it in from.
 QVector3D MoleculeViewer::dockDirection(int target, const QVector3D& preferredDir,
-    int* sacrificialH) const
+    int* sacrificialH, int preferH) const
 {
     if (sacrificialH)
         *sacrificialH = -1;
@@ -2680,10 +2680,20 @@ QVector3D MoleculeViewer::dockDirection(int target, const QVector3D& preferredDi
     if (target < 0 || target >= atoms.size())
         return QVector3D(1, 0, 0);
     const QVector<Bond> bonds = getCurrentFrameBonds();
-    if (build::openValence(target, atoms, bonds) > 0)
+    int neighbours = 0;
+    for (const Bond& b : bonds)
+        if (b.atom1 == target || b.atom2 == target)
+            ++neighbours;
+    if (build::openValence(target, atoms, bonds) > 0) {
+        // A bare atom has no preferred side — dock on the side the user brings
+        // the fragment in from (fixed +x here made the preview fight the mouse).
+        if (neighbours == 0)
+            return preferredDir.lengthSquared() > 1e-6f ? preferredDir.normalized()
+                                                        : QVector3D(1, 0, 0);
         return freeValenceDirection(target);
+    }
     int bestH = -1;
-    float bestDot = -2.0f;
+    float bestScore = -2.0f;
     for (const Bond& b : bonds) {
         int other = -1;
         if (b.atom1 == target)
@@ -2694,9 +2704,12 @@ QVector3D MoleculeViewer::dockDirection(int target, const QVector3D& preferredDi
             || atoms[other].element != QLatin1String("H"))
             continue;
         const QVector3D d = (atoms[other].position - atoms[target].position).normalized();
-        const float dot = QVector3D::dotProduct(d, preferredDir);
-        if (dot > bestDot) {
-            bestDot = dot;
+        // Hysteresis, not a lock: the currently previewed H keeps a small edge,
+        // so the choice follows the mouse but does not flip on near-ties.
+        const float score = QVector3D::dotProduct(d, preferredDir)
+            + (other == preferH ? 0.15f : 0.0f);
+        if (score > bestScore) {
+            bestScore = score;
             bestH = other;
         }
     }
@@ -3075,18 +3088,11 @@ void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
         if (approach.lengthSquared() < 1e-6f)
             approach = QVector3D(1, 0, 0);
         approach.normalize();
-        // Sticky sacrificial H: once chosen for this preview, keep it — the
-        // approach vector jitters with the mouse and near-tied H choices would
-        // flip the whole docked pose otherwise.
+        // The H choice follows the mouse; the small preferH bonus in
+        // dockDirection prevents near-tie flips without locking the side.
         int hIdx = -1;
-        QVector3D dirT;
-        if (target == m_buildPreviewB && m_dockPreviewH >= 0 && m_dockPreviewH < atoms.size()
-            && atoms[m_dockPreviewH].element == QLatin1String("H")) {
-            hIdx = m_dockPreviewH;
-            dirT = (atoms[hIdx].position - targetPos).normalized();
-        } else {
-            dirT = dockDirection(target, approach, &hIdx);
-        }
+        const QVector3D dirT = dockDirection(target, approach, &hIdx,
+            (target == m_buildPreviewB) ? m_dockPreviewH : -1);
         m_dockPreviewH = hIdx;
         const float dist = elem::covalentRadius(atoms[target].element)
             + elem::covalentRadius(atoms[m_carryAttach].element);
