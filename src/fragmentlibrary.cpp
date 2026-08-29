@@ -38,6 +38,23 @@ QVector3D tet(int i)
     return dirs[i];
 }
 
+// Claude Generated 2026 - Explicit attachment point (curcuma polymerbuild's
+// Xx/R1 convention): a dummy "Xx" atom bonded to the attach atom fixes the
+// bonding site and direction. Docking aligns the attach->Xx axis onto the
+// target's free valence and consumes the Xx.
+void addAttachPoint(Fragment& f, const QVector3D& direction)
+{
+    if (f.attachAtom < 0)
+        return;
+    const QVector3D base = f.atoms[f.attachAtom].position;
+    Atom xx;
+    xx.element = QStringLiteral("Xx");
+    xx.type = QStringLiteral("R1");
+    xx.position = base + direction.normalized() * 1.5f;
+    f.bonds.append({ f.attachAtom, int(f.atoms.size()), 1 });
+    f.atoms.append(xx);
+}
+
 // Saturate every atom except the attach atom with hydrogens (ring skeletons).
 void saturate(Fragment& f)
 {
@@ -65,6 +82,8 @@ Fragment benzeneSkeleton(const QString& name, int attachAtom)
         f.bonds.append({ i, (i + 1) % 6, (i % 2 == 0) ? 2 : 1 });
     }
     saturate(f);
+    if (attachAtom >= 0)
+        addAttachPoint(f, QVector3D(1, 0, 0));  // outward at C0 = (r, 0, 0)
     return f;
 }
 
@@ -101,6 +120,7 @@ const QVector<Fragment>& fragmentLibrary()
                 f.atoms.append(Atom{ tet(i) * 1.09f, QStringLiteral("H"), 0, 0, {} });
                 f.bonds.append({ 0, i, 1 });
             }
+            addAttachPoint(f, tet(0));
             lib.append(f);
         }
         {
@@ -110,6 +130,7 @@ const QVector<Fragment>& fragmentLibrary()
             f.atoms.append(atom("O", 0, 0, 0));
             f.atoms.append(Atom{ tet(1) * 0.96f, QStringLiteral("H"), 0, 0, {} });
             f.bonds.append({ 0, 1, 1 });
+            addAttachPoint(f, tet(0));
             lib.append(f);
         }
         {
@@ -121,6 +142,7 @@ const QVector<Fragment>& fragmentLibrary()
             f.atoms.append(Atom{ tet(2) * 1.01f, QStringLiteral("H"), 0, 0, {} });
             f.bonds.append({ 0, 1, 1 });
             f.bonds.append({ 0, 2, 1 });
+            addAttachPoint(f, tet(0));
             lib.append(f);
         }
         {
@@ -136,6 +158,7 @@ const QVector<Fragment>& fragmentLibrary()
             f.bonds.append({ 0, 1, 2 });
             f.bonds.append({ 0, 2, 1 });
             f.bonds.append({ 2, 3, 1 });
+            addAttachPoint(f, QVector3D(-1, 0, 0));
             lib.append(f);
         }
         lib.append(benzeneSkeleton(QStringLiteral("Phenyl  -C6H5"), 0));

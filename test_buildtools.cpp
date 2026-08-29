@@ -11,6 +11,7 @@
 #include <iostream>
 
 #include "buildtools.h"
+#include "fragmentlibrary.h"
 
 namespace {
 
@@ -198,6 +199,32 @@ int main(int, char**)
         check(build::bondOrderFromDistance("C", "C", 1.20f) == 3, "C-C at 1.20 A: triple");
         check(build::bondOrderFromDistance("C", "O", 1.21f) == 2, "C-O at 1.21 A: carbonyl double");
         check(build::bondOrderFromDistance("C", "C", 2.00f) == 1, "long distance stays single");
+    }
+
+    // --- Fragment library: every substituent has exactly one Xx bonded to
+    // its attach atom; standalone molecules carry none. ---------------------
+    {
+        for (const build::Fragment& f : build::fragmentLibrary()) {
+            int xxCount = 0;
+            int xxIndex = -1;
+            for (int i = 0; i < f.atoms.size(); ++i)
+                if (f.atoms[i].element == QLatin1String("Xx")) {
+                    ++xxCount;
+                    xxIndex = i;
+                }
+            const std::string name = f.name.toStdString();
+            if (f.attachAtom >= 0) {
+                check(xxCount == 1, name + ": one Xx attachment point");
+                bool bonded = false;
+                for (const auto& b : f.bonds)
+                    bonded = bonded
+                        || (b.atom1 == f.attachAtom && b.atom2 == xxIndex)
+                        || (b.atom1 == xxIndex && b.atom2 == f.attachAtom);
+                check(bonded, name + ": Xx bonded to the attach atom");
+            } else {
+                check(xxCount == 0, name + ": no Xx on a standalone molecule");
+            }
+        }
     }
 
     std::cout << (g_failures == 0 ? "ALL PASS" : "FAILURES") << std::endl;

@@ -2568,6 +2568,65 @@ void MoleculeViewer::insertFragment(const build::Fragment& fragment)
 // valence (free direction of its attach atom) is rotated to point toward the
 // target's free valence; an H on the target that already points that way is
 // consumed (as in a condensation drawing), then the connecting bond is added.
+// Claude Generated 2026 - Single-atom removal with bond reindexing. No snapshot,
+// no notifications: callers batch removals and run the canon themselves.
+void MoleculeViewer::removeAtomAt(int index)
+{
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return;
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    if (index < 0 || index >= atoms.size())
+        return;
+    atoms.remove(index);
+    if (m_currentFrame < m_trajectoryBonds.size()) {
+        QVector<Bond>& bonds = m_trajectoryBonds[m_currentFrame];
+        for (int i = bonds.size() - 1; i >= 0; --i) {
+            if (bonds[i].atom1 == index || bonds[i].atom2 == index) {
+                bonds.remove(i);
+                continue;
+            }
+            if (bonds[i].atom1 > index)
+                --bonds[i].atom1;
+            if (bonds[i].atom2 > index)
+                --bonds[i].atom2;
+        }
+    }
+}
+
+// Claude Generated 2026 - Docking pose: align the fragment's attachment axis
+// (attach -> Xx) onto the target's free valence, then scan the remaining degree
+// of freedom (roll about the new bond axis, 30-degree steps) and keep the pose
+// whose closest fragment/scene atom pair is farthest apart - the fragment turns
+// away from whatever it would otherwise collide with.
+QQuaternion MoleculeViewer::dockRotation(const QVector3D& dirF, const QVector3D& dirT,
+    const QVector3D& anchor, const QVector<QVector3D>& offsets,
+    const QVector<int>& ignoreSceneAtoms) const
+{
+    const QQuaternion align = QQuaternion::rotationTo(dirF, -dirT);
+    if (offsets.isEmpty() || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return align;
+    const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    QQuaternion best = align;
+    float bestClearance = -1.0f;
+    for (int deg = 0; deg < 360; deg += 30) {
+        const QQuaternion q = QQuaternion::fromAxisAndAngle(-dirT, float(deg)) * align;
+        float clearance = 1e9f;
+        for (const QVector3D& offset : offsets) {
+            const QVector3D pos = anchor + q.rotatedVector(offset);
+            for (int i = 0; i < atoms.size(); ++i) {
+                if (ignoreSceneAtoms.contains(i))
+                    continue;
+                clearance = qMin(clearance, (atoms[i].position - pos).length());
+            }
+        }
+        if (clearance > bestClearance) {
+            bestClearance = clearance;
+            best = q;
+        }
+    }
+    return best;
+}
+
 void MoleculeViewer::attachFragment(const build::Fragment& fragment, int targetAtom)
 {
     if (fragment.attachAtom < 0) {
@@ -2611,24 +2670,25 @@ void MoleculeViewer::attachFragment(const build::Fragment& fragment, int targetA
         }
     }
     if (hIndex >= 0) {
-        atoms.remove(hIndex);
-        for (int i = bonds.size() - 1; i >= 0; --i) {
-            if (bonds[i].atom1 == hIndex || bonds[i].atom2 == hIndex) {
-                bonds.remove(i);
-                continue;
-            }
-            if (bonds[i].atom1 > hIndex)
-                --bonds[i].atom1;
-            if (bonds[i].atom2 > hIndex)
-                --bonds[i].atom2;
-        }
+        removeAtomAt(hIndex);
         if (targetAtom > hIndex)
             --targetAtom;
     }
 
-    // Fragment-local open-valence direction of its attach atom.
+    // Fixed bonding site: the fragment's "Xx" attachment-point atom (curcuma
+    // polymerbuild convention) defines the bond direction; it is consumed by the
+    // docking. Fragments without one fall back to the free-valence estimate.
+    int xxLocal = -1;
+    for (int i = 0; i < fragment.atoms.size(); ++i)
+        if (fragment.atoms[i].element == QLatin1String("Xx")) {
+            xxLocal = i;
+            break;
+        }
+    const QVector3D attachLocal = fragment.atoms[fragment.attachAtom].position;
     QVector3D dirF(1, 0, 0);
-    {
+    if (xxLocal >= 0) {
+        dirF = (fragment.atoms[xxLocal].position - attachLocal).normalized();
+    } else {
         QVector3D sum;
         for (const Bond& b : fragment.bonds) {
             int other = -1;
@@ -2637,30 +2697,38 @@ void MoleculeViewer::attachFragment(const build::Fragment& fragment, int targetA
             else if (b.atom2 == fragment.attachAtom)
                 other = b.atom1;
             if (other >= 0 && other < fragment.atoms.size())
-                sum += (fragment.atoms[other].position
-                    - fragment.atoms[fragment.attachAtom].position)
-                           .normalized();
+                sum += (fragment.atoms[other].position - attachLocal).normalized();
         }
         if (sum.lengthSquared() > 1e-6f)
             dirF = (-sum).normalized();
     }
 
-    // Rotate the fragment so its open valence points back at the target, and
-    // put its attach atom at covalent-bond distance along the target's valence.
-    const QQuaternion rot = QQuaternion::rotationTo(dirF, -dirT);
+    // Put the attach atom at covalent-bond distance along the target's valence
+    // and pick the docking pose with the most clearance (dockRotation).
     const float dist = elem::covalentRadius(atoms[targetAtom].element)
         + elem::covalentRadius(fragment.atoms[fragment.attachAtom].element);
     const QVector3D anchor = atoms[targetAtom].position + dirT * dist;
+    QVector<QVector3D> offsets;
+    for (int i = 0; i < fragment.atoms.size(); ++i)
+        if (i != fragment.attachAtom && i != xxLocal)
+            offsets.append(fragment.atoms[i].position - attachLocal);
+    const QQuaternion rot = dockRotation(dirF, dirT, anchor, offsets, { targetAtom });
+
+    // Append the fragment WITHOUT its Xx; remap the internal bond indices.
     const int base = atoms.size();
-    for (const Atom& fa : fragment.atoms) {
-        Atom copy = fa;
-        copy.position = anchor
-            + rot.rotatedVector(fa.position - fragment.atoms[fragment.attachAtom].position);
+    QVector<int> map(fragment.atoms.size(), -1);
+    for (int i = 0; i < fragment.atoms.size(); ++i) {
+        if (i == xxLocal)
+            continue;
+        map[i] = int(atoms.size());
+        Atom copy = fragment.atoms[i];
+        copy.position = anchor + rot.rotatedVector(fragment.atoms[i].position - attachLocal);
         atoms.append(copy);
     }
     for (const Bond& fb : fragment.bonds)
-        bonds.append({ fb.atom1 + base, fb.atom2 + base, fb.bondOrder });
-    bonds.append({ targetAtom, base + fragment.attachAtom, 1 });
+        if (map[fb.atom1] >= 0 && map[fb.atom2] >= 0)
+            bonds.append({ map[fb.atom1], map[fb.atom2], fb.bondOrder });
+    bonds.append({ targetAtom, map[fragment.attachAtom], 1 });
 
     if (m_bondEditor)
         m_bondEditor->setAtoms(atoms);
@@ -2834,7 +2902,7 @@ void MoleculeViewer::dropFragmentCarry(bool keepCarrying)
         return;
     clearBuildBondPreview();
     const int attach = m_carryAttach;
-    const QVector<int> carried = m_carryAtoms;
+    QVector<int> carried = m_carryAtoms;
     const build::Fragment* fragment = m_carryFragment;
     m_carryActive = false;
     m_carryAtoms.clear();
@@ -2844,14 +2912,41 @@ void MoleculeViewer::dropFragmentCarry(bool keepCarrying)
         m_scene->setHoverAtom(-1);
     QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
     const int target = (attach >= 0) ? nearestBondableAtom(attach, carried) : -1;
-    if (target >= 0) {
-        const float d = (atoms[target].position - atoms[attach].position).length();
-        buildBond(attach, target,
-            build::bondOrderFromDistance(atoms[attach].element, atoms[target].element, d));
+    if (target >= 0 && fragment) {
+        // Claude Generated 2026 - Proper docking: the free-floating copy is
+        // replaced by attachFragment's placement (Xx axis aligned onto the
+        // target's valence, roll chosen for maximum clearance, Xx and a
+        // sacrificial target H consumed). The carried atoms are the appended
+        // tail, so removing them keeps the target's index stable.
+        std::sort(carried.begin(), carried.end(), std::greater<int>());
+        for (int idx : carried)
+            removeAtomAt(idx);
+        attachFragment(*fragment, target);
     } else {
+        // Free drop: the Xx attachment point does not survive outside a carry —
+        // the open bonding site is tracked by the valence indicator instead.
+        int xxGlobal = -1;
+        for (int idx : carried)
+            if (idx >= 0 && idx < atoms.size() && atoms[idx].element == QLatin1String("Xx"))
+                xxGlobal = idx;
+        if (xxGlobal >= 0) {
+            removeAtomAt(xxGlobal);
+            QVector<int> keep;
+            for (int idx : carried) {
+                if (idx == xxGlobal)
+                    continue;
+                keep.append(idx > xxGlobal ? idx - 1 : idx);
+            }
+            selectAtoms(keep, /*append=*/false);
+            syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/true, /*keepView=*/true);
+            buildForceAdjacency();
+            invalidateNciTopology();
+            emit fragmentsChanged();
+            refreshNciOverlay();
+        }
         computeCollisions();
         onStructureChanged();
-        emit moleculeUpdated(atoms, getCurrentFrameBonds());
+        emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
     }
     if (keepCarrying && fragment) {
         startFragmentCarry(*fragment);  // Shift held: pick up the next copy

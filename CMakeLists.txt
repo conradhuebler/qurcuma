@@ -423,7 +423,8 @@ target_include_directories(test_fragments PRIVATE
 
 # Builder auto-hydrogen test - Claude Generated 2026
 # Header-only use of MoleculeViewer's Atom/Bond types; no GUI, no Quick3D.
-add_executable(test_buildtools test_buildtools.cpp src/buildtools.cpp src/elementdata.cpp)
+add_executable(test_buildtools test_buildtools.cpp src/buildtools.cpp src/elementdata.cpp
+    src/fragmentlibrary.cpp)
 target_link_libraries(test_buildtools PRIVATE
 Qt6::Core
 Qt6::Gui

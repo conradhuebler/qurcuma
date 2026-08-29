@@ -482,3 +482,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-29: File > New Scene (empty scene, keeps camera, enters Build mode, Snapshots-undoable); drawn palette-coloured icons for all viewer-bar buttons (theme icons were inconsistent/missing)
 - 2026-08-29: Ctrl+Z undo (restores+consumes newest snapshot, in sync with the Snapshots tab); fragment carry mode: fragment hangs on the mouse with live bond preview, click drops, Shift+click serial-places, right-click/Esc cancels
 - 2026-08-29: Snapshot coverage completed: resolve clashes, nudge (coalesced), structure-text apply, center at origin, table edits, context-menu element change and the first atom on an empty scene are now all undoable
+- 2026-08-29: Fragments carry an explicit Xx/R1 attachment point (curcuma polymerbuild convention); docking aligns the Xx axis and picks the roll with maximum clearance (dockRotation); carry-drop re-docks properly, free drop strips the Xx

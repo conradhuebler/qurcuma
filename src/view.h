@@ -767,6 +767,15 @@ private:
     /// bonded to (the live preview bond does not count as bonded); -1 = none.
     /// @p exclude: additional atoms to skip (the rest of a carried fragment).
     int nearestBondableAtom(int from, const QVector<int>& exclude = {}) const;
+    /// Remove one atom + its bonds, shifting higher indices down. No snapshot,
+    /// no notifications — callers batch removals and run the canon themselves.
+    void removeAtomAt(int index);
+    /// Docking rotation: align the fragment's Xx axis @p dirF onto -@p dirT,
+    /// then pick the roll about the bond axis that keeps the fragment atoms
+    /// (given as offsets relative to the attach atom) farthest from the scene.
+    QQuaternion dockRotation(const QVector3D& dirF, const QVector3D& dirT,
+        const QVector3D& anchor, const QVector<QVector3D>& offsets,
+        const QVector<int>& ignoreSceneAtoms) const;
     // Fragment carry state (startFragmentCarry). Claude Generated 2026.
     bool m_carryActive = false;
     QVector<int> m_carryAtoms;   // global indices of the carried atoms
