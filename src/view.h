@@ -775,6 +775,10 @@ private:
     QVector<Bond> m_clipboardBonds;       // bonds internal to the clipboard (re-indexed)
     static constexpr float kClashFactor = 0.6f;  // clash if dist < factor * (vdw_i + vdw_j)
     static constexpr float kNudgeStep = 0.1f;    // arrow-key nudge (Angstrom)
+    // Claude Generated 2026 - Build mode uses a larger click-vs-drag threshold:
+    // with 3 px, normal click jitter cancelled the placement and produced a tiny
+    // rotation instead ("rotates instead of adding").
+    static constexpr int kBuildDragThresholdPx = 8;
     // Helpers
     QVector3D selectionCentroidLocal() const;     // mean position of selected atoms (current frame)
     void computeCollisions();                      // recolour clashes + emit collisionCountChanged

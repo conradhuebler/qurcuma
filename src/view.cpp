@@ -437,7 +437,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 // Claude Generated 2026 - Live drag feedback: the atom follows the
                 // cursor (move intent); over another atom it parks at its origin and
                 // the bond that release will create is drawn as a REAL preview bond.
-                if ((pos - m_leftPressPos).manhattanLength() > 3)
+                if ((pos - m_leftPressPos).manhattanLength() > kBuildDragThresholdPx)
                     m_leftDragged = true;
                 if (m_leftDragged && m_scene && m_quickView
                     && m_currentFrame < m_trajectoryAtoms.size()
@@ -491,9 +491,15 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 return true;
             }
             if (m_leftMousePressed) {
-                if ((pos - m_leftPressPos).manhattanLength() > 3)
+                // Claude Generated 2026 - In Build mode a click must survive small
+                // hand jitter: larger drag threshold, and no rotation below it (a
+                // sub-threshold move would otherwise nudge the view AND the release
+                // still needs to count as a click that places an atom).
+                const int threshold = buildMode() ? kBuildDragThresholdPx : 3;
+                if ((pos - m_leftPressPos).manhattanLength() > threshold)
                     m_leftDragged = true;
-                handleMouseRotation(pos);
+                if (!buildMode() || m_leftDragged)
+                    handleMouseRotation(pos);
                 m_lastMousePos = pos;
                 return true;
             } else if (m_rightMousePressed) {
