@@ -289,6 +289,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     const int from = m_buildDragFrom;
                     m_buildDragFrom = -1;
                     const int forcedOrder = m_buildForcedOrder;  // survives the clear below
+                    const int previewTarget = m_buildPreviewB;   // commit what is shown
                     clearBuildBondPreview();  // release commits via buildBond below
                     if (m_buildNavDrag) {
                         m_buildNavDrag = false;  // Ctrl+drag was pure navigation
@@ -312,7 +313,9 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                             // where it was pulled. Cursor directly on an already
                             // bonded neighbour = cycle that bond's order (a gesture,
                             // not a move: the atom returns to its start).
-                            const int proximity = nearestBondableAtom(from);
+                            const int proximity = (previewTarget >= 0)
+                                ? previewTarget
+                                : nearestBondableAtom(from);
                             const int picked = pickAtomAtScreenPos(pos, /*excludeIndex=*/from);
                             if (proximity >= 0) {
                                 const float d = (atoms[proximity].position
@@ -494,7 +497,21 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                             pos.x(), pos.y(), atoms[m_buildDragFrom].position,
                             m_quickView->width(), m_quickView->height());
                     }
-                    const int target = nearestBondableAtom(m_buildDragFrom);
+                    // Sticky preview target (same reasoning as the carry preview:
+                    // near-equidistant candidates must not flip per mouse move).
+                    int target = -1;
+                    if (m_buildPreviewB >= 0 && m_buildPreviewB < atoms.size()) {
+                        const float d = (atoms[m_buildPreviewB].position
+                            - atoms[m_buildDragFrom].position)
+                                            .length();
+                        const float keep = (elem::covalentRadius(atoms[m_buildDragFrom].element)
+                                               + elem::covalentRadius(atoms[m_buildPreviewB].element))
+                            * kBuildBondFormFactor * 1.15f;
+                        if (d < keep)
+                            target = m_buildPreviewB;
+                    }
+                    if (target < 0)
+                        target = nearestBondableAtom(m_buildDragFrom);
                     if (target >= 0) {
                         m_scene->setHoverAtom(target);
                         // The preview shows the bond order the current distance
@@ -2912,6 +2929,7 @@ int MoleculeViewer::nearestBondableAtom(int from, const QVector<int>& exclude) c
 void MoleculeViewer::clearBuildBondPreview()
 {
     m_buildForcedOrder = 0;  // a forced order lives only as long as its preview
+    m_dockPreviewH = -1;
     if (m_buildPreviewA < 0)
         return;
     if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryBonds.size()) {
@@ -3017,19 +3035,32 @@ void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
 
     // Bond target: evaluated from the free-follow attach position (the cursor
     // decides), so a docked preview never sticks to its target on its own.
+    // Sticky: the current preview target survives while it stays within 115 %
+    // of the forming distance — otherwise near-equidistant candidates make the
+    // preview flip back and forth on every mouse move.
     int target = -1;
     if (m_carryAttach >= 0) {
-        float bestDist = 1e9f;
         const float rAttach = elem::covalentRadius(atoms[m_carryAttach].element);
-        for (int i = 0; i < atoms.size(); ++i) {
-            if (m_carryAtoms.contains(i))
-                continue;
-            const float d = (atoms[i].position - freeAttachPos).length();
-            const float form = (rAttach + elem::covalentRadius(atoms[i].element))
-                * kBuildBondFormFactor;
-            if (d < form && d < bestDist) {
-                bestDist = d;
-                target = i;
+        if (m_buildPreviewB >= 0 && m_buildPreviewB < atoms.size()
+            && !m_carryAtoms.contains(m_buildPreviewB)) {
+            const float d = (atoms[m_buildPreviewB].position - freeAttachPos).length();
+            const float keep = (rAttach + elem::covalentRadius(atoms[m_buildPreviewB].element))
+                * kBuildBondFormFactor * 1.15f;
+            if (d < keep)
+                target = m_buildPreviewB;
+        }
+        if (target < 0) {
+            float bestDist = 1e9f;
+            for (int i = 0; i < atoms.size(); ++i) {
+                if (m_carryAtoms.contains(i))
+                    continue;
+                const float d = (atoms[i].position - freeAttachPos).length();
+                const float form = (rAttach + elem::covalentRadius(atoms[i].element))
+                    * kBuildBondFormFactor;
+                if (d < form && d < bestDist) {
+                    bestDist = d;
+                    target = i;
+                }
             }
         }
     }
@@ -3044,8 +3075,19 @@ void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
         if (approach.lengthSquared() < 1e-6f)
             approach = QVector3D(1, 0, 0);
         approach.normalize();
+        // Sticky sacrificial H: once chosen for this preview, keep it — the
+        // approach vector jitters with the mouse and near-tied H choices would
+        // flip the whole docked pose otherwise.
         int hIdx = -1;
-        const QVector3D dirT = dockDirection(target, approach, &hIdx);
+        QVector3D dirT;
+        if (target == m_buildPreviewB && m_dockPreviewH >= 0 && m_dockPreviewH < atoms.size()
+            && atoms[m_dockPreviewH].element == QLatin1String("H")) {
+            hIdx = m_dockPreviewH;
+            dirT = (atoms[hIdx].position - targetPos).normalized();
+        } else {
+            dirT = dockDirection(target, approach, &hIdx);
+        }
+        m_dockPreviewH = hIdx;
         const float dist = elem::covalentRadius(atoms[target].element)
             + elem::covalentRadius(atoms[m_carryAttach].element);
         const QVector3D anchor = targetPos + dirT * dist;
@@ -3103,6 +3145,10 @@ void MoleculeViewer::dropFragmentCarry(bool keepCarrying)
 {
     if (!m_carryActive)
         return;
+    // Commit exactly what the preview shows: a fresh search from the docked
+    // pose could pick a DIFFERENT atom (the docked position may sit closer to
+    // some bystander than to the previewed target).
+    const int previewTarget = m_buildPreviewB;
     clearBuildBondPreview();
     const int attach = m_carryAttach;
     QVector<int> carried = m_carryAtoms;
@@ -3114,7 +3160,9 @@ void MoleculeViewer::dropFragmentCarry(bool keepCarrying)
     if (m_scene)
         m_scene->setHoverAtom(-1);
     QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
-    const int target = (attach >= 0) ? nearestBondableAtom(attach, carried) : -1;
+    int target = previewTarget;
+    if (target < 0)
+        target = (attach >= 0) ? nearestBondableAtom(attach, carried) : -1;
     if (target >= 0 && fragment) {
         // Claude Generated 2026 - Proper docking: the free-floating copy is
         // replaced by attachFragment's placement (Xx axis aligned onto the

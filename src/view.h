@@ -774,6 +774,7 @@ private:
     bool m_spaceNavHeld = false;         // Space held: navigation override like Ctrl
     int m_buildForcedOrder = 0;          // 1..3 = keys override the distance-implied order
     bool m_dockPreviewEnabled = true;    // live docked pose while carrying (opt-out)
+    int m_dockPreviewH = -1;             // sticky sacrificial-H choice of the active preview
     int m_buildPreviewA = -1;            // endpoints of the live preview bond drawn
     int m_buildPreviewB = -1;            // while dragging over a target (-1 = none)
     /// Remove the temporary preview bond (drag left the target / drag ended).
