@@ -70,7 +70,7 @@ struct SimulationConfig {
     int rattleMaxIter = 100;      // Max RATTLE iterations per step
 
     // GFN-FF topology mode (MD only)
-    QString topologyMode = "auto"; // "auto" (two-tier caching) or "constant" (never recalculate)
+    QString topologyMode = "auto"; // "auto" (two-tier caching), "constant" (never recalculate), "react" (dynamic bond topology)
 
     // Hydrogen mass scaling (MD only) - increases H mass to allow larger time steps
     double hmass = 1.0; // 1.0 = normal mass, 2.0 or 3.0 = scaled (common values)

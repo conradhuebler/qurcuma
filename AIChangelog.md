@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## August 2026 - Reaktives GFN-FF: Topologiemodus "react"
+
+- **Topologie-Combo erweitert** (`src/simulationcontrolwidget.cpp`): dritter Eintrag "Reactive (bonds form and break)" (userData `react`) neben Default (adaptive, `auto`) und Constant; Tooltip beschreibt den Modus sachlich (Bindungen werden während der MD neu erkannt, Bonded-Terme bei Änderung neu aufgebaut, NVT-only). Der String fließt unverändert über `SimulationConfig::topologyMode` und `buildMdController` an curcuma; Lesson-Roundtrip generisch, keine weiteren Änderungen nötig.
+- **curcuma-Seite** (external/curcuma, Branch `reactff`): ereignisgesteuerter Hysterese-Scan (Bildung optimistisch 1.6, Erhalt konservativ 2.6), vollständige Regeneration aller Bonded-Terme + Repulsions-Partition, dE_jump-Protokoll, GPU/ROCm-Workspace-Rekonstruktion — Details in `external/curcuma/docs/GFNFF_REACT_TOPOLOGY.md`.
+
 ## August 2026 - NCI-Overlay: nichtkovalente Wechselwirkungen anzeigen
 
 - **Geometrische Erkennung** (`src/ncianalysis.{h,cpp}`, `namespace nci`, freie Funktionen): Wasserstoffbrücken (D-H...A, D/A aus N,O,F,S bzw. N,O,F,S,Cl,Br,I; 2.50 Å / 130° nach Jeffrey + IUPAC), Halogenbrücken (C-X...A, X aus Cl,Br,I,At — F ohne σ-Loch ausgeschlossen; 0.95·Σr_vdW / 150°), π-Stacking (planare 5-/6-Ringe, Zentroidabstand ≤ 5.5 Å, parallel ≤ 30° mit Versatz ≤ 2.0 Å oder T-förmig ≥ 60°) und generische vdW-Nahkontakte (0.90·Σr_vdW, Vorgabe aus). 1-2/1-3-Ausschluss über `forceinjector::buildAdjacency`; Ringerkennung über curcumas `Topology::FindRings` (nur bei Topologieänderung, Cache im Viewer).

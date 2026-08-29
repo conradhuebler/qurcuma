@@ -419,10 +419,13 @@ QGroupBox* SimulationControlWidget::createPotentialGroup()
 
     // GFN-FF topology mode selector
     m_topologyModeCombo = new QComboBox(this);
-    m_topologyModeCombo->addItem(tr("Auto (adaptive)"), "auto");
+    m_topologyModeCombo->addItem(tr("Default (adaptive)"), "auto");
     m_topologyModeCombo->addItem(tr("Constant (fixed)"), "constant");
-    m_topologyModeCombo->setToolTip(tr("GFN-FF topology mode: Auto recalculates topology when needed, "
-                                       "Constant keeps initial topology fixed (faster for MD)"));
+    m_topologyModeCombo->addItem(tr("Reactive (bonds form and break)"), "react");
+    m_topologyModeCombo->setToolTip(tr("GFN-FF topology mode: Default recalculates topology when needed, "
+                                       "Constant keeps the initial topology fixed (faster for MD), "
+                                       "Reactive re-detects bonds during MD and rebuilds the bonded terms "
+                                       "when bonds form or break (NVT only)"));
     potentialForm->addRow(tr("Topology:"), m_topologyModeCombo);
 
     return potentialGroup;
