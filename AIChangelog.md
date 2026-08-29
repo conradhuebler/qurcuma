@@ -474,3 +474,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-28: Build gestures reworked: left-click on atom changes its element, middle-click attaches, right-click deletes (context menu stays on empty space)
 - 2026-08-28: Build mode: drag an atom onto empty space moves it (bond-drag preview doubles as move preview; drawn topology kept)
 - 2026-08-29: Build drag feedback: atom follows the cursor live, bond target parks it with preview line + highlight (pick excludes the dragged atom); first atom seeds the scene without camera reset (lands under the cursor)
+- 2026-08-29: Build drag: bond preview is now a real live bond (removed on leave, committed on release); Ctrl+drag = navigation override; stuck-rotate fixed (button state re-synced on move, dblclick re-arms press state)

@@ -746,6 +746,13 @@ private:
     int m_buildDragFrom = -1;            // atom under the press starting a bond/move drag
     QVector3D m_buildDragStartPos;       // its pre-drag position (restored on bond)
     bool m_buildDragMoved = false;       // the drag has displaced it live
+    bool m_buildNavDrag = false;         // Ctrl+drag: pure navigation, no build action
+    int m_buildPreviewA = -1;            // endpoints of the live preview bond drawn
+    int m_buildPreviewB = -1;            // while dragging over a target (-1 = none)
+    /// Remove the temporary preview bond (drag left the target / drag ended).
+    void clearBuildBondPreview();
+    /// Push the current frame's bond list to the renderer (bonds only, no camera).
+    void pushBondsToScene();
     /// Append one atom (optionally bonded to @p bondTo) with full notifications.
     int addAtomAt(const QVector3D& modelPos, const QString& element, int bondTo = -1);
     /// Place an atom of the current element under the cursor (click on empty space).

@@ -194,8 +194,10 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     // Claude Generated 2026 - Build mode: remember the atom under the
                     // press. A drag from it moves it live (or bonds when released on
                     // another atom); a press on empty space stays a rotate-drag, and a
-                    // plain click places a new atom on release.
-                    m_buildDragFrom = pickAtomAtScreenPos(m_lastMousePos);
+                    // plain click places a new atom on release. Ctrl+drag is pure
+                    // navigation (rotate) even when the press hits an atom.
+                    m_buildNavDrag = me->modifiers() & Qt::ControlModifier;
+                    m_buildDragFrom = m_buildNavDrag ? -1 : pickAtomAtScreenPos(m_lastMousePos);
                     m_buildDragMoved = false;
                     if (m_buildDragFrom >= 0 && m_currentFrame < m_trajectoryAtoms.size()
                         && m_buildDragFrom < m_trajectoryAtoms[m_currentFrame].size())
@@ -271,8 +273,11 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     const QPoint pos = me->position().toPoint();
                     const int from = m_buildDragFrom;
                     m_buildDragFrom = -1;
-                    if (m_scene)
-                        m_scene->setMeasurement({}, QString());  // clear the bond preview
+                    clearBuildBondPreview();  // release commits via buildBond below
+                    if (m_buildNavDrag) {
+                        m_buildNavDrag = false;  // Ctrl+drag was pure navigation
+                        return true;
+                    }
                     if (from >= 0) {
                         if (!m_leftDragged) {
                             // Click on an atom: change it to the current element
@@ -374,6 +379,22 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
         case QEvent::MouseMove: {
             auto* me = static_cast<QMouseEvent*>(event);
             QPoint pos = me->position().toPoint();
+            // Claude Generated 2026 - Recover from lost release events (button let
+            // go outside the view / over a popup): trust the event's live button
+            // state, otherwise the viewer is stuck rotating with no button down.
+            if (m_leftMousePressed && !(me->buttons() & Qt::LeftButton)) {
+                m_leftMousePressed = false;
+                m_movingSelection = false;
+                m_rubberBanding = false;
+                m_buildNavDrag = false;
+                m_buildDragFrom = -1;
+                m_buildDragMoved = false;
+                clearBuildBondPreview();
+                if (m_scene)
+                    m_scene->setRubberBand(QRectF(), false);
+            }
+            if (m_rightMousePressed && !(me->buttons() & Qt::RightButton))
+                m_rightMousePressed = false;
             if (editMode() && !m_simulationActive && m_leftMousePressed && m_movingSelection) {
                 const QPoint d = pos - m_lastMousePos;
                 if (d.isNull())
@@ -415,7 +436,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
             if (buildMode() && !m_simulationActive && m_leftMousePressed && m_buildDragFrom >= 0) {
                 // Claude Generated 2026 - Live drag feedback: the atom follows the
                 // cursor (move intent); over another atom it parks at its origin and
-                // a preview line + highlight show the bond that release will create.
+                // the bond that release will create is drawn as a REAL preview bond.
                 if ((pos - m_leftPressPos).manhattanLength() > 3)
                     m_leftDragged = true;
                 if (m_leftDragged && m_scene && m_quickView
@@ -427,14 +448,31 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     const int target = pickAtomAtScreenPos(pos, /*excludeIndex=*/m_buildDragFrom);
                     if (target >= 0) {
                         atoms[m_buildDragFrom].position = m_buildDragStartPos;
-                        m_scene->setMeasurement(
-                            { qMakePair(m_buildDragStartPos, atoms[target].position) }, QString());
                         m_scene->setHoverAtom(target);
+                        if (target != m_buildPreviewB) {
+                            clearBuildBondPreview();
+                            if (m_currentFrame >= m_trajectoryBonds.size())
+                                m_trajectoryBonds.resize(m_currentFrame + 1);
+                            QVector<Bond>& bonds = m_trajectoryBonds[m_currentFrame];
+                            bool exists = false;
+                            for (const Bond& b : bonds)
+                                if ((b.atom1 == m_buildDragFrom && b.atom2 == target)
+                                    || (b.atom1 == target && b.atom2 == m_buildDragFrom)) {
+                                    exists = true;  // release will cycle its order
+                                    break;
+                                }
+                            if (!exists) {
+                                bonds.append({ m_buildDragFrom, target, 1 });
+                                m_buildPreviewA = m_buildDragFrom;
+                                m_buildPreviewB = target;
+                                pushBondsToScene();
+                            }
+                        }
                     } else {
+                        clearBuildBondPreview();
                         atoms[m_buildDragFrom].position = m_scene->screenToModelPoint(
                             pos.x(), pos.y(), m_buildDragStartPos,
                             m_quickView->width(), m_quickView->height());
-                        m_scene->setMeasurement({}, QString());
                         m_scene->setHoverAtom(-1);
                     }
                     m_buildDragMoved = true;
@@ -480,6 +518,22 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
         }
         case QEvent::MouseButtonDblClick: {
             auto* me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton && buildMode() && !m_simulationActive) {
+                // Claude Generated 2026 - A double-click replaces the second press
+                // with this event; treat it like a press so the follow-up release
+                // doesn't run with stale state and place a second stacked atom.
+                m_leftMousePressed = true;
+                m_lastMousePos = me->position().toPoint();
+                m_leftPressPos = m_lastMousePos;
+                m_leftDragged = false;
+                m_buildNavDrag = me->modifiers() & Qt::ControlModifier;
+                m_buildDragFrom = m_buildNavDrag ? -1 : pickAtomAtScreenPos(m_lastMousePos);
+                m_buildDragMoved = false;
+                if (m_buildDragFrom >= 0 && m_currentFrame < m_trajectoryAtoms.size()
+                    && m_buildDragFrom < m_trajectoryAtoms[m_currentFrame].size())
+                    m_buildDragStartPos = m_trajectoryAtoms[m_currentFrame][m_buildDragFrom].position;
+                return true;
+            }
             if (me->button() == Qt::LeftButton && editMode() && !m_simulationActive) {
                 // Double-click selects the whole connected molecule (fragment).
                 const int picked = pickAtomAtScreenPos(me->position().toPoint());
@@ -2124,12 +2178,13 @@ void MoleculeViewer::setInteractionMode(InteractionMode mode)
         emit bondEditModeChanged(0);
         break;
     case InteractionMode::Build:
+        clearBuildBondPreview();
         m_buildDragFrom = -1;
+        m_buildDragMoved = false;
+        m_buildNavDrag = false;
         m_collisionAtoms.clear();
-        if (m_scene) {
+        if (m_scene)
             m_scene->setCollisionAtoms({});
-            m_scene->setMeasurement({}, QString());  // clear a bond-drag preview
-        }
         emit collisionCountChanged(0);
         break;
     default:
@@ -2248,6 +2303,7 @@ void MoleculeViewer::updateBuildHint()
                                 "  ·  drag atom→atom: bond (repeat: order)"
                                 "  ·  drag atom→empty: move"
                                 "  ·  middle-click: attach  ·  right-click: delete"
+                                "  ·  Ctrl+drag: rotate"
                                 "  ·  H C N O S P F L(Cl) R(Br): element")
                                  .arg(m_buildElement));
 }
@@ -2528,6 +2584,40 @@ void MoleculeViewer::attachFragment(const build::Fragment& fragment, int targetA
     computeCollisions();
     onStructureChanged();
     emit moleculeUpdated(atoms, getCurrentFrameBonds());
+}
+
+// Claude Generated 2026 - Live bond preview helpers: while a build drag hovers a
+// target atom, the bond that release will create is inserted as a REAL bond so
+// the user sees exactly what forms; it is removed when the drag leaves the
+// target or ends. Only the bond list is pushed (no bounds/camera change).
+void MoleculeViewer::pushBondsToScene()
+{
+    if (!m_scene || m_currentFrame < 0 || m_currentFrame >= m_trajectoryBonds.size())
+        return;
+    const QVector<Bond>& bonds = m_trajectoryBonds[m_currentFrame];
+    QVector<SceneController::BondDatum> sb;
+    sb.reserve(bonds.size());
+    for (const Bond& b : bonds)
+        sb.append({ b.atom1, b.atom2, b.bondOrder });
+    m_scene->updateBonds(sb);
+}
+
+void MoleculeViewer::clearBuildBondPreview()
+{
+    if (m_buildPreviewA < 0)
+        return;
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryBonds.size()) {
+        QVector<Bond>& bonds = m_trajectoryBonds[m_currentFrame];
+        for (int i = bonds.size() - 1; i >= 0; --i)
+            if ((bonds[i].atom1 == m_buildPreviewA && bonds[i].atom2 == m_buildPreviewB)
+                || (bonds[i].atom1 == m_buildPreviewB && bonds[i].atom2 == m_buildPreviewA)) {
+                bonds.remove(i);
+                break;
+            }
+        pushBondsToScene();
+    }
+    m_buildPreviewA = -1;
+    m_buildPreviewB = -1;
 }
 
 int MoleculeViewer::openValenceCount() const
