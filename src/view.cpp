@@ -435,8 +435,10 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
             }
             if (buildMode() && !m_simulationActive && m_leftMousePressed && m_buildDragFrom >= 0) {
                 // Claude Generated 2026 - Live drag feedback: the atom follows the
-                // cursor (move intent); over another atom it parks at its origin and
-                // the bond that release will create is drawn as a REAL preview bond.
+                // cursor; while the cursor hovers a bond target the atom FREEZES at
+                // the position it was pulled to (no snapping to the tabulated
+                // covalent distance) and the resulting bond is drawn as a REAL
+                // preview bond. Release keeps atom and bond exactly as shown.
                 if ((pos - m_leftPressPos).manhattanLength() > kBuildDragThresholdPx)
                     m_leftDragged = true;
                 if (m_leftDragged && m_scene && m_quickView
@@ -447,21 +449,8 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                         requestBuildSnapshot();  // before the first live displacement
                     const int target = pickAtomAtScreenPos(pos, /*excludeIndex=*/m_buildDragFrom);
                     if (target >= 0 && target < m_trajectoryAtoms[m_currentFrame].size()) {
-                        // Snap the dragged atom to covalent-bond distance from the
-                        // target, on the side the drag approaches from — it keeps
-                        // the pulled position instead of jumping back to its start.
-                        const QVector3D cursorPt = m_scene->screenToModelPoint(
-                            pos.x(), pos.y(), m_buildDragStartPos,
-                            m_quickView->width(), m_quickView->height());
-                        QVector3D dir = cursorPt - atoms[target].position;
-                        if (dir.lengthSquared() < 1e-4f)
-                            dir = m_buildDragStartPos - atoms[target].position;
-                        if (dir.lengthSquared() < 1e-4f)
-                            dir = QVector3D(1, 0, 0);
-                        dir.normalize();
-                        const float dist = elem::covalentRadius(atoms[target].element)
-                            + elem::covalentRadius(atoms[m_buildDragFrom].element);
-                        atoms[m_buildDragFrom].position = atoms[target].position + dir * dist;
+                        // The atom stays where it was pulled to — frozen while the
+                        // cursor hovers the target, so it never stacks onto it.
                         m_scene->setHoverAtom(target);
                         if (target != m_buildPreviewB) {
                             clearBuildBondPreview();
