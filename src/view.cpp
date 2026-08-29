@@ -660,6 +660,7 @@ void MoleculeViewer::rotateSceneByKey(int key, bool nudge)
         case Qt::Key_E: worldStep = QVector3D(0, 0, -kNudgeStep); break;
         default: return;
         }
+        requestCoalescedSnapshot(tr("Before nudge"));  // Claude Generated 2026
         moveSelection(m_scene->rootRotation().inverted().rotatedVector(worldStep));
         return;
     }
@@ -1870,6 +1871,7 @@ void MoleculeViewer::resetViewToMolecule() { setDefaultView(); }
 void MoleculeViewer::centerAtOrigin()
 {
     if (m_trajectoryAtoms.isEmpty()) return;
+    emit editSnapshotRequested(tr("Before center at origin"));  // Claude Generated 2026
     for (QVector<Atom>& frame : m_trajectoryAtoms) {
         if (frame.isEmpty()) continue;
         double totalMass = 0.0;
@@ -2354,14 +2356,19 @@ void MoleculeViewer::updateBuildHint()
                                  .arg(m_buildElement));
 }
 
-// One undo snapshot per 5 s of building: placing a chain atom-by-atom stays a
-// single Snapshots entry instead of one per click.
-void MoleculeViewer::requestBuildSnapshot()
+// One undo snapshot per 5 s of rapid edits: placing a chain atom-by-atom or
+// nudging a selection stays a single Snapshots entry instead of one per input.
+void MoleculeViewer::requestCoalescedSnapshot(const QString& label)
 {
     if (!m_buildSnapshotTimer.isValid() || m_buildSnapshotTimer.elapsed() > 5000) {
-        emit editSnapshotRequested(tr("Before build edits"));
+        emit editSnapshotRequested(label);
         m_buildSnapshotTimer.start();
     }
+}
+
+void MoleculeViewer::requestBuildSnapshot()
+{
+    requestCoalescedSnapshot(tr("Before build edits"));
 }
 
 // Where a new substituent has the most room: opposite the average of the unit
@@ -2414,6 +2421,7 @@ int MoleculeViewer::addAtomAt(const QVector3D& modelPos, const QString& element,
     atom.element = element;
 
     if (m_trajectoryAtoms.isEmpty()) {
+        emit editSnapshotRequested(tr("Before first atom"));  // empty scene, undoable
         // Claude Generated 2026 - Seed the scene WITHOUT the camera reset a normal
         // load performs (addMolecule would recentre), so the first built atom
         // stays under the cursor instead of jumping to the screen centre.
@@ -3040,6 +3048,7 @@ bool MoleculeViewer::applyStructureFromAtoms(const QVector<Atom>& atoms)
 {
     if (!canEditStructure() || atoms.isEmpty())
         return false;
+    emit editSnapshotRequested(tr("Before apply structure text"));  // Claude Generated 2026
     if (m_trajectoryAtoms.isEmpty()) {
         m_trajectoryAtoms.resize(1);
         m_trajectoryBonds.resize(1);
@@ -3127,6 +3136,7 @@ void MoleculeViewer::resolveClashes()
 {
     if (m_selectedAtoms.isEmpty() || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
         return;
+    emit editSnapshotRequested(tr("Before resolve clashes"));  // Claude Generated 2026
     const QSet<int> sel(m_selectedAtoms.begin(), m_selectedAtoms.end());
     QSet<quint64> bonded;
     if (m_currentFrame < m_trajectoryBonds.size())

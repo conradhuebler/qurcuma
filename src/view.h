@@ -786,8 +786,10 @@ private:
     void placeAtomAtScreen(const QPoint& pos);
     /// -(sum of unit bond vectors): where a new substituent has the most room.
     QVector3D freeValenceDirection(int atomIndex) const;
-    /// Coalesced undo snapshot: at most one per 5 s of build edits.
-    void requestBuildSnapshot();
+    /// Coalesced undo snapshot: at most one per 5 s window (rapid repeated edits
+    /// like atom placement or nudging become one Snapshots entry).
+    void requestCoalescedSnapshot(const QString& label);
+    void requestBuildSnapshot();  // = requestCoalescedSnapshot("Before build edits")
     void updateBuildHint();
     bool m_movingSelection = false;       // a drag-move of the selection is in progress
     bool m_moveSnapshotTaken = false;     // pre-move undo snapshot taken for this drag

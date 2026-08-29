@@ -1513,6 +1513,7 @@ void MainWindow::setupConnections()
                     if (m_structSyncing || !m_moleculeView)
                         return;
                     m_structSyncing = true;
+                    takeSnapshot(tr("Before table edit"));  // Claude Generated 2026
                     m_moleculeView->setAtomInCurrentFrame(row, element, position);
                     if (m_simulationControlWidget)
                         m_simulationControlWidget->setMolecule(
@@ -2632,6 +2633,7 @@ void MainWindow::showViewportContextMenu(const QPoint& globalPos, int atomIndex)
                 statusBar()->showMessage(tr("Unknown element: %1").arg(s), 3000);
                 return;
             }
+            takeSnapshot(tr("Before element change"));  // Claude Generated 2026
             m_moleculeView->setAtomInCurrentFrame(atomIndex, s, atoms[atomIndex].position);
         });
 
