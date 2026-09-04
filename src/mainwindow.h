@@ -461,6 +461,7 @@ private:
     ImageGalleryDock* m_imageGalleryDock = nullptr; // Bottom (tabified): batch border-trim gallery
     NciDock* m_nciDock = nullptr;                   // Right (tabified): non-covalent interaction contacts
     QDialog* m_simulationChartDialog = nullptr;     // Modeless dialog: live MD temperature/energy charts
+    QAction* m_chartsAction = nullptr;              // Checkable Molecule -> Simulation Charts toggle
     QTabWidget* m_simulationTabs = nullptr;         // Internal tabs inside m_simulationDock
 
     // Claude Generated 2026 - P2: Explore/Compute mode switch

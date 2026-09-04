@@ -7,6 +7,8 @@
 // Claude Generated 2026.
 #include "view.h"
 
+#include "measurements.h"
+
 #include "bondeditor.h"
 #include "elementdata.h"
 #include "widgets/elementpicker.h"  // Claude Generated 2026 - builder element strip
@@ -1380,35 +1382,29 @@ void MoleculeViewer::updateMeasurement()
         // Show ALL geometric quantities for the picked set, not just the single
         // "auto-detected" one: every pairwise distance, the chain angles, and the
         // dihedral(s). Claude Generated.
+        // Same functions the live charts use (src/measurements.h), so a number in
+        // this HUD and the same number in a plot cannot drift apart.
         auto pos = [&](int k) { return atoms[idx[k]].position; };
-        auto angleAt = [&](int a, int b, int c) {
-            return qRadiansToDegrees(qAcos(qBound(-1.0f,
-                QVector3D::dotProduct((pos(a) - pos(b)).normalized(), (pos(c) - pos(b)).normalized()), 1.0f)));
-        };
         QStringList parts;
 
         QStringList dists;
         for (int i = 0; i < n; ++i)
             for (int j = i + 1; j < n; ++j)
                 dists << QStringLiteral("%1–%2 %3").arg(names[i], names[j])
-                             .arg((pos(j) - pos(i)).length(), 0, 'f', 3);
+                             .arg(measure::distance(pos(i), pos(j)), 0, 'f', 3);
         parts << tr("d[Å]:  ") + dists.join(QStringLiteral("   "));
 
         if (n >= 3) {
             QStringList angs;
             for (int i = 0; i + 2 < n; ++i)
                 angs << QStringLiteral("%1-%2-%3 %4°").arg(names[i], names[i + 1], names[i + 2])
-                            .arg(angleAt(i, i + 1, i + 2), 0, 'f', 1);
+                            .arg(measure::angleDeg(pos(i), pos(i + 1), pos(i + 2)), 0, 'f', 1);
             parts << tr("∠[°]:  ") + angs.join(QStringLiteral("   "));
         }
         if (n >= 4) {
             QStringList dihs;
             for (int i = 0; i + 3 < n; ++i) {
-                const QVector3D b1 = pos(i + 1) - pos(i), b2 = pos(i + 2) - pos(i + 1), b3 = pos(i + 3) - pos(i + 2);
-                const QVector3D nn1 = QVector3D::crossProduct(b1, b2), nn2 = QVector3D::crossProduct(b2, b3);
-                const QVector3D mm = QVector3D::crossProduct(nn1, b2.normalized());
-                const float dih = qRadiansToDegrees(qAtan2(QVector3D::dotProduct(mm, nn2),
-                    QVector3D::dotProduct(nn1, nn2)));
+                const double dih = measure::dihedralDeg(pos(i), pos(i + 1), pos(i + 2), pos(i + 3));
                 dihs << QStringLiteral("%1-%2-%3-%4 %5°")
                             .arg(names[i], names[i + 1], names[i + 2], names[i + 3]).arg(dih, 0, 'f', 1);
             }

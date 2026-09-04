@@ -1,5 +1,11 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Verfolgte Messungen in den Charts
+
+- **`src/measurements.{h,cpp}`** (GUI-frei, `test_measurements` mit 29 Prüfungen): Abstand, Winkel und vorzeichenbehafteter Diederwinkel, eine `Tracked`-Beschreibung (2/3/4 Atome bestimmen die Art) und Histogramm-Binning. Die Mathematik lag bisher als lokale Lambdas in `MoleculeViewer::updateMeasurement()`; der Viewer-HUD nutzt jetzt dieselben Funktionen wie die Plots, damit abgelesene und geplottete Zahlen nicht auseinanderlaufen können. Die Vorzeichenkonvention des Diederwinkels ist im Test von Hand hergeleitet und damit festgenagelt.
+- **Chart-Widget erweitert**: dritter Plot für beliebig viele verfolgte Messungen, Reiter "Histogram", Steuerleiste mit Ansichtsmodus (gleitendes Fenster über N ps / akkumuliert), Fensterlänge, Normierungs-Umschalter, Binzahl und CSV-Export der Rohwerte. Messwerte liegen als Vektoren, die Serien werden daraus neu aufgebaut — Fenster, Normierung und Binzahl wirken dadurch rückwirkend auf alles bereits Aufgezeichnete. Zeitachse in ps (der Zeitschritt kommt aus der Config, das Frame trägt nur die Schrittzahl). Das Histogramm ist bewusst eine Stufenlinie: CuteCharts `ChartView` würde bei einer Balkenserie an deren `QBarCategoryAxis` in einen Null-Zeiger laufen.
+- **Charts umschaltbar**: Molecule ▸ Simulation Charts ist jetzt checkbar (Strg+Umschalt+C) und schließt die Ansicht auch wieder; ein Schließen über die Fensterleiste hakt den Menüeintrag ab.
+
 ## September 2026 - Abbruchgrund und periodischer Container
 
 - **Warum ein Lauf endet** (`src/simulationworker.*`, `src/simulationcontrolwidget.*`, `src/mainwindow.cpp`): `finished()` trägt jetzt Grund und Abbruch-Flag, gespeist aus curcumas neuem `SimpleMD::stopReason()`. Das Dock zeigt "Finished: Simulationszeit erreicht (nach N Schritten)" oder rot "Aborted: …", das neue Signal `runEnded` spiegelt die Zeile ins Output-Dock und in die Statusleiste. Vorher war jedes Ende identisch beschriftet — curcuma meldet Abbrüche erst ab Verbosity 1 (die GUI fährt 0) und das reguläre Zeitende gar nicht, und `m_run_aborted` hatte keinen Getter.

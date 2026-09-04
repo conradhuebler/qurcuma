@@ -205,6 +205,7 @@ set(SOURCES
     src/buildtools.cpp  # Claude Generated 2026 - builder valence accounting + auto-H placement
     src/fragmentlibrary.cpp  # Claude Generated 2026 - built-in builder fragments
     src/scenefiller.cpp  # Claude Generated 2026 - pack fragment copies into a container
+    src/measurements.cpp  # Claude Generated 2026 - distance/angle/dihedral + histogram binning
     src/dialogs/fillcontainerdialog.cpp  # Claude Generated 2026 - fill-container dialog
     src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.cpp  # Claude Generated 2026 - Quick3D renderer: bond instancing
@@ -426,6 +427,17 @@ target_include_directories(test_fragments PRIVATE
 
 # Builder auto-hydrogen test - Claude Generated 2026
 # Header-only use of MoleculeViewer's Atom/Bond types; no GUI, no Quick3D.
+add_executable(test_measurements test_measurements.cpp src/measurements.cpp)
+target_link_libraries(test_measurements PRIVATE
+Qt6::Core
+Qt6::Gui
+)
+target_include_directories(test_measurements PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+add_test(NAME measurements COMMAND test_measurements)
+
 add_executable(test_scenefiller test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp
     src/elementdata.cpp src/fragmentlibrary.cpp)
 target_link_libraries(test_scenefiller PRIVATE

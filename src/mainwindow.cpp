@@ -1234,16 +1234,25 @@ void MainWindow::createMenus()
                 buildModeAction->setChecked(m == MoleculeViewer::InteractionMode::Build);
             });
 
-    // Claude Generated 2026 - open the live temperature/energy charts (modeless dialog).
-    QAction *chartsAction = moleculeMenu->addAction(
-        QIcon::fromTheme("office-chart-line"), tr("Simulation &Charts…"));
-    chartsAction->setToolTip(tr("Open the live temperature/energy charts for the running simulation."));
-    connect(chartsAction, &QAction::triggered, this, [this]() {
+    // Claude Generated 2026 - show/hide the live charts (modeless dialog). Checkable
+    // so the same entry closes them again; closing the window from its title bar
+    // unchecks it (see the Show/Hide filter where the dialog is created).
+    m_chartsAction = moleculeMenu->addAction(
+        QIcon::fromTheme("office-chart-line"), tr("Simulation &Charts"));
+    m_chartsAction->setCheckable(true);
+    m_chartsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C));
+    m_chartsAction->setToolTip(tr("Show the live charts for the running simulation: energy, "
+                                  "temperature and any tracked distances, angles and dihedrals."));
+    connect(m_chartsAction, &QAction::triggered, this, [this](bool on) {
         if (!m_simulationChartDialog)
             return;
-        m_simulationChartDialog->show();
-        m_simulationChartDialog->raise();
-        m_simulationChartDialog->activateWindow();
+        if (on) {
+            m_simulationChartDialog->show();
+            m_simulationChartDialog->raise();
+            m_simulationChartDialog->activateWindow();
+        } else {
+            m_simulationChartDialog->hide();
+        }
     });
 
     moleculeMenu->addSeparator();
@@ -4625,9 +4634,16 @@ void MainWindow::createDockWidgets()
     m_simulationChartDialog->setModal(false);
     m_simulationChartDialog->resize(640, 560);
     m_simulationChartWidget = new SimulationChartWidget(m_simulationChartDialog);
+    // The charts offer the viewer's current selection as a new tracked measurement
+    // (2 atoms a distance, 3 an angle, 4 a dihedral). Claude Generated 2026.
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::selectionChanged,
+            m_simulationChartWidget, &SimulationChartWidget::setSelection);
     auto* chartDialogLayout = new QVBoxLayout(m_simulationChartDialog);
     chartDialogLayout->setContentsMargins(4, 4, 4, 4);
     chartDialogLayout->addWidget(m_simulationChartWidget);
+    // Keep the menu toggle honest when the dialog is closed from its own title bar.
+    m_simulationChartDialog->installEventFilter(this);
 
     // ==================== INITIAL PLACEMENT ====================
     // Phase 4: all docks are now owned by DockManager. Ask it to place them in the
@@ -4682,6 +4698,14 @@ static bool isTextInputFocused()
 // and when Ctrl/Alt/Meta are held (so Ctrl+A etc. keep working).
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 {
+    // Claude Generated 2026 - Keep the Simulation Charts menu toggle in sync when the
+    // dialog is shown or closed by any other route (title bar, Esc). Never consumes
+    // the event.
+    if (obj == m_simulationChartDialog && m_chartsAction) {
+        if (event->type() == QEvent::Show || event->type() == QEvent::Hide)
+            m_chartsAction->setChecked(event->type() == QEvent::Show);
+    }
+
     // Claude Generated 2026 - Drag molecule files from the browser onto the Lesson
     // toggle to add them to the lesson (this filter is installed on qApp, so it sees
     // the button's drag events once the button has setAcceptDrops(true)).
@@ -5087,6 +5111,18 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
     // (temperature + energies). The widget throttles its own axis rescaling.
     if (m_simulationChartWidget) {
         m_simulationChartWidget->reset();
+        // The frame carries only the step number, so the charts need the time step
+        // to show picoseconds, and the element symbols to name a tracked
+        // measurement. Claude Generated 2026.
+        m_simulationChartWidget->setTimestepFs(
+            m_simulationConfig.mode == SimulationConfig::Mode::MolecularDynamics
+                ? m_simulationConfig.timestep : 0.0);
+        if (m_moleculeView) {
+            QVector<QString> elements;
+            for (const MoleculeViewer::Atom& a : m_moleculeView->getCurrentFrameAtoms())
+                elements.append(a.element);
+            m_simulationChartWidget->setElements(elements);
+        }
         connect(worker, &SimulationWorker::frameReady,
             m_simulationChartWidget, &SimulationChartWidget::appendFrame,
             Qt::QueuedConnection);
