@@ -75,7 +75,7 @@
 #include "frequencydialog.h"
 #include "displaypanel.h"
 #include "widgets/commandpalette.h"
-#include "widgets/simulationchart.h"  // Claude Generated 2026 - live MD temperature/energy charts
+#include "docks/chartdock.h"  // Claude Generated 2026 - live MD temperature/energy charts
 
 #include "dialogs/nmrspectrumdialog.h"
 #include "rmsdwidget.h"  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
@@ -992,6 +992,7 @@ void MainWindow::createMenus()
     addDockToggle(m_simulationDock,       tr("&Simulation"));
     addDockToggle(m_outputViewDock,       tr("&Output"));
     addDockToggle(m_nciDock,              tr("&Interactions"));
+    addDockToggle(m_chartDock,            tr("&Charts"));
 
     viewMenu->addSeparator();
 
@@ -1234,26 +1235,23 @@ void MainWindow::createMenus()
                 buildModeAction->setChecked(m == MoleculeViewer::InteractionMode::Build);
             });
 
-    // Claude Generated 2026 - show/hide the live charts (modeless dialog). Checkable
-    // so the same entry closes them again; closing the window from its title bar
-    // unchecks it (see the Show/Hide filter where the dialog is created).
-    m_chartsAction = moleculeMenu->addAction(
-        QIcon::fromTheme("office-chart-line"), tr("Simulation &Charts"));
-    m_chartsAction->setCheckable(true);
-    m_chartsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C));
-    m_chartsAction->setToolTip(tr("Show the live charts for the running simulation: energy, "
-                                  "temperature and any tracked distances, angles and dihedrals."));
-    connect(m_chartsAction, &QAction::triggered, this, [this](bool on) {
-        if (!m_simulationChartDialog)
-            return;
-        if (on) {
-            m_simulationChartDialog->show();
-            m_simulationChartDialog->raise();
-            m_simulationChartDialog->activateWindow();
-        } else {
-            m_simulationChartDialog->hide();
-        }
-    });
+    // Claude Generated 2026 - Show/hide the Charts dock. Qt's own toggleViewAction
+    // is checkable, knows about the tabified group and stays in step when the dock
+    // is closed from its title bar, so the menu entry is that action rather than a
+    // hand-rolled toggle. The same action also appears under View > Dock Panels.
+    if (m_chartDock) {
+        QAction* chartsAction = m_chartDock->toggleViewAction();
+        chartsAction->setText(tr("Simulation &Charts"));
+        chartsAction->setIcon(QIcon::fromTheme("office-chart-line"));
+        chartsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C));
+        chartsAction->setToolTip(tr("Show the live charts for the running simulation: energy, "
+                                    "temperature and any tracked distances, angles and dihedrals."));
+        connect(chartsAction, &QAction::triggered, this, [this](bool on) {
+            if (on && m_chartDock)
+                m_chartDock->raise();   // bring it to the front of its tab group
+        });
+        moleculeMenu->addAction(chartsAction);
+    }
 
     moleculeMenu->addSeparator();
 
@@ -4628,22 +4626,12 @@ void MainWindow::createDockWidgets()
     // modeless dialog (opened from Molecule -> Simulation Charts) instead of a dock so it does
     // not consume layout space. Modeless (show(), not exec()) keeps the simulation controls
     // usable while the charts update live.
-    m_simulationChartDialog = new QDialog(this);
-    m_simulationChartDialog->setObjectName("SimulationChartDialog");
-    m_simulationChartDialog->setWindowTitle(tr("Simulation Charts"));
-    m_simulationChartDialog->setModal(false);
-    m_simulationChartDialog->resize(640, 560);
-    m_simulationChartWidget = new SimulationChartWidget(m_simulationChartDialog);
+    m_chartDock = m_dockManager->chartDockImpl();
     // The charts offer the viewer's current selection as a new tracked measurement
     // (2 atoms a distance, 3 an angle, 4 a dihedral). Claude Generated 2026.
-    if (m_moleculeView)
+    if (m_chartDock && m_moleculeView)
         connect(m_moleculeView, &MoleculeViewer::selectionChanged,
-            m_simulationChartWidget, &SimulationChartWidget::setSelection);
-    auto* chartDialogLayout = new QVBoxLayout(m_simulationChartDialog);
-    chartDialogLayout->setContentsMargins(4, 4, 4, 4);
-    chartDialogLayout->addWidget(m_simulationChartWidget);
-    // Keep the menu toggle honest when the dialog is closed from its own title bar.
-    m_simulationChartDialog->installEventFilter(this);
+            m_chartDock, &ChartDock::setSelection);
 
     // ==================== INITIAL PLACEMENT ====================
     // Phase 4: all docks are now owned by DockManager. Ask it to place them in the
@@ -4698,14 +4686,6 @@ static bool isTextInputFocused()
 // and when Ctrl/Alt/Meta are held (so Ctrl+A etc. keep working).
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 {
-    // Claude Generated 2026 - Keep the Simulation Charts menu toggle in sync when the
-    // dialog is shown or closed by any other route (title bar, Esc). Never consumes
-    // the event.
-    if (obj == m_simulationChartDialog && m_chartsAction) {
-        if (event->type() == QEvent::Show || event->type() == QEvent::Hide)
-            m_chartsAction->setChecked(event->type() == QEvent::Show);
-    }
-
     // Claude Generated 2026 - Drag molecule files from the browser onto the Lesson
     // toggle to add them to the lesson (this filter is installed on qApp, so it sees
     // the button's drag events once the button has setAcceptDrops(true)).
@@ -5109,22 +5089,22 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
 
     // Claude Generated 2026 - Live charts: clear for the new run, then append every frame
     // (temperature + energies). The widget throttles its own axis rescaling.
-    if (m_simulationChartWidget) {
-        m_simulationChartWidget->reset();
+    if (m_chartDock) {
+        m_chartDock->reset();
         // The frame carries only the step number, so the charts need the time step
         // to show picoseconds, and the element symbols to name a tracked
         // measurement. Claude Generated 2026.
-        m_simulationChartWidget->setTimestepFs(
+        m_chartDock->setTimestepFs(
             m_simulationConfig.mode == SimulationConfig::Mode::MolecularDynamics
                 ? m_simulationConfig.timestep : 0.0);
         if (m_moleculeView) {
             QVector<QString> elements;
             for (const MoleculeViewer::Atom& a : m_moleculeView->getCurrentFrameAtoms())
                 elements.append(a.element);
-            m_simulationChartWidget->setElements(elements);
+            m_chartDock->setElements(elements);
         }
         connect(worker, &SimulationWorker::frameReady,
-            m_simulationChartWidget, &SimulationChartWidget::appendFrame,
+            m_chartDock, &ChartDock::appendFrame,
             Qt::QueuedConnection);
     }
 

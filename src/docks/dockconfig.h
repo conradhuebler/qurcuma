@@ -37,6 +37,7 @@ inline const QString SimulationDockObjectName = QStringLiteral("SimulationDock")
 inline const QString OutputViewDockObjectName = QStringLiteral("OutputViewDock");
 inline const QString ImageGalleryDockObjectName = QStringLiteral("ImageGalleryDock");
 inline const QString NciDockObjectName = QStringLiteral("NciDock");
+inline const QString ChartDockObjectName = QStringLiteral("ChartDock");
 
 // Default dock areas. Kept here so every wrapper class can declare its own.
 inline const Qt::DockWidgetArea ProjectDockArea = Qt::LeftDockWidgetArea;
@@ -45,6 +46,7 @@ inline const Qt::DockWidgetArea SimulationDockArea = Qt::RightDockWidgetArea;
 inline const Qt::DockWidgetArea OutputViewDockArea = Qt::BottomDockWidgetArea;
 inline const Qt::DockWidgetArea ImageGalleryDockArea = Qt::BottomDockWidgetArea;
 inline const Qt::DockWidgetArea NciDockArea = Qt::RightDockWidgetArea;
+inline const Qt::DockWidgetArea ChartDockArea = Qt::BottomDockWidgetArea;
 
 // Tab labels / dock titles.
 inline const QString ProjectDockTitle = QStringLiteral("Project");
@@ -53,6 +55,7 @@ inline const QString SimulationDockTitle = QStringLiteral("Simulation");
 inline const QString OutputDockTitle = QStringLiteral("Output");
 inline const QString ImageGalleryDockTitle = QStringLiteral("Images");
 inline const QString NciDockTitle = QStringLiteral("Interactions");
+inline const QString ChartDockTitle = QStringLiteral("Charts");
 
 // Persisted UI-state QSettings keys. Kept next to the enums/objectNames they
 // encode so the window geometry, dock layout and app-mode keys live in one place

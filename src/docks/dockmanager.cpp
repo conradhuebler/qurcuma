@@ -12,6 +12,7 @@
 #include "simulationdock.h"
 #include "displaydock.h"
 #include "imagegallerydock.h"
+#include "chartdock.h"
 #include "ncidock.h"
 
 #include <QDockWidget>
@@ -31,6 +32,7 @@ QDockWidget* DockManager::simulationDock() const { return m_simulationDock; }
 QDockWidget* DockManager::outputDock() const { return m_outputViewDock; }
 QDockWidget* DockManager::imageGalleryDock() const { return m_imageGalleryDock; }
 QDockWidget* DockManager::nciDock() const { return m_nciDock; }
+QDockWidget* DockManager::chartDock() const { return m_chartDock; }
 
 QTabWidget* DockManager::simulationTabs() const
 {
@@ -92,6 +94,11 @@ ProjectDock* DockManager::projectDockImpl() const
 ImageGalleryDock* DockManager::imageGalleryDockImpl() const
 {
     return qobject_cast<ImageGalleryDock*>(m_imageGalleryDock);
+}
+
+ChartDock* DockManager::chartDockImpl() const
+{
+    return qobject_cast<ChartDock*>(m_chartDock);
 }
 
 NciDock* DockManager::nciDockImpl() const
@@ -274,6 +281,7 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
     m_projectDock = new ProjectDock(settings, m_mainWindow);
     m_imageGalleryDock = new ImageGalleryDock(m_mainWindow);
     m_nciDock = new NciDock(m_mainWindow);
+    m_chartDock = new ChartDock(m_mainWindow);
 }
 
 void DockManager::placeDocks()
@@ -314,6 +322,16 @@ void DockManager::placeDocks()
         if (m_displayDock)
             m_mainWindow->tabifyDockWidget(m_displayDock, m_nciDock);
         m_nciDock->hide();
+    }
+
+    // The charts join the bottom area next to the output log and start hidden:
+    // before a run the plots are empty, so they would only take space. View > Dock
+    // Panels or Molecule > Simulation Charts brings them up. Claude Generated 2026.
+    if (m_chartDock) {
+        m_mainWindow->addDockWidget(DockConfig::ChartDockArea, m_chartDock);
+        if (m_outputViewDock)
+            m_mainWindow->tabifyDockWidget(m_outputViewDock, m_chartDock);
+        m_chartDock->hide();
     }
 
     // The image-gallery dock shares the bottom area (tabified with Output) and

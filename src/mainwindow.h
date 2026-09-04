@@ -68,7 +68,7 @@ class SftpItemModel;  // Claude Generated - Remote Directory Mounting
 #endif
 class SimulationControlWidget;  // Claude Generated - Interactive Simulation Integration
 class LessonController;          // Claude Generated 2026 - WP T4 lesson feature controller
-class SimulationChartWidget;    // Claude Generated 2026 - live MD temperature/energy charts
+class ChartDock;                // Claude Generated 2026 - live charts dock
 class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog
 class CalculationRunner;        // Claude Generated 2026 - WP T3 external-process orchestration
 
@@ -460,8 +460,7 @@ private:
     OutputDock* m_outputViewDock = nullptr;         // Bottom: output log
     ImageGalleryDock* m_imageGalleryDock = nullptr; // Bottom (tabified): batch border-trim gallery
     NciDock* m_nciDock = nullptr;                   // Right (tabified): non-covalent interaction contacts
-    QDialog* m_simulationChartDialog = nullptr;     // Modeless dialog: live MD temperature/energy charts
-    QAction* m_chartsAction = nullptr;              // Checkable Molecule -> Simulation Charts toggle
+    ChartDock* m_chartDock = nullptr;               // Live charts (owned by DockManager)
     QTabWidget* m_simulationTabs = nullptr;         // Internal tabs inside m_simulationDock
 
     // Claude Generated 2026 - P2: Explore/Compute mode switch
@@ -471,7 +470,6 @@ private:
     QToolButton* m_exploreButton = nullptr;
     QToolButton* m_computeButton = nullptr;
     SimulationControlWidget* m_simulationControlWidget = nullptr;  // Claude Generated
-    SimulationChartWidget* m_simulationChartWidget = nullptr;     // Claude Generated 2026 - live T/energy charts
     SimulationConfig m_simulationConfig;             // Claude Generated - Shared config, edited from dock
 
     // Claude Generated - Interactive Simulation Integration
