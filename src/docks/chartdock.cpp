@@ -17,10 +17,10 @@ ChartDock::ChartDock(QWidget* parent)
     setAllowedAreas(Qt::BottomDockWidgetArea | Qt::RightDockWidgetArea);
 
     m_charts = new SimulationChartWidget(this);
-    // Three stacked plots plus the control bar and the measurement table need room;
-    // without a floor the bottom dock area would squeeze them to unreadable strips.
-    // Well below the dialog's former 560 px, so it does not dominate the window.
-    m_charts->setMinimumHeight(300);
+    // One plot at a time (each chart is its own tab) plus the control bar and the
+    // measurement table; without a floor the bottom dock area would squeeze the
+    // plot to an unreadable strip.
+    m_charts->setMinimumHeight(220);
     setWidget(m_charts);
 }
 

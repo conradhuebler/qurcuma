@@ -18,7 +18,6 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSpinBox>
-#include <QSplitter>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTextStream>
@@ -50,21 +49,18 @@ SimulationChartWidget::SimulationChartWidget(QWidget* parent)
 
     lay->addWidget(buildControlBar());
 
+    // One chart per tab: stacking them left each plot a thin strip, and in a dock
+    // the vertical space is shared with everything else. No chart titles either —
+    // the tab already names the chart and the axes carry the units, so a title
+    // would only eat height. Claude Generated 2026.
     auto* tabs = new QTabWidget(this);
 
-    // --- Tab 1: time series -------------------------------------------------
-    auto* seriesPage = new QWidget(this);
-    auto* seriesLay = new QVBoxLayout(seriesPage);
-    seriesLay->setContentsMargins(0, 0, 0, 0);
-    seriesLay->setSpacing(4);
-
     m_tempChart = new ListChart;
-    m_tempChart->setTitle(tr("Temperature"));
     m_tempChart->setXAxis(tr("t [ps]"));
     m_tempChart->setYAxis(tr("T [K]"));
     m_tempChart->setAnimationOptions(QChart::NoAnimation);
     m_tempChart->chart()->setZoomStrategy(ZoomStrategy::Rectangular);
-    seriesLay->addWidget(m_tempChart, 1);
+    tabs->addTab(m_tempChart, tr("Temperature"));
 
     m_tSeries = new QLineSeries;
     m_tTargetSeries = new QLineSeries;
@@ -72,12 +68,11 @@ SimulationChartWidget::SimulationChartWidget(QWidget* parent)
     m_tempChart->addSeries(m_tTargetSeries, 1, QColor(40, 90, 220), tr("T target"), false);
 
     m_energyChart = new ListChart;
-    m_energyChart->setTitle(tr("Energy"));
     m_energyChart->setXAxis(tr("t [ps]"));
     m_energyChart->setYAxis(tr("E [Eh]"));
     m_energyChart->setAnimationOptions(QChart::NoAnimation);
     m_energyChart->chart()->setZoomStrategy(ZoomStrategy::Rectangular);
-    seriesLay->addWidget(m_energyChart, 1);
+    tabs->addTab(m_energyChart, tr("Energy"));
 
     m_epotSeries = new QLineSeries;
     m_ekinSeries = new QLineSeries;
@@ -92,32 +87,22 @@ SimulationChartWidget::SimulationChartWidget(QWidget* parent)
     m_energyChart->addSeries(m_eventSeries, 3, QColor(230, 40, 40), tr("events"), false);
 
     m_measureChart = new ListChart;
-    m_measureChart->setTitle(tr("Measurements"));
     m_measureChart->setXAxis(tr("t [ps]"));
     m_measureChart->setYAxis(tr("value"));
     m_measureChart->setAnimationOptions(QChart::NoAnimation);
     m_measureChart->chart()->setZoomStrategy(ZoomStrategy::Rectangular);
-    seriesLay->addWidget(m_measureChart, 1);
+    tabs->addTab(m_measureChart, tr("Measurements"));
 
-    tabs->addTab(seriesPage, tr("Time series"));
-
-    // --- Tab 2: histogram ---------------------------------------------------
     // Drawn as a step outline through a line series rather than a bar series:
     // CuteChart's ChartView assumes a QValueAxis on every series it is given, and a
     // bar series brings a QBarCategoryAxis, which would dereference a null axis.
-    auto* histPage = new QWidget(this);
-    auto* histLay = new QVBoxLayout(histPage);
-    histLay->setContentsMargins(0, 0, 0, 0);
-
     m_histogramChart = new ListChart;
-    m_histogramChart->setTitle(tr("Distribution"));
     m_histogramChart->setXAxis(tr("value"));
     m_histogramChart->setYAxis(tr("count"));
     m_histogramChart->setAnimationOptions(QChart::NoAnimation);
     m_histogramChart->chart()->setZoomStrategy(ZoomStrategy::Rectangular);
-    histLay->addWidget(m_histogramChart, 1);
+    tabs->addTab(m_histogramChart, tr("Histogram"));
 
-    tabs->addTab(histPage, tr("Histogram"));
     lay->addWidget(tabs, 1);
 
     lay->addWidget(buildTrackTable());
