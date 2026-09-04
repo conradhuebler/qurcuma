@@ -15,6 +15,13 @@ using json = nlohmann::json;
 #include <src/core/energy_calculators/ff_methods/gfnff.h>
 #include <src/core/energy_calculators/ff_methods/gfnff_parameters.h>
 #include <src/core/energy_calculators/qm_methods/gfnff_method.h>
+#if defined(USE_CUDA)
+#include <src/core/energy_calculators/qm_methods/gfnff_gpu_method.h>
+#endif
+#if defined(USE_ROCM)
+#include <src/core/energy_calculators/qm_methods/gfnff_hip_method.h>
+#endif
+#include <src/core/units.h>
 #include <src/core/elements.h>
 
 #include <QCoreApplication>
@@ -525,6 +532,13 @@ void SimulationWorker::startMD()
     }
     m_md->prepareRun();
 
+    // Reactive GFN-FF: the force field owns the bond topology, so its list (not a
+    // geometric re-guess) is what the viewer should draw. Claude Generated 2026.
+    m_reactLive = (m_config.method == QLatin1String("gfnff")
+        && m_config.topologyMode == QLatin1String("react") && liveGfnff() != nullptr);
+    m_lastTopologyVersion = -1;
+    m_lastFfBonds.clear();
+
     // Reset perf-stat accumulators for this run
     m_mdFrameCount = 0;
     m_mdTotalStepTime = 0;
@@ -542,6 +556,30 @@ void SimulationWorker::startMD()
     m_mdTimer->start();
 }
 
+// Claude Generated 2026 - The GFN-FF instance behind the running MD, whichever
+// wrapper drives it (CPU, CUDA or ROCm). Everything that reads live force-field
+// state goes through here; nullptr for any other method.
+GFNFF* SimulationWorker::liveGfnff() const
+{
+    if (!m_md)
+        return nullptr;
+    EnergyCalculator* calc = m_md->energyCalculator();
+    if (!calc)
+        return nullptr;
+    ComputationalMethod* method = calc->Interface();
+    if (auto* cpu = dynamic_cast<GFNFFComputationalMethod*>(method))
+        return cpu->getGFNFF();
+#if defined(USE_CUDA)
+    if (auto* gpu = dynamic_cast<GFNFFGPUComputationalMethod*>(method))
+        return gpu->getGFNFF();
+#endif
+#if defined(USE_ROCM)
+    if (auto* hip = dynamic_cast<GFNFFHipComputationalMethod*>(method))
+        return hip->getGFNFF();
+#endif
+    return nullptr;
+}
+
 // Claude Generated 2026 - Live non-covalent contacts straight out of the running
 // force field. GFN-FF keeps its own hydrogen- and halogen-bond lists (the very
 // terms it evaluates), so this shows the interactions the simulation actually
@@ -549,13 +587,7 @@ void SimulationWorker::startMD()
 // distances and angles are re-fitted on the GUI side against the drawn frame.
 void SimulationWorker::collectLiveNci(SimulationFrame& frame) const
 {
-    if (!m_md)
-        return;
-    EnergyCalculator* calc = m_md->energyCalculator();
-    if (!calc)
-        return;
-    auto* method = dynamic_cast<GFNFFComputationalMethod*>(calc->Interface());
-    GFNFF* ff = method ? method->getGFNFF() : nullptr;
+    GFNFF* ff = liveGfnff();
     if (!ff)
         return;   // any method other than GFN-FF has no such list
 
@@ -575,6 +607,46 @@ void SimulationWorker::collectLiveNci(SimulationFrame& frame) const
         c.bridge = xb.j;
         c.acceptor = xb.k;
         frame.nciContacts.append(c);
+    }
+}
+
+// Claude Generated 2026 - Reactive GFN-FF: hand the force field's own bond list and
+// its topology events to the frame. Runs in the worker thread right after step(), so
+// nothing else touches the force field concurrently. The bond list is copied only
+// when the force field rebuilt its topology (rare); events carry the discontinuity
+// each rebuild introduced, converted to kJ/mol.
+void SimulationWorker::collectReactiveTopology(SimulationFrame& frame)
+{
+    GFNFF* ff = liveGfnff();
+    if (!ff)
+        return;
+    const int version = ff->reactiveRebuildCount();
+    if (version != m_lastTopologyVersion) {
+        const auto& bonds = ff->reactiveBonds();
+        const auto& orders = ff->reactiveBondOrders();
+        m_lastFfBonds.clear();
+        m_lastFfBonds.reserve(bonds.size());
+        for (size_t k = 0; k < bonds.size(); ++k) {
+            FrameBond b;
+            b.a = bonds[k].first;
+            b.b = bonds[k].second;
+            b.order = (k < orders.size()) ? orders[k] : 1;
+            m_lastFfBonds.push_back(b);
+        }
+        m_lastTopologyVersion = version;
+    }
+    frame.bonds = m_lastFfBonds;
+    frame.topologyVersion = version;
+
+    for (const GFNFF::ReactEvent& ev : ff->consumeReactEvents()) {
+        ReactEventView v;
+        v.step = m_md->stepCount();
+        for (const auto& p : ev.formed)
+            v.formed.append(qMakePair(p.first, p.second));
+        for (const auto& p : ev.broken)
+            v.broken.append(qMakePair(p.first, p.second));
+        v.deJumpKJmol = ev.de_jump_eh * CurcumaUnit::Energy::HARTREE_TO_KJMOL;
+        frame.events.append(v);
     }
 }
 
@@ -635,12 +707,14 @@ void SimulationWorker::performMDStep()
         m_md->potentialEnergy(), m_md->kineticEnergy(), m_md->stepCount(),
         m_md->currentTemperature(), m_md->targetTemperature());
 
-    if (m_liveNci) {
-        // moleculeToFrame returns a shared pointer to const; the contacts are the
-        // one field filled after construction, so take a writable handle here.
-        auto* mutableFrame = const_cast<SimulationFrame*>(frame.data());
+    // moleculeToFrame returns a shared pointer to const; the live-overlay and
+    // reactive-topology fields are filled after construction, so take a writable
+    // handle here (the frame has not been shared with any other thread yet).
+    auto* mutableFrame = const_cast<SimulationFrame*>(frame.data());
+    if (m_liveNci)
         collectLiveNci(*mutableFrame);
-    }
+    if (m_reactLive)
+        collectReactiveTopology(*mutableFrame);
 
     emit frameReady(frame);
 

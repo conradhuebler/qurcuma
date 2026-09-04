@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Reaktives GFN-FF: Topologie und Ereignisse in der GUI
+
+- **Kraftfeld-Bindungen im Frame** (`src/simulationframe.h`, `src/simulationworker.{h,cpp}`): `SimulationFrame` trägt jetzt `bonds` (mit Ordnungen), `topologyVersion` und `events`. `liveGfnff()` bündelt den Zugriff auf die laufende GFNFF-Instanz (CPU/CUDA/ROCm — die GPU-Wrapper haben dafür curcuma-seitig `getGFNFF()` bekommen) und ersetzt den Inline-Cast in `collectLiveNci`. Gelesen wird im Worker-Thread direkt nach `step()`; die Bindungsliste wird nur bei geändertem Rebuild-Zähler kopiert. Nur aktiv bei Methode gfnff + `topology_mode=react`.
+- **Viewer zeichnet die gerechnete Topologie** (`src/view.cpp`): trägt ein Frame Kraftfeld-Bindungen, ersetzen sie `m_trajectoryBonds[0]` samt Ordnungen; die eigene Hysterese (1.25/1.45, Ordnung 1) bleibt der Rückfall für alle anderen Läufe. Vorher widersprachen sich gezeichnete und gerechnete Topologie per Konstruktion (Kraftfeld: 1.6/2.6 auf fat-skalierten Radien).
+- **Ereignis-Rückmeldung**: Gruppe "Reaction Events" im Simulation-Dock (Step/t/Ereignis/ΔE, Clear, "Snapshot on event"), Spiegel ins Output-Dock über das neue `reactionEvent`-Signal, 500-ms-Bernstein-Flash der beteiligten Atome (`SceneController::setFlashAtoms`) und eine Ereignis-Scatter-Serie auf E_pot im Energie-Chart. Bisher existierten die Ereignisse nur als curcuma-Logzeilen, die die GUI wegen `verbosity = 0` nie sah.
+- **curcuma-Seite** (external/curcuma, Branch `reactff2`): öffentliche Topologie-/Ereignis-API (`reactiveBonds`, `reactiveBondOrders`, `consumeReactEvents`, `reactiveRebuildCount`, `topologyMode`), sieben Buchhaltungsfixes im Scan, `rattle`+react wird abgelehnt, zwei neue Tests — Details in `external/curcuma/AIChangelog.md`.
+
 ## August 2026 - Reaktives GFN-FF: Topologiemodus "react"
 
 - **Topologie-Combo erweitert** (`src/simulationcontrolwidget.cpp`): dritter Eintrag "Reactive (bonds form and break)" (userData `react`) neben Default (adaptive, `auto`) und Constant; Tooltip beschreibt den Modus sachlich (Bindungen werden während der MD neu erkannt, Bonded-Terme bei Änderung neu aufgebaut, NVT-only). Der String fließt unverändert über `SimulationConfig::topologyMode` und `buildMdController` an curcuma; Lesson-Roundtrip generisch, keine weiteren Änderungen nötig.

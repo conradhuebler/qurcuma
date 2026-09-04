@@ -1885,7 +1885,25 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
     // rebuild keeps the camera/bounds fixed so a reaction event does not jolt the view.
     // Claude Generated 2026.
     bool topologyChanged = false;
-    if (m_dynamicBonds && !m_trajectoryBonds.isEmpty()) {
+    if (!frame->bonds.empty()) {
+        // Reactive GFN-FF: the force field's own bond list is the topology being
+        // integrated, so it is drawn as-is (with its bond orders) and takes precedence
+        // over the geometric re-detection below. The version counter changes only at
+        // rebuild events, so quiet frames skip the copy. Claude Generated 2026.
+        if (frame->topologyVersion != m_ffTopologyVersion && !m_trajectoryBonds.isEmpty()) {
+            QVector<Bond> newBonds;
+            newBonds.reserve(static_cast<int>(frame->bonds.size()));
+            for (const FrameBond& b : frame->bonds) {
+                if (b.a >= 0 && b.b >= 0 && b.a < n && b.b < n)
+                    newBonds.append({ b.a, b.b, b.order });
+            }
+            m_trajectoryBonds[0] = newBonds;
+            m_ffTopologyVersion = frame->topologyVersion;
+            topologyChanged = true;
+            invalidateNciTopology();  // rings may have opened/closed
+            emit fragmentsChanged();  // a broken bond can split a fragment
+        }
+    } else if (m_dynamicBonds && !m_trajectoryBonds.isEmpty()) {
         QVector<Bond> newBonds = detectBondsHysteresis(refAtoms, m_trajectoryBonds[0]);
         if (!bondSetEqual(newBonds, m_trajectoryBonds[0])) {
             m_trajectoryBonds[0] = newBonds;
@@ -1904,6 +1922,27 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
         m_scene->updateBonds(sb);
     }
     computeWallViolations();  // live MD: recolour box + status as atoms cross walls
+
+    // Reaction events (reactive GFN-FF): flash the atoms of every formed/broken bond
+    // for half a second; a new event restarts the timer. Claude Generated 2026.
+    if (!frame->events.isEmpty() && m_scene) {
+        QVector<int> flash;
+        for (const ReactEventView& ev : frame->events) {
+            for (const auto& p : ev.formed) { flash.append(p.first); flash.append(p.second); }
+            for (const auto& p : ev.broken) { flash.append(p.first); flash.append(p.second); }
+        }
+        if (!m_reactFlashTimer) {
+            m_reactFlashTimer = new QTimer(this);
+            m_reactFlashTimer->setSingleShot(true);
+            m_reactFlashTimer->setInterval(500);
+            connect(m_reactFlashTimer, &QTimer::timeout, this, [this]() {
+                if (m_scene)
+                    m_scene->setFlashAtoms({});
+            });
+        }
+        m_scene->setFlashAtoms(flash);
+        m_reactFlashTimer->start();
+    }
 
     // Throttled cache notify (once per worker run).
     if (!m_moleculeDirty) {
@@ -2610,6 +2649,7 @@ void MoleculeViewer::newScene()
     if (m_scene) {
         m_scene->clear();
         m_scene->setCollisionAtoms({});
+        m_scene->setFlashAtoms({});
         m_scene->setMeasurement({}, QString());
     }
     clearOverlays();        // stale RMSD overlays would survive the clear

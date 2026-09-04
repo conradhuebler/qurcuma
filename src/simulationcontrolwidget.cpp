@@ -18,6 +18,8 @@
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
 
+#include <cmath>
+
 SimulationControlWidget::SimulationControlWidget(QWidget* parent)
     : QWidget(parent)
 {
@@ -861,6 +863,9 @@ void SimulationControlWidget::setupUI()
     // ---- Potential / Methode ----
     innerLayout->addWidget(createPotentialGroup());
 
+    // ---- Reaction events (reactive GFN-FF only; hidden otherwise) ----
+    innerLayout->addWidget(createReactEventsGroup());
+
     // ---- MD Parameters ----
     innerLayout->addWidget(createMdGroup());
 
@@ -1059,7 +1064,10 @@ void SimulationControlWidget::setupConnections()
                 m_topologyModeCombo->setVisible(isGFNFF);
                 if (label) label->setVisible(isGFNFF);
             }
+            updateReactEventsVisibility();
         });
+    connect(m_topologyModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int /*index*/) { updateReactEventsVisibility(); });
 
     onModeChanged(0);
 }
@@ -1336,6 +1344,9 @@ void SimulationControlWidget::startWithConfig(const SimulationConfig& cfg)
         m_thread->wait(2000);
     }
 
+    if (m_reactEventTable)
+        m_reactEventTable->setRowCount(0);   // fresh event log per run
+
     m_worker = new SimulationWorker;
     // Claude Generated 2026 - Emit workerStarted BEFORE setMolecule so the
     // MainWindow can re-sync m_atoms with the viewer's *current* geometry
@@ -1504,6 +1515,85 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
                 .arg(frame->energy, 0, 'f', 8)
                 .arg(fpsText));
     }
+
+    // Reaction events (reactive GFN-FF): one table row per formed/broken bond.
+    // Claude Generated 2026.
+    if (!frame->events.isEmpty() && m_reactEventTable) {
+        auto label = [this](int i) {
+            const QString el = (i >= 0 && i < m_atoms.size()) ? m_atoms[i].element : QStringLiteral("?");
+            return el + QString::number(i + 1);
+        };
+        for (const ReactEventView& ev : frame->events) {
+            const double tFs = ev.step * m_config.timestep;
+            const QString dE = std::isfinite(ev.deJumpKJmol)
+                ? QString::number(ev.deJumpKJmol, 'f', 1) : QStringLiteral("–");
+            bool first = true;
+            auto addRow = [&](const QPair<int, int>& p, const QString& what) {
+                const QString text = tr("%1–%2 %3").arg(label(p.first), label(p.second), what);
+                const int r = m_reactEventTable->rowCount();
+                m_reactEventTable->insertRow(r);
+                m_reactEventTable->setItem(r, 0, new QTableWidgetItem(QString::number(ev.step)));
+                m_reactEventTable->setItem(r, 1, new QTableWidgetItem(QString::number(tFs, 'f', 1)));
+                m_reactEventTable->setItem(r, 2, new QTableWidgetItem(text));
+                m_reactEventTable->setItem(r, 3, new QTableWidgetItem(first ? dE : QString()));
+                m_reactEventTable->scrollToBottom();
+                emit reactionEvent(ev.step, tr("REACT step %1 (%2 fs): %3%4")
+                    .arg(ev.step).arg(tFs, 0, 'f', 1).arg(text)
+                    .arg(first ? tr(", dE_jump = %1 kJ/mol").arg(dE) : QString()));
+                first = false;
+            };
+            for (const auto& p : ev.formed)
+                addRow(p, tr("formed"));
+            for (const auto& p : ev.broken)
+                addRow(p, tr("broken"));
+        }
+    }
+}
+
+// Claude Generated 2026 - Reaction events of a reactive GFN-FF run: one row per
+// formed/broken bond with the step, the time and the rebuild's energy discontinuity.
+// Lives in this dock because it already receives every frame on the GUI thread and
+// holds the element symbols for the atom labels.
+QGroupBox* SimulationControlWidget::createReactEventsGroup()
+{
+    m_reactEventsGroup = new QGroupBox(tr("Reaction Events"), this);
+    auto* lay = new QVBoxLayout(m_reactEventsGroup);
+
+    m_reactEventTable = new QTableWidget(0, 4, m_reactEventsGroup);
+    m_reactEventTable->setHorizontalHeaderLabels({ tr("Step"), tr("t [fs]"), tr("Event"), tr("ΔE [kJ/mol]") });
+    m_reactEventTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_reactEventTable->verticalHeader()->setVisible(false);
+    m_reactEventTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_reactEventTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_reactEventTable->setMaximumHeight(160);
+    m_reactEventTable->setToolTip(tr("Bonds the force field formed or broke during this run. "
+        "ΔE is the potential-energy discontinuity of the topology rebuild: a formation "
+        "releases the bond well in one step, a break removes the residual well."));
+    lay->addWidget(m_reactEventTable);
+
+    auto* row = new QHBoxLayout;
+    m_snapshotOnEventCheck = new QCheckBox(tr("Snapshot on event"), m_reactEventsGroup);
+    m_snapshotOnEventCheck->setToolTip(tr("Store a structure snapshot (Snapshots tab) at every reaction event."));
+    row->addWidget(m_snapshotOnEventCheck);
+    row->addStretch();
+    auto* clearBtn = new QPushButton(tr("Clear"), m_reactEventsGroup);
+    connect(clearBtn, &QPushButton::clicked, this, [this]() { m_reactEventTable->setRowCount(0); });
+    row->addWidget(clearBtn);
+    lay->addLayout(row);
+
+    m_reactEventsGroup->setVisible(false);
+    return m_reactEventsGroup;
+}
+
+void SimulationControlWidget::updateReactEventsVisibility()
+{
+    if (!m_reactEventsGroup || !m_methodCombo || !m_topologyModeCombo || !m_modeCombo)
+        return;
+    const bool isMD = (m_modeCombo->currentData().toInt()
+        == static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
+    const bool isReact = m_methodCombo->currentData().toString() == QLatin1String("gfnff")
+        && m_topologyModeCombo->currentData().toString() == QLatin1String("react");
+    m_reactEventsGroup->setVisible(isMD && isReact);
 }
 
 void SimulationControlWidget::onSimulationFinished()
@@ -1547,6 +1637,7 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
     m_tempRampGroup->setVisible(isMD);    // temperature ramp is MD-only
     m_tempRegionGroup->setVisible(isMD);  // temperature regions are MD-only
     m_optGroup->setVisible(!isMD);
+    updateReactEventsVisibility();        // reactive event log is MD + gfnff + react only
 
     // Speed is visible in both modes (single-step optimisation uses it as a
     // click-rate cap; MD uses it as the auto-run emit cadence cap).

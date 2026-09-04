@@ -47,12 +47,17 @@ SimulationChartWidget::SimulationChartWidget(QWidget* parent)
     m_energyChart->addSeries(m_ekinSeries, 1, QColor(220, 140, 0), tr("E_kin"), false);
     m_energyChart->addSeries(m_etotSeries, 2, QColor(120, 60, 180), tr("E_tot"), false);
 
+    // Reaction events (reactive GFN-FF): one marker per topology rebuild at (step, E_pot).
+    m_eventSeries = new QScatterSeries;
+    m_eventSeries->setMarkerSize(9.0);
+    m_energyChart->addSeries(m_eventSeries, 3, QColor(230, 40, 40), tr("events"), false);
+
     m_rescaleThrottle.start();
 }
 
 void SimulationChartWidget::reset()
 {
-    for (QLineSeries* s : { m_tSeries, m_tTargetSeries, m_epotSeries, m_ekinSeries, m_etotSeries }) {
+    for (QXYSeries* s : std::initializer_list<QXYSeries*>{ m_tSeries, m_tTargetSeries, m_epotSeries, m_ekinSeries, m_etotSeries, m_eventSeries }) {
         if (s)
             s->clear();
     }
@@ -74,6 +79,12 @@ void SimulationChartWidget::appendFrame(SimulationFramePtr frame)
     capSeries(m_ekinSeries);
     capSeries(m_etotSeries);
 
+    if (!frame->events.isEmpty() && m_eventSeries) {
+        for (int k = 0; k < frame->events.size(); ++k)
+            m_eventSeries->append(x, frame->energy);
+        capSeries(m_eventSeries);
+    }
+
     // Temperature is MD-only (the optimiser leaves both at 0).
     const bool hasTemperature = frame->targetTemperature > 0.0 || frame->temperature > 0.0;
     if (hasTemperature) {
@@ -93,7 +104,7 @@ void SimulationChartWidget::appendFrame(SimulationFramePtr frame)
     }
 }
 
-void SimulationChartWidget::capSeries(QLineSeries* s)
+void SimulationChartWidget::capSeries(QXYSeries* s)
 {
     const int over = s->count() - m_maxPoints;
     if (over > 0)

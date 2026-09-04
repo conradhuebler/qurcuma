@@ -149,7 +149,7 @@ private:
 
 public:
 
-    void resetSimDirty() { m_moleculeDirty = false; }
+    void resetSimDirty() { m_moleculeDirty = false; m_ffTopologyVersion = -1; }
 
     // Claude Generated - Visual settings setters
     void setRenderingMode(RenderingMode mode);
@@ -870,11 +870,13 @@ private:
     // Claude Generated - Phase 4B: Auto-save system
     QString m_currentFilePath;
     QTimer *m_autoSaveTimer = nullptr;
+    QTimer *m_reactFlashTimer = nullptr;  // Claude Generated 2026 - clears the reaction-event flash
     bool m_autoSaveEnabled = true;
     bool m_hasUnsavedChanges = false;
 
     bool m_moleculeDirty = false;
     bool m_dynamicBonds = true;  // Claude Generated 2026 - re-detect bonds each live frame (reactions)
+    int m_ffTopologyVersion = -1; // Claude Generated 2026 - force-field topology version last adopted (reactive runs)
 
     // Claude Generated 2026 - Non-covalent interaction overlay state.
     int m_nciSource = 0;               // 0=off, 1=geometry, 2=gfnff, 3=population

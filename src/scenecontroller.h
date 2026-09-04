@@ -340,6 +340,10 @@ public:
     // user sees what to push apart. Empty = no clashes.
     void setCollisionAtoms(const QVector<int>& indices);
     const QVector<int>& collisionAtoms() const { return m_collisionAtoms; }
+    /// Claude Generated 2026 - Transient amber highlight for atoms of a reaction
+    /// event (bond formed/broken). Independent of the collision and selection
+    /// colouring; the viewer clears it on a timer.
+    void setFlashAtoms(const QVector<int>& indices);
     // Claude Generated 2026 - Rubber-band (box) selection. The rect is in viewport
     // pixels; QML draws it as a 2D overlay. atomsInScreenRect() returns the atoms whose
     // projected centres fall inside a pixel rectangle (for selection on release).
@@ -490,6 +494,7 @@ private:
     // deterministic hue from typeColor() is used.
     QHash<QString, QColor> m_typeColors;
     QVector<int> m_collisionAtoms;  // Claude Generated 2026 - clashing atoms (drawn red)
+    QVector<int> m_flashAtoms;      // Claude Generated 2026 - reaction-event atoms (drawn amber)
     int m_hoverAtom = -1;
     bool m_rubberBandActive = false;        // Claude Generated 2026 - box-select overlay
     QRectF m_rubberBandRect;                // viewport pixels

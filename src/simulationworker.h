@@ -22,6 +22,7 @@
 
 class QTimer;
 class SimpleMD;  // Full type only in simulationworker.cpp — curcuma headers stay out of this TU.
+class GFNFF;     // Same: reached through the running SimpleMD's energy calculator.
 
 /**
  * @brief Configuration struct for a simulation run.
@@ -245,6 +246,12 @@ private:
     /// Read the running GFN-FF force field's current hydrogen- and halogen-bond
     /// lists into the next frame (live interaction overlay). No-op unless enabled.
     void collectLiveNci(SimulationFrame& frame) const;
+    /// The running GFN-FF instance behind the MD's energy calculator (CPU or GPU
+    /// wrapper), or nullptr for any other method. Claude Generated 2026.
+    GFNFF* liveGfnff() const;
+    /// Reactive GFN-FF: copy the force field's current bond list (with orders) and the
+    /// topology events of this step into the frame. No-op unless the run is reactive.
+    void collectReactiveTopology(SimulationFrame& frame);
     void finalizeMDRun();       // stop timer, finalizeRun, emit finished
     void runOptimization();     // synchronous — drives its own step callback inside Optimizer::Optimize()
 
@@ -267,6 +274,12 @@ private:
 
     // MD state persisted across QTimer fires (lives in the worker thread)
     bool m_liveNci = false;  // live GFN-FF interaction list in each frame
+    // Reactive GFN-FF topology export (Claude Generated 2026): the bond list is
+    // re-read only when the force field's rebuild counter moved; otherwise the last
+    // copy is reused so a quiet step costs one small vector copy.
+    bool m_reactLive = false;
+    int m_lastTopologyVersion = -1;
+    std::vector<FrameBond> m_lastFfBonds;
     std::unique_ptr<SimpleMD> m_md;
     QTimer* m_mdTimer = nullptr;    // parent = this, auto-cleaned
 

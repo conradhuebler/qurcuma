@@ -482,7 +482,8 @@ void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
     // bond breaking/formation in reactions is drawn. Default on (matches MoleculeViewer).
     auto* dynamicBondsCheck = new QCheckBox(tr("Dynamic bonds (live MD/Opt reactions)"), this);
     dynamicBondsCheck->setToolTip(tr("Re-detect bonds from the geometry every simulation frame so "
-        "bonds break and form as the structure reacts. Turn off to keep the initial topology fixed."));
+        "bonds break and form as the structure reacts. Turn off to keep the initial topology fixed. "
+        "In reactive GFN-FF runs the force field's own bond list is drawn instead."));
     dynamicBondsCheck->setChecked(m_viewer ? m_viewer->dynamicBonds() : true);
     connect(dynamicBondsCheck, &QCheckBox::toggled, this, [this](bool on) {
         if (m_viewer) m_viewer->setDynamicBonds(on);

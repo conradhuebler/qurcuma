@@ -12,6 +12,8 @@
 
 class ListChart;        // CuteChart composite chart + series legend
 class QLineSeries;      // QtCharts (global namespace in Qt6)
+class QScatterSeries;
+class QXYSeries;
 
 /**
  * @brief Two stacked live charts (Temperature, Energy) for the running simulation.
@@ -33,7 +35,7 @@ public slots:
     void reset();
 
 private:
-    void capSeries(QLineSeries* s);
+    void capSeries(QXYSeries* s);
 
     ListChart* m_tempChart = nullptr;
     ListChart* m_energyChart = nullptr;
@@ -42,6 +44,7 @@ private:
     QLineSeries* m_epotSeries = nullptr;
     QLineSeries* m_ekinSeries = nullptr;
     QLineSeries* m_etotSeries = nullptr;
+    QScatterSeries* m_eventSeries = nullptr; // reaction events (reactive GFN-FF) marked on E_pot
 
     QElapsedTimer m_rescaleThrottle;
     int m_maxPoints = 2000;  // rolling window per series (bounds memory over long runs)

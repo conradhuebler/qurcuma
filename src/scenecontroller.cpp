@@ -1155,6 +1155,12 @@ QColor SceneController::atomColor(int index) const
         r.setAlphaF(1.0f);
         return r;
     }
+    // Reaction event (reactive GFN-FF): amber flash, below collisions, above selection.
+    if (m_flashAtoms.contains(index)) {
+        QColor f(255, 200, 40);
+        f.setAlphaF(1.0f);
+        return f;
+    }
     if (m_selection.contains(index)) {
         QColor h(255, 0, 255);
         h.setAlphaF(1.0f);
@@ -1572,6 +1578,14 @@ void SceneController::rebuildLabels()
 void SceneController::setCollisionAtoms(const QVector<int>& indices)
 {
     m_collisionAtoms = indices;
+    rebuildAtoms();
+}
+
+void SceneController::setFlashAtoms(const QVector<int>& indices)
+{
+    if (m_flashAtoms == indices)
+        return;
+    m_flashAtoms = indices;
     rebuildAtoms();
 }
 

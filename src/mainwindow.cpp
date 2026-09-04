@@ -4453,6 +4453,18 @@ void MainWindow::createDockWidgets()
         this, &MainWindow::wireSimulationWorker);
     connect(m_simulationControlWidget, &SimulationControlWidget::configChanged,
         this, &MainWindow::onSimulationConfigChanged);
+    // Claude Generated 2026 - Reactive GFN-FF events: mirror each line into the
+    // Output dock and, when the dock's checkbox is set, snapshot the event frame.
+    // The dock emits this from its own frameReady slot, which is connected AFTER
+    // the viewer's (workerStarted precedes the dock's connect in startWithConfig),
+    // so the viewer already holds the event geometry and the force-field bonds.
+    connect(m_simulationControlWidget, &SimulationControlWidget::reactionEvent,
+        this, [this](int step, const QString& text) {
+            if (m_outputViewDock)
+                m_outputViewDock->appendOutput(text);
+            if (m_simulationControlWidget && m_simulationControlWidget->snapshotOnEvent())
+                takeSnapshot(tr("Reaction @ step %1").arg(step));
+        });
     // Claude Generated 2026 - In-dock "Save" button routes to the central save.
     connect(m_simulationControlWidget, &SimulationControlWidget::saveStructureRequested,
         this, [this]() { saveCurrentStructure(); });

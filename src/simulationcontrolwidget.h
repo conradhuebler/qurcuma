@@ -20,6 +20,8 @@
 #include <QWidget>
 
 class QTableWidget;
+
+class QTableWidget;
 class TemperatureSlider;  // Claude Generated 2026 - vertical temperature-colored slider
 
 /**
@@ -69,9 +71,16 @@ public:
     /** @brief Auto-snapshot stride. 0 = disabled, N > 0 = snapshot every N steps/iterations. */
     int autoStride() const { return m_strideSpin ? m_strideSpin->value() : 0; }
 
+    /** @brief Reaction-events group: take a snapshot at every bond event (reactive GFN-FF). */
+    bool snapshotOnEvent() const { return m_snapshotOnEventCheck && m_snapshotOnEventCheck->isChecked(); }
+
 signals:
     void simulationFinished();
     void configChanged(SimulationConfig);
+    /** @brief One reaction event line (reactive GFN-FF): "step N: N1-H4 formed (dE ...)".
+     *  Emitted from onFrameReady on the GUI thread, after the viewer adopted the
+     *  frame. Claude Generated 2026. */
+    void reactionEvent(int step, const QString& text);
     void simulationRunningChanged(bool running);
     void workerStarted(SimulationWorker* worker);
 
@@ -132,6 +141,8 @@ private:
     // Each creates its group (populating the m_* members it owns) and returns it
     // for setupUI() to add to the scroll layout.
     QGroupBox* createPotentialGroup();
+    QGroupBox* createReactEventsGroup();   // Claude Generated 2026 - reactive GFN-FF event log
+    void updateReactEventsVisibility();
     QGroupBox* createMdGroup();
     QGroupBox* createTempRampGroup();
     QGroupBox* createTempRegionGroup();
@@ -176,7 +187,12 @@ private:
     QCheckBox* m_perfCheck = nullptr;
 
     // --- GFN-FF topology mode ---
-    QComboBox* m_topologyModeCombo = nullptr;  // "auto" or "constant"
+    QComboBox* m_topologyModeCombo = nullptr;  // "auto", "constant" or "react"
+
+    // --- Reactive GFN-FF event log (Claude Generated 2026) ---
+    QGroupBox* m_reactEventsGroup = nullptr;
+    QTableWidget* m_reactEventTable = nullptr;
+    QCheckBox* m_snapshotOnEventCheck = nullptr;
 
     // --- Optimization parameters ---
     QDoubleSpinBox* m_convergenceSpin = nullptr;
