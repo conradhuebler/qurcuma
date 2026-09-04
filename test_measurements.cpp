@@ -92,8 +92,43 @@ int main(int argc, char** argv)
     check(!wrongCount.isValid(int(pos.size())), "a dihedral needs four atoms");
 
     const QVector<QString> elements { "N", "H", "O" };
-    check(Tracked::makeLabel({ 0, 1 }, elements) == QStringLiteral("N1-H2"),
+    check(Tracked::makeLabel(Tracked::Kind::Distance, { 0, 1 }, elements) == QStringLiteral("N1-H2"),
         "label uses element symbols and one-based numbers");
+
+    // --- whole-structure quantities ----------------------------------------
+    check(Tracked::isWholeStructure(Tracked::Kind::RmsdToStart)
+            && Tracked::isWholeStructure(Tracked::Kind::GyrationRadius)
+            && !Tracked::isWholeStructure(Tracked::Kind::Distance),
+        "RMSD and Rg are whole-structure, a distance is not");
+
+    // Rg of four points on a unit square is 1, and it does not care where the set sits.
+    const std::vector<QVector3D> square { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 } };
+    Tracked rg;
+    rg.kind = Tracked::Kind::GyrationRadius;
+    near(rg.evaluate(square), 1.0, 1e-6, "Rg of a unit square is 1");
+    std::vector<QVector3D> moved;
+    for (const QVector3D& v : square)
+        moved.push_back(v + QVector3D(5, -3, 7));
+    near(rg.evaluate(moved), 1.0, 1e-5, "Rg is translation invariant");
+    check(rg.unit() == QStringLiteral("A"), "Rg reports Angstrom");
+
+    // RMSD against the first frame: zero for the identical structure, still zero
+    // after a pure translation and a pure rotation (best-fit superposition), and
+    // positive once an atom actually moves relative to the others.
+    Tracked rmsd;
+    rmsd.kind = Tracked::Kind::RmsdToStart;
+    near(rmsd.evaluate(square, square), 0.0, 1e-6, "RMSD to itself is 0");
+    near(rmsd.evaluate(moved, square), 0.0, 1e-5, "RMSD ignores a rigid translation");
+    std::vector<QVector3D> rotated;   // 90 deg about z
+    for (const QVector3D& v : square)
+        rotated.push_back(QVector3D(-v.y(), v.x(), v.z()));
+    near(rmsd.evaluate(rotated, square), 0.0, 1e-5, "RMSD ignores a rigid rotation");
+    std::vector<QVector3D> deformed = square;
+    deformed[0] = QVector3D(1.5f, 0, 0);
+    check(rmsd.evaluate(deformed, square) > 0.05, "RMSD is positive once the shape changes");
+    check(std::isnan(rmsd.evaluate(square, {})), "RMSD without a reference is NaN");
+    check(std::isnan(rmsd.evaluate(square, { { 0, 0, 0 } })),
+        "RMSD against a differently sized reference is NaN");
 
     // --- histogram ----------------------------------------------------------
     const QVector<double> values { 0.0, 1.0, 2.0, 3.0, 4.0 };

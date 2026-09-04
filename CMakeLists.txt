@@ -428,14 +428,22 @@ target_include_directories(test_fragments PRIVATE
 
 # Builder auto-hydrogen test - Claude Generated 2026
 # Header-only use of MoleculeViewer's Atom/Bond types; no GUI, no Quick3D.
+# measurements.cpp is a thin adapter over curcuma's GeometryTools / RMSDFunctions,
+# so the test needs curcuma's headers and library.
 add_executable(test_measurements test_measurements.cpp src/measurements.cpp)
 target_link_libraries(test_measurements PRIVATE
 Qt6::Core
 Qt6::Gui
+curcuma_core
 )
 target_include_directories(test_measurements PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
 )
 add_test(NAME measurements COMMAND test_measurements)
 

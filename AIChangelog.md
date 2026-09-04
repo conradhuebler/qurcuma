@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - RMSD, Gyrationsradius und wählbare Histogramm-Quellen
+
+- **Geometrie liegt jetzt in curcuma** (Operator-Regel: so tief wie möglich verankern): `GeometryTools::Angle/Dihedral/GyrationRadius` sind dort ergänzt, `Distance` und `RMSDFunctions` gab es schon. `src/measurements.{h,cpp}` ist nur noch der Qt-Adapter (QVector3D → `Position`/`Geometry`, Beschriftungen, Farben) — keine eigene Geometrie mehr. Beim Umstellen fiel ein echter Fehler in curcumas `BestFitRotation` auf: der Guard prüfte `det(Cov)`, was bei **jeder planaren Struktur** null ist, obwohl die Kabsch-Rotation dort wohldefiniert ist — planare Moleküle blieben unausgerichtet (gemessen: RMSD √2 statt 0 für ein um 90° gedrehtes Quadrat). Behoben und in curcuma committet.
+- **Zwei neue verfolgbare Größen**: RMSD zum ersten Frame des Laufs (Schwerpunkte entfernt, dann Kabsch — Drift und Taumeln zählen also nicht als Strukturänderung) und Gyrationsradius. Beide brauchen keine Atomauswahl und haben einen eigenen Auswahlknopf neben "Add from selection".
+- **Histogramm über beliebige Größen**: eine Auswahlliste im Histogramm-Reiter bestimmt, was gebinnt wird — E_pot, E_kin, E_tot, T und jede verfolgte Messgröße, mehrere gleichzeitig. Vorher gab es Histogramme nur für die Messgrößen und ohne Wahlmöglichkeit.
+- **Messung und Plot zusammen**: die Tabelle der verfolgten internen Koordinaten sitzt jetzt im Reiter "Internal coordinates" bei ihrem Plot, statt unter allen Reitern zu hängen — Atome picken und die Kurve lesen ist eine Tätigkeit, und auf dem Temperatur- oder Energiereiter war die Tabelle bedeutungslos.
+
 ## September 2026 - Verfolgte Messungen in den Charts
 
 - **`src/measurements.{h,cpp}`** (GUI-frei, `test_measurements` mit 29 Prüfungen): Abstand, Winkel und vorzeichenbehafteter Diederwinkel, eine `Tracked`-Beschreibung (2/3/4 Atome bestimmen die Art) und Histogramm-Binning. Die Mathematik lag bisher als lokale Lambdas in `MoleculeViewer::updateMeasurement()`; der Viewer-HUD nutzt jetzt dieselben Funktionen wie die Plots, damit abgelesene und geplottete Zahlen nicht auseinanderlaufen können. Die Vorzeichenkonvention des Diederwinkels ist im Test von Hand hergeleitet und damit festgenagelt.

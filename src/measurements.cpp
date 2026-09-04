@@ -1,38 +1,80 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
-// Claude Generated 2026 — see measurements.h.
+// Claude Generated 2026 — see measurements.h. Qt-side adapter over curcuma's
+// GeometryTools and RMSDFunctions; no geometry is implemented here.
 
 #include "measurements.h"
 
-#include <QtMath>
+#include <src/capabilities/rmsd/rmsd_functions.h>
+#include <src/tools/geometry.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
+
+namespace {
+
+inline Position toPosition(const QVector3D& v)
+{
+    return Position(double(v.x()), double(v.y()), double(v.z()));
+}
+
+Geometry toGeometry(const std::vector<QVector3D>& positions)
+{
+    Geometry g(static_cast<int>(positions.size()), 3);
+    for (size_t i = 0; i < positions.size(); ++i) {
+        g(int(i), 0) = double(positions[i].x());
+        g(int(i), 1) = double(positions[i].y());
+        g(int(i), 2) = double(positions[i].z());
+    }
+    return g;
+}
+
+} // namespace
 
 namespace measure {
 
 double distance(const QVector3D& a, const QVector3D& b)
 {
-    return double((b - a).length());
+    return GeometryTools::Distance(toPosition(a), toPosition(b));
 }
 
 double angleDeg(const QVector3D& a, const QVector3D& b, const QVector3D& c)
 {
-    const QVector3D u = (a - b).normalized();
-    const QVector3D v = (c - b).normalized();
-    // Clamp before acos: rounding can push the dot product a hair outside [-1, 1]
-    // for a straight or fully folded arrangement, which would give NaN.
-    const float dot = qBound(-1.0f, QVector3D::dotProduct(u, v), 1.0f);
-    return double(qRadiansToDegrees(qAcos(dot)));
+    return GeometryTools::Angle(toPosition(a), toPosition(b), toPosition(c));
 }
 
 double dihedralDeg(const QVector3D& a, const QVector3D& b, const QVector3D& c, const QVector3D& d)
 {
-    const QVector3D b1 = b - a, b2 = c - b, b3 = d - c;
-    const QVector3D n1 = QVector3D::crossProduct(b1, b2);
-    const QVector3D n2 = QVector3D::crossProduct(b2, b3);
-    const QVector3D m = QVector3D::crossProduct(n1, b2.normalized());
-    return double(qRadiansToDegrees(qAtan2(QVector3D::dotProduct(m, n2),
-        QVector3D::dotProduct(n1, n2))));
+    return GeometryTools::Dihedral(toPosition(a), toPosition(b), toPosition(c), toPosition(d));
+}
+
+double gyrationRadius(const std::vector<QVector3D>& positions)
+{
+    if (positions.empty())
+        return std::numeric_limits<double>::quiet_NaN();
+    return GeometryTools::GyrationRadius(toGeometry(positions));
+}
+
+double rmsdToReference(const std::vector<QVector3D>& positions,
+    const std::vector<QVector3D>& reference)
+{
+    if (positions.empty() || positions.size() != reference.size())
+        return std::numeric_limits<double>::quiet_NaN();
+
+    // Remove both centroids, then the optimal rotation: what is plotted is the RMSD
+    // after superposition, so a molecule drifting or tumbling through the box does
+    // not register as a structural change.
+    Geometry ref = toGeometry(reference);
+    Geometry tar = toGeometry(positions);
+    ref = GeometryTools::TranslateGeometry(ref, GeometryTools::Centroid(ref), Position { 0, 0, 0 });
+    tar = GeometryTools::TranslateGeometry(tar, GeometryTools::Centroid(tar), Position { 0, 0, 0 });
+    const Eigen::Matrix3d rotation = RMSDFunctions::BestFitRotation(ref, tar, 1);
+    return RMSDFunctions::getRMSD(ref, RMSDFunctions::applyRotation(tar, rotation));
+}
+
+bool Tracked::isWholeStructure(Kind kind)
+{
+    return kind == Kind::RmsdToStart || kind == Kind::GyrationRadius;
 }
 
 bool Tracked::kindForCount(int count, Kind& kind)
@@ -45,10 +87,23 @@ bool Tracked::kindForCount(int count, Kind& kind)
     }
 }
 
+int Tracked::requiredAtoms() const
+{
+    switch (kind) {
+    case Kind::Distance: return 2;
+    case Kind::Angle: return 3;
+    case Kind::Dihedral: return 4;
+    case Kind::RmsdToStart:
+    case Kind::GyrationRadius: return 0;
+    }
+    return 0;
+}
+
 bool Tracked::isValid(int atomCount) const
 {
-    const int need = (kind == Kind::Distance) ? 2 : (kind == Kind::Angle) ? 3 : 4;
-    if (atoms.size() != need)
+    if (isWholeStructure(kind))
+        return atomCount > 0;
+    if (atoms.size() != requiredAtoms())
         return false;
     for (int a : atoms)
         if (a < 0 || a >= atomCount)
@@ -56,7 +111,8 @@ bool Tracked::isValid(int atomCount) const
     return true;
 }
 
-double Tracked::evaluate(const std::vector<QVector3D>& positions) const
+double Tracked::evaluate(const std::vector<QVector3D>& positions,
+    const std::vector<QVector3D>& reference) const
 {
     if (!isValid(static_cast<int>(positions.size())))
         return std::numeric_limits<double>::quiet_NaN();
@@ -68,17 +124,27 @@ double Tracked::evaluate(const std::vector<QVector3D>& positions) const
     case Kind::Dihedral:
         return dihedralDeg(positions[atoms[0]], positions[atoms[1]],
             positions[atoms[2]], positions[atoms[3]]);
+    case Kind::GyrationRadius:
+        return gyrationRadius(positions);
+    case Kind::RmsdToStart:
+        return rmsdToReference(positions, reference);
     }
     return std::numeric_limits<double>::quiet_NaN();
 }
 
 QString Tracked::unit() const
 {
-    return kind == Kind::Distance ? QStringLiteral("A") : QStringLiteral("deg");
+    return (kind == Kind::Angle || kind == Kind::Dihedral)
+        ? QStringLiteral("deg")
+        : QStringLiteral("A");
 }
 
-QString Tracked::makeLabel(const QVector<int>& atoms, const QVector<QString>& elements)
+QString Tracked::makeLabel(Kind kind, const QVector<int>& atoms, const QVector<QString>& elements)
 {
+    if (kind == Kind::RmsdToStart)
+        return QStringLiteral("RMSD to start");
+    if (kind == Kind::GyrationRadius)
+        return QStringLiteral("Radius of gyration");
     QStringList parts;
     for (int a : atoms) {
         const QString el = (a >= 0 && a < elements.size()) ? elements[a] : QStringLiteral("?");
@@ -124,7 +190,7 @@ Histogram histogram(const QVector<double>& values, int bins)
         if (!std::isfinite(v))
             continue;
         int b = static_cast<int>((v - lo) / h.binWidth);
-        b = qBound(0, b, bins - 1);   // the maximum lands in the last bin, not past it
+        b = std::max(0, std::min(b, bins - 1));   // the maximum lands in the last bin
         ++h.counts[b];
     }
     return h;

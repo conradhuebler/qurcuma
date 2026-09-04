@@ -23,6 +23,7 @@ class QComboBox;
 class QDoubleSpinBox;
 class QSpinBox;
 class QTableWidget;
+class QListWidget;
 class QLabel;
 class QPushButton;
 
@@ -67,9 +68,11 @@ public slots:
 
 private slots:
     void addFromSelection();
+    void addWholeStructure();   ///< RMSD to the first frame / radius of gyration
     void removeSelectedRow();
     void exportCsv();
     void refreshViews();   ///< rebuild the displayed series from the stored samples
+    void rebuildHistogramSeries();  ///< follow a change of the checked histogram sources
 
 private:
     /** @brief One tracked quantity plus its samples and its plot series. */
@@ -77,8 +80,20 @@ private:
         measure::Tracked def;
         QVector<double> values;   ///< one per recorded frame, parallel to m_timePs
         QLineSeries* series = nullptr;
-        QLineSeries* histogram = nullptr;
     };
+
+    /** @brief One quantity the histogram can bin: a built-in or a tracked measurement. */
+    struct HistSource {
+        QString key;                     ///< stable identity across rebuilds
+        QString label;                   ///< shown in the source list and the legend
+        QColor colour;
+        const QVector<double>* values = nullptr;
+    };
+
+    /** @brief Everything that can be binned right now: energies, temperatures and
+     *  every tracked measurement. The histogram is not limited to one of them. */
+    QVector<HistSource> histogramSources() const;
+    void rebuildHistogramList();   ///< refresh the checkable source list, keeping check states
 
     QWidget* buildControlBar();
     /// Recreate the measurement and histogram series from m_tracks. ListChart has no
@@ -109,10 +124,14 @@ private:
     QCheckBox* m_normaliseCheck = nullptr;
     QSpinBox* m_binSpin = nullptr;
     QTableWidget* m_trackTable = nullptr;
+    QListWidget* m_histList = nullptr;    ///< which quantities the histogram bins
     QPushButton* m_addBtn = nullptr;
+    QComboBox* m_wholeCombo = nullptr;   ///< picks the whole-structure quantity to add
     QLabel* m_unitLabel = nullptr;
+    QVector<QLineSeries*> m_histSeries;   ///< one per checked source, parallel to the checked order
 
     // --- samples ---
+    std::vector<QVector3D> m_reference;  ///< first frame of the run, for the RMSD track
     QVector<double> m_timePs;      ///< x value of every recorded frame
     QVector<double> m_epot, m_ekin, m_etot, m_temp, m_tempTarget;
     QVector<Track> m_tracks;

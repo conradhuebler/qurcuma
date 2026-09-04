@@ -19,6 +19,7 @@
 #include <QPushButton>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QListWidget>
 #include <QTableWidget>
 #include <QTextStream>
 #include <QVBoxLayout>
@@ -91,7 +92,17 @@ SimulationChartWidget::SimulationChartWidget(QWidget* parent)
     m_measureChart->setYAxis(tr("value"));
     m_measureChart->setAnimationOptions(QChart::NoAnimation);
     m_measureChart->chart()->setZoomStrategy(ZoomStrategy::Rectangular);
-    tabs->addTab(m_measureChart, tr("Measurements"));
+
+    // Internal coordinates: the plot and the list that defines it belong together —
+    // picking atoms and reading the resulting curve is one activity, and the table
+    // is meaningless on the temperature or energy tab. Claude Generated 2026.
+    auto* internalPage = new QWidget(this);
+    auto* internalLay = new QVBoxLayout(internalPage);
+    internalLay->setContentsMargins(0, 0, 0, 0);
+    internalLay->setSpacing(4);
+    internalLay->addWidget(m_measureChart, 1);
+    internalLay->addWidget(buildTrackTable());
+    tabs->addTab(internalPage, tr("Internal coordinates"));
 
     // Drawn as a step outline through a line series rather than a bar series:
     // CuteChart's ChartView assumes a QValueAxis on every series it is given, and a
@@ -101,13 +112,31 @@ SimulationChartWidget::SimulationChartWidget(QWidget* parent)
     m_histogramChart->setYAxis(tr("count"));
     m_histogramChart->setAnimationOptions(QChart::NoAnimation);
     m_histogramChart->chart()->setZoomStrategy(ZoomStrategy::Rectangular);
-    tabs->addTab(m_histogramChart, tr("Histogram"));
+
+    auto* histPage = new QWidget(this);
+    auto* histLay = new QVBoxLayout(histPage);
+    histLay->setContentsMargins(0, 0, 0, 0);
+    histLay->setSpacing(4);
+    histLay->addWidget(m_histogramChart, 1);
+
+    // Any recorded quantity can be binned, and several at once — energies and
+    // temperatures as much as the tracked internal coordinates.
+    m_histList = new QListWidget(histPage);
+    m_histList->setMaximumHeight(96);
+    m_histList->setFlow(QListView::LeftToRight);
+    m_histList->setWrapping(true);
+    m_histList->setToolTip(tr("Which quantities to bin. Several at once is fine; mixing units "
+                              "(Hartree, Kelvin, Angstrom, degrees) puts them on one value axis, "
+                              "so compare like with like unless you only want the shapes."));
+    connect(m_histList, &QListWidget::itemChanged, this, &SimulationChartWidget::rebuildHistogramSeries);
+    histLay->addWidget(m_histList);
+
+    tabs->addTab(histPage, tr("Histogram"));
 
     lay->addWidget(tabs, 1);
 
-    lay->addWidget(buildTrackTable());
-
     m_rescaleThrottle.start();
+    rebuildHistogramList();
     updateUnitLabel();
 }
 
@@ -191,6 +220,18 @@ QWidget* SimulationChartWidget::buildTrackTable()
     connect(m_addBtn, &QPushButton::clicked, this, &SimulationChartWidget::addFromSelection);
     row->addWidget(m_addBtn);
 
+    // The two whole-structure quantities need no atom selection, so they get their
+    // own picker rather than being hidden behind the selection-driven button.
+    m_wholeCombo = new QComboBox(box);
+    m_wholeCombo->addItem(tr("RMSD to start"), int(measure::Tracked::Kind::RmsdToStart));
+    m_wholeCombo->addItem(tr("Radius of gyration"), int(measure::Tracked::Kind::GyrationRadius));
+    m_wholeCombo->setToolTip(tr("Quantities of the whole structure: the best-fit RMSD against the "
+                                "run's first frame, and the radius of gyration."));
+    row->addWidget(m_wholeCombo);
+    auto* addWholeBtn = new QPushButton(tr("Add"), box);
+    connect(addWholeBtn, &QPushButton::clicked, this, &SimulationChartWidget::addWholeStructure);
+    row->addWidget(addWholeBtn);
+
     auto* removeBtn = new QPushButton(tr("Remove"), box);
     connect(removeBtn, &QPushButton::clicked, this, &SimulationChartWidget::removeSelectedRow);
     row->addWidget(removeBtn);
@@ -247,12 +288,35 @@ void SimulationChartWidget::addFromSelection()
     Track t;
     t.def.kind = kind;
     t.def.atoms = m_selection;
-    t.def.label = measure::Tracked::makeLabel(m_selection, m_elements);
+    t.def.label = measure::Tracked::makeLabel(kind, m_selection, m_elements);
     t.def.colour = trackColours()[m_tracks.size() % trackColours().size()];
 
     // Backfill from the frames already recorded is not possible (their positions are
     // not kept), so the new track is padded with NaN for the frames it missed and
     // stays parallel to m_timePs.
+    t.values = QVector<double>(m_timePs.size(), std::numeric_limits<double>::quiet_NaN());
+
+    m_tracks.append(t);
+    rebuildMeasurementSeries();
+    rebuildTrackTable();
+    updateUnitLabel();
+    refreshViews();
+}
+
+void SimulationChartWidget::addWholeStructure()
+{
+    const auto kind = static_cast<measure::Tracked::Kind>(m_wholeCombo->currentData().toInt());
+    for (const Track& t : m_tracks)
+        if (t.def.kind == kind) {
+            QMessageBox::information(this, tr("Add measurement"),
+                tr("%1 is already tracked.").arg(t.def.label));
+            return;
+        }
+
+    Track t;
+    t.def.kind = kind;
+    t.def.label = measure::Tracked::makeLabel(kind, {}, m_elements);
+    t.def.colour = trackColours()[m_tracks.size() % trackColours().size()];
     t.values = QVector<double>(m_timePs.size(), std::numeric_limits<double>::quiet_NaN());
 
     m_tracks.append(t);
@@ -274,20 +338,91 @@ void SimulationChartWidget::removeSelectedRow()
     refreshViews();
 }
 
+QVector<SimulationChartWidget::HistSource> SimulationChartWidget::histogramSources() const
+{
+    QVector<HistSource> out;
+    out.append({ QStringLiteral("epot"), tr("E_pot [Eh]"), QColor(40, 140, 60), &m_epot });
+    out.append({ QStringLiteral("ekin"), tr("E_kin [Eh]"), QColor(220, 140, 0), &m_ekin });
+    out.append({ QStringLiteral("etot"), tr("E_tot [Eh]"), QColor(120, 60, 180), &m_etot });
+    out.append({ QStringLiteral("temp"), tr("T [K]"), QColor(220, 50, 40), &m_temp });
+    for (const Track& t : m_tracks) {
+        const QString unit = t.def.kind == measure::Tracked::Kind::Distance
+            ? tr("[A]") : tr("[deg]");
+        out.append({ QStringLiteral("track:") + t.def.label,
+            t.def.label + QLatin1Char(' ') + unit, t.def.colour, &t.values });
+    }
+    return out;
+}
+
+void SimulationChartWidget::rebuildHistogramList()
+{
+    if (!m_histList)
+        return;
+    // Keep what the user had ticked. A key that was not in the list before is new;
+    // a new tracked measurement starts ticked, because adding one is a statement of
+    // interest in it, while the built-in energies and temperature start unticked.
+    QSet<QString> known, checked;
+    for (int i = 0; i < m_histList->count(); ++i) {
+        QListWidgetItem* it = m_histList->item(i);
+        const QString key = it->data(Qt::UserRole).toString();
+        known.insert(key);
+        if (it->checkState() == Qt::Checked)
+            checked.insert(key);
+    }
+
+    const QSignalBlocker block(m_histList);
+    m_histList->clear();
+    for (const HistSource& s : histogramSources()) {
+        auto* item = new QListWidgetItem(s.label, m_histList);
+        item->setData(Qt::UserRole, s.key);
+        item->setForeground(s.colour);
+        const bool isNew = !known.contains(s.key);
+        const bool on = isNew ? s.key.startsWith(QStringLiteral("track:")) : checked.contains(s.key);
+        item->setCheckState(on ? Qt::Checked : Qt::Unchecked);
+    }
+}
+
+void SimulationChartWidget::rebuildHistogramSeries()
+{
+    if (!m_histogramChart || !m_histList)
+        return;
+    // ListChart::clear() routes to QChart::removeAllSeries(), which deletes the
+    // series, so the stored pointers are replaced rather than freed here.
+    m_histogramChart->clear();
+    m_histSeries.clear();
+
+    const QVector<HistSource> sources = histogramSources();
+    int legendIndex = 0;
+    for (int i = 0; i < m_histList->count(); ++i) {
+        QListWidgetItem* it = m_histList->item(i);
+        if (it->checkState() != Qt::Checked)
+            continue;
+        const QString key = it->data(Qt::UserRole).toString();
+        for (const HistSource& s : sources) {
+            if (s.key != key)
+                continue;
+            auto* series = new QLineSeries;
+            m_histogramChart->addSeries(series, legendIndex++, s.colour, s.label, false);
+            m_histSeries.append(series);
+            break;
+        }
+    }
+    refreshViews();
+}
+
 void SimulationChartWidget::rebuildMeasurementSeries()
 {
     // ListChart::clear() routes to QChart::removeAllSeries(), which DELETES the
     // series, so the stored pointers must be replaced rather than freed here.
     m_measureChart->clear();
-    m_histogramChart->clear();
     for (int i = 0; i < m_tracks.size(); ++i) {
         m_tracks[i].series = new QLineSeries;
         m_measureChart->addSeries(m_tracks[i].series, i, m_tracks[i].def.colour,
             m_tracks[i].def.label, false);
-        m_tracks[i].histogram = new QLineSeries;
-        m_histogramChart->addSeries(m_tracks[i].histogram, i, m_tracks[i].def.colour,
-            m_tracks[i].def.label, false);
     }
+    // The histogram sources changed with the track list.
+    rebuildHistogramList();
+    rebuildHistogramSeries();
 }
 
 void SimulationChartWidget::rebuildTrackTable()
@@ -299,9 +434,14 @@ void SimulationChartWidget::rebuildTrackTable()
         auto* nameItem = new QTableWidgetItem(t.def.label);
         nameItem->setForeground(t.def.colour);
         m_trackTable->setItem(r, 0, nameItem);
-        const QString type = t.def.kind == measure::Tracked::Kind::Distance
-            ? tr("distance [A]")
-            : t.def.kind == measure::Tracked::Kind::Angle ? tr("angle [deg]") : tr("dihedral [deg]");
+        QString type;
+        switch (t.def.kind) {
+        case measure::Tracked::Kind::Distance: type = tr("distance [A]"); break;
+        case measure::Tracked::Kind::Angle: type = tr("angle [deg]"); break;
+        case measure::Tracked::Kind::Dihedral: type = tr("dihedral [deg]"); break;
+        case measure::Tracked::Kind::RmsdToStart: type = tr("RMSD [A]"); break;
+        case measure::Tracked::Kind::GyrationRadius: type = tr("Rg [A]"); break;
+        }
         m_trackTable->setItem(r, 1, new QTableWidgetItem(type));
         QStringList idx;
         for (int a : t.def.atoms)
@@ -316,10 +456,10 @@ void SimulationChartWidget::updateUnitLabel()
         return;
     bool haveDistance = false, haveAngle = false;
     for (const Track& t : m_tracks) {
-        if (t.def.kind == measure::Tracked::Kind::Distance)
-            haveDistance = true;
-        else
+        if (t.def.unit() == QStringLiteral("deg"))
             haveAngle = true;
+        else
+            haveDistance = true;
     }
     if (haveDistance && haveAngle && !m_normaliseCheck->isChecked())
         m_unitLabel->setText(tr("mixed units on one axis — switch on Normalise to compare"));
@@ -334,6 +474,7 @@ void SimulationChartWidget::updateUnitLabel()
 
 void SimulationChartWidget::reset()
 {
+    m_reference.clear();
     m_timePs.clear();
     m_epot.clear();
     m_ekin.clear();
@@ -364,8 +505,11 @@ void SimulationChartWidget::appendFrame(SimulationFramePtr frame)
     m_temp.append(frame->temperature);
     m_tempTarget.append(frame->targetTemperature);
 
+    // The first frame of the run is the RMSD reference.
+    if (m_reference.empty())
+        m_reference = frame->positions;
     for (Track& t : m_tracks)
-        t.values.append(t.def.evaluate(frame->positions));
+        t.values.append(t.def.evaluate(frame->positions, m_reference));
 
     // Rolling cap: drop the oldest samples so a long run does not grow without bound.
     if (m_timePs.size() > m_maxPoints) {
@@ -457,27 +601,46 @@ void SimulationChartWidget::refreshViews()
 
         QVector<QPointF> pts;
         pts.reserve(n - start);
-        QVector<double> windowValues;
         for (int i = start; i < n && i < t.values.size(); ++i) {
             const double v = t.values[i];
             if (!std::isfinite(v))
                 continue;
-            windowValues.append(v);
             pts.append(QPointF(m_timePs[i], scalable ? (v - lo) / (hi - lo) : v));
         }
         t.series->replace(pts);
+    }
 
-        // Histogram of exactly the samples the time series shows.
-        if (t.histogram) {
-            const measure::Histogram h = measure::histogram(windowValues, m_binSpin->value());
+    // Histograms over exactly the samples the time series shows, for every ticked
+    // source — the built-in energies and temperature as much as the tracked
+    // internal coordinates, and as many at once as the user ticked.
+    {
+        const QVector<HistSource> sources = histogramSources();
+        int seriesIndex = 0;
+        for (int i = 0; i < m_histList->count() && seriesIndex < m_histSeries.size(); ++i) {
+            QListWidgetItem* it = m_histList->item(i);
+            if (it->checkState() != Qt::Checked)
+                continue;
+            const QString key = it->data(Qt::UserRole).toString();
+            const QVector<double>* values = nullptr;
+            for (const HistSource& s : sources)
+                if (s.key == key) {
+                    values = s.values;
+                    break;
+                }
+            QVector<double> windowed;
+            if (values)
+                for (int k = start; k < n && k < values->size(); ++k)
+                    if (std::isfinite(values->at(k)))
+                        windowed.append(values->at(k));
+
+            const measure::Histogram h = measure::histogram(windowed, m_binSpin->value());
             QVector<QPointF> steps;
             for (int b = 0; b < h.counts.size(); ++b) {
                 const double left = h.min + b * h.binWidth;
-                const double right = left + h.binWidth;
                 steps.append(QPointF(left, h.counts[b]));
-                steps.append(QPointF(right, h.counts[b]));
+                steps.append(QPointF(left + h.binWidth, h.counts[b]));
             }
-            t.histogram->replace(steps);
+            m_histSeries[seriesIndex++]->replace(steps);
         }
     }
 
@@ -488,7 +651,7 @@ void SimulationChartWidget::refreshViews()
         m_energyChart->chart()->formatAxis();
     if (m_measureChart && !m_tracks.isEmpty())
         m_measureChart->chart()->formatAxis();
-    if (m_histogramChart && !m_tracks.isEmpty())
+    if (m_histogramChart && !m_histSeries.isEmpty())
         m_histogramChart->chart()->formatAxis();
 }
 
