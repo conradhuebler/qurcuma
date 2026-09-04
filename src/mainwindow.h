@@ -406,6 +406,9 @@ private:
     // MainWindow share one type.
     QVector<MoleculeSnapshot> m_snapshots;
     void takeSnapshot(const QString& name = QString());
+    /// Claude Generated 2026 - Fill the confinement container with randomly placed
+    /// copies of library molecules (Build strip "Fill", Molecule menu).
+    void fillContainer();
     void restoreSnapshot(const MoleculeSnapshot& snapshot);
     void resetToOriginalSnapshot();
     void captureInitialSnapshot(const QString& filePath,

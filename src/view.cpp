@@ -4800,6 +4800,19 @@ void MoleculeViewer::setupControlPanel()
     connect(newSceneBtn, &QToolButton::clicked, this, [this]() { emit newSceneRequested(); });
     panelLayout->addWidget(newSceneBtn);
 
+    // Fill-container button, Build mode only (Claude Generated 2026): packs copies
+    // of library molecules into a sphere or box, the quick way to set up a
+    // gas-phase reaction scene.
+    QToolButton* fillBtn = new QToolButton;
+    fillBtn->setText(tr("Fill"));
+    fillBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    fillBtn->setIcon(barIcon(QStringLiteral("new"), iconColor));
+    fillBtn->setToolTip(tr("Fill a container with randomly placed copies of molecules "
+                           "(for example N2 and H2 for ammonia synthesis)."));
+    fillBtn->setVisible(false);
+    connect(fillBtn, &QToolButton::clicked, this, [this]() { emit fillContainerRequested(); });
+    panelLayout->addWidget(fillBtn);
+
     // Add-H button + open-valence label, Build mode only (Claude Generated 2026).
     QToolButton* addHBtn = new QToolButton;
     addHBtn->setText(tr("Add H"));
@@ -4843,10 +4856,11 @@ void MoleculeViewer::setupControlPanel()
         }
     };
     connect(this, &MoleculeViewer::interactionModeChanged, valenceLabel,
-        [addHBtn, cleanupBtn, newSceneBtn, updateValenceLabel](InteractionMode m) {
+        [addHBtn, cleanupBtn, newSceneBtn, fillBtn, updateValenceLabel](InteractionMode m) {
             addHBtn->setVisible(m == InteractionMode::Build);
             cleanupBtn->setVisible(m == InteractionMode::Build);
             newSceneBtn->setVisible(m == InteractionMode::Build);
+            fillBtn->setVisible(m == InteractionMode::Build);
             updateValenceLabel();
         });
     connect(this, &MoleculeViewer::moleculeUpdated, valenceLabel,

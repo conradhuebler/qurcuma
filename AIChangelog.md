@@ -1,5 +1,13 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Reaktive Parameter und Szenenfüller
+
+- **Reaktive Parameter in der GUI** (`src/simulationcontrolwidget.*`, `src/simulationworker.*`): Gruppe "Reactive Topology" mit Form-/Break-Faktor, Scan-Intervall, Refraktärscans, Valenzschranke und Exchange-Scans; sichtbar nur bei MD + GFN-FF + react, geschrieben nach `controller["gfnff"]` nur in diesem Modus. Das Break-Minimum folgt dem Form-Wert, weil curcuma bei `break <= form` warnt und **beide** Werte auf die Defaults zurücksetzt — ein still verlorener Nutzerwert wäre schlimmer als eine Spinbox, die den Wert ablehnt. Lesson-Roundtrip in `lesson.cpp`.
+- **RATTLE bei react gesperrt**: curcuma lehnt die Kombination seit `reactff2` beim Start ab (Constraints sind beim Init eingefroren); die GUI nimmt die Wahl vorher weg und `buildConfig` erzwingt es zusätzlich für aus Lessons geladene Configs.
+- **`row = 2`-Hack ersetzt**: die Sichtbarkeit der Topologie-Zeile hängt jetzt an `QFormLayout::labelForField` statt an einem hartkodierten Zeilenindex.
+- **Gezeichnete Topologie als curcuma-Seed**: `atomsToMolecule(atoms, &bonds)` baut im react-Modus die Topologiematrix und übergibt sie über `setTopologyMatrix`; damit startet das Kraftfeld mit genau den Bindungen, die im Builder gezeichnet wurden. Bewusst nur im react-Modus — Forced-Bonds wirken in jedem Topologiemodus und würden sonst GFN-FFs eigene Detektion für geladene Strukturen still ersetzen.
+- **Szenenfüller** (`src/scenefiller.{h,cpp}`, `src/dialogs/fillcontainerdialog.*`): "Fill" im Build-Strip und Molecule ▸ Fill Container… packen N zufällig orientierte Kopien von Bibliotheks-Molekülen in Kugel oder Box — gleichverteilte Rotationen (Shoemake), Rejection-Sampling, Mindestabstand zu allem bereits Platzierten, Abbruch mit `placed < requested` statt Endlosschleife, optionaler Seed für reproduzierbare Szenen. Bindungsordnungen bleiben erhalten, alle Kopien in einem `appendMolecule`-Aufruf (ein Undo-Schritt), und die Confinement-Wand wird auf Wunsch auf den Container gesetzt. Test `test_scenefiller` (15 Prüfungen, GUI-frei).
+
 ## September 2026 - Reaktives GFN-FF: Topologie und Ereignisse in der GUI
 
 - **Kraftfeld-Bindungen im Frame** (`src/simulationframe.h`, `src/simulationworker.{h,cpp}`): `SimulationFrame` trägt jetzt `bonds` (mit Ordnungen), `topologyVersion` und `events`. `liveGfnff()` bündelt den Zugriff auf die laufende GFNFF-Instanz (CPU/CUDA/ROCm — die GPU-Wrapper haben dafür curcuma-seitig `getGFNFF()` bekommen) und ersetzt den Inline-Cast in `collectLiveNci`. Gelesen wird im Worker-Thread direkt nach `step()`; die Bindungsliste wird nur bei geändertem Rebuild-Zähler kopiert. Nur aktiv bei Methode gfnff + `topology_mode=react`.

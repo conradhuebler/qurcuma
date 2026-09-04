@@ -73,6 +73,18 @@ struct SimulationConfig {
     // GFN-FF topology mode (MD only)
     QString topologyMode = "auto"; // "auto" (two-tier caching), "constant" (never recalculate), "react" (dynamic bond topology)
 
+    // Reactive topology parameters (MD + gfnff + topologyMode=="react" only).
+    // Mirror the "Reactive" PARAM category in
+    // external/curcuma/src/core/energy_calculators/ff_methods/gfnff.h; written into
+    // controller["gfnff"] only in react mode, so curcuma's defaults stay intact
+    // otherwise. Documented in external/curcuma/docs/GFNFF_REACT_TOPOLOGY.md.
+    double reactFormFactor      = 1.6;  // react_bond_form_factor
+    double reactBreakFactor     = 2.6;  // react_bond_break_factor
+    int    reactCheckEvery      = 5;    // react_check_every
+    int    reactRefractoryScans = 10;   // react_refractory_scans
+    bool   reactValenceCap      = true; // react_valence_cap
+    int    reactExchangeScans   = 20;   // react_exchange_scans
+
     // Hydrogen mass scaling (MD only) - increases H mass to allow larger time steps
     double hmass = 1.0; // 1.0 = normal mass, 2.0 or 3.0 = scaled (common values)
 

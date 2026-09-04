@@ -75,6 +75,12 @@ QJsonObject simConfigToJson(const SimulationConfig& cfg)
     o["rattleMaxIter"] = cfg.rattleMaxIter;
 
     o["topologyMode"] = cfg.topologyMode;
+    o["reactFormFactor"] = cfg.reactFormFactor;
+    o["reactBreakFactor"] = cfg.reactBreakFactor;
+    o["reactCheckEvery"] = cfg.reactCheckEvery;
+    o["reactRefractoryScans"] = cfg.reactRefractoryScans;
+    o["reactValenceCap"] = cfg.reactValenceCap;
+    o["reactExchangeScans"] = cfg.reactExchangeScans;
 
     // Thermostat
     o["thermostat"] = cfg.thermostat;
@@ -148,6 +154,12 @@ SimulationConfig simConfigFromJson(const QJsonObject& o)
     cfg.rattleMaxIter = o.value("rattleMaxIter").toInt(cfg.rattleMaxIter);
 
     cfg.topologyMode = o.value("topologyMode").toString(cfg.topologyMode);
+    cfg.reactFormFactor = o.value("reactFormFactor").toDouble(cfg.reactFormFactor);
+    cfg.reactBreakFactor = o.value("reactBreakFactor").toDouble(cfg.reactBreakFactor);
+    cfg.reactCheckEvery = o.value("reactCheckEvery").toInt(cfg.reactCheckEvery);
+    cfg.reactRefractoryScans = o.value("reactRefractoryScans").toInt(cfg.reactRefractoryScans);
+    cfg.reactValenceCap = o.value("reactValenceCap").toBool(cfg.reactValenceCap);
+    cfg.reactExchangeScans = o.value("reactExchangeScans").toInt(cfg.reactExchangeScans);
 
     cfg.thermostat = o.value("thermostat").toString(cfg.thermostat);
     cfg.thermostatCoupling = o.value("thermostatCoupling").toDouble(cfg.thermostatCoupling);

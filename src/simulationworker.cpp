@@ -168,9 +168,22 @@ json buildMdController(const SimulationConfig& cfg, bool singleStep)
     controller["global"]["gpu"] = cfg.gpu.toStdString();
     controller["global"]["verbosity"] = 0;
     controller["verbosity"] = 0;
-    // GFN-FF topology mode (auto/constant); ignored for other methods.
-    if (cfg.method == "gfnff")
+    // GFN-FF topology mode (auto/constant/react); ignored for other methods.
+    if (cfg.method == "gfnff") {
         controller["global"]["topology_mode"] = cfg.topologyMode.toStdString();
+        // Reactive parameters travel in the gfnff scope (same route as
+        // hb_update_force_every below) and only when the mode is actually react,
+        // so a non-reactive run keeps curcuma's defaults untouched.
+        if (cfg.topologyMode == QLatin1String("react")) {
+            json& g = controller["gfnff"];
+            g["react_bond_form_factor"] = cfg.reactFormFactor;
+            g["react_bond_break_factor"] = cfg.reactBreakFactor;
+            g["react_check_every"] = cfg.reactCheckEvery;
+            g["react_refractory_scans"] = cfg.reactRefractoryScans;
+            g["react_valence_cap"] = cfg.reactValenceCap;
+            g["react_exchange_scans"] = cfg.reactExchangeScans;
+        }
+    }
     return controller;
 }
 
@@ -215,7 +228,8 @@ SimulationWorker::~SimulationWorker() = default;
 
 // Forward declarations for helpers used by both stepOnce() (above their
 // definition site) and the rest of the worker methods.
-static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms);
+static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms,
+    const QVector<MoleculeViewer::Bond>* bonds = nullptr);
 static SimulationFramePtr moleculeToFrame(
     const Molecule& mol, int referenceSize, double energy, double ekin, int step,
     double temperature = 0.0, double targetTemperature = 0.0);
@@ -472,7 +486,15 @@ void SimulationWorker::run()
     }
 }
 
-static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms)
+// Claude Generated 2026 - @p bonds seeds curcuma's topology (reactive runs only, see
+// the call sites): setTopologyMatrix fills Molecule::m_bonds, getMolInfo() carries it
+// into Mol::m_bonds, and GFN-FF adopts it as its forced-bond list. Deliberately NOT
+// done in auto/constant mode: forced bonds are honoured in every topology mode and
+// would silently replace GFN-FF's own detection for a loaded structure. In react mode
+// the drawn topology IS the intended starting point, and the hysteresis owns it from
+// the first scan on.
+static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms,
+    const QVector<MoleculeViewer::Bond>* bonds)
 {
     Molecule mol;
     for (const auto& atom : atoms) {
@@ -480,7 +502,24 @@ static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms)
         Position pos(atom.position.x(), atom.position.y(), atom.position.z());
         mol.addPair({ Z, pos });
     }
+    if (bonds && !bonds->isEmpty()) {
+        const int n = atoms.size();
+        Eigen::MatrixXd topology = Eigen::MatrixXd::Zero(n, n);
+        for (const MoleculeViewer::Bond& b : *bonds) {
+            if (b.atom1 >= 0 && b.atom2 >= 0 && b.atom1 < n && b.atom2 < n && b.atom1 != b.atom2) {
+                topology(b.atom1, b.atom2) = 1.0;
+                topology(b.atom2, b.atom1) = 1.0;
+            }
+        }
+        mol.setTopologyMatrix(topology);
+    }
     return mol;
+}
+
+// Claude Generated 2026 - true when the drawn bond list should seed curcuma.
+static bool seedsTopology(const SimulationConfig& cfg)
+{
+    return cfg.method == QLatin1String("gfnff") && cfg.topologyMode == QLatin1String("react");
 }
 
 static SimulationFramePtr moleculeToFrame(
@@ -521,7 +560,7 @@ void SimulationWorker::startMD()
         controller["gfnff"]["hb_update_force_every"] = 1;
 
     m_md = std::make_unique<SimpleMD>(controller, true);
-    m_md->setMolecule(atomsToMolecule(m_initialAtoms));
+    m_md->setMolecule(atomsToMolecule(m_initialAtoms, seedsTopology(m_config) ? &m_bonds : nullptr));
 
     if (!m_md->Initialise()) {
         emit errorOccurred(tr("MD initialization failed. Method '%1' may not be available.")

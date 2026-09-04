@@ -501,6 +501,10 @@ signals:
     /// Claude Generated 2026 - The bar's "New" button asks the host to start an
     /// empty scene (MainWindow owns the confirmation + snapshot bookkeeping).
     void newSceneRequested();
+
+    /// Claude Generated 2026 - Build strip "Fill": the MainWindow opens the
+    /// fill-container dialog and appends the packed copies.
+    void fillContainerRequested();
     void displayOptionsRequested();
     // Claude Generated 2026 - Structure editing.
     void editModeChanged(bool on);

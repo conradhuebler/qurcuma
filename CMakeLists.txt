@@ -204,6 +204,8 @@ set(SOURCES
     src/elementdata.cpp  # Claude Generated 2026 - Quick3D renderer: shared element tables
     src/buildtools.cpp  # Claude Generated 2026 - builder valence accounting + auto-H placement
     src/fragmentlibrary.cpp  # Claude Generated 2026 - built-in builder fragments
+    src/scenefiller.cpp  # Claude Generated 2026 - pack fragment copies into a container
+    src/dialogs/fillcontainerdialog.cpp  # Claude Generated 2026 - fill-container dialog
     src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.cpp  # Claude Generated 2026 - Quick3D renderer: bond instancing
     src/scenecontroller.cpp  # Claude Generated 2026 - Quick3D renderer: scene view-model
@@ -252,6 +254,7 @@ set(HEADERS
     src/lessonstructuremodel.h  # Claude Generated 2026 - in-memory lesson structure list model (Q_OBJECT)
     src/lessoncontroller.h  # Claude Generated 2026 - WP T4 lesson feature controller (Q_OBJECT)
     src/dialogs/lessonmetadatadialog.h  # Claude Generated 2026 - lesson metadata editor (Q_OBJECT)
+    src/dialogs/fillcontainerdialog.h  # Claude Generated 2026 - fill-container dialog (Q_OBJECT)
     #src/dialogs/nmrstructuremodel.h
 
 )
@@ -423,6 +426,25 @@ target_include_directories(test_fragments PRIVATE
 
 # Builder auto-hydrogen test - Claude Generated 2026
 # Header-only use of MoleculeViewer's Atom/Bond types; no GUI, no Quick3D.
+add_executable(test_scenefiller test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp
+    src/elementdata.cpp src/fragmentlibrary.cpp)
+target_link_libraries(test_scenefiller PRIVATE
+Qt6::Core
+Qt6::Gui
+Qt6::Widgets
+)
+target_include_directories(test_scenefiller PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+add_test(NAME scenefiller COMMAND test_scenefiller)
+
 add_executable(test_buildtools test_buildtools.cpp src/buildtools.cpp src/elementdata.cpp
     src/fragmentlibrary.cpp)
 target_link_libraries(test_buildtools PRIVATE

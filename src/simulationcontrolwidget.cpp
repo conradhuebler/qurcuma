@@ -429,8 +429,92 @@ QGroupBox* SimulationControlWidget::createPotentialGroup()
                                        "Reactive re-detects bonds during MD and rebuilds the bonded terms "
                                        "when bonds form or break (NVT only)"));
     potentialForm->addRow(tr("Topology:"), m_topologyModeCombo);
+    // Keep a handle on the row's label so its visibility can follow the combo's
+    // without counting rows (the old code hard-coded index 2). Claude Generated 2026.
+    m_topologyLabel = potentialForm->labelForField(m_topologyModeCombo);
 
     return potentialGroup;
+}
+
+// Claude Generated 2026 - Reactive GFN-FF parameters (curcuma "Reactive" PARAM
+// category). Visible only for an MD run with GFN-FF in react mode; the values reach
+// curcuma through controller["gfnff"]. The hysteresis defaults are deliberately
+// asymmetric — formation is optimistic because a colliding pair must reach the
+// formation radius against the non-bonded repulsion wall, retention is conservative
+// because the bond's Gaussian well decays slowly. See
+// external/curcuma/docs/GFNFF_REACT_TOPOLOGY.md.
+QGroupBox* SimulationControlWidget::createReactiveGroup()
+{
+    m_reactGroup = new QGroupBox(tr("Reactive Topology"), this);
+    auto* form = new QFormLayout(m_reactGroup);
+    form->setContentsMargins(4, 4, 4, 4);
+    form->setSpacing(4);
+
+    m_reactFormSpin = new QDoubleSpinBox(this);
+    m_reactFormSpin->setRange(1.0, 2.5);
+    m_reactFormSpin->setSingleStep(0.05);
+    m_reactFormSpin->setDecimals(2);
+    m_reactFormSpin->setValue(1.6);
+    m_reactFormSpin->setToolTip(tr("A non-bonded pair becomes a bond below this factor times the "
+                                   "fat-scaled covalent radius sum. Optimistic on purpose: the pair "
+                                   "must reach this radius against the non-bonded repulsion wall. "
+                                   "Raising it much further turns strong hydrogen bonds into covalent bonds."));
+    form->addRow(tr("Form factor:"), m_reactFormSpin);
+
+    m_reactBreakSpin = new QDoubleSpinBox(this);
+    m_reactBreakSpin->setRange(1.1, 4.0);
+    m_reactBreakSpin->setSingleStep(0.1);
+    m_reactBreakSpin->setDecimals(2);
+    m_reactBreakSpin->setValue(2.6);
+    m_reactBreakSpin->setToolTip(tr("An existing bond survives until it stretches past this factor. "
+                                    "Conservative on purpose: the Gaussian bond well decays slowly, so "
+                                    "breaking earlier deletes energy the pair still has. The gap to the "
+                                    "form factor is the hysteresis that prevents flicker."));
+    form->addRow(tr("Break factor:"), m_reactBreakSpin);
+
+    m_reactCheckEverySpin = new QSpinBox(this);
+    m_reactCheckEverySpin->setRange(1, 100);
+    m_reactCheckEverySpin->setValue(5);
+    m_reactCheckEverySpin->setToolTip(tr("Run the bond scan every N steps. The scan is O(N²) over atom pairs."));
+    form->addRow(tr("Scan every:"), m_reactCheckEverySpin);
+
+    m_reactRefractorySpin = new QSpinBox(this);
+    m_reactRefractorySpin->setRange(0, 1000);
+    m_reactRefractorySpin->setValue(10);
+    m_reactRefractorySpin->setToolTip(tr("A pair whose bond just broke may not re-form for this many scans "
+                                         "(0 = off). Interrupts the form/break cycle that otherwise pumps "
+                                         "recombination energy through the thermostat."));
+    form->addRow(tr("Refractory scans:"), m_reactRefractorySpin);
+
+    m_reactValenceCapCheck = new QCheckBox(tr("Valence cap and neighbour limits"), this);
+    m_reactValenceCapCheck->setChecked(true);
+    m_reactValenceCapCheck->setToolTip(tr("Refuse a new bond once an atom has used its element valence plus "
+                                          "one exchange slack, counting bond orders, and apply the per-element "
+                                          "neighbour limits (N at most 1 N, O at most 1 O, C at most 3 C). "
+                                          "Empirical, and it suppresses real chemistry too (azide, ozone, "
+                                          "quaternary carbon); switch off to sample unconstrained formation."));
+    form->addRow(QString(), m_reactValenceCapCheck);
+
+    m_reactExchangeSpin = new QSpinBox(this);
+    m_reactExchangeSpin->setRange(0, 1000);
+    m_reactExchangeSpin->setValue(20);
+    m_reactExchangeSpin->setToolTip(tr("An atom may stay above its nominal valence for this many scans before "
+                                       "its weakest bond is broken (0 = off). Forces exchange intermediates, "
+                                       "such as a hydrogen bridging two heavy atoms, to resolve instead of "
+                                       "staying geometrically locked."));
+    form->addRow(tr("Exchange scans:"), m_reactExchangeSpin);
+
+    // The break radius must stay above the form radius, otherwise curcuma warns and
+    // resets BOTH to its defaults — the silent loss of a user setting is worse than
+    // a spin box that refuses the value.
+    connect(m_reactFormSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+        [this](double form_factor) {
+            m_reactBreakSpin->setMinimum(form_factor + 0.1);
+        });
+    m_reactBreakSpin->setMinimum(m_reactFormSpin->value() + 0.1);
+
+    m_reactGroup->setVisible(false);
+    return m_reactGroup;
 }
 
 // Claude Generated 2026 - Temperature Ramp group (extracted from setupUI). Drives
@@ -863,7 +947,8 @@ void SimulationControlWidget::setupUI()
     // ---- Potential / Methode ----
     innerLayout->addWidget(createPotentialGroup());
 
-    // ---- Reaction events (reactive GFN-FF only; hidden otherwise) ----
+    // ---- Reactive topology parameters + event log (reactive GFN-FF only) ----
+    innerLayout->addWidget(createReactiveGroup());
     innerLayout->addWidget(createReactEventsGroup());
 
     // ---- MD Parameters ----
@@ -919,6 +1004,12 @@ void SimulationControlWidget::setupConnections()
     connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_topologyModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    for (QDoubleSpinBox* s : { m_reactFormSpin, m_reactBreakSpin })
+        connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    for (QSpinBox* s : { m_reactCheckEverySpin, m_reactRefractorySpin, m_reactExchangeSpin })
+        connect(s, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_reactValenceCapCheck, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_optimizerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     // Temperature slider: stays live during a run. A drag emits temperatureChanged() (forwarded
     // to the worker) and, while running, flags the ramp as overridden. Claude Generated 2026.
@@ -1048,26 +1139,9 @@ void SimulationControlWidget::setupConnections()
 
     // Show/hide topology mode only for GFN-FF
     connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this](int /*index*/) {
-            bool isGFNFF = (m_methodCombo->currentData().toString() == "gfnff");
-            // Find the topology row and hide/show it
-            // The topology combo is the 3rd row in the potential group
-            if (m_topologyModeCombo && m_topologyModeCombo->parentWidget()) {
-                QWidget* label = nullptr;
-                // Find the label associated with topology combo
-                auto* form = qobject_cast<QFormLayout*>(m_topologyModeCombo->parentWidget()->layout());
-                if (form) {
-                    int row = 2; // 3rd row (0-indexed)
-                    QLayoutItem* labelItem = form->itemAt(row, QFormLayout::LabelRole);
-                    if (labelItem) label = labelItem->widget();
-                }
-                m_topologyModeCombo->setVisible(isGFNFF);
-                if (label) label->setVisible(isGFNFF);
-            }
-            updateReactEventsVisibility();
-        });
+        &SimulationControlWidget::updateReactEventsVisibility);
     connect(m_topologyModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this](int /*index*/) { updateReactEventsVisibility(); });
+        &SimulationControlWidget::updateReactEventsVisibility);
 
     onModeChanged(0);
 }
@@ -1102,6 +1176,18 @@ SimulationConfig SimulationControlWidget::buildConfig() const
 
     // GFN-FF topology mode
     cfg.topologyMode = m_topologyModeCombo->currentData().toString();
+    if (m_reactFormSpin) {
+        cfg.reactFormFactor      = m_reactFormSpin->value();
+        cfg.reactBreakFactor     = m_reactBreakSpin->value();
+        cfg.reactCheckEvery      = m_reactCheckEverySpin->value();
+        cfg.reactRefractoryScans = m_reactRefractorySpin->value();
+        cfg.reactValenceCap      = m_reactValenceCapCheck->isChecked();
+        cfg.reactExchangeScans   = m_reactExchangeSpin->value();
+    }
+    // Belt to the UI lock in updateReactEventsVisibility(): a config restored from a
+    // lesson file could carry both react mode and RATTLE, which curcuma refuses.
+    if (cfg.method == QLatin1String("gfnff") && cfg.topologyMode == QLatin1String("react"))
+        cfg.rattleMode = 0;
 
     // Claude Generated 2026 - RMSD metadynamics (MD bias, curcuma SimpleMD rmsd_mtd).
     cfg.rmsdMtd              = m_rmsdMtdEnableCheck->isChecked();
@@ -1187,7 +1273,9 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
         m_andersenProbSpin, m_noseChainSpin, m_gpuCombo, m_writeTrjCheck, m_perfCheck,
         m_convergenceSpin, m_optKeepParamsCheck, m_rattleCombo, m_rattle12Check,
         m_rattle13Check, m_rattleTol12Spin, m_rattleTol13Spin, m_rattleMaxIterSpin,
-        m_topologyModeCombo, m_rmsdMtdEnableCheck, m_rmsdMtdKSpin, m_rmsdMtdAlphaSpin,
+        m_topologyModeCombo, m_reactFormSpin, m_reactBreakSpin, m_reactCheckEverySpin,
+        m_reactRefractorySpin, m_reactValenceCapCheck, m_reactExchangeSpin,
+        m_rmsdMtdEnableCheck, m_rmsdMtdKSpin, m_rmsdMtdAlphaSpin,
         m_rmsdMtdAtomsEdit, m_rmsdMtdRefFileEdit, m_rmsdMtdMaxGaussiansSpin,
         m_rmsdMtdMaxHeightSpin, m_rmsdMtdEconvSpin, m_rmsdMtdPaceSpin, m_rmsdMtdWtmtdCheck,
         m_rmsdMtdDtSpin, m_rmsdMtdFreezeCheck, m_wallEnableCheck, m_wallTypeCombo,
@@ -1222,6 +1310,16 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     m_rattleTol13Spin->setValue(cfg.rattleTol13);
     m_rattleMaxIterSpin->setValue(cfg.rattleMaxIter);
     selectData(m_topologyModeCombo, cfg.topologyMode);
+    if (m_reactFormSpin) {
+        // Form first: it raises the break spin's minimum.
+        m_reactFormSpin->setValue(cfg.reactFormFactor);
+        m_reactBreakSpin->setMinimum(cfg.reactFormFactor + 0.1);
+        m_reactBreakSpin->setValue(cfg.reactBreakFactor);
+        m_reactCheckEverySpin->setValue(cfg.reactCheckEvery);
+        m_reactRefractorySpin->setValue(cfg.reactRefractoryScans);
+        m_reactValenceCapCheck->setChecked(cfg.reactValenceCap);
+        m_reactExchangeSpin->setValue(cfg.reactExchangeScans);
+    }
 
     // RMSD metadynamics
     m_rmsdMtdEnableCheck->setChecked(cfg.rmsdMtd);
@@ -1268,6 +1366,7 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     // (those connections were suppressed above). Secondary thermostat sub-field
     // visibility is left as-is; the stored values are correct regardless.
     onModeChanged(m_modeCombo->currentIndex());
+    updateReactEventsVisibility();
     if (m_rattleDetails) m_rattleDetails->setVisible(cfg.rattleMode != 0);
     if (m_wallDetails) m_wallDetails->setVisible(cfg.wallEnabled);
     if (m_rmsdMtdDetails) m_rmsdMtdDetails->setVisible(cfg.rmsdMtd);
@@ -1587,13 +1686,40 @@ QGroupBox* SimulationControlWidget::createReactEventsGroup()
 
 void SimulationControlWidget::updateReactEventsVisibility()
 {
-    if (!m_reactEventsGroup || !m_methodCombo || !m_topologyModeCombo || !m_modeCombo)
+    if (!m_methodCombo || !m_topologyModeCombo || !m_modeCombo)
         return;
     const bool isMD = (m_modeCombo->currentData().toInt()
         == static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
-    const bool isReact = m_methodCombo->currentData().toString() == QLatin1String("gfnff")
+    const bool isGFNFF = m_methodCombo->currentData().toString() == QLatin1String("gfnff");
+    const bool isReact = isGFNFF
         && m_topologyModeCombo->currentData().toString() == QLatin1String("react");
-    m_reactEventsGroup->setVisible(isMD && isReact);
+
+    m_topologyModeCombo->setVisible(isGFNFF);
+    if (m_topologyLabel)
+        m_topologyLabel->setVisible(isGFNFF);
+    if (m_reactGroup)
+        m_reactGroup->setVisible(isMD && isReact);
+    if (m_reactEventsGroup)
+        m_reactEventsGroup->setVisible(isMD && isReact);
+
+    // RATTLE builds its constraint list once at initialisation, so it would keep
+    // constraining bonds that have since broken; curcuma refuses the combination at
+    // start-up. Take the choice away here rather than let the run fail.
+    if (m_rattleGroup) {
+        if (isReact && m_rattleCombo && m_rattleCombo->currentData().toInt() != 0) {
+            const QSignalBlocker block(m_rattleCombo);
+            const int off = m_rattleCombo->findData(0);
+            if (off >= 0)
+                m_rattleCombo->setCurrentIndex(off);
+            if (m_rattleDetails)
+                m_rattleDetails->setVisible(false);
+        }
+        m_rattleGroup->setEnabled(!isReact);
+        m_rattleGroup->setToolTip(isReact
+            ? tr("RATTLE is unavailable in reactive mode: the constraint list is built once at "
+                 "initialisation and cannot follow bonds that form or break.")
+            : QString());
+    }
 }
 
 void SimulationControlWidget::onSimulationFinished()

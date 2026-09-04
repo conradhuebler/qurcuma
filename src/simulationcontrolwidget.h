@@ -142,6 +142,9 @@ private:
     // for setupUI() to add to the scroll layout.
     QGroupBox* createPotentialGroup();
     QGroupBox* createReactEventsGroup();   // Claude Generated 2026 - reactive GFN-FF event log
+    QGroupBox* createReactiveGroup();      // Claude Generated 2026 - reactive GFN-FF parameters
+    /// Show/hide everything that only applies to a reactive GFN-FF MD run, and
+    /// lock RATTLE while it is selected. Claude Generated 2026.
     void updateReactEventsVisibility();
     QGroupBox* createMdGroup();
     QGroupBox* createTempRampGroup();
@@ -188,6 +191,16 @@ private:
 
     // --- GFN-FF topology mode ---
     QComboBox* m_topologyModeCombo = nullptr;  // "auto", "constant" or "react"
+
+    // --- Reactive GFN-FF parameters (Claude Generated 2026) ---
+    QGroupBox* m_reactGroup = nullptr;
+    QDoubleSpinBox* m_reactFormSpin = nullptr;
+    QDoubleSpinBox* m_reactBreakSpin = nullptr;
+    QSpinBox* m_reactCheckEverySpin = nullptr;
+    QSpinBox* m_reactRefractorySpin = nullptr;
+    QCheckBox* m_reactValenceCapCheck = nullptr;
+    QSpinBox* m_reactExchangeSpin = nullptr;
+    QWidget* m_topologyLabel = nullptr;   // label of the Topology row (visibility)
 
     // --- Reactive GFN-FF event log (Claude Generated 2026) ---
     QGroupBox* m_reactEventsGroup = nullptr;

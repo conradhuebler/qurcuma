@@ -97,6 +97,9 @@
 #include "nciwidget.h"  // Claude Generated 2026 - batch border-trim gallery
 #include "mainwindow.h"
 
+#include "dialogs/fillcontainerdialog.h"
+#include "scenefiller.h"
+
 // Claude Generated - Conditional debug logging
 #ifdef QT_DEBUG
 #define DEBUG_LOG qDebug()
@@ -1212,6 +1215,11 @@ void MainWindow::createMenus()
 
     // Claude Generated 2026 - Build mode as a menu action so the Ctrl+K palette
     // lists it; mirrors the viewer-bar toggle via interactionModeChanged.
+    QAction *fillContainerAction = moleculeMenu->addAction(tr("&Fill Container…"));
+    fillContainerAction->setToolTip(tr("Place randomly oriented copies of molecules inside a "
+                                       "sphere or box, for gas-phase reaction scenes."));
+    connect(fillContainerAction, &QAction::triggered, this, &MainWindow::fillContainer);
+
     QAction *buildModeAction = moleculeMenu->addAction(tr("&Build Mode"));
     buildModeAction->setCheckable(true);
     buildModeAction->setToolTip(tr("Molecule builder: place atoms, draw bonds, add "
@@ -2733,6 +2741,62 @@ void MainWindow::newScene()
         tr("New empty scene — click in the viewport to place the first atom."), 4000);
 }
 
+// Claude Generated 2026 - Fill the container with randomly placed copies of library
+// molecules. All copies go into ONE appendMolecule call, so the whole fill is a
+// single undo step, and the confinement wall is set to the container the molecules
+// were packed into (otherwise the first hot step would scatter them).
+void MainWindow::fillContainer()
+{
+    if (!m_moleculeView)
+        return;
+
+    FillContainerDialog dlg(m_simulationConfig, this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+
+    const QVector<build::FillRequest> requests = dlg.requests();
+    if (requests.isEmpty()) {
+        statusBar()->showMessage(tr("Nothing to fill — set a copy count above zero."), 5000);
+        return;
+    }
+
+    const build::Container container = dlg.container();
+    const build::FillResult result = build::fillContainer(requests, container,
+        m_moleculeView->getCurrentFrameAtoms(), dlg.minDistance(), 2000, dlg.seed());
+
+    if (result.atoms.isEmpty()) {
+        statusBar()->showMessage(
+            tr("No molecule fits — enlarge the container or lower the minimum distance."), 6000);
+        return;
+    }
+
+    m_moleculeView->appendMolecule(result.atoms, result.bonds, /*startPlacement=*/false);
+
+    if (dlg.applyToWall() && m_simulationControlWidget) {
+        SimulationConfig cfg = m_simulationControlWidget->currentConfig();
+        cfg.wallEnabled = true;
+        if (container.kind == build::Container::Sphere) {
+            cfg.wallType = 1;
+            cfg.wallRadius = container.radius;
+        } else {
+            cfg.wallType = 2;
+            cfg.wallXmin = container.min.x(); cfg.wallXmax = container.max.x();
+            cfg.wallYmin = container.min.y(); cfg.wallYmax = container.max.y();
+            cfg.wallZmin = container.min.z(); cfg.wallZmax = container.max.z();
+        }
+        m_simulationControlWidget->applyConfig(cfg);
+    }
+
+    if (result.placed < result.requested) {
+        statusBar()->showMessage(
+            tr("Placed %1 of %2 molecules — the container is full.")
+                .arg(result.placed).arg(result.requested), 8000);
+    } else {
+        statusBar()->showMessage(
+            tr("Placed %1 molecules (%2 atoms).").arg(result.placed).arg(result.atoms.size()), 5000);
+    }
+}
+
 // Claude Generated 2026 - One-click PNG export into the working directory
 // (viewer-bar Photo button, viewport context menu).
 void MainWindow::quickExportPhoto()
@@ -4243,6 +4307,8 @@ void MainWindow::createDockWidgets()
         // optimization through the existing simulation worker lifecycle.
         connect(m_moleculeView, &MoleculeViewer::newSceneRequested,
             this, &MainWindow::newScene);
+        connect(m_moleculeView, &MoleculeViewer::fillContainerRequested,
+            this, &MainWindow::fillContainer);
         connect(m_moleculeView, &MoleculeViewer::cleanupRequested, this, [this]() {
             if (!m_simulationControlWidget)
                 return;
