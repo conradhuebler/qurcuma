@@ -118,7 +118,12 @@ struct SimulationConfig {
     // configured in the Simulation dock; visualized live in the 3D viewer.
     bool   wallEnabled  = false; // master switch (writes wall_* to the curcuma config)
     int    wallType      = 0;    // 0=none, 1=spheric, 2=rect (curcuma m_wall_type)
-    bool   wallHarmonic  = true; // true=harmonic, false=logfermi (wall_potential)
+    // wall_potential: 0 = harmonic, 1 = logfermi, 2 = pbc. The first two push an
+    // escaping atom back and do work on it; pbc exerts no force and instead moves a
+    // whole molecule that left the container back in on the opposite side.
+    int    wallPotential = 0;
+    /// Convenience for the potential-shell drawing, which only applies to 0/1.
+    bool   wallHasPotential() const { return wallPotential != 2; }
     double wallXmin = 0.0, wallXmax = 0.0; // Å, rectangular bounds (curcuma auto-sizes when 0/0)
     double wallYmin = 0.0, wallYmax = 0.0;
     double wallZmin = 0.0, wallZmax = 0.0;
@@ -239,7 +244,11 @@ signals:
     void frameReady(SimulationFramePtr frame);
 
     /** @brief Emitted when the simulation completes normally or is stopped. */
-    void finished();
+    /** @brief The run ended. @p reason says why in one plain sentence (empty for
+     *  paths that report through errorOccurred instead), @p aborted separates a
+     *  completed run from one the engine stopped because it fell apart. Existing
+     *  connections to argument-less slots keep working. Claude Generated 2026. */
+    void finished(const QString& reason = QString(), bool aborted = false);
 
     /** @brief Emitted on fatal error (method unavailable, convergence failure, etc.). */
     void errorOccurred(QString message);
@@ -264,7 +273,7 @@ private:
     /// Reactive GFN-FF: copy the force field's current bond list (with orders) and the
     /// topology events of this step into the frame. No-op unless the run is reactive.
     void collectReactiveTopology(SimulationFrame& frame);
-    void finalizeMDRun();       // stop timer, finalizeRun, emit finished
+    void finalizeMDRun();       // stop timer, finalizeRun, emit finished with the engine's reason
     void runOptimization();     // synchronous — drives its own step callback inside Optimizer::Optimize()
 
     // moleculeToAtoms() is defined in simulationworker.cpp only (uses curcuma Molecule type,

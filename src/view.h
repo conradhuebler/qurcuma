@@ -569,7 +569,9 @@ public slots:
     bool getPotVizEnabled() const { return m_potVizEnabled; }
     /** Update the potential parameters driving the shell distances; rebuilds
      *  the shells (and arrows if enabled) when viz is active. */
-    void setWallPotentialParams(bool harmonic, double wallTemp, float wallBeta);
+    /// @param potential 0 = harmonic, 1 = logfermi, 2 = periodic (no potential:
+    ///        the iso-potential shells and force arrows are hidden for it).
+    void setWallPotentialParams(int potential, double wallTemp, float wallBeta);
     /** Enable/disable the wall force vector field and set its resolution. */
     void setWallVectorField(bool enabled, int resolution);
     bool getPotArrowsEnabled() const { return m_potArrowsEnabled; }

@@ -105,7 +105,7 @@ QJsonObject simConfigToJson(const SimulationConfig& cfg)
     // Confinement walls (encode "pressure" via box volume + composition)
     o["wallEnabled"] = cfg.wallEnabled;
     o["wallType"] = cfg.wallType;
-    o["wallHarmonic"] = cfg.wallHarmonic;
+    o["wallPotential"] = cfg.wallPotential;
     o["wallXmin"] = cfg.wallXmin;  o["wallXmax"] = cfg.wallXmax;
     o["wallYmin"] = cfg.wallYmin;  o["wallYmax"] = cfg.wallYmax;
     o["wallZmin"] = cfg.wallZmin;  o["wallZmax"] = cfg.wallZmax;
@@ -181,7 +181,12 @@ SimulationConfig simConfigFromJson(const QJsonObject& o)
 
     cfg.wallEnabled = o.value("wallEnabled").toBool(cfg.wallEnabled);
     cfg.wallType = o.value("wallType").toInt(cfg.wallType);
-    cfg.wallHarmonic = o.value("wallHarmonic").toBool(cfg.wallHarmonic);
+    // "wallHarmonic" is the pre-September-2026 boolean form of this setting; keep
+    // reading it so lesson files written before the periodic container still load.
+    if (o.contains("wallPotential"))
+        cfg.wallPotential = o.value("wallPotential").toInt(cfg.wallPotential);
+    else if (o.contains("wallHarmonic"))
+        cfg.wallPotential = o.value("wallHarmonic").toBool(true) ? 0 : 1;
     cfg.wallXmin = o.value("wallXmin").toDouble(cfg.wallXmin);
     cfg.wallXmax = o.value("wallXmax").toDouble(cfg.wallXmax);
     cfg.wallYmin = o.value("wallYmin").toDouble(cfg.wallYmin);

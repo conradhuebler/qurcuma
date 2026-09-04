@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Abbruchgrund und periodischer Container
+
+- **Warum ein Lauf endet** (`src/simulationworker.*`, `src/simulationcontrolwidget.*`, `src/mainwindow.cpp`): `finished()` trägt jetzt Grund und Abbruch-Flag, gespeist aus curcumas neuem `SimpleMD::stopReason()`. Das Dock zeigt "Finished: Simulationszeit erreicht (nach N Schritten)" oder rot "Aborted: …", das neue Signal `runEnded` spiegelt die Zeile ins Output-Dock und in die Statusleiste. Vorher war jedes Ende identisch beschriftet — curcuma meldet Abbrüche erst ab Verbosity 1 (die GUI fährt 0) und das reguläre Zeitende gar nicht, und `m_run_aborted` hatte keinen Getter.
+- **Periodischer Container** als dritte Wand-Option (`wallPotential` int statt `wallHarmonic` bool; Lessons lesen den alten Schlüssel weiter): "Periodic (wrap around)" übt keine Kraft aus und setzt ein Molekül, das den Container verlässt, auf der Gegenseite wieder ein — bei Kugel wie Box. Heizt nicht, hält den Inhalt (20 ps, 4,5-Å-Kugel: max |r| 4,91 Å gegen 11,00 harmonic und 8,76 logfermi) und liefert dadurch 601 statt 177 Bindungsereignisse. Der Viewer blendet für pbc die Iso-Potentialschalen und Kraftpfeile aus, weil es kein Potential zu zeichnen gibt. Die Engine-Seite ist bewusst unfertig (kein Minimum-Image, belegtes Ziel wird elastisch reflektiert) und in `external/curcuma/docs/WP-PERIODIC-NONBONDED.md` als Arbeitspaket festgehalten.
+
 ## September 2026 - Reaktive Parameter und Szenenfüller
 
 - **Reaktive Parameter in der GUI** (`src/simulationcontrolwidget.*`, `src/simulationworker.*`): Gruppe "Reactive Topology" mit Form-/Break-Faktor, Scan-Intervall, Refraktärscans, Valenzschranke und Exchange-Scans; sichtbar nur bei MD + GFN-FF + react, geschrieben nach `controller["gfnff"]` nur in diesem Modus. Das Break-Minimum folgt dem Form-Wert, weil curcuma bei `break <= form` warnt und **beide** Werte auf die Defaults zurücksetzt — ein still verlorener Nutzerwert wäre schlimmer als eine Spinbox, die den Wert ablehnt. Lesson-Roundtrip in `lesson.cpp`.

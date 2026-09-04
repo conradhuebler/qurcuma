@@ -844,14 +844,18 @@ void MoleculeViewer::setWallPotentialViz(bool enabled)
         m_scene->setWallPotentialViz(enabled, m_wallHarmonic, m_wallTemp, m_wallBeta);
 }
 
-void MoleculeViewer::setWallPotentialParams(bool harmonic, double wallTemp, float wallBeta)
+void MoleculeViewer::setWallPotentialParams(int potential, double wallTemp, float wallBeta)
 {
+    const bool harmonic = (potential == 0);
+    const bool hasPotential = (potential != 2);
     m_wallHarmonic = harmonic;
     m_wallTemp = wallTemp;
     m_wallBeta = wallBeta;
-    // Always update stored params in SceneController (handles both shells and arrows).
+    // A periodic container exerts no force, so there is nothing to visualise: draw
+    // neither the iso-potential shells nor the force arrows for it, whatever the
+    // Display panel's toggles say. Claude Generated 2026.
     if (m_scene)
-        m_scene->setWallPotentialViz(m_potVizEnabled, harmonic, wallTemp, wallBeta);
+        m_scene->setWallPotentialViz(m_potVizEnabled && hasPotential, harmonic, wallTemp, wallBeta);
 }
 
 void MoleculeViewer::setWallVectorField(bool enabled, int resolution)

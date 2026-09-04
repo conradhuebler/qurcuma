@@ -291,8 +291,13 @@ QGroupBox* SimulationControlWidget::createWallGroup()
     m_wallPotentialCombo = new QComboBox(this);
     m_wallPotentialCombo->addItem(tr("Harmonic"), 0);
     m_wallPotentialCombo->addItem(tr("LogFermi"), 1);
-    m_wallPotentialCombo->setToolTip(tr("Wall potential function. Harmonic: "
-        "V = ½k·d² (unbounded force); LogFermi: soft, temperature-dependent wall."));
+    m_wallPotentialCombo->addItem(tr("Periodic (wrap around)"), 2);
+    m_wallPotentialCombo->setToolTip(tr("How the container holds its content. "
+        "Harmonic: V = ½k·d², with k = wall temperature × k_B — at the default 298 K "
+        "too soft to hold a hot gas. LogFermi: steeper, holds reliably. Both push atoms "
+        "back and do work on them. Periodic: no force at all — a molecule that leaves is "
+        "moved back in on the opposite side, so nothing is heated. A sphere wraps to the "
+        "antipodal point; note that interactions are not continued across the boundary."));
     wallForm->addRow(tr("Potential:"), m_wallPotentialCombo);
 
     // Claude Generated 2026 - wall_temp (force/energy scale) + wall_beta (steepness).
@@ -1206,7 +1211,7 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     // Claude Generated 2026 - Confinement walls (curcuma SimpleMD wall_* params).
     cfg.wallEnabled  = m_wallEnableCheck->isChecked();
     cfg.wallType      = m_wallTypeCombo->currentData().toInt();
-    cfg.wallHarmonic  = (m_wallPotentialCombo->currentData().toInt() == 0);
+    cfg.wallPotential = m_wallPotentialCombo->currentData().toInt();
     cfg.wallXmin = m_wallXminSpin->value();  cfg.wallXmax = m_wallXmaxSpin->value();
     cfg.wallYmin = m_wallYminSpin->value();  cfg.wallYmax = m_wallYmaxSpin->value();
     cfg.wallZmin = m_wallZminSpin->value();  cfg.wallZmax = m_wallZmaxSpin->value();
@@ -1338,7 +1343,7 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     // Confinement walls
     m_wallEnableCheck->setChecked(cfg.wallEnabled);
     selectData(m_wallTypeCombo, cfg.wallType);
-    selectData(m_wallPotentialCombo, cfg.wallHarmonic ? 0 : 1);
+    selectData(m_wallPotentialCombo, cfg.wallPotential);
     m_wallRadiusSpin->setValue(cfg.wallRadius);
     m_wallXminSpin->setValue(cfg.wallXmin);  m_wallXmaxSpin->setValue(cfg.wallXmax);
     m_wallYminSpin->setValue(cfg.wallYmin);  m_wallYmaxSpin->setValue(cfg.wallYmax);
@@ -1722,14 +1727,26 @@ void SimulationControlWidget::updateReactEventsVisibility()
     }
 }
 
-void SimulationControlWidget::onSimulationFinished()
+void SimulationControlWidget::onSimulationFinished(const QString& reason, bool aborted)
 {
     setRunning(false);
     m_worker = nullptr;
     m_thread = nullptr;
     m_paused = false;
-    setState(tr("● Finished"), "#7f8c8d");  // grey
-    m_statusLabel->setText(tr("Finished."));
+
+    // Report WHY the run ended, not just that it did. An abort (unstable dynamics,
+    // a runaway temperature, a broken topology) otherwise reads exactly like a
+    // completed run, because curcuma's own messages are gated behind verbosity 1
+    // and the GUI runs the engine silently. Claude Generated 2026.
+    if (aborted) {
+        setState(tr("● Aborted"), "#c0392b");  // red
+        m_statusLabel->setText(tr("Aborted: %1").arg(reason));
+    } else {
+        setState(tr("● Finished"), "#7f8c8d");  // grey
+        m_statusLabel->setText(reason.isEmpty() ? tr("Finished.") : tr("Finished: %1").arg(reason));
+    }
+    if (!reason.isEmpty())
+        emit runEnded(reason, aborted);
     emit simulationFinished();
 }
 

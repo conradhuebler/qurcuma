@@ -81,6 +81,10 @@ signals:
      *  Emitted from onFrameReady on the GUI thread, after the viewer adopted the
      *  frame. Claude Generated 2026. */
     void reactionEvent(int step, const QString& text);
+
+    /** @brief The run ended; @p reason is one plain sentence and @p aborted says
+     *  whether the engine stopped it. Mirrored into the output dock. Claude Generated 2026. */
+    void runEnded(const QString& reason, bool aborted);
     void simulationRunningChanged(bool running);
     void workerStarted(SimulationWorker* worker);
 
@@ -113,7 +117,7 @@ public slots:
     void onStopClicked();
     void onStepClicked();
     void onFrameReady(SimulationFramePtr frame);
-    void onSimulationFinished();
+    void onSimulationFinished(const QString& reason = QString(), bool aborted = false);
     void onModeChanged(int index);
 
     // Claude Generated 2026 - Receive modified-state from MainWindow and reflect

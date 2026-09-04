@@ -74,7 +74,8 @@ void applyWallParams(const SimulationConfig& cfg, json& simplemd_params)
         return;
     simplemd_params["wall_type"] = cfg.wallType == 2 ? "rect"
                               : cfg.wallType == 1 ? "spheric" : "none";
-    simplemd_params["wall_potential"] = cfg.wallHarmonic ? "harmonic" : "logfermi";
+    simplemd_params["wall_potential"] = cfg.wallPotential == 2 ? "pbc"
+                                      : cfg.wallPotential == 1 ? "logfermi" : "harmonic";
     simplemd_params["wall_temp"] = cfg.wallTemp;
     simplemd_params["wall_beta"] = cfg.wallBeta;
     simplemd_params["wall_x_min"] = cfg.wallXmin;
@@ -481,7 +482,9 @@ void SimulationWorker::run()
     case SimulationConfig::Mode::GeometryOptimization:
         // Synchronous: Optimizer::Optimize() runs its own step loop via the callback.
         runOptimization();
-        emit finished();
+        emit finished(m_stopRequested.loadRelaxed()
+                ? tr("stopped by the user")
+                : tr("optimization ended (converged or iteration limit reached)"));
         break;
     }
 }
@@ -788,11 +791,29 @@ void SimulationWorker::finalizeMDRun()
         m_mdTimer->deleteLater();
         m_mdTimer = nullptr;
     }
+    // Why the engine stopped. curcuma prints its abort messages only from
+    // verbosity 1 upwards and says nothing at all when the configured time is up,
+    // so without asking the engine a finished run and a run that fell apart look
+    // identical here. Claude Generated 2026.
+    QString reason;
+    bool aborted = false;
     if (m_md) {
+        const SimpleMD::StopReason code = m_md->stopReason();
+        aborted = (code != SimpleMD::StopReason::MaxTime
+            && code != SimpleMD::StopReason::StopFile
+            && code != SimpleMD::StopReason::Running);
+        if (m_stopRequested.loadRelaxed()) {
+            reason = tr("stopped by the user after %1 steps").arg(m_md->stepCount());
+            aborted = false;
+        } else {
+            reason = tr("%1 (after %2 steps)")
+                         .arg(QString::fromStdString(m_md->stopReasonText()))
+                         .arg(m_md->stepCount());
+        }
         m_md->finalizeRun();
         m_md.reset();
     }
-    emit finished();
+    emit finished(reason, aborted);
 }
 
 void SimulationWorker::runOptimization()

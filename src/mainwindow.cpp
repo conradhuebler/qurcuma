@@ -4524,6 +4524,17 @@ void MainWindow::createDockWidgets()
     // The dock emits this from its own frameReady slot, which is connected AFTER
     // the viewer's (workerStarted precedes the dock's connect in startWithConfig),
     // so the viewer already holds the event geometry and the force-field bonds.
+    // Claude Generated 2026 - Why a run ended, into the output dock and the status
+    // bar. The engine's own abort messages never reach the GUI (it runs curcuma at
+    // verbosity 0), so this is the only place the reason becomes visible.
+    connect(m_simulationControlWidget, &SimulationControlWidget::runEnded,
+        this, [this](const QString& reason, bool aborted) {
+            const QString line = aborted ? tr("Run aborted: %1").arg(reason)
+                                         : tr("Run ended: %1").arg(reason);
+            if (m_outputViewDock)
+                m_outputViewDock->appendOutput(line);
+            statusBar()->showMessage(line, aborted ? 0 : 8000);
+        });
     connect(m_simulationControlWidget, &SimulationControlWidget::reactionEvent,
         this, [this](int step, const QString& text) {
             if (m_outputViewDock)
@@ -4812,7 +4823,7 @@ void MainWindow::onSimulationConfigChanged(SimulationConfig cfg)
             float(cfg.wallRadius));
         // Keep iso-potential shell params in sync with the current wall config.
         m_moleculeView->setWallPotentialParams(
-            cfg.wallHarmonic, cfg.wallTemp, float(cfg.wallBeta));
+            cfg.wallPotential, cfg.wallTemp, float(cfg.wallBeta));
     }
 }
 
@@ -5062,12 +5073,12 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
             connect(m_simulationControlWidget, &SimulationControlWidget::wallTempChanged,
                 m_moleculeView, [this](double T) {
                     m_moleculeView->setWallPotentialParams(
-                        m_simulationConfig.wallHarmonic, T, float(m_simulationConfig.wallBeta));
+                        m_simulationConfig.wallPotential, T, float(m_simulationConfig.wallBeta));
                 });
             connect(m_simulationControlWidget, &SimulationControlWidget::wallBetaChanged,
                 m_moleculeView, [this](double beta) {
                     m_moleculeView->setWallPotentialParams(
-                        m_simulationConfig.wallHarmonic, m_simulationConfig.wallTemp, float(beta));
+                        m_simulationConfig.wallPotential, m_simulationConfig.wallTemp, float(beta));
                 });
         }
     }
