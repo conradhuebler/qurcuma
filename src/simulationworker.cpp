@@ -15,12 +15,6 @@ using json = nlohmann::json;
 #include <src/core/energy_calculators/ff_methods/gfnff.h>
 #include <src/core/energy_calculators/ff_methods/gfnff_parameters.h>
 #include <src/core/energy_calculators/qm_methods/gfnff_method.h>
-#if defined(USE_CUDA)
-#include <src/core/energy_calculators/qm_methods/gfnff_gpu_method.h>
-#endif
-#if defined(USE_ROCM)
-#include <src/core/energy_calculators/qm_methods/gfnff_hip_method.h>
-#endif
 #include <src/core/units.h>
 #include <src/core/elements.h>
 
@@ -609,17 +603,11 @@ GFNFF* SimulationWorker::liveGfnff() const
     if (!calc)
         return nullptr;
     ComputationalMethod* method = calc->Interface();
-    if (auto* cpu = dynamic_cast<GFNFFComputationalMethod*>(method))
-        return cpu->getGFNFF();
-#if defined(USE_CUDA)
-    if (auto* gpu = dynamic_cast<GFNFFGPUComputationalMethod*>(method))
-        return gpu->getGFNFF();
-#endif
-#if defined(USE_ROCM)
-    if (auto* hip = dynamic_cast<GFNFFHipComputationalMethod*>(method))
-        return hip->getGFNFF();
-#endif
-    return nullptr;
+    // One virtual call instead of a cast per backend: the CUDA and ROCm wrappers
+    // live in dlopen plugins and derive from an extern-template base, so an inline
+    // accessor on the concrete class is not resolvable here — only the vtable is.
+    // Returns nullptr for every method that is not GFN-FF. Claude Generated 2026.
+    return method ? method->gfnffInstance() : nullptr;
 }
 
 // Claude Generated 2026 - Live non-covalent contacts straight out of the running
