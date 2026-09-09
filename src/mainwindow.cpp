@@ -4416,6 +4416,9 @@ void MainWindow::createDockWidgets()
     // on the GUI thread, because that is the thread Gui-affinity handlers get
     // marshalled to.
     if (!m_toolDispatcher) {
+        // The dispatcher first: the waiting tools take it, because a wait that can
+        // last minutes has to be escapable from the Stop button.
+        m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), &LogHub::instance(), this);
         registerCoreTools(ToolRegistry::instance(), LogHub::instance());
         ViewToolContext toolContext;
         toolContext.viewer = m_moleculeView;
@@ -5421,8 +5424,17 @@ void MainWindow::loadDirFromArg(const QString& dir)
 void MainWindow::setupAssistant()
 {
     m_chatDock = m_dockManager ? m_dockManager->chatDockImpl() : nullptr;
-    if (!m_chatDock || !m_toolDispatcher)
+    // Claude Generated 2026 - Say why, rather than returning into silence. Losing the
+    // dispatcher here took the whole assistant with it -- no profiles, no models, no
+    // error anywhere -- and the tools still registered, so the obvious check said
+    // everything was fine.
+    if (!m_chatDock || !m_toolDispatcher) {
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Warning,
+            tr("assistant not set up: %1 is missing")
+                .arg(m_chatDock ? QStringLiteral("the tool dispatcher")
+                                : QStringLiteral("the chat dock")));
         return;
+    }
 
     // Give the user something to edit rather than a file they have to invent.
     const QString configPath = LlmConfig::defaultPath();
@@ -5563,6 +5575,9 @@ void MainWindow::setupAssistant()
     LlmProfile active;
     config.activeProfile(active);
     m_chatDock->setProfiles(names, active.name);
+    LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+        tr("assistant ready: %1 endpoint profile(s), active \"%2\"")
+            .arg(names.size()).arg(active.name));
 
     // Configured; hand both objects over. Everything from here on is marshalled.
     m_llmClient->moveToThread(m_llmThread);
