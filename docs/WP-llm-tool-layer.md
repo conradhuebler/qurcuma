@@ -204,7 +204,7 @@ soll — Kandidat für eine getrennte Ansicht oder Filterung nach `source`.
 | WP | Inhalt | Fertig, wenn | Status |
 |---|---|---|---|
 | **1.1** *(erledigt `a15a581`)* | `qurcuma_core`: `ToolSpec`, `ToolResult`, `ToolRegistry`, Schema-Prüfung. `qurcuma_core_init()` ruft `initialize_generated_registry()`. Den `-march`/AVX-Block aus `CMakeLists.txt:288-311` **spiegeln** (Eigen-ABI). | `test_toolregistry` grün (37 Prüfungen); über `compile_commands.json` belegt, dass beide Kern-TUs weder QtWidgets noch Quick3D, QtCharts oder curcuma im Include-Pfad haben. | **erledigt** |
-| **1.2** | GUI-Thread-Marshalling im Dispatcher (`BlockingQueuedConnection` + Timeout); Audit-Spur in den `LogHub`. | `test_toolregistry_threading` grün. | offen |
+| **1.2** | GUI-Thread-Marshalling im Dispatcher; Audit-Spur in den `LogHub`. | `test_tooldispatcher` grün (18 Prüfungen), inkl. Nachweis des Threadwechsels und des Zeitlimits. | **erledigt** |
 | **1.3** | ~12 lesende Werkzeuge (`src/llm/tools_view.cpp`), Analyse über `moleculebridge` gegen `curcuma::Molecule`: `get_structure_summary`, `list_atoms`, `select_atoms` (FragString-Grammatik), `get_selection`, `get_fragments`, `measure`, `get_frame_info`, `read_log`, `list_workdir`, `get_camera`, `get_display`, `describe_tools`. | Headless aufrufbar, soweit ohne GUI möglich. | offen |
 | **1.4** | **Vorführbar #1:** Command-Palette zeigt Menü-Actions **plus** parameterlose Registry-Werkzeuge (Vereinigung, kein Ersatz — die Palette bekommt heute ~120 Menüeinträge samt `enabled`-Zustand geschenkt). | Ctrl+K führt Registry-Werkzeuge aus. | offen |
 
@@ -224,16 +224,16 @@ soll — Kandidat für eine getrennte Ansicht oder Filterung nach `source`.
 Bibliothek, die keine braucht — die Registry selbst kennt curcuma nicht. `main.cpp:25` ruft es
 bereits; der Helfer entsteht dort, wo der erste curcuma-berührende Kern-Code liegt (Phase 4).
 
-#### WP1.2 im Einzelnen (Stand: in Arbeit)
+#### WP1.2 im Einzelnen — **erledigt**
 
 | # | Schritt | Status |
 |---|---|---|
-| a | `src/core/tooldispatcher.{h,cpp}`: Direktaufruf bei `Affinity::Any` **und** wenn schon auf dem Zielthread (sonst verklemmt sich `BlockingQueuedConnection` selbst) | offen |
-| b | Marshalling mit **Zeitlimit**: Qt kennt für `BlockingQueuedConnection` keines, also `QueuedConnection` + `QSemaphore::tryAcquire`, Zustand über `shared_ptr`, damit ein Zeitüberlauf keinen freigegebenen Speicher beschreibt | offen |
-| c | Audit-Spur in den `LogHub`: Name, Effekt, gekappte Argumente, Ergebnis, Dauer, ob marshallt wurde | offen |
-| d | `test_tooldispatcher`: `Gui`-Handler aus einem Arbeitsthread landet auf dem Zielthread; `Any` läuft an Ort und Stelle; Zeitüberlauf ergibt einen sauberen Fehler statt einer Verklemmung; Audit-Datensätze erscheinen | offen |
-| e | CMake: Quelle in `qurcuma_core`, Testziel | offen |
-| f | Build grün, Tests grün, Commit, Doku/Changelog | offen |
+| a | `src/core/tooldispatcher.{h,cpp}`: Direktaufruf bei `Affinity::Any` **und** wenn schon auf dem Zielthread (sonst verklemmt sich `BlockingQueuedConnection` selbst) | erledigt |
+| b | Marshalling mit **Zeitlimit**: Qt kennt für `BlockingQueuedConnection` keines, also `QueuedConnection` + `QSemaphore::tryAcquire`, Zustand über `shared_ptr`, damit ein Zeitüberlauf keinen freigegebenen Speicher beschreibt | erledigt |
+| c | Audit-Spur in den `LogHub`: Name, Effekt, gekappte Argumente, Ergebnis, Dauer, ob marshallt wurde | erledigt |
+| d | `test_tooldispatcher`: `Gui`-Handler aus einem Arbeitsthread landet auf dem Zielthread; `Any` läuft an Ort und Stelle; Zeitüberlauf ergibt einen sauberen Fehler statt einer Verklemmung; Audit-Datensätze erscheinen | erledigt |
+| e | CMake: Quelle in `qurcuma_core`, Testziel | erledigt |
+| f | Build grün, Tests grün, Commit, Doku/Changelog | erledigt |
 
 **Nicht in diesem Paket:** die Freigabepolitik. Sie hängt an `ToolEffect`, gehört aber zur
 Sitzung (WP2.2) und bekommt ihren Einhängepunkt dort, wo bekannt ist, was sie braucht.
