@@ -15,6 +15,10 @@
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QJsonDocument>
+#include <QElapsedTimer>
+#include <QMutex>
+#include <QThread>
+#include <QWaitCondition>
 #include <QTimer>
 #include <cstdio>
 
@@ -345,6 +349,92 @@ int main(int argc, char** argv)
         server.reply(500, "<html>nope</html>", "text/html");
         runTurn(session, QStringLiteral("go"), answer, error);
         check(!error.isEmpty(), "an endpoint failure surfaces as failed(), not as an empty answer");
+    }
+
+    // --- the agent loop must not be the thread that has to wake it ----------
+    //
+    // job_status and watch_simulation wait for something the GUI thread produces:
+    // a calculation finishing, the next MD frame. With the session on that same
+    // thread the wait froze the window AND could never end except by its own
+    // timeout, because delivering the wake-up was the blocked thread's job. This
+    // reproduces exactly that shape -- a tool that waits for the main thread --
+    // and passes only because the session runs somewhere else.
+    {
+        QMutex mutex;
+        QWaitCondition condition;
+        bool released = false;
+
+        ToolSpec spec;
+        spec.name = QStringLiteral("wait_for_main");
+        spec.description = QStringLiteral("Wait until the main thread says so");
+        spec.category = QStringLiteral("test");
+        spec.effect = ToolEffect::Read;
+        spec.affinity = ToolAffinity::Any;
+        spec.paramSchema = obj(R"({"type":"object"})");
+        spec.handler = [&mutex, &condition, &released](const QJsonObject&) {
+            QMutexLocker lock(&mutex);
+            QElapsedTimer clock;
+            clock.start();
+            while (!released && clock.elapsed() < 4000)
+                condition.wait(&mutex, 100);
+            return released ? ToolResult::success(QJsonObject { { "woken", true } })
+                            : ToolResult::failure(QStringLiteral("never woken"));
+        };
+        registry.add(spec);
+
+        QThread thread;
+        thread.setObjectName(QStringLiteral("llm-test"));
+        auto* threadedClient = new LlmClient;
+        auto* threadedSession = new LlmSession(threadedClient, &registry, &dispatcher, &hub);
+        threadedClient->setProfile(profile);
+        threadedSession->setSystemPrompt(QStringLiteral("You are a test."));
+        threadedClient->moveToThread(&thread);
+        threadedSession->moveToThread(&thread);
+        thread.start();
+
+        server.requests.clear();
+        server.enqueue(callResponse("wait_for_main", "{}"));
+        server.enqueue(textResponse("woken"));
+
+        QString threadedAnswer;
+        bool waitToolSucceeded = false;
+        QEventLoop loop;
+        QObject::connect(threadedSession, &LlmSession::assistantMessage, &loop,
+            [&threadedAnswer](const QString& text) { threadedAnswer = text; });
+        // The discriminating check. Run on the main thread, the handler could not be
+        // woken during its own wait and would come back with "never woken" -- while
+        // the turn as a whole would still reach the canned answer and look fine.
+        QObject::connect(threadedSession, &LlmSession::toolFinished, &loop,
+            [&waitToolSucceeded](const QString& name, const ToolResult& result) {
+                if (name == QLatin1String("wait_for_main"))
+                    waitToolSucceeded = result.ok;
+            });
+        QObject::connect(threadedSession, &LlmSession::finished, &loop, [&loop] { loop.quit(); });
+        QObject::connect(threadedSession, &LlmSession::failed, &loop, [&loop] { loop.quit(); });
+        QTimer::singleShot(8000, &loop, [&loop] { loop.quit(); });
+
+        // The main thread stays free to do this, which is the whole point.
+        QTimer::singleShot(200, [&mutex, &condition, &released] {
+            QMutexLocker lock(&mutex);
+            released = true;
+            condition.wakeAll();
+        });
+
+        QMetaObject::invokeMethod(threadedSession, [threadedSession] {
+            threadedSession->ask(QStringLiteral("go"));
+        }, Qt::QueuedConnection);
+        loop.exec();
+
+        check(waitToolSucceeded,
+            "a tool that waits for the main thread is woken -- which only happens "
+            "because the agent loop is not itself on that thread");
+        check(released && threadedAnswer == QLatin1String("woken"),
+            "and the turn finished normally around it");
+
+        thread.quit();
+        thread.wait();
+        delete threadedSession;
+        delete threadedClient;
     }
 
     // --- the audit trail saw it all -----------------------------------------

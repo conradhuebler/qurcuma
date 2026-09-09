@@ -138,7 +138,9 @@ void ChatDock::setupUI()
     m_stopButton->setEnabled(false);
     connect(m_stopButton, &QPushButton::clicked, this, [this] {
         if (m_session)
-            m_session->cancel();
+            // The session lives on the agent loop's thread; calling into it
+            // directly from here would be a data race. Claude Generated 2026.
+            QMetaObject::invokeMethod(m_session, &LlmSession::cancel, Qt::QueuedConnection);
     });
     inputRow->addWidget(m_stopButton);
     layout->addLayout(inputRow);
@@ -372,7 +374,9 @@ void ChatDock::submit()
     m_input->clear();
     beginTurn();
     addBlock(tr("You"), question, QStringLiteral("#1565c0"));
-    m_session->ask(question);
+    QMetaObject::invokeMethod(m_session, [session = m_session, question] {
+        session->ask(question);
+    }, Qt::QueuedConnection);
 }
 
 void ChatDock::setBusy(bool busy)

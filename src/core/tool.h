@@ -11,6 +11,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QMetaType>
 #include <QJsonObject>
 #include <QString>
 
@@ -108,3 +109,8 @@ struct ToolSpec {
 /// Stable spellings for the catalogue and for logs.
 QString toolEffectName(ToolEffect effect);
 QString toolAffinityName(ToolAffinity affinity);
+
+// Claude Generated 2026 - The agent loop runs on its own thread, so a ToolResult
+// crosses one on its way to the chat dock. A queued connection needs the type
+// registered or the signal is dropped with a runtime warning and no answer.
+Q_DECLARE_METATYPE(ToolResult)

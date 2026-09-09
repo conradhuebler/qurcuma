@@ -1653,7 +1653,12 @@ bool SimulationControlWidget::startRun(const SimulationConfig& cfg, QString* err
 
 void SimulationControlWidget::publishLiveState()
 {
-    m_liveState.running = isRunning();
+    // m_running, not isRunning(). setRunning(true) is called BEFORE the worker
+    // thread is started, so asking the thread here reports "not running" for the
+    // whole window between the start command and the first frame -- during which a
+    // caller was told nothing was going on and gave up on the run it had just
+    // asked for. Claude Generated 2026.
+    m_liveState.running = m_running;
     m_liveState.paused = m_paused;
     m_liveState.mode = m_liveState.running
         ? (m_config.mode == SimulationConfig::Mode::MolecularDynamics

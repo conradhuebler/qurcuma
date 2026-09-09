@@ -246,6 +246,22 @@ private:
     /// How much the assistant may do unasked; set in the Assistant dock, kept in
     /// QSettings, consulted by approveToolCall(). Claude Generated 2026.
     ToolAutonomy m_autonomy = ToolAutonomy::Ask;
+    /// Build the system prompt for the current autonomy level and push it to the
+    /// session. Claude Generated 2026.
+    void applySystemPrompt();
+
+    /// Run @p fn on the agent loop's thread. The client and the session live there
+    /// once setupAssistant() has handed them over, and calling a method on an object
+    /// owned by another thread is a data race, not a style question. Falls back to a
+    /// direct call while the thread is not yet running. Claude Generated 2026.
+    template <typename Fn>
+    void invokeOnLlmThread(Fn&& fn)
+    {
+        if (m_llmSession && m_llmThread && m_llmThread->isRunning())
+            QMetaObject::invokeMethod(m_llmSession, std::forward<Fn>(fn), Qt::QueuedConnection);
+        else
+            fn();
+    }
 #endif
 
     void setupUI();
@@ -370,6 +386,10 @@ private:
     ChatDock* m_chatDock = nullptr;
     LlmClient* m_llmClient = nullptr;
     LlmSession* m_llmSession = nullptr;
+    /// The agent loop's own thread. A waiting tool must not wait on the GUI thread:
+    /// besides freezing the window, it would block delivery of the very signals it
+    /// is waiting for. Claude Generated 2026.
+    QThread* m_llmThread = nullptr;
     QSet<QString> m_toolsAllowedForSession;  ///< "allow for this session", per tool
 #endif
 

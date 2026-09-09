@@ -200,6 +200,17 @@ MainWindow::~MainWindow()
         m_nciThread->quit();
         m_nciThread->wait();
     }
+#ifdef USE_LLM
+    // Claude Generated 2026 - Same for the agent loop: it may be mid-turn, and a
+    // running QThread destroyed under its objects aborts the process. cancel() is
+    // posted rather than called, because the session lives over there.
+    if (m_llmThread) {
+        if (m_llmSession)
+            QMetaObject::invokeMethod(m_llmSession, &LlmSession::cancel, Qt::QueuedConnection);
+        m_llmThread->quit();
+        m_llmThread->wait(5000);
+    }
+#endif
 }
 
 void MainWindow::setupUI()
@@ -5417,22 +5428,43 @@ void MainWindow::setupAssistant()
     QString error;
     LlmConfig::writeExampleIfMissing(configPath, &error);
 
-    m_llmClient = new LlmClient(this);
+    // Claude Generated 2026 - The agent loop gets its own thread, and this is not a
+    // nicety. A tool that waits -- job_status until a calculation lands,
+    // watch_simulation until the guest comes close enough -- would otherwise wait on
+    // the GUI thread, and then two things happen at once: the window freezes, and
+    // the very signals it is waiting for cannot be delivered, because delivering
+    // them is that thread's job. The wait could only ever end in its own timeout.
+    //
+    // Everything crossing back is queued: the dispatcher already marshals
+    // Gui-affinity handlers to the GUI thread with a timeout, the approval dialog is
+    // marshalled below, and the registry and the log hub carry their own locks.
+    qRegisterMetaType<ToolResult>();
+    qRegisterMetaType<LlmModelInfo>();
+
+    m_llmThread = new QThread(this);
+    m_llmThread->setObjectName(QStringLiteral("llm"));
+    // Parentless: an object cannot be moved to another thread while it has a parent
+    // on this one. Both are configured here, while they are still on this thread,
+    // and only handed over at the end of this function -- after that every call into
+    // them goes through invokeOnLlmThread().
+    m_llmClient = new LlmClient;
     m_llmSession = new LlmSession(m_llmClient, &ToolRegistry::instance(), m_toolDispatcher,
-        &LogHub::instance(), this);
+        &LogHub::instance());
 
-    m_llmSession->setSystemPrompt(tr(
-        "You are an assistant inside qurcuma, a molecular visualisation and analysis program. "
-        "You act through the tools you are given: call them to read the loaded structure, measure "
-        "it, and change how it is displayed. You cannot see the screen unless a tool returns an "
-        "image, and you cannot run anything the tools do not offer.\n"
-        "Work from what the tools actually report rather than from assumption, and say plainly "
-        "when something is not available. Results are capped: when a tool says it has more, ask "
-        "for the next page instead of guessing. Atom indices are 0-based, distances are in "
-        "Angstrom and angles in degrees."));
+    applySystemPrompt();
 
+    // The policy is asked on the agent loop's thread and answers with a dialog, so
+    // it is marshalled back. Blocking is right here: the tool must not run until
+    // the operator has said yes, and nothing on the GUI thread ever waits on the
+    // agent loop, so the two cannot deadlock against each other.
     m_llmSession->setApprovalPolicy([this](const ToolSpec& spec, const QJsonObject& args) {
-        return approveToolCall(spec, args);
+        if (QThread::currentThread() == thread())
+            return approveToolCall(spec, args);
+        bool approved = false;
+        QMetaObject::invokeMethod(this, [this, &spec, &args, &approved] {
+            approved = approveToolCall(spec, args);
+        }, Qt::BlockingQueuedConnection);
+        return approved;
     });
 
     m_chatDock->attachSession(m_llmSession);
@@ -5451,6 +5483,10 @@ void MainWindow::setupAssistant()
             ? ToolAutonomy(stored)
             : ToolAutonomy::Ask;
         m_chatDock->setAutonomy(m_autonomy);
+        // Again, now that the stored level is known: the first call above ran with
+        // the default, and setAutonomy() blocks the box's signal, so nothing else
+        // would rebuild the prompt for a remembered "auto".
+        applySystemPrompt();
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
             tr("assistant autonomy: %1").arg(toolAutonomyName(m_autonomy)));
     }
@@ -5460,6 +5496,10 @@ void MainWindow::setupAssistant()
         // A level that permits more than before starts from a clean slate: the
         // per-tool "allow for this session" grants were given under the old one.
         m_toolsAllowedForSession.clear();
+        // The prompt has to move with the switch. A model told nothing about it
+        // keeps stopping to ask after every step, which is exactly what the loosened
+        // level was meant to stop.
+        applySystemPrompt();
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
             tr("assistant autonomy set to: %1").arg(toolAutonomyName(autonomy)));
     });
@@ -5485,9 +5525,11 @@ void MainWindow::setupAssistant()
             m_chatDock->setStatus(tr("The endpoint listed no models."), true);
             return;
         }
-        m_llmClient->setModel(chosen);
         settings.setValue(QStringLiteral("llm/model/%1").arg(profileName), chosen);
-        m_llmClient->describeModel(chosen);
+        invokeOnLlmThread([this, chosen] {
+            m_llmClient->setModel(chosen);
+            m_llmClient->describeModel(chosen);
+        });
     });
     connect(m_llmClient, &LlmClient::modelDescribed, this, [this](const LlmModelInfo& info) {
         if (m_chatDock)
@@ -5496,10 +5538,12 @@ void MainWindow::setupAssistant()
     connect(m_chatDock, &ChatDock::modelChanged, this, [this](const QString& model) {
         if (!m_llmClient || model.isEmpty())
             return;
-        m_llmClient->setModel(model);
         QSettings settings;
         settings.setValue(QStringLiteral("llm/model/%1").arg(m_chatDock->currentProfile()), model);
-        m_llmClient->describeModel(model);
+        invokeOnLlmThread([this, model] {
+            m_llmClient->setModel(model);
+            m_llmClient->describeModel(model);
+        });
     });
 
     LlmConfig config;
@@ -5513,6 +5557,14 @@ void MainWindow::setupAssistant()
     LlmProfile active;
     config.activeProfile(active);
     m_chatDock->setProfiles(names, active.name);
+
+    // Configured; hand both objects over. Everything from here on is marshalled.
+    m_llmClient->moveToThread(m_llmThread);
+    m_llmSession->moveToThread(m_llmThread);
+    connect(m_llmThread, &QThread::finished, m_llmSession, &QObject::deleteLater);
+    connect(m_llmThread, &QThread::finished, m_llmClient, &QObject::deleteLater);
+    m_llmThread->start();
+
     applyLlmProfile(active.name);
 }
 
@@ -5533,11 +5585,12 @@ void MainWindow::applyLlmProfile(const QString& name)
         return;
     }
 
-    m_llmClient->setProfile(profile);
-    m_llmSession->setMaxIterations(profile.maxToolIterations);
-
     const QString key = LlmConfig::apiKeyFor(profile);
-    m_llmClient->setApiKey(key);
+    invokeOnLlmThread([this, profile, key] {
+        m_llmClient->setProfile(profile);
+        m_llmClient->setApiKey(key);
+        m_llmSession->setMaxIterations(profile.maxToolIterations);
+    });
 
     // Say which variable is missing rather than letting the first request fail with
     // an authentication error the user has to decode.
@@ -5551,7 +5604,51 @@ void MainWindow::applyLlmProfile(const QString& name)
 
     // Ask the endpoint what it serves. The answer repopulates the model box, which
     // is what makes a profile without a "model" entry usable at all.
-    m_llmClient->listModels();
+    invokeOnLlmThread([this] { m_llmClient->listModels(); });
+}
+
+// Claude Generated 2026 - The prompt follows the autonomy switch. Setting the
+// switch to "auto" and leaving the model to guess that it may now act does not
+// work: it goes on ending its turn with "shall I start?" after every step, which
+// is the behaviour the switch exists to remove. The permission and the instruction
+// have to say the same thing.
+void MainWindow::applySystemPrompt()
+{
+    QString prompt = tr(
+        "You are an assistant inside qurcuma, a molecular visualisation and analysis program. "
+        "You act through the tools you are given: call them to read the loaded structure, measure "
+        "it, and change how it is displayed. You cannot see the screen unless a tool returns an "
+        "image, and you cannot run anything the tools do not offer.\n"
+        "Work from what the tools actually report rather than from assumption, and say plainly "
+        "when something is not available. Results are capped: when a tool says it has more, ask "
+        "for the next page instead of guessing. Atom indices are 0-based, distances are in "
+        "Angstrom and angles in degrees.\n"
+        "A simulation takes a moment to produce its first frame. simulation_status and "
+        "watch_simulation take wait_seconds, and job_status does too: wait for the answer "
+        "rather than asking again, and do not conclude from one immediate reply that nothing "
+        "is happening.\n");
+
+    switch (m_autonomy) {
+    case ToolAutonomy::Ask:
+        prompt += tr(
+            "Anything beyond reading and display is put to the operator before it runs, so "
+            "expect a pause, and expect a refusal to be an answer rather than an error.");
+        break;
+    case ToolAutonomy::InProgram:
+    case ToolAutonomy::Full:
+        prompt += tr(
+            "You are running unattended. Carry the task through to the end in one go: plan it, "
+            "run every step yourself, and report when it is done. Do NOT stop to ask whether to "
+            "begin, whether to continue, or whether to take the next step of your own plan -- "
+            "the operator has already said yes by setting this mode. Announcing what you are "
+            "about to do and then stopping is the one thing to avoid.\n"
+            "Stop early only for something you genuinely cannot decide: a result that "
+            "contradicts the task, a tool that refuses, or a choice that would change what was "
+            "asked for. Then say what you have and what the question is.");
+        break;
+    }
+
+    invokeOnLlmThread([this, prompt] { m_llmSession->setSystemPrompt(prompt); });
 }
 
 bool MainWindow::approveToolCall(const ToolSpec& spec, const QJsonObject& args)

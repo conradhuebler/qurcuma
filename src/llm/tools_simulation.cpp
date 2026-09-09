@@ -676,8 +676,14 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             const bool hasAbove = args.contains(QStringLiteral("above"));
             const double below = args.value(QStringLiteral("below")).toDouble();
             const double above = args.value(QStringLiteral("above")).toDouble();
-            const int waitSeconds = qBound(0, args.value(QStringLiteral("wait_seconds")).toInt(), 60);
             const int everySteps = qBound(0, args.value(QStringLiteral("every_steps")).toInt(), 100000);
+            const bool wantsToWait = everySteps > 0
+                || args.contains(QStringLiteral("below")) || args.contains(QStringLiteral("above"));
+            // Asking for a trace, or for a threshold, with no time to wait in is a
+            // request that cannot be answered. Default to a useful span there and to
+            // "answer now" for a plain read.
+            const int waitSeconds = qBound(0,
+                args.value(QStringLiteral("wait_seconds")).toInt(wantsToWait ? 30 : 0), 60);
             const int maxSamples = qBound(1, args.value(QStringLiteral("max_samples")).toInt(20), 100);
 
             QElapsedTimer clock;
@@ -696,6 +702,9 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                     if (!cache->state.running)
                         return ToolResult::failure(QStringLiteral(
                             "nothing is running, and no frame has arrived to measure"));
+                    // Running but no frame yet: a run needs a moment to produce its
+                    // first one, and returning "cannot measure" here would have the
+                    // caller abandon the run it just started.
                 } else {
                     QVector<int> setA;
                     QVector<int> setB;

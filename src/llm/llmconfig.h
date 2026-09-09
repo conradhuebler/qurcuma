@@ -10,6 +10,7 @@
 // attached to a bug report without leaking anything.
 #pragma once
 
+#include <QMetaType>
 #include <QString>
 #include <QVector>
 
@@ -77,3 +78,6 @@ private:
     QVector<LlmProfile> m_profiles;
     QString m_active;
 };
+
+// Claude Generated 2026 - Crosses from the client's thread to the GUI.
+Q_DECLARE_METATYPE(LlmModelInfo)
