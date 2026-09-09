@@ -238,6 +238,27 @@ bereits; der Helfer entsteht dort, wo der erste curcuma-berührende Kern-Code li
 **Nicht in diesem Paket:** die Freigabepolitik. Sie hängt an `ToolEffect`, gehört aber zur
 Sitzung (WP2.2) und bekommt ihren Einhängepunkt dort, wo bekannt ist, was sie braucht.
 
+#### WP1.3 im Einzelnen (Stand: in Arbeit)
+
+Zweigeteilt, weil nur die erste Hälfte headless prüfbar ist: Werkzeuge am `MoleculeViewer`
+brauchen ein Widget und Quick3D, die bleiben beim Operator-Check.
+
+| # | Schritt | Status |
+|---|---|---|
+| a | `src/core/tools_core.{h,cpp}`: `read_log` und `describe_tools` — brauchen nur `LogHub` und die Registry, bleiben also in `qurcuma_core` | offen |
+| b | `test_toolscore`: Schemata wohlgeformt, `read_log`-Filter und Kappung, `next_seq` fürs Blättern, `describe_tools` mit und ohne Schema | offen |
+| c | `src/llm/tools_view.{h,cpp}` mit `ViewToolContext`: `get_structure_summary`, `list_atoms` (gekappt), `get_selection`, `select_atoms`, `get_fragments`, `measure`, `get_frame_info`, `get_camera`, `get_display`, `list_workdir` | offen |
+| d | Verdrahtung in `MainWindow`: Registry und Dispatcher anlegen, Kern- und Viewer-Werkzeuge anmelden | offen |
+| e | CMake: Quellen, Testziel | offen |
+| f | Build grün, Tests grün, Commit, Doku/Changelog | offen |
+
+**Zwei Festlegungen, die hier zum ersten Mal greifen.** `describe_tools` liefert per Vorgabe
+**kein** Schema, sondern nur Name, Beschreibung, Kategorie und Effekt; das vollständige Schema
+gibt es auf Nachfrage für ein einzelnes Werkzeug. Das ist die Zweistufigkeit aus Abschnitt 4.3
+im Kleinen, und sie greift, bevor der Katalog groß wird. Und `tools_view` bindet **nicht**
+`mainwindow.h` ein: was es von `MainWindow` braucht (das Arbeitsverzeichnis) kommt als
+`std::function`, sodass die Kopplung auf den Viewer beschränkt bleibt.
+
 ### Phase 2 — Das LLM (erstes sichtbares Feature, ohne curcuma-Änderung)
 
 | WP | Inhalt | Fertig, wenn | Status |
