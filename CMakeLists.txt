@@ -171,6 +171,7 @@ set(SOURCES
     src/vtfparser.cpp
     src/xyzparser.cpp
     src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
+    src/llm/atomselection.cpp  # Claude Generated 2026 - shared selection grammar
     src/llm/tools_view.cpp  # Claude Generated 2026 - read-only tools over the viewer
     src/llm/curcumajob.cpp  # Claude Generated 2026 - in-process curcuma calculation
     src/llm/tools_compute.cpp  # Claude Generated 2026
@@ -244,6 +245,7 @@ set(HEADERS
     src/vtfparser.h
     src/xyzparser.h
     src/moleculefileloader.h  # Claude Generated 2026 - unified structure-file reader
+    src/llm/atomselection.h  # Claude Generated 2026 - shared selection grammar
     src/llm/tools_view.h  # Claude Generated 2026 - read-only tools over the viewer
     src/llm/curcumajob.h  # Claude Generated 2026 - in-process curcuma calculation
     src/llm/tools_compute.h  # Claude Generated 2026
@@ -540,9 +542,10 @@ set_tests_properties(measurements PROPERTIES LABELS qurcuma)
 
 # Selection-grammar test - Claude Generated 2026
 # Pins curcuma's FragString2Indicies: one-based, and Fn needs GetFragments() first.
-add_executable(test_selectiongrammar test_selectiongrammar.cpp)
+add_executable(test_selectiongrammar test_selectiongrammar.cpp src/llm/atomselection.cpp)
 target_link_libraries(test_selectiongrammar PRIVATE
 Qt6::Core
+Qt6::Gui
 curcuma_core
 )
 qurcuma_match_curcuma_simd(test_selectiongrammar)

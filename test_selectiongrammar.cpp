@@ -8,9 +8,12 @@
 // grammar is one-based; the surrounding tools are zero-based; and Fn depends on a
 // call nobody would guess. All three are asserted here.
 
+#include "src/llm/atomselection.h"
+
 #include <src/core/molecule.h>
 
 #include <QCoreApplication>
+#include <QJsonArray>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -30,6 +33,21 @@ static std::string show(const std::vector<int>& v)
     for (size_t i = 0; i < v.size(); ++i)
         s += (i ? "," : "") + std::to_string(v[i]);
     return s + "}";
+}
+
+/// The same two fragments as viewer atoms, for the helpers built on top of the
+/// grammar. Kept in step with twoFragments() by hand; five atoms, one test.
+static QVector<moldata::Atom> twoFragmentAtoms()
+{
+    const double far = 30.0;
+    const auto atom = [](const char* element, double x, double y, double z) {
+        moldata::Atom a;
+        a.element = QString::fromLatin1(element);
+        a.position = QVector3D(float(x), float(y), float(z));
+        return a;
+    };
+    return { atom("C", 0.0, 0.0, 0.0), atom("H", 1.0, 0.0, 0.0), atom("H", 0.0, 1.0, 0.0),
+             atom("O", far, 0.0, 0.0), atom("H", far + 1.0, 0.0, 0.0) };
 }
 
 /// Two fragments: three atoms at the origin, two atoms far away.
@@ -104,6 +122,50 @@ int main(int argc, char** argv)
         check(combined == std::vector<int>({ 0, 3, 4 }),
             "a list mixes singles and fragments, sorted and deduplicated ("
                 + show(combined) + ")");
+    }
+
+    // --- what the tools actually call ---------------------------------------
+    //
+    // resolveAtomSet() is the one place that turns a name into indices, and
+    // severedBondCount() is what keeps a fragment energy honest: a subset that
+    // cuts covalent bonds has open valences, and its energy must not be
+    // subtracted from the energy of the whole.
+    {
+        const QVector<moldata::Atom> atoms = twoFragmentAtoms();
+        QVector<int> got;
+        QString error;
+
+        check(resolveAtomSet(atoms, QStringLiteral("F1"), {}, got, error)
+                && got == QVector<int>({ 0, 1, 2 }),
+            "resolveAtomSet(\"F1\") fills the fragment cache first and yields 0,1,2");
+
+        check(resolveAtomSet(atoms, QStringLiteral("F2"), {}, got, error)
+                && got == QVector<int>({ 3, 4 }),
+            "resolveAtomSet(\"F2\") yields the second fragment");
+
+        check(!resolveAtomSet(atoms, QStringLiteral("F0"), {}, got, error)
+                && !error.isEmpty(),
+            "\"F0\" is reported as an empty match instead of silently returning nothing");
+
+        check(!resolveAtomSet(atoms, QString(), QJsonArray({ 0, 5 }), got, error)
+                && error.contains(QLatin1String("outside")),
+            "an index past the end is refused by name, not passed through");
+
+        check(!resolveAtomSet(atoms, QStringLiteral("F1"), QJsonArray({ 0 }), got, error),
+            "an expression and explicit indices together are refused");
+
+        check(subsetAtoms(atoms, QVector<int>({ 3, 4 })).size() == 2
+                && subsetAtoms(atoms, QVector<int>({ 3, 4 })).at(0).element == QLatin1String("O"),
+            "subsetAtoms() keeps the order it is given");
+
+        check(severedBondCount(atoms, QVector<int>({ 0, 1, 2 })) == 0,
+            "a whole fragment cuts no bond, so its energy stands on its own");
+        check(severedBondCount(atoms, QVector<int>({ 3, 4 })) == 0,
+            "the other whole fragment likewise cuts no bond");
+        check(severedBondCount(atoms, QVector<int>({ 0, 1 })) == 1,
+            "leaving one hydrogen behind cuts exactly one C-H bond");
+        check(severedBondCount(atoms, QVector<int>({ 0, 1, 2, 3, 4 })) == 0,
+            "selecting everything cuts nothing");
     }
 
     std::printf("%s (%d failed)\n", g_failed ? "FAIL" : "PASS", g_failed);

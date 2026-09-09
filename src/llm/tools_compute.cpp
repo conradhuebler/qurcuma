@@ -4,6 +4,7 @@
 
 #include "tools_compute.h"
 
+#include "atomselection.h"
 #include "core/toolregistry.h"
 #include "curcumajob.h"
 #include "curcuma_schemas.h"
@@ -22,6 +23,47 @@ struct JobStore {
     QHash<QString, CurcumaJobResult> finished;
     QStringList order;
 };
+
+/// The two keys run_single_point adds on top of curcuma's own parameters. They are
+/// qurcuma's, not the engine's, so they are named once here and stripped out again
+/// before the controller is handed over.
+const QLatin1String kSelection("atoms");
+const QLatin1String kSelectionIndices("atom_indices");
+
+/// curcuma's generated schema plus the selection keys. The registry rejects
+/// unknown keys, so a parameter the tool understands has to be in the schema.
+QJsonObject withSelection(QJsonObject schema)
+{
+    QJsonObject properties = schema.value(QStringLiteral("properties")).toObject();
+
+    QJsonObject selection;
+    selection.insert(QStringLiteral("type"), QStringLiteral("string"));
+    selection.insert(QStringLiteral("description"), QStringLiteral(
+        "Restrict the calculation to part of the structure, in curcuma's selection grammar: "
+        "\"F1\" for the first fragment (get_fragments lists them), \"1:20\" for a one-based "
+        "atom range. Omitted means the whole structure."));
+    properties.insert(kSelection, selection);
+
+    QJsonObject items;
+    items.insert(QStringLiteral("type"), QStringLiteral("integer"));
+    QJsonObject explicitIndices;
+    explicitIndices.insert(QStringLiteral("type"), QStringLiteral("array"));
+    explicitIndices.insert(QStringLiteral("items"), items);
+    explicitIndices.insert(QStringLiteral("description"), QStringLiteral(
+        "Zero-based atom indices, as an alternative to atoms. Not both."));
+    properties.insert(kSelectionIndices, explicitIndices);
+
+    schema.insert(QStringLiteral("properties"), properties);
+    return schema;
+}
+
+/// The arguments curcuma should see: everything except qurcuma's selection keys.
+QJsonObject withoutSelection(QJsonObject args)
+{
+    args.remove(kSelection);
+    args.remove(kSelectionIndices);
+    return args;
+}
 
 QJsonObject schemaFromJson(const char* json)
 {
@@ -70,22 +112,38 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
         spec.name = QStringLiteral("run_single_point");
         spec.category = QStringLiteral("compute");
         spec.description = QStringLiteral(
-            "Calculate the energy of the structure currently loaded, with curcuma, in process. "
-            "Returns immediately with a job_id; ask job_status for the answer. The parameters "
-            "come from curcuma's own registry -- describe_job(\"sp\") lists all of them.");
+            "Calculate the energy of the loaded structure, or of part of it, with curcuma, "
+            "in process. Returns immediately with a job_id; ask job_status for the answer. "
+            "For an interaction energy, run it three times -- whole, \"F1\", \"F2\" -- and "
+            "subtract. The parameters come from curcuma's own registry; describe_job(\"sp\") "
+            "lists all of them.");
         spec.effect = ToolEffect::Compute;   // asks before it runs
         spec.affinity = ToolAffinity::Gui;   // reads the viewer's atoms
-        spec.paramSchema = curcumaJobSchema(QStringLiteral("sp"));
+        spec.paramSchema = withSelection(curcumaJobSchema(QStringLiteral("sp")));
 
         spec.handler = [viewer, job](const QJsonObject& args) {
-            const QVector<moldata::Atom> atoms = viewer->getCurrentFrameAtoms();
-            if (atoms.isEmpty())
+            const QVector<moldata::Atom> all = viewer->getCurrentFrameAtoms();
+            if (all.isEmpty())
                 return ToolResult::failure(QStringLiteral("no structure is loaded"));
+
+            QVector<moldata::Atom> atoms = all;
+            int severed = 0;
+            const QString expression = args.value(kSelection).toString();
+            const QJsonArray indices = args.value(kSelectionIndices).toArray();
+            const bool restricted = !expression.isEmpty() || !indices.isEmpty();
+            if (restricted) {
+                QVector<int> wanted;
+                QString error;
+                if (!resolveAtomSet(all, expression, indices, wanted, error))
+                    return ToolResult::failure(error);
+                atoms = subsetAtoms(all, wanted);
+                severed = severedBondCount(all, wanted);
+            }
 
             CurcumaJobRequest request;
             request.command = QStringLiteral("sp");
             request.atoms = atoms;
-            request.controller = args;
+            request.controller = withoutSelection(args);
 
             QString error;
             const QString jobId = job->start(request, &error);
@@ -96,8 +154,22 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
             data.insert(QStringLiteral("status"), QStringLiteral("started"));
             data.insert(QStringLiteral("job_id"), jobId);
             data.insert(QStringLiteral("atom_count"), atoms.size());
-            return ToolResult::success(data,
-                QStringLiteral("Started; ask job_status with job_id \"%1\".").arg(jobId));
+
+            QString note = QStringLiteral("Started; ask job_status with job_id \"%1\".").arg(jobId);
+            if (restricted) {
+                data.insert(QStringLiteral("of_total"), all.size());
+                data.insert(QStringLiteral("severed_bonds"), severed);
+                // A subset that cuts covalent bonds leaves open valences behind, and
+                // curcuma will happily compute an energy for the radical fragment.
+                // Say so rather than letting the number be subtracted from a complex.
+                note += severed == 0
+                    ? QStringLiteral(" %1 of %2 atoms, no bond cut.").arg(atoms.size()).arg(all.size())
+                    : QStringLiteral(" %1 of %2 atoms, but the selection cuts %3 covalent bond(s): "
+                                     "the fragment has open valences and its energy is not "
+                                     "comparable to the whole.")
+                          .arg(atoms.size()).arg(all.size()).arg(severed);
+            }
+            return ToolResult::success(data, note);
         };
         add(spec);
     }

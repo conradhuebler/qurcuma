@@ -4,6 +4,7 @@
 
 #include "tools_view.h"
 
+#include "atomselection.h"
 #include "core/toolregistry.h"
 #include "measurements.h"
 #include "moleculebridge.h"
@@ -72,50 +73,6 @@ QString empiricalFormula(const QVector<MoleculeViewer::Atom>& atoms)
         formula += it.value() == 1 ? it.key() : QStringLiteral("%1%2").arg(it.key()).arg(it.value());
     }
     return formula;
-}
-
-/// Resolve an atom set given either as curcuma's selection grammar or as explicit
-/// indices. Shared by select_atoms, get_distance_matrix and get_contacts so there
-/// is one place that knows the grammar and one place that range-checks.
-bool resolveAtomSet(const QVector<MoleculeViewer::Atom>& atoms, const QString& expression,
-                    const QJsonArray& explicitIndices, QVector<int>& out, QString& error)
-{
-    out.clear();
-    if (!expression.isEmpty() && !explicitIndices.isEmpty()) {
-        error = QStringLiteral("pass either an expression or explicit indices, not both");
-        return false;
-    }
-
-    if (!expression.isEmpty()) {
-        curcuma::Molecule molecule = atomsToMolecule(atoms);
-        // FragString2Indicies reads m_fragments directly, and that cache is only
-        // filled by GetFragments(). Without this call every "Fn" silently matches
-        // nothing -- which is exactly how it failed the first time it was used.
-        molecule.GetFragments();
-        const std::vector<int> resolved = molecule.FragString2Indicies(expression.toStdString());
-        if (resolved.empty()) {
-            error = QStringLiteral("selection \"%1\" matched no atoms").arg(expression);
-            return false;
-        }
-        for (int index : resolved)
-            out.append(index);
-    } else {
-        for (const QJsonValue& value : explicitIndices) {
-            if (!value.isDouble()) {
-                error = QStringLiteral("atom indices must be numbers");
-                return false;
-            }
-            out.append(value.toInt());
-        }
-    }
-
-    for (int index : out) {
-        if (index < 0 || index >= atoms.size()) {
-            error = QStringLiteral("atom index %1 is outside 0..%2").arg(index).arg(atoms.size() - 1);
-            return false;
-        }
-    }
-    return true;
 }
 
 ToolSpec base(const QString& name, const QString& category, const QString& description,
