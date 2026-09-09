@@ -205,7 +205,7 @@ soll — Kandidat für eine getrennte Ansicht oder Filterung nach `source`.
 |---|---|---|---|
 | **1.1** *(erledigt `a15a581`)* | `qurcuma_core`: `ToolSpec`, `ToolResult`, `ToolRegistry`, Schema-Prüfung. `qurcuma_core_init()` ruft `initialize_generated_registry()`. Den `-march`/AVX-Block aus `CMakeLists.txt:288-311` **spiegeln** (Eigen-ABI). | `test_toolregistry` grün (37 Prüfungen); über `compile_commands.json` belegt, dass beide Kern-TUs weder QtWidgets noch Quick3D, QtCharts oder curcuma im Include-Pfad haben. | **erledigt** |
 | **1.2** | GUI-Thread-Marshalling im Dispatcher; Audit-Spur in den `LogHub`. | `test_tooldispatcher` grün (18 Prüfungen), inkl. Nachweis des Threadwechsels und des Zeitlimits. | **erledigt** |
-| **1.3** | ~12 lesende Werkzeuge (`src/llm/tools_view.cpp`), Analyse über `moleculebridge` gegen `curcuma::Molecule`: `get_structure_summary`, `list_atoms`, `select_atoms` (FragString-Grammatik), `get_selection`, `get_fragments`, `measure`, `get_frame_info`, `read_log`, `list_workdir`, `get_camera`, `get_display`, `describe_tools`. | Headless aufrufbar, soweit ohne GUI möglich. | offen |
+| **1.3** | ~12 lesende Werkzeuge (`src/llm/tools_view.cpp`), Analyse über `moleculebridge` gegen `curcuma::Molecule`: `get_structure_summary`, `list_atoms`, `select_atoms` (FragString-Grammatik), `get_selection`, `get_fragments`, `measure`, `get_frame_info`, `read_log`, `list_workdir`, `get_camera`, `get_display`, `describe_tools`. | Kern-Werkzeuge headless geprüft (`test_toolscore`, 25 Prüfungen); die zehn Viewer-Werkzeuge brauchen ein Widget und bleiben beim Operator-Check. | **erledigt** |
 | **1.4** | **Vorführbar #1:** Command-Palette zeigt Menü-Actions **plus** parameterlose Registry-Werkzeuge (Vereinigung, kein Ersatz — die Palette bekommt heute ~120 Menüeinträge samt `enabled`-Zustand geschenkt). | Ctrl+K führt Registry-Werkzeuge aus. | offen |
 
 #### WP1.1 im Einzelnen — **erledigt** (`a15a581`)
@@ -238,19 +238,19 @@ bereits; der Helfer entsteht dort, wo der erste curcuma-berührende Kern-Code li
 **Nicht in diesem Paket:** die Freigabepolitik. Sie hängt an `ToolEffect`, gehört aber zur
 Sitzung (WP2.2) und bekommt ihren Einhängepunkt dort, wo bekannt ist, was sie braucht.
 
-#### WP1.3 im Einzelnen (Stand: in Arbeit)
+#### WP1.3 im Einzelnen — **erledigt** (`ee4969f`, `b2da381`)
 
 Zweigeteilt, weil nur die erste Hälfte headless prüfbar ist: Werkzeuge am `MoleculeViewer`
 brauchen ein Widget und Quick3D, die bleiben beim Operator-Check.
 
 | # | Schritt | Status |
 |---|---|---|
-| a | `src/core/tools_core.{h,cpp}`: `read_log` und `describe_tools` — brauchen nur `LogHub` und die Registry, bleiben also in `qurcuma_core` | offen |
-| b | `test_toolscore`: Schemata wohlgeformt, `read_log`-Filter und Kappung, `next_seq` fürs Blättern, `describe_tools` mit und ohne Schema | offen |
-| c | `src/llm/tools_view.{h,cpp}` mit `ViewToolContext`: `get_structure_summary`, `list_atoms` (gekappt), `get_selection`, `select_atoms`, `get_fragments`, `measure`, `get_frame_info`, `get_camera`, `get_display`, `list_workdir` | offen |
-| d | Verdrahtung in `MainWindow`: Registry und Dispatcher anlegen, Kern- und Viewer-Werkzeuge anmelden | offen |
-| e | CMake: Quellen, Testziel | offen |
-| f | Build grün, Tests grün, Commit, Doku/Changelog | offen |
+| a | `src/core/tools_core.{h,cpp}`: `read_log` und `describe_tools` — brauchen nur `LogHub` und die Registry, bleiben also in `qurcuma_core` | erledigt |
+| b | `test_toolscore`: Schemata wohlgeformt, `read_log`-Filter und Kappung, `next_seq` fürs Blättern, `describe_tools` mit und ohne Schema | erledigt |
+| c | `src/llm/tools_view.{h,cpp}` mit `ViewToolContext`: `get_structure_summary`, `list_atoms` (gekappt), `get_selection`, `select_atoms`, `get_fragments`, `measure`, `get_frame_info`, `get_camera`, `get_display`, `list_workdir` | erledigt |
+| d | Verdrahtung in `MainWindow`: Registry und Dispatcher anlegen, Kern- und Viewer-Werkzeuge anmelden | erledigt |
+| e | CMake: Quellen, Testziel | erledigt |
+| f | Build grün, Tests grün, Commit, Doku/Changelog | erledigt |
 
 **Zwei Festlegungen, die hier zum ersten Mal greifen.** `describe_tools` liefert per Vorgabe
 **kein** Schema, sondern nur Name, Beschreibung, Kategorie und Effekt; das vollständige Schema
