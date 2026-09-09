@@ -170,6 +170,7 @@ set(SOURCES
     src/vtfparser.cpp
     src/xyzparser.cpp
     src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
+    src/core/loghub.cpp  # Claude Generated 2026 - structured in-process log buffer
     src/calculationhistory.cpp  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.cpp  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.cpp
@@ -237,6 +238,7 @@ set(HEADERS
     src/xyzparser.h
     src/moleculefileloader.h  # Claude Generated 2026 - unified structure-file reader
     src/core/moleculedata.h  # Claude Generated 2026 - Atom/Bond records, free of QtWidgets
+    src/core/loghub.h  # Claude Generated 2026 - structured in-process log buffer
     src/calculationhistory.h  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.h  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.h
@@ -459,6 +461,23 @@ target_include_directories(test_measurements PRIVATE
 )
 add_test(NAME measurements COMMAND test_measurements)
 set_tests_properties(measurements PROPERTIES LABELS qurcuma)
+
+# LogHub test - Claude Generated 2026
+# LogHub is QtCore-only by design (it has to link into a widget-free core), so this
+# target needs neither Gui nor curcuma. Threads::Threads is explicit because the
+# test appends from several std::threads to pin the locking.
+find_package(Threads REQUIRED)
+add_executable(test_loghub test_loghub.cpp src/core/loghub.cpp)
+target_link_libraries(test_loghub PRIVATE
+Qt6::Core
+Threads::Threads
+)
+target_include_directories(test_loghub PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+add_test(NAME loghub COMMAND test_loghub)
+set_tests_properties(loghub PROPERTIES LABELS qurcuma)
 
 add_executable(test_scenefiller test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp
     src/elementdata.cpp src/fragmentlibrary.cpp)

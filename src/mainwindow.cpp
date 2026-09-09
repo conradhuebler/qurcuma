@@ -70,7 +70,8 @@
 #include <QString>
 #include "view.h"
 #include "moleculefileloader.h"  // Claude Generated 2026 - unified structure-file reader
-#include "calculationrunner.h"  // Claude Generated 2026 - WP T3 external-process orchestration
+#include "calculationrunner.h"
+#include "core/loghub.h"  // Claude Generated 2026 - Output dock follows the log hub  // Claude Generated 2026 - WP T3 external-process orchestration
 #include "lessoncontroller.h"  // Claude Generated 2026 - WP T4 lesson feature controller
 #include "frequencydialog.h"
 #include "displaypanel.h"
@@ -4285,6 +4286,10 @@ void MainWindow::createDockWidgets()
     // MainWindow members so existing logic keeps working during the migration.
     m_dockManager->initialize(m_moleculeView, &m_settings);
     m_outputViewDock = m_dockManager->outputDockImpl();
+    // Claude Generated 2026 - Show qDebug/qWarning in the dock instead of only the
+    // terminal. The hub already holds whatever was logged during startup.
+    if (m_outputViewDock)
+        m_outputViewDock->followLogHub(&LogHub::instance());
     m_displayDock = m_dockManager->displayDockImpl();
     m_simulationDock = m_dockManager->simulationDockImpl();
     // Pull the wrapped internal widgets into MainWindow members so the rest of the

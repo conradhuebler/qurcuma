@@ -10,8 +10,13 @@
 #include "dockconfig.h"
 
 #include <QDockWidget>
+#include <QStringList>
 
 class QTextEdit;
+
+class LogHub;      // Claude Generated 2026 - src/core/loghub.h
+class QTimer;
+struct LogRecord;  // Claude Generated 2026 - src/core/loghub.h
 
 class OutputDock : public QDockWidget
 {
@@ -22,6 +27,13 @@ public:
 
     /// Raw access to the log view for callers that already append text directly.
     QTextEdit* outputView() const;
+
+    /// Mirror @p hub into the view: first what it already holds, then live records.
+    /// Appends are coalesced on a short timer -- qDebug() reaches the hub once per
+    /// optimizer iteration during a grab (simulationworker.cpp), and one
+    /// QTextEdit::append per line stalls the GUI at that rate.
+    /// Claude Generated 2026.
+    void followLogHub(LogHub* hub);
 
 public slots:
     void appendOutput(const QString& text);
@@ -35,6 +47,9 @@ signals:
 
 private:
     void setupUI();
+    void flushPending();
 
     QTextEdit* m_outputView = nullptr;
+    QStringList m_pending;             ///< records waiting for the next flush
+    QTimer* m_flushTimer = nullptr;    ///< created on the first followLogHub()
 };
