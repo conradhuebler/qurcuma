@@ -150,7 +150,7 @@ Ein Paket = ein baubarer Commit, Build grün nach jedem Schritt.
 |---|---|---|---|
 | **0.1** | `canEditStructure()` (`view.h:363`) liefert zusätzlich `false`, solange `m_simulationActive` gilt; die mutierenden Viewer-APIs kehren früh zurück (Abschnitt 2). | GUI-verhaltensneutral, da die Mauspfade bereits über dieselbe Flagge gesperrt sind. Operator-Sichtprüfung. | **erledigt** (`1ea0317`) |
 | **0.2** | `MoleculeViewer::Atom`/`::Bond` nach `src/core/moleculedata.h`; in `view.h` bleiben Typaliase. `MoleculeFileLoader` zieht heute `view.h` (968 Zeilen, `QWidget`) allein wegen dieser Structs herein. | Build grün; 42 Dateien behalten `MoleculeViewer::Atom` unverändert (der Alias fängt sie ab). Der Parse-Pfad (4 Parser + Loader, 10 Dateien) ist echt umgestellt: eine TU mit nur `moleculefileloader.h` übersetzt mit Qt6Core+Qt6Gui allein und zieht **0** QtWidgets-Header, wo `view.h` **10** einzieht. | **erledigt** (`b71baf5`) |
-| **0.3** | `src/core/loghub.{h,cpp}` (QtCore-only) + `qInstallMessageHandler`; `OutputDock` wird Abonnent. | `test_loghub` grün; qurcumas `qDebug`-Meldungen erscheinen im Output-Dock statt nur im Terminal. | offen |
+| **0.3** | `src/core/loghub.{h,cpp}` (QtCore-only) + `qInstallMessageHandler`; `OutputDock` wird Abonnent. | `test_loghub` grün; qurcumas `qDebug`-Meldungen erscheinen im Output-Dock statt nur im Terminal. | **erledigt** (`2c24a2c`) |
 
 Beim Umsetzen von 0.1 kam zweierlei dazu. Der Spiegel in den Struktur-Texteditor ist ein
 *Lesen* und hing trotzdem an `canEditStructure()`; er gatet jetzt auf die Frame-Zahl, weil die
@@ -281,11 +281,11 @@ täglich, und ein kaputtes Werkzeug fällt sofort auf statt erst, wenn ein Model
 
 | WP | Inhalt | Fertig, wenn | Status |
 |---|---|---|---|
-| **2.1** | `option(USE_LLM ... ON)` nach dem Vorbild von `USE_SFTP` (`CMakeLists.txt:66`); `Qt6::Network`; `LlmClient` (OpenAI-kompatibel, SSE, Tool-Calls); `LlmConfig` (Profile aus `~/.config/qurcuma/llm.json`, **einfache JSON-Datei, nie QSettings**, Key nur aus der Umgebung). | `test_llmclient` gegen einen `QTcpServer`-Stub, **kein Netz in ctest**; `-DUSE_LLM=OFF` baut wie bisher. | offen |
+| **2.1** | `option(USE_LLM ... ON)` nach dem Vorbild von `USE_SFTP` (`CMakeLists.txt:66`); `Qt6::Network`; `LlmClient` (OpenAI-kompatibel, SSE, Tool-Calls); `LlmConfig` (Profile aus `~/.config/qurcuma/llm.json`, **einfache JSON-Datei, nie QSettings**, Key nur aus der Umgebung). | `test_llmclient` gegen einen `QTcpServer`-Stub, **kein Netz in ctest**; `-DUSE_LLM=OFF` baut wie bisher. | **erledigt** (`52ddc3a`, Streaming `5274252`) |
 | **2.2** | `LlmSession`: Agentenschleife off-thread, Dispatch über die Registry, Freigabepolitik, Audit-Spur. | `test_llmsession` (24 Prüfungen) gegen den echten Client am Stub-Endpunkt: Iterationsgrenze, Freigabe, erfundene Werkzeugnamen, kaputte Argumente. | **erledigt** |
 | **2.3** | **Vorführbar #2:** `ChatDock` als achter Dock (`dockmanager.cpp:273`, `dockconfig.h`), Streaming, Werkzeugzeilen mit Freigeben/Ablehnen. | Code steht, `USE_LLM=ON` und `OFF` beide vollständig gebaut. **Operator-Check offen.** | **erledigt** |
 
-#### WP2.1 im Einzelnen — **a–e erledigt** (`52ddc3a`), **f offen**
+#### WP2.1 im Einzelnen — **a–f erledigt** (`52ddc3a`, Streaming `5274252`)
 
 | # | Schritt | Status |
 |---|---|---|
@@ -383,9 +383,9 @@ Fähigkeitstabelle). Voraussetzung für Phase 4.
 
 | WP | Inhalt | Fertig, wenn | Status |
 |---|---|---|---|
-| **4.1** | `src/llm/curcumajob.{h,cpp}`: Einzellauf auf einem Worker-Thread, Log über die Scope-Senke mit `job_id` in den `LogHub`, `Results()` zurück. Mutex „nur ein In-Prozess-Rechenjob" (OpenMP). Optionaler Controller-Export als Reproduzierbarkeits-Artefakt: derselbe Lauf ist mit `curcuma -import_config run.json` nachstellbar. | `test_curcumajob`: echtes `sp` auf einem 3-Atom-XYZ, Energie aus `Results()`, Log unter der `job_id`. | offen |
-| **4.2** | Schema-Erzeugung **aus curcumas Registry** (Kommando↔Modul aus `ModuleDefinition`, Auswahl über `tier=primary`, Constraints aus `allowed`/`unit`/`min`/`max`, bedingte Felder aus `requires`), dazu `describe_job(command)`. Keine handgepflegte Parametertabelle in qurcuma. | Schema für die exponierten Kommandos ohne handgepflegte Liste; Test prüft Modulzuordnung und Auflösbarkeit. | offen |
-| **4.3** | Rechen-Werkzeuge (`Effect::Compute`), asynchron: `run_job → {status:"started", job_id}`, `job_status`, `job_result`. Dazu `set_temperature`, `pause_md`, `resume_md`, `stop_md`, `step_once` über die vorhandenen `SimulationWorker`-Slots per QueuedConnection. | MD per Werkzeug steuerbar, GUI bedienbar, `Mutate` während des Laufs sauber abgelehnt. | offen |
+| **4.1** | `src/llm/curcumajob.{h,cpp}`: Einzellauf auf einem Worker-Thread, Log über die Scope-Senke mit `job_id` in den `LogHub`, `Results()` zurück. Mutex „nur ein In-Prozess-Rechenjob" (OpenMP). Optionaler Controller-Export als Reproduzierbarkeits-Artefakt: derselbe Lauf ist mit `curcuma -import_config run.json` nachstellbar. | `test_curcumajob` grün: echtes `sp` auf einem 3-Atom-XYZ, Energie aus `Results()`, Log unter der `job_id`. | **erledigt** (`1c93ecc`) |
+| **4.2** | Schema-Erzeugung **aus curcumas Registry** (Kommando↔Modul aus `ModuleDefinition`, Auswahl über `tier=primary`, Constraints aus `allowed`/`unit`/`min`/`max`, bedingte Felder aus `requires`), dazu `describe_job(command)`. Keine handgepflegte Parametertabelle in qurcuma. | `test_curcumaschemas` grün: Schema für die exponierten Kommandos ohne handgepflegte Liste, Modulzuordnung und Auflösbarkeit geprüft. | **erledigt** (`b6eec1e`) |
+| **4.3** | Rechen-Werkzeuge (`Effect::Compute`), asynchron: `run_job → {status:"started", job_id}`, `job_status`, `job_result`. Dazu `set_temperature`, `pause_md`, `resume_md`, `stop_md`, `step_once` über die vorhandenen `SimulationWorker`-Slots per QueuedConnection. | MD per Werkzeug steuerbar, GUI bedienbar, `Mutate` während des Laufs sauber abgelehnt. | **teilweise** — `run_single_point`, `job_status`, `describe_job` stehen (`b6eec1e`); die Laufzeitsteuerung (`set_temperature`, `pause_md`, `resume_md`, `stop_md`, `step_once`) ist **offen** |
 
 ### Leitszenario — agentisches Docking
 
@@ -417,16 +417,22 @@ darf, aber nicht messen kann, ob es getroffen hat, rät. Die Schleife lautet
 1. **Ein Fragment bewegen.** `MoleculeViewer::moveSelection()` ist **privat** (`view.h:863`). Für
    ein `transform_fragment`-Werkzeug (Translation + Rotation um den Fragmentschwerpunkt, `Mutate`)
    muss es eine öffentliche, snapshot-fähige Entsprechung geben. Rotation gibt es noch gar nicht.
-2. **Laden und Zusammenführen als Werkzeuge** (`load_structure`, `merge_structure`, beide
-   `Mutate`), mit der nicht-interaktiven Variante ohne `QMessageBox` (Abschnitt 6).
+2. ~~**Laden und Zusammenführen als Werkzeuge.**~~ **`merge_structure`** und
+   **`save_structure`** stehen (`3646ac0`), beide ohne `QMessageBox` und ohne `mainwindow.h`.
+   Offen bleibt bewusst das *Ersetzen* der ganzen Szene: `MainWindow` hält Trajektorie,
+   Framezahl und Fensterzustand, und ein Werkzeug, das die Geometrie darunter austauscht,
+   ließe alle drei stehen. Das erste Laden bleibt Sache des Bedieners.
 3. **Die Kavität finden.** Nichts davon existiert bisher — weder in qurcuma noch als
    curcuma-Fähigkeit. Für den Anfang reicht wahrscheinlich Billigeres als echte Kavitätssuche:
    Schwerpunkt und Trägheitsachsen des Rezeptors, plus `render_view` aus mehreren Richtungen,
    und das Modell schließt daraus. Ob das trägt, ist eine offene Frage, keine Zusage.
-4. **`render_view`.** Steht heute in Phase 5, gehört für dieses Szenario aber nach vorn: eine
-   Kavität aus Koordinatenlisten zu erschließen ist deutlich schwerer, als sie anzusehen.
-5. **Bewerten.** Single Point auf dem Komplex gegen die getrennten Teile, also Phase 4 — oder
-   curcumas `interaction` direkt, was WP3.5/WP6 auf curcuma-Seite voraussetzt.
+4. ~~**`render_view`.**~~ Vorgezogen und erledigt (`b17935b`): eine Kavität aus
+   Koordinatenlisten zu erschließen ist deutlich schwerer, als sie anzusehen.
+5. ~~**Bewerten.**~~ `run_single_point` nimmt seit `25fd722` eine Auswahl, die
+   Wechselwirkungsenergie ist damit E(ganz) − E(`F1`) − E(`F2`) aus drei Aufrufen. Ein
+   Ausschnitt, der kovalente Bindungen schneidet, wird als solcher gemeldet, damit keine
+   Radikalenergie subtrahiert wird. curcumas `interaction` als eigene Fähigkeit bleibt offen
+   (WP3.5/WP6 auf curcuma-Seite).
 6. **Ziehen statt setzen.** Der Operator will, dass das Modell an Atomen *zieht*, nicht nur
    Koordinaten setzt. `SimpleMD::applyExternalForces()` sieht danach aus, ist aber transient
    („cleared after use", `simplemd.h:503`) und nur zwischen zwei `step()`-Aufrufen wirksam — eine
@@ -441,11 +447,23 @@ Kein eigenes Arbeitspaket. Der Eintrag steht hier, damit die Reihenfolge der nä
 dieser Aufgabe geprüft werden kann statt an einer Featureliste.
 
 ### Phase 5 — Nachgelagert
-- `render_view` mit Dimensionsobergrenzen und Sperre während laufender MD (`exportImage`
-  läuft synchron und hielte den MD-`QTimer` für die Dauer eines 4K-SSAA-Renders an).
-- Werkzeug für externe Programme (ORCA, xtb) über den bestehenden `CalculationRunner`.
-- Weitere native Analyse-Werkzeuge aus `curcuma::Molecule`.
-- *Nur falls der Drift-Test regelmäßig ausschlägt:* `SimulationConfig` aufteilen.
+
+| WP | Inhalt | Status |
+|---|---|---|
+| **5.1** | `render_view` mit Dimensionsobergrenze (1600 px) und Sperre während laufender MD (`exportImage` läuft synchron und hielte den MD-`QTimer` für die Dauer eines 4K-SSAA-Renders an). | **erledigt** (`b17935b`) |
+| **5.2** | `--serve`: JSON-RPC/MCP über stdio, vollständige Anwendung offscreen. | offen |
+| **5.3** | Werkzeug für externe Programme (ORCA, xtb) über den bestehenden `CalculationRunner`. | offen |
+| **5.4** | Weitere native Analyse-Werkzeuge aus `curcuma::Molecule` (Dipolmoment, H-Brücken-Karte, PBC-Varianten). | offen |
+| **5.5** | *Nur falls der Drift-Test regelmäßig ausschlägt:* `SimulationConfig` aufteilen. | offen |
+
+Dazwischen kamen fünf Werkzeuge aus der Bearbeitung (`b17935b`) und drei aus dem Leitszenario
+dazu, die im Plan keine eigene Nummer hatten:
+
+| Werkzeug | Wofür | Commit |
+|---|---|---|
+| `add_atoms`, `add_fragment`, `add_hydrogens`, `delete_atoms`, `list_fragments` | Struktur ändern; alle `Mutate`, alle über den Snapshot-Stapel rücknehmbar | `b17935b` |
+| `run_single_point` **mit Auswahl** | Wechselwirkungsenergie als drei Aufrufe (ganz, `F1`, `F2`); `severedBondCount()` meldet geschnittene Bindungen | `25fd722` |
+| `merge_structure`, `save_structure` | zweites Molekül dazuladen, Struktur oder Auswahl als xyz schreiben | `3646ac0` |
 
 ### TODO — effizientes Tooling (offen, spannt über alle Phasen)
 
