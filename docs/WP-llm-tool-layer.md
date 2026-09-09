@@ -294,7 +294,7 @@ täglich, und ein kaputtes Werkzeug fällt sofort auf statt erst, wenn ein Model
 | c | `src/llm/llmclient.{h,cpp}`: `POST /v1/chat/completions`, Tool-Calls in beide Richtungen, Abbruch, Fehler mit Klartext statt stiller Leere | erledigt |
 | d | `test_llmclient` gegen einen `QTcpServer`-Stub: Anfrageform, `Authorization`-Kopfzeile nur bei gesetztem Schlüssel, Antwort mit `content` und mit `tool_calls`, HTTP-Fehler, kaputtes JSON. **Kein Netzzugriff.** | erledigt |
 | e | Build grün, Tests grün, `-DUSE_LLM=OFF` baut wie bisher, Commit | erledigt |
-| f | *Danach eigener Schritt:* SSE-Streaming (Teilantworten, zusammengesetzte `tool_calls`) | offen |
+| f | SSE-Streaming — **erledigt**, siehe WP2.1f weiter unten | erledigt |
 
 **Warum Streaming abgetrennt ist:** die Zeile zu WP2.1 versprach es zusammen mit dem Rest. Der
 tragende Teil ist die Anfrage/Antwort mit Tool-Calls — sie entscheidet, ob die Werkzeugschicht
@@ -350,7 +350,7 @@ späterer Umbau `""` für eine Antwort halten und den Zug beenden, ohne etwas au
 **Was das nicht beweist:** dass ein *lokales* Modell Werkzeuge zuverlässig aufruft. Das hängt am
 Modell, nicht am Endpunkt. Das Beispielprofil sagt das jetzt auch.
 
-#### WP2.1f — Streaming und sichtbares Nachdenken (Stand: in Arbeit)
+#### WP2.1f — Streaming und sichtbares Nachdenken — **erledigt**
 
 Vorgezogen vor Phase 3, weil ohne Streaming bei einem nachdenkenden Modell minutenlang nichts
 passiert und niemand sieht, ob es hängt.
@@ -367,12 +367,12 @@ Dokumentation abgeleitet:
 
 | # | Schritt | Status |
 |---|---|---|
-| a | `LlmClient`: `"stream": true`, SSE zeilenweise, Sammeln von `content`/`reasoning`/`tool_calls` (nach `index`), Signale `contentChunk`/`reasoningChunk` | offen |
-| b | Am Ende dieselbe Assistenten-Nachricht wie bisher zusammensetzen, damit `LlmSession` unverändert bleibt. `reasoning` geht **nicht** in den Verlauf zurück | offen |
-| c | `LlmSession` reicht die Bruchstücke durch | offen |
-| d | `ChatDock`: Antwort läuft live ein; das Denken in einem einklappbaren Abschnitt (`CollapsibleSection`), der beim Streamen offen ist | offen |
-| e | Test gegen den Stub: SSE-Zerlegung, `[DONE]`, zusammengesetzte Tool-Calls, `reasoning` landet nicht im Verlauf | offen |
-| f | Build, Tests, Commit, Doku | offen |
+| a | `LlmClient`: `"stream": true`, SSE zeilenweise, Sammeln von `content`/`reasoning`/`tool_calls` (nach `index`), Signale `contentChunk`/`reasoningChunk` | erledigt |
+| b | Am Ende dieselbe Assistenten-Nachricht wie bisher zusammensetzen, damit `LlmSession` unverändert bleibt. `reasoning` geht **nicht** in den Verlauf zurück | erledigt |
+| c | `LlmSession` reicht die Bruchstücke durch | erledigt |
+| d | `ChatDock`: Antwort läuft live ein; das Denken in einem einklappbaren Abschnitt (`CollapsibleSection`), der beim Streamen offen ist | erledigt |
+| e | Test gegen den Stub: SSE-Zerlegung, `[DONE]`, zusammengesetzte Tool-Calls, `reasoning` landet nicht im Verlauf | erledigt |
+| f | Build, Tests, Commit, Doku | erledigt |
 
 ### Phase 3 — curcuma-Kern
 Eigenes Dokument: `external/curcuma/docs/TOOL_API_WP.md` (WP1–WP7: Registry-Ausbau,
