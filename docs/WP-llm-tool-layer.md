@@ -350,6 +350,30 @@ späterer Umbau `""` für eine Antwort halten und den Zug beenden, ohne etwas au
 **Was das nicht beweist:** dass ein *lokales* Modell Werkzeuge zuverlässig aufruft. Das hängt am
 Modell, nicht am Endpunkt. Das Beispielprofil sagt das jetzt auch.
 
+#### WP2.1f — Streaming und sichtbares Nachdenken (Stand: in Arbeit)
+
+Vorgezogen vor Phase 3, weil ohne Streaming bei einem nachdenkenden Modell minutenlang nichts
+passiert und niemand sieht, ob es hängt.
+
+**Am laufenden Endpunkt gemessen** (Ollama, `glm-5.3-flash:cloud`, 09.09.2026), nicht aus
+Dokumentation abgeleitet:
+
+| Beobachtung | Bedeutung für die Umsetzung |
+|---|---|
+| SSE-Zeilen `data: {json}`, Abschluss `data: [DONE]` | Zeilenweise zerlegen, `[DONE]` gesondert |
+| `choices[0].delta` trägt `role`, `content`, **`reasoning`** | Das Denken heißt `reasoning`, **nicht** `reasoning_content` |
+| Tool-Call kam **vollständig in einem Chunk** | Trotzdem über `index` zusammensetzen — OpenAI selbst fragmentiert `arguments` |
+| `finish_reason: "tool_calls"` bzw. `"stop"` | Ende des Zuges |
+
+| # | Schritt | Status |
+|---|---|---|
+| a | `LlmClient`: `"stream": true`, SSE zeilenweise, Sammeln von `content`/`reasoning`/`tool_calls` (nach `index`), Signale `contentChunk`/`reasoningChunk` | offen |
+| b | Am Ende dieselbe Assistenten-Nachricht wie bisher zusammensetzen, damit `LlmSession` unverändert bleibt. `reasoning` geht **nicht** in den Verlauf zurück | offen |
+| c | `LlmSession` reicht die Bruchstücke durch | offen |
+| d | `ChatDock`: Antwort läuft live ein; das Denken in einem einklappbaren Abschnitt (`CollapsibleSection`), der beim Streamen offen ist | offen |
+| e | Test gegen den Stub: SSE-Zerlegung, `[DONE]`, zusammengesetzte Tool-Calls, `reasoning` landet nicht im Verlauf | offen |
+| f | Build, Tests, Commit, Doku | offen |
+
 ### Phase 3 — curcuma-Kern
 Eigenes Dokument: `external/curcuma/docs/TOOL_API_WP.md` (WP1–WP7: Registry-Ausbau,
 Annotation, Logger-Senke, Zustand pro Lauf statt global, `Results()`, Mess-Fähigkeit,
