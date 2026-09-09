@@ -283,6 +283,23 @@ täglich, und ein kaputtes Werkzeug fällt sofort auf statt erst, wenn ein Model
 | **2.2** | `LlmSession`: Agentenschleife off-thread, Dispatch über die Registry, Freigabepolitik, Audit-Spur. | `test_llmsession` mit skriptbarem Fake-Client: Iterationsobergrenze greift; kein `Mutate`/`Compute` ohne Freigabe. | offen |
 | **2.3** | **Vorführbar #2:** `ChatDock` als achter Dock (`dockmanager.cpp:273`, `dockconfig.h`), Streaming, Werkzeugzeilen mit Freigeben/Ablehnen. | „Was ist das für ein Molekül, miss den H-N-H-Winkel, färbe nach Fragment, zeig mir das Log" läuft durch. | offen |
 
+#### WP2.1 im Einzelnen (Stand: in Arbeit)
+
+| # | Schritt | Status |
+|---|---|---|
+| a | `option(USE_LLM ... ON)`; neue Bibliothek `qurcuma_llm` (Core + Gui + **Network**), damit `qurcuma_core` seine geprüfte Eigenschaft „nur Core/Gui" behält | offen |
+| b | `src/llm/llmconfig.{h,cpp}`: Profile aus `~/.config/qurcuma/llm.json` (einfache JSON-Datei, **nie QSettings**); das Profil nennt nur den **Namen der Umgebungsvariablen**, nie den Schlüssel selbst | offen |
+| c | `src/llm/llmclient.{h,cpp}`: `POST /v1/chat/completions`, Tool-Calls in beide Richtungen, Abbruch, Fehler mit Klartext statt stiller Leere | offen |
+| d | `test_llmclient` gegen einen `QTcpServer`-Stub: Anfrageform, `Authorization`-Kopfzeile nur bei gesetztem Schlüssel, Antwort mit `content` und mit `tool_calls`, HTTP-Fehler, kaputtes JSON. **Kein Netzzugriff.** | offen |
+| e | Build grün, Tests grün, `-DUSE_LLM=OFF` baut wie bisher, Commit | offen |
+| f | *Danach eigener Schritt:* SSE-Streaming (Teilantworten, zusammengesetzte `tool_calls`) | offen |
+
+**Warum Streaming abgetrennt ist:** die Zeile zu WP2.1 versprach es zusammen mit dem Rest. Der
+tragende Teil ist die Anfrage/Antwort mit Tool-Calls — sie entscheidet, ob die Werkzeugschicht
+überhaupt erreichbar ist. Streaming setzt darauf auf, verlangt aber das schrittweise
+Zusammensetzen von `tool_calls` aus Bruchstücken und ist reine Bedienqualität. Getrennt gebaut
+ist beides prüfbar; zusammen wäre der erste Commit ein Klumpen.
+
 ### Phase 3 — curcuma-Kern
 Eigenes Dokument: `external/curcuma/docs/TOOL_API_WP.md` (WP1–WP7: Registry-Ausbau,
 Annotation, Logger-Senke, Zustand pro Lauf statt global, `Results()`, Mess-Fähigkeit,
