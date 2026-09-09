@@ -116,7 +116,10 @@ bool LlmConfig::writeExampleIfMissing(const QString& path, QString* error)
     "Endpoint profiles for qurcuma's LLM support.",
     "No API key belongs in this file. 'api_key_env' names the environment variable",
     "the key is read from, so this file can be shared or committed safely.",
-    "Any OpenAI-compatible endpoint works; base_url is the part before /chat/completions."
+    "Any OpenAI-compatible endpoint works; base_url is the part before /chat/completions.",
+    "The model must actually exist at that endpoint -- for Ollama, check 'ollama list'.",
+    "Tool calling depends on the model, not on the endpoint: a model that cannot call tools",
+    "will answer in prose and never touch the structure."
   ],
   "active_profile": "local",
   "profiles": [

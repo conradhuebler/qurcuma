@@ -328,6 +328,28 @@ Attrappe würde genau diese Naht überspringen.
 | e | `-DUSE_LLM=OFF` baut **vollständig** — hier wird die Option zum ersten Mal tragend, vorher war sie folgenlos | erledigt |
 | f | Build grün, Tests grün, Commit, Doku | erledigt |
 
+#### Gegen ein echtes Ollama geprüft (09.09.2026)
+
+Der Stub-Server beweist nur, dass der Client tut, was ich erwarte. Deshalb einmal gegen den
+laufenden Dienst auf `127.0.0.1:11434` gemessen, mit `glm-5.3-flash:cloud` und exakt dem Body,
+den `LlmClient` schickt:
+
+| Was | Ergebnis |
+|---|---|
+| Schlichte Anfrage an `/v1/chat/completions` ohne `Authorization` | funktioniert |
+| `tools` + `tool_choice: "auto"` | angenommen, kein Fehler |
+| Antwort | ein `tool_calls`-Eintrag mit `id`, `function.name`, `function.arguments` |
+| Rückgabe als `{role:"tool", tool_call_id, name, content}` | angenommen, Modell antwortet inhaltlich korrekt |
+| Modell existiert nicht | `{"error":{"message":"model '…' not found"}}` → der Client zeigt daraus Klartext |
+
+**Zwei Formen, die vom Erwarteten abweichen** und jetzt als Test festgenagelt sind: neben
+`tool_calls` ist `content` ein **leerer String**, nicht `null`; und `arguments` ist ein
+JSON-**String**, kein Objekt. Beides behandelt der Code richtig, aber ohne Test könnte ein
+späterer Umbau `""` für eine Antwort halten und den Zug beenden, ohne etwas auszuführen.
+
+**Was das nicht beweist:** dass ein *lokales* Modell Werkzeuge zuverlässig aufruft. Das hängt am
+Modell, nicht am Endpunkt. Das Beispielprofil sagt das jetzt auch.
+
 ### Phase 3 — curcuma-Kern
 Eigenes Dokument: `external/curcuma/docs/TOOL_API_WP.md` (WP1–WP7: Registry-Ausbau,
 Annotation, Logger-Senke, Zustand pro Lauf statt global, `Results()`, Mess-Fähigkeit,

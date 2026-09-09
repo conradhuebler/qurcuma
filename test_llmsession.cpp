@@ -261,6 +261,26 @@ int main(int argc, char** argv)
         check(told, "and the model is told what was wrong with them");
     }
 
+    // --- the shapes a real endpoint actually sends ---------------------------
+    // Observed against Ollama (glm-5.3-flash:cloud, 09.09.2026): alongside
+    // tool_calls the content field is an empty STRING, not null, and arguments is
+    // a JSON string. Both are pinned here so a future refactor cannot quietly
+    // start treating "" as an answer and end the turn without running anything.
+    {
+        session.reset();
+        server.requests.clear();
+        server.enqueue(R"({"choices":[{"message":{"role":"assistant","content":"",
+          "tool_calls":[{"id":"call_t65agluy","type":"function",
+                         "function":{"name":"get_answer","arguments":"{}"}}]}}],
+          "finish_reason":"tool_calls"})");
+        server.enqueue(textResponse("42 atoms"));
+        const int before = readCalls;
+        runTurn(session, QStringLiteral("how many"), answer, error);
+        check(readCalls == before + 1,
+            "an empty-string content next to tool_calls still runs the tool");
+        check(answer == QLatin1String("42 atoms"), "and the turn reaches a real answer");
+    }
+
     // --- a loop that will not converge --------------------------------------
     {
         session.reset();
