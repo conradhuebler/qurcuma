@@ -41,6 +41,8 @@ LlmSession::LlmSession(LlmClient* client, ToolRegistry* registry, ToolDispatcher
     if (m_client) {
         connect(m_client, &LlmClient::finished, this, &LlmSession::onClientFinished);
         connect(m_client, &LlmClient::failed, this, &LlmSession::onClientFailed);
+        connect(m_client, &LlmClient::contentChunk, this, &LlmSession::assistantChunk);
+        connect(m_client, &LlmClient::reasoningChunk, this, &LlmSession::reasoningChunk);
     }
 }
 

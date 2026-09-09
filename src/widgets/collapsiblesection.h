@@ -17,6 +17,9 @@ public:
 
     /// Place a layout (with its widgets) into the collapsible content area.
     void setContentLayout(QLayout* layout);
+    /// Change the header text after construction. Claude Generated 2026 - the
+    /// assistant's reasoning section counts characters into its own title.
+    void setTitle(const QString& title);
     /// Expand/collapse programmatically.
     void setExpanded(bool expanded);
     /// Current expand state (for persistence). Claude Generated 2026.

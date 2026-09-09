@@ -153,9 +153,18 @@ void LlmClient::send(const QJsonArray& messages, const QJsonArray& tools)
         return;
     }
 
+    m_streaming = m_profile.stream;
+    m_streamBuffer.clear();
+    m_streamedContent.clear();
+    m_streamedReasoning.clear();
+    m_streamedToolCalls.clear();
+    m_streamFinished = false;
+
     QJsonObject body;
     body.insert(QStringLiteral("model"), model);
     body.insert(QStringLiteral("messages"), messages);
+    if (m_streaming)
+        body.insert(QStringLiteral("stream"), true);
     if (!tools.isEmpty()) {
         body.insert(QStringLiteral("tools"), tools);
         body.insert(QStringLiteral("tool_choice"), QStringLiteral("auto"));
@@ -172,6 +181,8 @@ void LlmClient::send(const QJsonArray& messages, const QJsonArray& tools)
     request.setTransferTimeout(m_profile.requestTimeoutMs);
 
     m_reply = m_network->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
+    if (m_streaming)
+        connect(m_reply, &QNetworkReply::readyRead, this, &LlmClient::handleStreamData);
     connect(m_reply, &QNetworkReply::finished, this, &LlmClient::handleReply);
 }
 
@@ -196,6 +207,29 @@ void LlmClient::handleReply()
 
     const QByteArray payload = reply->readAll();
     const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+
+    if (m_streaming) {
+        // Whatever arrived with the final read, plus any line without a trailing
+        // newline. An HTTP error body is not SSE and falls through to the normal
+        // error handling below.
+        if (status < 400 && reply->error() == QNetworkReply::NoError) {
+            m_streamBuffer += payload;
+            while (true) {
+                const int newline = m_streamBuffer.indexOf('\n');
+                if (newline < 0)
+                    break;
+                const QByteArray line = m_streamBuffer.left(newline);
+                m_streamBuffer.remove(0, newline + 1);
+                consumeStreamLine(line);
+            }
+            if (!m_streamBuffer.trimmed().isEmpty())
+                consumeStreamLine(m_streamBuffer);
+            m_streamBuffer.clear();
+            finishStream();
+            return;
+        }
+        m_streaming = false;  // fall through and report the error properly
+    }
 
     if (reply->error() != QNetworkReply::NoError && payload.isEmpty()) {
         emit failed(tr("request failed: %1").arg(reply->errorString()));
@@ -242,4 +276,111 @@ void LlmClient::handleReply()
         return;
     }
     emit finished(message);
+}
+
+// ---------------------------------------------------------------------------
+// Streaming  -  Claude Generated 2026
+//
+// Shapes measured against Ollama (glm-5.3-flash:cloud, 09.09.2026): lines of
+// "data: {json}" ending with "data: [DONE]"; choices[0].delta carries role,
+// content and -- for a reasoning model -- "reasoning". Ollama delivered a tool
+// call complete in one chunk, but OpenAI splits function.arguments across chunks
+// with only the index tying them together, so the accumulation handles both.
+// ---------------------------------------------------------------------------
+
+void LlmClient::handleStreamData()
+{
+    if (!m_reply)
+        return;
+    m_streamBuffer += m_reply->readAll();
+    while (true) {
+        const int newline = m_streamBuffer.indexOf('\n');
+        if (newline < 0)
+            break;
+        const QByteArray line = m_streamBuffer.left(newline);
+        m_streamBuffer.remove(0, newline + 1);
+        consumeStreamLine(line);
+    }
+}
+
+void LlmClient::consumeStreamLine(const QByteArray& rawLine)
+{
+    const QByteArray line = rawLine.trimmed();
+    if (line.isEmpty() || !line.startsWith("data:"))
+        return;   // comments and keep-alives
+
+    const QByteArray payload = line.mid(5).trimmed();
+    if (payload == "[DONE]") {
+        m_streamFinished = true;
+        return;
+    }
+
+    const QJsonObject root = QJsonDocument::fromJson(payload).object();
+    const QJsonArray choices = root.value(QStringLiteral("choices")).toArray();
+    if (choices.isEmpty())
+        return;
+    const QJsonObject delta = choices.first().toObject().value(QStringLiteral("delta")).toObject();
+
+    const QString content = delta.value(QStringLiteral("content")).toString();
+    if (!content.isEmpty()) {
+        m_streamedContent += content;
+        emit contentChunk(content);
+    }
+    const QString reasoning = delta.value(QStringLiteral("reasoning")).toString();
+    if (!reasoning.isEmpty()) {
+        m_streamedReasoning += reasoning;
+        emit reasoningChunk(reasoning);
+    }
+
+    for (const QJsonValue& value : delta.value(QStringLiteral("tool_calls")).toArray()) {
+        const QJsonObject piece = value.toObject();
+        const int index = piece.value(QStringLiteral("index")).toInt(0);
+        QJsonObject call = m_streamedToolCalls.value(index);
+
+        if (piece.contains(QStringLiteral("id")))
+            call.insert(QStringLiteral("id"), piece.value(QStringLiteral("id")));
+        call.insert(QStringLiteral("type"), QStringLiteral("function"));
+
+        const QJsonObject function = piece.value(QStringLiteral("function")).toObject();
+        QJsonObject merged = call.value(QStringLiteral("function")).toObject();
+        if (function.contains(QStringLiteral("name")))
+            merged.insert(QStringLiteral("name"), function.value(QStringLiteral("name")));
+        if (function.contains(QStringLiteral("arguments"))) {
+            // Appended, not replaced: this is the piece OpenAI splits.
+            merged.insert(QStringLiteral("arguments"),
+                merged.value(QStringLiteral("arguments")).toString()
+                    + function.value(QStringLiteral("arguments")).toString());
+        }
+        call.insert(QStringLiteral("function"), merged);
+        m_streamedToolCalls.insert(index, call);
+    }
+}
+
+QJsonObject LlmClient::assembleStreamedMessage() const
+{
+    QJsonObject message;
+    message.insert(QStringLiteral("role"), QStringLiteral("assistant"));
+    message.insert(QStringLiteral("content"), m_streamedContent);
+
+    if (!m_streamedToolCalls.isEmpty()) {
+        QJsonArray calls;
+        for (auto it = m_streamedToolCalls.constBegin(); it != m_streamedToolCalls.constEnd(); ++it)
+            calls.append(it.value());   // QMap iterates by key, so index order is kept
+        message.insert(QStringLiteral("tool_calls"), calls);
+    }
+
+    // The reasoning is deliberately NOT part of the message. It is worth showing
+    // while it happens and worth leaving out of the next request: the history is
+    // resent every round, and nothing downstream needs the model's scratch work.
+    return message;
+}
+
+void LlmClient::finishStream()
+{
+    m_streaming = false;
+    if (m_streamedContent.isEmpty() && m_streamedToolCalls.isEmpty() && !m_streamFinished) {
+        emit failed(tr("the stream ended without an answer"));
+        return;
+    }
+    emit finished(assembleStreamedMessage());
 }

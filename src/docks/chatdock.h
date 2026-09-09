@@ -13,6 +13,7 @@
 #include <QDockWidget>
 #include <QString>
 
+class CollapsibleSection;
 class LlmSession;
 class QComboBox;
 class QLabel;
@@ -55,6 +56,8 @@ signals:
 
 private:
     void setupUI();
+    void appendStreamedText(const QString& text);
+    void beginTurn();
     void submit();
     void appendBlock(const QString& who, const QString& text, const QString& colour);
     void setBusy(bool busy);
@@ -68,4 +71,9 @@ private:
     QComboBox* m_modelBox = nullptr;
     QLabel* m_modelInfo = nullptr;
     QLabel* m_status = nullptr;
+    CollapsibleSection* m_reasoningSection = nullptr;
+    QTextEdit* m_reasoning = nullptr;
+    /// True once the current turn has streamed any answer text, so the complete
+    /// message that follows is not appended a second time.
+    bool m_streamedThisTurn = false;
 };

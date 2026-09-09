@@ -16,6 +16,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMap>
 #include <QObject>
 #include <QStringList>
 #include <QString>
@@ -70,8 +71,21 @@ signals:
     /// Answer to describeModel().
     void modelDescribed(const LlmModelInfo& info);
 
+    /// A piece of the answer, while streaming. The complete message still arrives
+    /// through finished(), so a consumer may ignore these entirely.
+    void contentChunk(const QString& text);
+    /// A piece of the model's reasoning, while streaming. Deliberately kept apart
+    /// from the answer: it is worth showing, and worth NOT sending back in the
+    /// next request.
+    void reasoningChunk(const QString& text);
+
 private:
     void handleReply();
+    void handleStreamData();
+    void consumeStreamLine(const QByteArray& line);
+    /// Build the assistant message from what the stream delivered.
+    QJsonObject assembleStreamedMessage() const;
+    void finishStream();
     void handleModelList();
     void handleModelDetails(const QString& id);
     /// Base URL with the trailing "/v1" removed, for Ollama's native endpoints.
@@ -84,4 +98,15 @@ private:
     LlmProfile m_profile;
     QString m_model;   ///< session override; empty = use the profile's
     QString m_apiKey;
+
+    // Streaming state, reset per request.
+    bool m_streaming = false;
+    QByteArray m_streamBuffer;      ///< bytes not yet forming a whole line
+    QString m_streamedContent;
+    QString m_streamedReasoning;
+    /// Tool calls accumulated by their delta index. OpenAI splits `arguments`
+    /// across chunks and only the index ties the pieces together; Ollama sends the
+    /// whole call at once. Both end up here.
+    QMap<int, QJsonObject> m_streamedToolCalls;
+    bool m_streamFinished = false;
 };

@@ -49,3 +49,10 @@ bool CollapsibleSection::isExpanded() const
 {
     return m_header->isChecked();
 }
+
+// Claude Generated 2026
+void CollapsibleSection::setTitle(const QString& title)
+{
+    if (m_header)
+        m_header->setText(title);
+}

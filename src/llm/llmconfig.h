@@ -37,6 +37,7 @@ struct LlmProfile {
     QString model;
     QString apiKeyEnv;       ///< NAME of the env var holding the key; never the key
     bool supportsVision = false;  ///< may be sent images (render_view)
+    bool stream = true;           ///< SSE; off for an endpoint that cannot do it
     int maxToolIterations = 12;   ///< stop an agent loop that will not converge
     int requestTimeoutMs = 120000;
 

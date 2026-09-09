@@ -60,6 +60,10 @@ public:
 
 signals:
     void assistantMessage(const QString& text);
+    /// Pieces of the answer and of the model's reasoning as they arrive. Only
+    /// emitted while streaming; assistantMessage() always follows.
+    void assistantChunk(const QString& text);
+    void reasoningChunk(const QString& text);
     void toolStarted(const QString& name, const QJsonObject& args);
     void toolFinished(const QString& name, const ToolResult& result);
     void toolRefused(const QString& name, const QString& reason);

@@ -106,6 +106,7 @@ int main(int argc, char** argv)
     profile.name = QStringLiteral("stub");
     profile.baseUrl = server.baseUrl();
     profile.model = QStringLiteral("test-model");
+    profile.stream = false;  // canned bodies here are plain JSON, not SSE
 
     LlmClient client;
     client.setProfile(profile);

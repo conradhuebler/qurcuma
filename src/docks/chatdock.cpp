@@ -5,6 +5,7 @@
 #include "chatdock.h"
 
 #include "core/tool.h"
+#include "widgets/collapsiblesection.h"
 #include "llm/llmsession.h"
 
 #include <QComboBox>
@@ -15,6 +16,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QTextCursor>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
@@ -67,6 +69,19 @@ void ChatDock::setupUI()
            "it is shown; anything that calculates or writes asks first."));
     layout->addWidget(m_conversation, 1);
 
+    // The model's reasoning: streamed live so a long think does not look like a
+    // hang, and foldable because it is usually not what you came to read.
+    m_reasoningSection = new CollapsibleSection(tr("Reasoning"), content);
+    m_reasoning = new QTextEdit(content);
+    m_reasoning->setReadOnly(true);
+    m_reasoning->setMaximumHeight(160);
+    auto* reasoningLayout = new QVBoxLayout;
+    reasoningLayout->setContentsMargins(0, 0, 0, 0);
+    reasoningLayout->addWidget(m_reasoning);
+    m_reasoningSection->setContentLayout(reasoningLayout);
+    m_reasoningSection->hide();
+    layout->addWidget(m_reasoningSection);
+
     m_status = new QLabel(content);
     m_status->setWordWrap(true);
     m_status->hide();
@@ -101,8 +116,29 @@ void ChatDock::attachSession(LlmSession* session)
         return;
 
     connect(session, &LlmSession::assistantMessage, this, [this](const QString& text) {
+        // Already on screen when it was streamed; appending would double it.
+        if (m_streamedThisTurn) {
+            m_streamedThisTurn = false;
+            return;
+        }
         if (!text.isEmpty())
             appendBlock(tr("Assistant"), text, QStringLiteral("#2e7d32"));
+    });
+    connect(session, &LlmSession::assistantChunk, this, &ChatDock::appendStreamedText);
+    connect(session, &LlmSession::reasoningChunk, this, [this](const QString& text) {
+        if (!m_reasoning || !m_reasoningSection)
+            return;
+        if (!m_reasoningSection->isVisible()) {
+            m_reasoningSection->show();
+            m_reasoningSection->setExpanded(true);   // open while it is happening
+        }
+        m_reasoning->moveCursor(QTextCursor::End);
+        m_reasoning->insertPlainText(text);
+        if (auto* bar = m_reasoning->verticalScrollBar())
+            bar->setValue(bar->maximum());
+        m_reasoningSection->setTitle(
+            tr("Reasoning (%1 characters)")
+                .arg(QLocale().toString(m_reasoning->toPlainText().size())));
     });
     connect(session, &LlmSession::toolStarted, this,
         [this](const QString& name, const QJsonObject& args) {
@@ -127,7 +163,12 @@ void ChatDock::attachSession(LlmSession* session)
     connect(session, &LlmSession::failed, this, [this](const QString& error) {
         appendBlock(tr("Error"), error, QStringLiteral("#c62828"));
     });
-    connect(session, &LlmSession::busyChanged, this, &ChatDock::setBusy);
+    connect(session, &LlmSession::busyChanged, this, [this](bool busy) {
+        setBusy(busy);
+        // Fold it away once the answer is there; it stays available to reopen.
+        if (!busy && m_reasoningSection && m_reasoningSection->isVisible())
+            m_reasoningSection->setExpanded(false);
+    });
 }
 
 void ChatDock::submit()
@@ -136,6 +177,7 @@ void ChatDock::submit()
         return;
     const QString question = m_input->text().trimmed();
     m_input->clear();
+    beginTurn();
     appendBlock(tr("You"), question, QStringLiteral("#1565c0"));
     m_session->ask(question);
 }
@@ -232,4 +274,31 @@ void ChatDock::setModelInfo(const LlmModelInfo& info)
         m_modelInfo->setText(parts.join(QStringLiteral(" · ")));
     }
     m_modelInfo->show();
+}
+
+// Claude Generated 2026 - Streamed answer text goes in as plain text at the end of
+// the view; appendBlock() would start a new paragraph for every fragment.
+void ChatDock::appendStreamedText(const QString& text)
+{
+    if (!m_conversation || text.isEmpty())
+        return;
+    if (!m_streamedThisTurn) {
+        m_streamedThisTurn = true;
+        appendBlock(tr("Assistant"), QString(), QStringLiteral("#2e7d32"));
+    }
+    m_conversation->moveCursor(QTextCursor::End);
+    m_conversation->insertPlainText(text);
+    if (auto* bar = m_conversation->verticalScrollBar())
+        bar->setValue(bar->maximum());
+}
+
+void ChatDock::beginTurn()
+{
+    m_streamedThisTurn = false;
+    if (m_reasoning)
+        m_reasoning->clear();
+    if (m_reasoningSection) {
+        m_reasoningSection->setTitle(tr("Reasoning"));
+        m_reasoningSection->hide();
+    }
 }

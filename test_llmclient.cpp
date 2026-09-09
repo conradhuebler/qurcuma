@@ -106,6 +106,9 @@ int main(int argc, char** argv)
     profile.name = QStringLiteral("stub");
     profile.baseUrl = server.baseUrl();
     profile.model = QStringLiteral("test-model");
+    // The block below exercises the non-streaming path deliberately; streaming has
+    // its own section further down with its own canned bodies.
+    profile.stream = false;
 
     const QJsonArray messages { QJsonObject { { "role", "user" }, { "content", "hello" } } };
     const QJsonArray tools { QJsonObject {
@@ -300,6 +303,90 @@ int main(int argc, char** argv)
         check(!roundTrip(client, messages, {}, message, error)
                 && error.contains(QStringLiteral("no model")),
             "but sending without any model fails with a reason, not an empty request");
+    }
+
+    // --- streaming -----------------------------------------------------------
+    // Shapes measured against Ollama (glm-5.3-flash:cloud, 09.09.2026): lines of
+    // "data: {json}" closed by "data: [DONE]", with reasoning in delta.reasoning.
+    LlmProfile streamed = profile;
+    streamed.stream = true;
+
+    {
+        LlmClient client;
+        client.setProfile(streamed);
+        server.reply(200,
+            "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"Hel\"}}]}\n"
+            "data: {\"choices\":[{\"delta\":{\"content\":\"lo \"}}]}\n"
+            "\n"
+            ": a comment line that must be ignored\n"
+            "data: {\"choices\":[{\"delta\":{\"content\":\"world\"}}]}\n"
+            "data: [DONE]\n",
+            "text/event-stream");
+
+        QStringList chunks;
+        QObject::connect(&client, &LlmClient::contentChunk, &client,
+            [&chunks](const QString& c) { chunks << c; });
+        QJsonObject message;
+        QString error;
+        const bool ok = roundTrip(client, messages, {}, message, error);
+        check(ok, QStringLiteral("a streamed answer completes") + (ok ? QString() : QStringLiteral(" [%1]").arg(error)));
+        check(chunks.size() == 3, "each piece arrives as its own chunk while it streams");
+        check(message.value(QStringLiteral("content")).toString() == QLatin1String("Hello world"),
+            "and the finished message carries the whole thing");
+    }
+
+    // Reasoning is shown but must not travel back into the next request.
+    {
+        LlmClient client;
+        client.setProfile(streamed);
+        server.reply(200,
+            "data: {\"choices\":[{\"delta\":{\"reasoning\":\"17\"}}]}\n"
+            "data: {\"choices\":[{\"delta\":{\"reasoning\":\"*3\"}}]}\n"
+            "data: {\"choices\":[{\"delta\":{\"content\":\"51\"}}]}\n"
+            "data: [DONE]\n",
+            "text/event-stream");
+
+        QString thinking;
+        QObject::connect(&client, &LlmClient::reasoningChunk, &client,
+            [&thinking](const QString& c) { thinking += c; });
+        QJsonObject message;
+        QString error;
+        roundTrip(client, messages, {}, message, error);
+        check(thinking == QLatin1String("17*3"), "reasoning arrives in its own signal");
+        check(message.value(QStringLiteral("content")).toString() == QLatin1String("51"),
+            "the answer is kept apart from it");
+        check(!message.contains(QStringLiteral("reasoning")),
+            "and the reasoning is NOT in the message -- the history is resent every "
+            "round and nothing downstream needs the scratch work");
+    }
+
+    // OpenAI splits function.arguments across chunks; only the index ties them.
+    {
+        LlmClient client;
+        client.setProfile(streamed);
+        server.reply(200,
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_9\",\"type\":\"function\","
+            "\"function\":{\"name\":\"measure\",\"arguments\":\"{\\\"kind\\\":\"}}]}}]}\n"
+            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
+            "\"function\":{\"arguments\":\"\\\"distance\\\"}\"}}]}}]}\n"
+            "data: [DONE]\n",
+            "text/event-stream");
+
+        QJsonObject message;
+        QString error;
+        const bool ok = roundTrip(client, messages, tools, message, error);
+        check(ok, "a fragmented tool call completes");
+        const QJsonArray calls = message.value(QStringLiteral("tool_calls")).toArray();
+        check(calls.size() == 1, "and assembles into one call");
+        const QJsonObject fn = calls.first().toObject().value(QStringLiteral("function")).toObject();
+        check(fn.value(QStringLiteral("name")).toString() == QLatin1String("measure"),
+            "keeping the name that came in the first piece");
+        check(fn.value(QStringLiteral("arguments")).toString()
+                  == QLatin1String("{\"kind\":\"distance\"}"),
+            "with the arguments joined across chunks, not overwritten");
+        check(calls.first().toObject().value(QStringLiteral("id")).toString()
+                  == QLatin1String("call_9"),
+            "and the id from whichever piece carried it");
     }
 
     std::printf("%s (%d failed)\n", g_failed ? "FAIL" : "PASS", g_failed);
