@@ -259,6 +259,22 @@ im Kleinen, und sie greift, bevor der Katalog groß wird. Und `tools_view` binde
 `mainwindow.h` ein: was es von `MainWindow` braucht (das Arbeitsverzeichnis) kommt als
 `std::function`, sodass die Kopplung auf den Viewer beschränkt bleibt.
 
+#### WP1.4 im Einzelnen (Stand: in Arbeit)
+
+| # | Schritt | Status |
+|---|---|---|
+| a | `src/llm/tools_palette.{h,cpp}`: Registry-Werkzeuge zu `CommandPalette::Command` — **nur die, die ohne Argumente laufen**, geprüft über `validateAgainst(schema, {})`, was auch Werkzeuge mit rein optionalen Parametern einschließt | offen |
+| b | Ausführung über den **Dispatcher**, nicht über die Registry: so gelten Threadwechsel und Audit-Spur auch für den Palettenweg | offen |
+| c | Ergebnis sichtbar machen: `text` bzw. eingerücktes JSON in den Output-Dock, gekappt; Fehler auf `Warning` | offen |
+| d | Einhängen in `showCommandPalette()` als **Vereinigung** — Menü-Actions und die zehn kuratierten Einträge bleiben unverändert | offen |
+| e | Build grün, Tests grün, Commit, Doku/Changelog | offen |
+
+**Warum Vereinigung und nicht Ersatz:** die Palette bekommt heute rund 120 Menüeinträge samt
+ihrem `enabled`-Zustand geschenkt (`collectMenuCommands`, `mainwindow.cpp:649`). Sie durch die
+Registry zu *ersetzen* hieße, all das von Hand nachzubauen und dabei auf die parameterlosen
+Werkzeuge zu schrumpfen. Der Gewinn liegt woanders: ab hier benutzt ein Mensch die Registry
+täglich, und ein kaputtes Werkzeug fällt sofort auf statt erst, wenn ein Modell darüber stolpert.
+
 ### Phase 2 — Das LLM (erstes sichtbares Feature, ohne curcuma-Änderung)
 
 | WP | Inhalt | Fertig, wenn | Status |
