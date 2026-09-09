@@ -176,6 +176,7 @@ set(SOURCES
     src/llm/curcumajob.cpp  # Claude Generated 2026 - in-process curcuma calculation
     src/llm/tools_compute.cpp  # Claude Generated 2026
     src/llm/tools_edit.cpp  # Claude Generated 2026 - structure editing
+    src/llm/tools_files.cpp  # Claude Generated 2026 - merge from / save to disk
     src/llm/curcuma_schemas.cpp  # Claude Generated 2026
     src/llm/tools_palette.cpp  # Claude Generated 2026 - tools in the command palette
     $<$<BOOL:${USE_LLM}>:${CMAKE_CURRENT_SOURCE_DIR}/src/docks/chatdock.cpp>  # Claude Generated 2026 (see the SKIP_AUTOMOC note below)
@@ -250,6 +251,7 @@ set(HEADERS
     src/llm/curcumajob.h  # Claude Generated 2026 - in-process curcuma calculation
     src/llm/tools_compute.h  # Claude Generated 2026
     src/llm/tools_edit.h  # Claude Generated 2026 - structure editing
+    src/llm/tools_files.h  # Claude Generated 2026 - merge from / save to disk
     src/llm/curcuma_schemas.h  # Claude Generated 2026
     src/llm/tools_palette.h  # Claude Generated 2026 - tools in the command palette
     src/calculationhistory.h  # Claude Generated 2026 - calculations.json persistence

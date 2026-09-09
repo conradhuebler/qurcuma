@@ -80,6 +80,7 @@
 #include "llm/curcumajob.h"
 #include "llm/tools_compute.h"
 #include "llm/tools_edit.h"
+#include "llm/tools_files.h"
 #ifdef USE_LLM
 #include "docks/chatdock.h"
 #include "llm/llmclient.h"
@@ -4376,6 +4377,11 @@ void MainWindow::createDockWidgets()
         EditToolContext editContext;
         editContext.viewer = m_moleculeView;
         registerEditTools(ToolRegistry::instance(), editContext);
+
+        FileToolContext fileContext;
+        fileContext.viewer = m_moleculeView;
+        fileContext.workingDirectory = [this] { return m_workingDirectory; };
+        registerFileTools(ToolRegistry::instance(), fileContext);
         m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), &LogHub::instance(), this);
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
             tr("%1 tools registered").arg(ToolRegistry::instance().size()));

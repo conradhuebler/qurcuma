@@ -4,6 +4,8 @@
 
 #include "toolregistry.h"
 
+#include <QDebug>
+
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QMutexLocker>
@@ -225,7 +227,13 @@ ToolRegistry& ToolRegistry::instance()
 
 bool ToolRegistry::add(const ToolSpec& spec, QString* error)
 {
+    // Claude Generated 2026 - Warn as well as report. Registration sites count how
+    // many tools were added and mostly pass no error pointer, so a schema the
+    // validator refuses used to make a tool disappear without a word -- which is
+    // exactly what an unenforceable key like "items" did. The warning reaches the
+    // LogHub, so a missing tool is visible in the Output dock.
     const auto fail = [error](const QString& message) {
+        qWarning().noquote() << "tool not registered:" << message;
         if (error)
             *error = message;
         return false;

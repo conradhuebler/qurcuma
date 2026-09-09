@@ -44,11 +44,10 @@ QJsonObject withSelection(QJsonObject schema)
         "atom range. Omitted means the whole structure."));
     properties.insert(kSelection, selection);
 
-    QJsonObject items;
-    items.insert(QStringLiteral("type"), QStringLiteral("integer"));
+    // No "items": the validator honours only the keys it can enforce, so the
+    // element type is stated where a model will actually read it.
     QJsonObject explicitIndices;
     explicitIndices.insert(QStringLiteral("type"), QStringLiteral("array"));
-    explicitIndices.insert(QStringLiteral("items"), items);
     explicitIndices.insert(QStringLiteral("description"), QStringLiteral(
         "Zero-based atom indices, as an alternative to atoms. Not both."));
     properties.insert(kSelectionIndices, explicitIndices);
