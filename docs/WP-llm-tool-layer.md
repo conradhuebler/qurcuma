@@ -163,6 +163,18 @@ weitere registriert, deren Binaries hier nicht gebaut werden.
 Build-Leiste kann also nicht ausgrauen und lehnt nur ab; `pasteClipboard` und `deleteSelection`
 lehnen stumm ab (das taten sie für Trajektorien schon vorher).
 
+#### WP0.3 im Einzelnen (Stand: in Arbeit)
+
+| # | Schritt | Status |
+|---|---|---|
+| a | `LogHub`-Header: `LogRecord {seq, ts, source, level, text, jobId}`, Ringpuffer mit fester Kapazität, `Query {source, minLevel, sinceSeq, grep, limit}`, harte Obergrenze | offen |
+| b | Implementierung, **thread-sicher** (`qDebug` kommt auch aus dem `SimulationWorker`-Thread), Sequenznummer bleibt über den Umlauf hinweg monoton, verworfene Datensätze werden gezählt | offen |
+| c | `test_loghub` (ctest, Label `qurcuma`): Umlauf, Filter nach Quelle/Level/`sinceSeq`/Muster, Obergrenze greift, nebenläufiges Anhängen | offen |
+| d | `qInstallMessageHandler`-Brücke in `main.cpp`, **mit Weitergabe an den vorherigen Handler**, damit die Terminalausgabe erhalten bleibt | offen |
+| e | `OutputDock` wird Abonnent; die vorhandene `appendOutput`-API bleibt für den `CalculationRunner`-Pfad | offen |
+| f | `CMakeLists.txt`: Quellen + Testziel | offen |
+| g | Build grün, Tests grün, Commit, Doku/Changelog | offen |
+
 ### Phase 1 — Die Registry, mit einem menschlichen Nutzer
 
 | WP | Inhalt | Fertig, wenn | Status |
