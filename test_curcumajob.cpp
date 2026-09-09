@@ -134,7 +134,12 @@ int main(int argc, char** argv)
             "the whole document comes from the driver, permutation included");
     }
 
-    // --- one at a time ------------------------------------------------------
+    // --- one runs, the next waits its turn ----------------------------------
+    //
+    // Only one calculation may compute at a time (curcuma_core is OpenMP-parallel),
+    // but refusing the second request was the actual failure in use: a model asks
+    // for the complex and both fragments in a single turn, and two of the three
+    // answers were thrown away.
     {
         CurcumaJobRequest request;
         request.command = QStringLiteral("sp");
@@ -142,18 +147,34 @@ int main(int argc, char** argv)
         request.controller.insert(QStringLiteral("method"), QStringLiteral("uff"));
 
         QString firstError;
-        const QString first = job.start(request, &firstError);
         QString secondError;
-        const QString second = job.start(request, &secondError);
-        check(!first.isEmpty(), "the first job starts");
-        check(second.isEmpty() && secondError.contains(QStringLiteral("already running")),
-            "and a second is refused -- curcuma_core is OpenMP-parallel, two jobs "
-            "would only take cores from each other");
+        int firstPosition = -1;
+        int secondPosition = -1;
+        const QString first = job.start(request, &firstError, &firstPosition);
+        const QString second = job.start(request, &secondError, &secondPosition);
 
+        check(!first.isEmpty() && firstPosition == 0, "the first job starts at once");
+        check(!second.isEmpty() && secondPosition == 1,
+            "and the second is queued behind it rather than refused");
+        check(first != second,
+            "each request carries its own id from the moment it is accepted, so it can "
+            "be asked after before it has run");
+        check(job.state().queued == QStringList { second },
+            "and the queue names what is waiting");
+
+        QStringList completed;
         QEventLoop loop;
-        QObject::connect(&job, &CurcumaJob::finished, &loop, &QEventLoop::quit);
+        QObject::connect(&job, &CurcumaJob::finished, &loop,
+            [&completed, &loop](const CurcumaJobResult& result) {
+                completed << result.jobId;
+                if (completed.size() == 2)
+                    loop.quit();
+            });
         QTimer::singleShot(120000, &loop, [&loop] { loop.quit(); });
         loop.exec();
+
+        check(completed == QStringList({ first, second }),
+            "both ran, in the order they were asked for");
     }
 
     // --- nothing was left behind --------------------------------------------

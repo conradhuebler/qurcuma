@@ -10,7 +10,10 @@
 #include "curcuma_schemas.h"
 #include "view.h"
 
+#include <QElapsedTimer>
 #include <QHash>
+#include <QMutex>
+#include <QWaitCondition>
 #include <QJsonArray>
 #include <QJsonDocument>
 
@@ -19,7 +22,14 @@ namespace {
 /// Finished jobs, so job_status can answer after the fact. A calculation is
 /// asynchronous by necessity, and a model that asked for one has to be able to
 /// come back for the answer.
+///
+/// It is written on the GUI thread (where CurcumaJob lives) and read from the
+/// agent loop's thread, so it carries its own lock. The wait condition is what
+/// turns job_status into a single call instead of a polling loop: the model asks
+/// once with wait_seconds and is woken when the result lands.
 struct JobStore {
+    QMutex mutex;
+    QWaitCondition arrived;
     QHash<QString, CurcumaJobResult> finished;
     QStringList order;
 };
@@ -95,8 +105,12 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
 
     auto store = std::make_shared<JobStore>();
     QObject::connect(job, &CurcumaJob::finished, job, [store](const CurcumaJobResult& result) {
-        store->finished.insert(result.jobId, result);
-        store->order.append(result.jobId);
+        {
+            QMutexLocker lock(&store->mutex);
+            store->finished.insert(result.jobId, result);
+            store->order.append(result.jobId);
+        }
+        store->arrived.wakeAll();
     });
 
     int added = 0;
@@ -145,16 +159,25 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
             request.controller = withoutSelection(args);
 
             QString error;
-            const QString jobId = job->start(request, &error);
+            int position = 0;
+            const QString jobId = job->start(request, &error, &position);
             if (jobId.isEmpty())
                 return ToolResult::failure(error);
 
             QJsonObject data;
-            data.insert(QStringLiteral("status"), QStringLiteral("started"));
+            data.insert(QStringLiteral("status"),
+                position == 0 ? QStringLiteral("started") : QStringLiteral("queued"));
             data.insert(QStringLiteral("job_id"), jobId);
             data.insert(QStringLiteral("atom_count"), atoms.size());
+            if (position > 0)
+                data.insert(QStringLiteral("queue_position"), position);
 
-            QString note = QStringLiteral("Started; ask job_status with job_id \"%1\".").arg(jobId);
+            QString note = position == 0
+                ? QStringLiteral("Started; ask job_status with job_id \"%1\" and wait_seconds "
+                                 "to be given the answer rather than polling for it.").arg(jobId)
+                : QStringLiteral("Queued as number %1; one calculation runs at a time. Ask "
+                                 "job_status with job_id \"%2\" and wait_seconds.")
+                      .arg(position).arg(jobId);
             if (restricted) {
                 data.insert(QStringLiteral("of_total"), all.size());
                 data.insert(QStringLiteral("severed_bonds"), severed);
@@ -179,38 +202,74 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
         spec.name = QStringLiteral("job_status");
         spec.category = QStringLiteral("compute");
         spec.description = QStringLiteral(
-            "Where a calculation stands. Without a job_id it reports what is running now. "
-            "A finished job keeps its result, so you can come back for it.");
+            "Where a calculation stands. With wait_seconds it waits for the answer instead "
+            "of returning at once, which is one call rather than a poll every second. "
+            "Without a job_id it reports what is running and what is queued.");
         spec.effect = ToolEffect::Read;
         spec.affinity = ToolAffinity::Any;
         spec.paramSchema = schemaFromJson(R"JSON({
           "type": "object",
           "properties": {
-            "job_id": { "type": "string", "description": "the job to ask about" }
+            "job_id": { "type": "string", "description": "the job to ask about" },
+            "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 60,
+                              "description": "wait up to this long for the job to finish (default 0)" }
           }
         })JSON");
 
         spec.handler = [job, store](const QJsonObject& args) {
             const QString wanted = args.value(QStringLiteral("job_id")).toString();
+            const int waitSeconds = qBound(0, args.value(QStringLiteral("wait_seconds")).toInt(), 60);
+
             if (!wanted.isEmpty()) {
-                if (store->finished.contains(wanted))
-                    return ToolResult::success(resultToJson(store->finished.value(wanted)));
-                if (job->runningJobId() == wanted) {
-                    QJsonObject data;
-                    data.insert(QStringLiteral("job_id"), wanted);
-                    data.insert(QStringLiteral("status"), QStringLiteral("running"));
-                    return ToolResult::success(data, QStringLiteral("Still running."));
+                QElapsedTimer clock;
+                clock.start();
+                QMutexLocker lock(&store->mutex);
+                forever {
+                    if (store->finished.contains(wanted))
+                        return ToolResult::success(resultToJson(store->finished.value(wanted)));
+
+                    // Asked outside the store's lock would be a race with the job
+                    // finishing between the two questions; CurcumaJob has its own
+                    // lock and never reaches back here, so nesting is safe.
+                    const CurcumaJobState state = job->state();
+                    const bool running = state.running == wanted;
+                    const int queuePosition = state.queued.indexOf(wanted) + 1;
+                    if (!running && queuePosition == 0)
+                        return ToolResult::failure(QStringLiteral("no job called \"%1\"").arg(wanted));
+
+                    const qint64 left = qint64(waitSeconds) * 1000 - clock.elapsed();
+                    if (left <= 0) {
+                        QJsonObject data;
+                        data.insert(QStringLiteral("job_id"), wanted);
+                        data.insert(QStringLiteral("status"),
+                            running ? QStringLiteral("running") : QStringLiteral("queued"));
+                        if (!running)
+                            data.insert(QStringLiteral("queue_position"), queuePosition);
+                        return ToolResult::success(data, running
+                                ? QStringLiteral("Still running.")
+                                : QStringLiteral("Still queued, number %1.").arg(queuePosition));
+                    }
+                    // Woken by the finished handler, or by the timeout to re-check
+                    // that the job is still there at all.
+                    store->arrived.wait(&store->mutex, qMin<qint64>(left, 500));
                 }
-                return ToolResult::failure(QStringLiteral("no job called \"%1\"").arg(wanted));
             }
 
+            const CurcumaJobState state = job->state();
             QJsonObject data;
-            data.insert(QStringLiteral("running"), job->isRunning());
-            if (job->isRunning())
-                data.insert(QStringLiteral("job_id"), job->runningJobId());
+            data.insert(QStringLiteral("running"), !state.running.isEmpty());
+            if (!state.running.isEmpty())
+                data.insert(QStringLiteral("job_id"), state.running);
+            QJsonArray queued;
+            for (const QString& id : state.queued)
+                queued.append(id);
+            data.insert(QStringLiteral("queued_jobs"), queued);
             QJsonArray done;
-            for (const QString& id : store->order)
-                done.append(id);
+            {
+                QMutexLocker lock(&store->mutex);
+                for (const QString& id : store->order)
+                    done.append(id);
+            }
             data.insert(QStringLiteral("finished_jobs"), done);
             return ToolResult::success(data);
         };

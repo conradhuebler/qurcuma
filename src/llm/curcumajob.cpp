@@ -212,6 +212,7 @@ CurcumaJob::CurcumaJob(LogHub* hub, QObject* parent)
 
 CurcumaJob::~CurcumaJob()
 {
+    m_queue.clear();
     if (m_runner && m_runner->isRunning()) {
         m_runner->requestStop();
         m_runner->wait(5000);
@@ -233,43 +234,113 @@ QString CurcumaJob::runningJobId() const
     return isRunning() ? m_runner->jobId() : QString();
 }
 
-QString CurcumaJob::start(const CurcumaJobRequest& request, QString* error)
+CurcumaJobState CurcumaJob::state() const
 {
-    const auto fail = [error](const QString& message) {
-        if (error)
-            *error = message;
-        return QString();
-    };
+    QMutexLocker lock(&m_stateMutex);
+    return { m_runningId, m_queuedIds };
+}
 
-    // One at a time: curcuma_core is OpenMP-parallel and the interactive MD already
-    // owns a pool, so a second job would only take cores away from the first.
-    if (isRunning())
-        return fail(QStringLiteral("a calculation is already running (%1)").arg(m_runner->jobId()));
+QString CurcumaJob::start(const CurcumaJobRequest& request, QString* error, int* position)
+{
     if (!supportedCommands().contains(request.command)) {
-        return fail(QStringLiteral("\"%1\" cannot run in process; supported: %2")
-                        .arg(request.command, supportedCommands().join(QStringLiteral(", "))));
+        if (error) {
+            *error = QStringLiteral("\"%1\" cannot run in process; supported: %2")
+                         .arg(request.command, supportedCommands().join(QStringLiteral(", ")));
+        }
+        return QString();
     }
 
     const QString jobId = QUuid::createUuid().toString(QUuid::WithoutBraces).left(8);
 
-    if (m_runner)
-        m_runner->deleteLater();
+    // Only one job computes at a time -- curcuma_core is OpenMP-parallel and the
+    // interactive MD already owns a pool -- but a further request waits its turn
+    // instead of being thrown away. It gets its id straight away, so the caller can
+    // ask after it before it has run.
+    if (isRunning()) {
+        m_queue.append({ request, jobId });
+        {
+            QMutexLocker lock(&m_stateMutex);
+            m_queuedIds.append(jobId);
+        }
+        if (position)
+            *position = m_queue.size();
+        if (m_hub) {
+            m_hub->append(QStringLiteral("curcuma"), LogLevel::Info,
+                QStringLiteral("queued %1 behind %2").arg(request.command, m_runner->jobId()),
+                jobId);
+        }
+        if (error)
+            error->clear();
+        return jobId;
+    }
+
+    if (position)
+        *position = 0;
+    launch(request, jobId);
+    if (error)
+        error->clear();
+    return jobId;
+}
+
+void CurcumaJob::launch(const CurcumaJobRequest& request, const QString& jobId)
+{
     m_runner = new Runner(this, m_hub, request, jobId);
-    connect(m_runner, &QThread::finished, m_runner, &QObject::deleteLater);
-    connect(m_runner, &QObject::destroyed, this, [this] { m_runner = nullptr; });
+    // One connection, not two: the runner is dropped and the next one taken from
+    // the queue in the same place, so there is no window in which m_runner points
+    // at a thread that has already stopped.
+    connect(m_runner, &QThread::finished, this, &CurcumaJob::runnerDone);
+    {
+        QMutexLocker lock(&m_stateMutex);
+        m_runningId = jobId;
+        m_queuedIds.removeAll(jobId);
+    }
     m_runner->start();
 
     if (m_hub) {
         m_hub->append(QStringLiteral("curcuma"), LogLevel::Info,
             QStringLiteral("started %1").arg(request.command), jobId);
     }
-    if (error)
-        error->clear();
-    return jobId;
+    emit started(jobId);
+}
+
+void CurcumaJob::runnerDone()
+{
+    if (m_runner) {
+        m_runner->deleteLater();
+        m_runner = nullptr;
+    }
+    {
+        QMutexLocker lock(&m_stateMutex);
+        m_runningId.clear();
+    }
+    startNext();
+}
+
+void CurcumaJob::startNext()
+{
+    if (m_runner || m_queue.isEmpty())
+        return;
+    const Pending next = m_queue.takeFirst();
+    launch(next.request, next.jobId);
 }
 
 void CurcumaJob::requestStop()
 {
+    // Everything still queued was asked for under the assumption that the first job
+    // was wanted; dropping the lot is the honest reading of "stop".
+    const QList<Pending> dropped = m_queue;
+    m_queue.clear();
+    {
+        QMutexLocker lock(&m_stateMutex);
+        m_queuedIds.clear();
+    }
+    for (const Pending& pending : dropped) {
+        CurcumaJobResult result;
+        result.jobId = pending.jobId;
+        result.command = pending.request.command;
+        result.error = QStringLiteral("dropped from the queue when the running job was stopped");
+        emit finished(result);
+    }
     if (m_runner)
         m_runner->requestStop();
 }

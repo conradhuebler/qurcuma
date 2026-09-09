@@ -283,17 +283,59 @@ int main(int argc, char** argv)
     }
 
     // --- a loop that will not converge --------------------------------------
+    //
+    // The cap used to end the turn with "Stopped after N rounds" and drop
+    // everything gathered on the way -- which is what happened comparing three
+    // methods on a complex and its two fragments. It now spends one more round
+    // WITHOUT a catalogue, so the model has to write its answer from the results
+    // already in the history.
     {
         session.reset();
         session.setMaxIterations(3);
         server.requests.clear();
-        for (int i = 0; i < 10; ++i)
+        for (int i = 0; i < 3; ++i)
             server.enqueue(callResponse("get_answer", R"({"n":1})"));
+        server.enqueue(textResponse("42, from what I gathered"));
         runTurn(session, QStringLiteral("loop forever"), answer, error);
-        check(server.requests.size() <= 3,
-            QStringLiteral("the iteration cap stops the loop (%1 requests)").arg(server.requests.size()));
-        check(answer.contains(QStringLiteral("Stopped after")),
-            "and says so instead of ending quietly");
+
+        check(server.requests.size() == 4,
+            QStringLiteral("three tool rounds and one closing round (%1 requests)")
+                .arg(server.requests.size()));
+
+        const QJsonObject closing = QJsonDocument::fromJson(server.requests.last()).object();
+        check(!closing.contains(QStringLiteral("tools")),
+            "the closing round carries no tools -- that is what forces an answer");
+
+        const QJsonArray history = closing.value(QStringLiteral("messages")).toArray();
+        int toolResults = 0;
+        int toolCalls = 0;
+        for (const QJsonValue& value : history) {
+            const QJsonObject entry = value.toObject();
+            if (entry.value(QStringLiteral("role")).toString() == QLatin1String("tool"))
+                ++toolResults;
+            toolCalls += entry.value(QStringLiteral("tool_calls")).toArray().size();
+        }
+        check(toolResults == toolCalls,
+            QStringLiteral("every tool_call in the history has an answer (%1 calls, %2 results) "
+                           "-- a dangling one makes the closing request invalid")
+                .arg(toolCalls).arg(toolResults));
+
+        check(answer == QLatin1String("42, from what I gathered"),
+            "and the turn ends with the answer instead of with the work discarded");
+    }
+
+    // --- the closing round is not an invitation to call more tools -----------
+    {
+        session.reset();
+        session.setMaxIterations(2);
+        server.requests.clear();
+        for (int i = 0; i < 4; ++i)
+            server.enqueue(callResponse("get_answer", R"({"n":1})"));
+        runTurn(session, QStringLiteral("never stop"), answer, error);
+        check(server.requests.size() == 3,
+            QStringLiteral("a model that calls a tool anyway does not open another round "
+                           "(%1 requests)").arg(server.requests.size()));
+        check(!answer.isEmpty(), "and the turn still ends with something to read");
     }
 
     // --- transport failure ---------------------------------------------------

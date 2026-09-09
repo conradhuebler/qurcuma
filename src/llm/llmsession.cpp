@@ -116,6 +116,7 @@ void LlmSession::ask(const QString& userMessage)
     m_messages.append(message(QStringLiteral("user"), userMessage));
 
     m_iteration = 0;
+    m_finalRound = false;
     setBusy(true);
     sendRound();
 }
@@ -123,7 +124,9 @@ void LlmSession::ask(const QString& userMessage)
 void LlmSession::sendRound()
 {
     ++m_iteration;
-    m_client->send(m_messages, toolCatalogue());
+    // The closing round goes out without a catalogue, which is what makes it
+    // closing: with no tools on offer the model has to write its answer.
+    m_client->send(m_messages, m_finalRound ? QJsonArray() : toolCatalogue());
 }
 
 void LlmSession::cancel()
@@ -164,21 +167,56 @@ void LlmSession::onClientFinished(const QJsonObject& assistantMessage)
         return;
     }
 
+    if (m_finalRound) {
+        // It was asked to answer without a catalogue and called a tool anyway.
+        // Take whatever prose came with it rather than opening another round.
+        const QString text = assistantMessage.value(QStringLiteral("content")).toString();
+        emit this->assistantMessage(text.isEmpty()
+                ? tr("The round budget ran out before an answer was written.")
+                : text);
+        endTurn();
+        return;
+    }
+
     if (m_iteration >= m_maxIterations) {
-        // Say it in the conversation as well, so a follow-up question sees why the
-        // work stopped rather than finding a silently truncated history.
-        const QString reason = tr("Stopped after %1 rounds of tool calls without a final answer.")
+        // Not a dead end. The results gathered so far are in the history, and the
+        // model is asked once more with no tools, so the turn ends with the answer
+        // they support instead of with the work discarded.
+        //
+        // Every pending call still has to be answered first: the protocol requires
+        // a tool result for each tool_call in the history, and a dangling one makes
+        // the next request invalid.
+        declineRemainingCalls(toolCalls,
+            tr("the round budget for this turn is used up; no further tool will run"));
+        const QString reason = tr("%1 rounds of tool calls used. Answer now from the results "
+                                  "already gathered; no further tools will run.")
                                    .arg(m_maxIterations);
         m_messages.append(message(QStringLiteral("system"), reason));
         note(LogLevel::Warning, reason);
-        emit this->assistantMessage(reason);
-        endTurn();
+        m_finalRound = true;
+        sendRound();
         return;
     }
 
     runToolCalls(toolCalls);
     if (m_busy)
         sendRound();
+}
+
+void LlmSession::declineRemainingCalls(const QJsonArray& toolCalls, const QString& reason)
+{
+    for (const QJsonValue& value : toolCalls) {
+        const QJsonObject call = value.toObject();
+        const QString name = call.value(QStringLiteral("function")).toObject()
+                                 .value(QStringLiteral("name")).toString();
+        QJsonObject toolMessage;
+        toolMessage.insert(QStringLiteral("role"), QStringLiteral("tool"));
+        toolMessage.insert(QStringLiteral("tool_call_id"), call.value(QStringLiteral("id")).toString());
+        toolMessage.insert(QStringLiteral("name"), name);
+        toolMessage.insert(QStringLiteral("content"), tr("refused: %1").arg(reason));
+        m_messages.append(toolMessage);
+        emit toolRefused(name, reason);
+    }
 }
 
 void LlmSession::runToolCalls(const QJsonArray& toolCalls)

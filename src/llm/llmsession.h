@@ -41,7 +41,9 @@ public:
     void setApprovalPolicy(ApprovalFn approve);
 
     void setSystemPrompt(const QString& prompt);
-    /// Cap on send/run rounds within one turn. Reached, the turn ends with a note.
+    /// Cap on send/run rounds within one turn. Reached, the model is asked once
+    /// more without any tools, so the turn ends with an answer built from what it
+    /// already gathered instead of with the work thrown away.
     void setMaxIterations(int iterations);
     int maxIterations() const { return m_maxIterations; }
 
@@ -76,6 +78,9 @@ private:
     void onClientFinished(const QJsonObject& assistantMessage);
     void onClientFailed(const QString& error);
     void runToolCalls(const QJsonArray& toolCalls);
+    /// Answer every pending tool_call with a refusal, so the history stays valid
+    /// when the loop stops before the calls are run.
+    void declineRemainingCalls(const QJsonArray& toolCalls, const QString& reason);
     QJsonArray toolCatalogue() const;
     void setBusy(bool busy);
     void endTurn();
@@ -89,8 +94,13 @@ private:
     ApprovalFn m_approve;
     QString m_systemPrompt;
     QJsonArray m_messages;
-    int m_maxIterations = 12;
+    // 12 was too few for real work: comparing three methods on a complex and its
+    // two fragments is nine calculations before a word is written, and the turn
+    // died mid-way with everything discarded.
+    int m_maxIterations = 30;
     int m_iteration = 0;
+    /// Set for the one round that runs without tools, to force a closing answer.
+    bool m_finalRound = false;
     int m_maxToolResultChars = 8000;
     bool m_busy = false;
 };
