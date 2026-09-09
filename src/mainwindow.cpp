@@ -77,6 +77,12 @@
 #include "core/tools_core.h"
 #include "llm/tools_view.h"
 #include "llm/tools_palette.h"
+#ifdef USE_LLM
+#include "docks/chatdock.h"
+#include "llm/llmclient.h"
+#include "llm/llmconfig.h"
+#include "llm/llmsession.h"
+#endif
 #include "lessoncontroller.h"  // Claude Generated 2026 - WP T4 lesson feature controller
 #include "frequencydialog.h"
 #include "displaypanel.h"
@@ -1041,6 +1047,11 @@ void MainWindow::createMenus()
     addDockToggle(m_outputViewDock,       tr("&Output"));
     addDockToggle(m_nciDock,              tr("&Interactions"));
     addDockToggle(m_chartDock,            tr("&Charts"));
+#ifdef USE_LLM
+    // Claude Generated 2026 - The assistant starts hidden, so without this entry
+    // there would be no way to open it at all.
+    addDockToggle(m_dockManager ? m_dockManager->chatDockImpl() : nullptr, tr("&Assistant"));
+#endif
 
     viewMenu->addSeparator();
 
@@ -4353,6 +4364,10 @@ void MainWindow::createDockWidgets()
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
             tr("%1 tools registered").arg(ToolRegistry::instance().size()));
     }
+
+#ifdef USE_LLM
+    setupAssistant();
+#endif
     m_displayDock = m_dockManager->displayDockImpl();
     m_simulationDock = m_dockManager->simulationDockImpl();
     // Pull the wrapped internal widgets into MainWindow members so the rest of the
@@ -5290,3 +5305,119 @@ void MainWindow::loadDirFromArg(const QString& dir)
         switchWorkingDirectory(absDir);
     }
 }
+
+#ifdef USE_LLM
+// ---------------------------------------------------------------------------
+// The assistant  -  Claude Generated 2026
+// ---------------------------------------------------------------------------
+
+void MainWindow::setupAssistant()
+{
+    m_chatDock = m_dockManager ? m_dockManager->chatDockImpl() : nullptr;
+    if (!m_chatDock || !m_toolDispatcher)
+        return;
+
+    // Give the user something to edit rather than a file they have to invent.
+    const QString configPath = LlmConfig::defaultPath();
+    QString error;
+    LlmConfig::writeExampleIfMissing(configPath, &error);
+
+    m_llmClient = new LlmClient(this);
+    m_llmSession = new LlmSession(m_llmClient, &ToolRegistry::instance(), m_toolDispatcher,
+        &LogHub::instance(), this);
+
+    m_llmSession->setSystemPrompt(tr(
+        "You are an assistant inside qurcuma, a molecular visualisation and analysis program. "
+        "You act through the tools you are given: call them to read the loaded structure, measure "
+        "it, and change how it is displayed. You cannot see the screen unless a tool returns an "
+        "image, and you cannot run anything the tools do not offer.\n"
+        "Work from what the tools actually report rather than from assumption, and say plainly "
+        "when something is not available. Results are capped: when a tool says it has more, ask "
+        "for the next page instead of guessing. Atom indices are 0-based, distances are in "
+        "Angstrom and angles in degrees."));
+
+    m_llmSession->setApprovalPolicy([this](const ToolSpec& spec, const QJsonObject& args) {
+        return approveToolCall(spec, args);
+    });
+
+    m_chatDock->attachSession(m_llmSession);
+    connect(m_chatDock, &ChatDock::profileChanged, this, &MainWindow::applyLlmProfile);
+
+    LlmConfig config;
+    if (!config.load(configPath, &error)) {
+        m_chatDock->setStatus(tr("No usable endpoint configuration: %1").arg(error), true);
+        return;
+    }
+    QStringList names;
+    for (const LlmProfile& profile : config.profiles())
+        names << profile.name;
+    LlmProfile active;
+    config.activeProfile(active);
+    m_chatDock->setProfiles(names, active.name);
+    applyLlmProfile(active.name);
+}
+
+void MainWindow::applyLlmProfile(const QString& name)
+{
+    if (!m_llmClient || !m_chatDock)
+        return;
+
+    LlmConfig config;
+    QString error;
+    if (!config.load(LlmConfig::defaultPath(), &error)) {
+        m_chatDock->setStatus(error, true);
+        return;
+    }
+    LlmProfile profile;
+    if (!config.profile(name, profile)) {
+        m_chatDock->setStatus(tr("No profile called \"%1\"").arg(name), true);
+        return;
+    }
+
+    m_llmClient->setProfile(profile);
+    m_llmSession->setMaxIterations(profile.maxToolIterations);
+
+    const QString key = LlmConfig::apiKeyFor(profile);
+    m_llmClient->setApiKey(key);
+
+    // Say which variable is missing rather than letting the first request fail with
+    // an authentication error the user has to decode.
+    if (!profile.apiKeyEnv.isEmpty() && key.isEmpty()) {
+        m_chatDock->setStatus(
+            tr("%1 is not set in the environment; %2 will refuse the request.")
+                .arg(profile.apiKeyEnv, profile.name), true);
+    } else {
+        m_chatDock->setStatus(tr("%1 · %2").arg(profile.name, profile.model));
+    }
+}
+
+bool MainWindow::approveToolCall(const ToolSpec& spec, const QJsonObject& args)
+{
+    if (m_toolsAllowedForSession.contains(spec.name))
+        return true;
+
+    const QString arguments = args.isEmpty()
+        ? tr("(no arguments)")
+        : QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Indented));
+
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Question);
+    box.setWindowTitle(tr("Run %1?").arg(spec.name));
+    box.setText(tr("The assistant wants to run <b>%1</b> (%2).")
+                    .arg(spec.name, toolEffectName(spec.effect)));
+    box.setInformativeText(spec.description);
+    box.setDetailedText(arguments);
+    QPushButton* once = box.addButton(tr("Allow once"), QMessageBox::AcceptRole);
+    QPushButton* always = box.addButton(tr("Allow for this session"), QMessageBox::AcceptRole);
+    QPushButton* deny = box.addButton(tr("Deny"), QMessageBox::RejectRole);
+    box.setDefaultButton(once);
+    box.exec();
+
+    if (box.clickedButton() == always) {
+        m_toolsAllowedForSession.insert(spec.name);
+        return true;
+    }
+    Q_UNUSED(deny)
+    return box.clickedButton() == once;
+}
+#endif  // USE_LLM

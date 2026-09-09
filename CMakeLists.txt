@@ -173,6 +173,7 @@ set(SOURCES
     src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
     src/llm/tools_view.cpp  # Claude Generated 2026 - read-only tools over the viewer
     src/llm/tools_palette.cpp  # Claude Generated 2026 - tools in the command palette
+    $<$<BOOL:${USE_LLM}>:${CMAKE_CURRENT_SOURCE_DIR}/src/docks/chatdock.cpp>  # Claude Generated 2026 (see the SKIP_AUTOMOC note below)
     src/calculationhistory.cpp  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.cpp  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.cpp
@@ -340,6 +341,17 @@ add_executable(qurcuma
     ${HEADERS}
     resources.qrc
 )
+
+# Claude Generated 2026 - AUTOMOC does not evaluate preprocessor conditionals: it
+# finds chatdock.h through the #ifdef USE_LLM include in dockmanager.cpp, generates
+# moc_chatdock.cpp for it, and the link then fails on a ChatDock constructor whose
+# .cpp was excluded from the build. Tell it to leave the header alone in that case.
+if(NOT USE_LLM)
+    set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/docks/chatdock.h PROPERTY SKIP_AUTOMOC ON)
+endif()
+# Switching USE_LLM in an existing build tree needs the autogen directory cleared
+# (rm -rf <build>/qurcuma_autogen): AUTOMOC keeps its previous verdict about the
+# header and the link then fails the other way round, on a missing staticMetaObject.
 
 target_compile_definitions(qurcuma PRIVATE
     $<$<BOOL:${USE_SFTP}>:USE_SFTP>

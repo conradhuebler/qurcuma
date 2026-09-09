@@ -20,6 +20,7 @@
 #include <QListView>
 #include <QListWidget>
 #include <QMainWindow>
+#include <QSet>
 #include <QMap>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -73,6 +74,12 @@ class QDialog;                  // Claude Generated 2026 - host for the modeless
 class CalculationRunner;        // Claude Generated 2026 - WP T3 external-process orchestration
 class ToolDispatcher;           // Claude Generated 2026 - tool layer (core/tooldispatcher.h)
 struct ToolResult;              // Claude Generated 2026 - core/tool.h
+#ifdef USE_LLM
+class ChatDock;                 // Claude Generated 2026 - docks/chatdock.h
+class LlmClient;                // Claude Generated 2026 - llm/llmclient.h
+class LlmSession;               // Claude Generated 2026 - llm/llmsession.h
+struct ToolSpec;                // Claude Generated 2026 - core/tool.h
+#endif
 
 
 // CalculationEntry + the calculations.json persistence live here now.
@@ -235,7 +242,17 @@ private:
     void setAppMode(DockConfig::AppMode mode, bool reflow = true);  // apply mode (toolbar + dock visibility)
     void showCommandPalette();
     /// Show a tool's answer in the Output dock and the status bar. Claude Generated 2026.
-    void showToolResult(const QString& name, const ToolResult& result);                  // Claude Generated 2026 - P3 Ctrl+K palette
+    void showToolResult(const QString& name, const ToolResult& result);
+#ifdef USE_LLM
+    /// Create the client and session, attach the dock, load the endpoint profiles.
+    /// Claude Generated 2026.
+    void setupAssistant();
+    /// Apply the named endpoint profile to the client, reading its key from the
+    /// environment. Reports what is missing rather than failing silently.
+    void applyLlmProfile(const QString& name);
+    /// Ask before a tool that calculates, writes or mutates. Claude Generated 2026.
+    bool approveToolCall(const ToolSpec& spec, const QJsonObject& args);
+#endif                  // Claude Generated 2026 - P3 Ctrl+K palette
     void createMenus();
     void seedRMSDReference();  // Claude Generated 2026 - re-seed RMSD reference from viewer
     void setupProjectViewContextMenu();
@@ -334,6 +351,14 @@ private:
     // Claude Generated 2026 - WP T3: owns the calculation QProcess + completer commands.
     CalculationRunner* m_calculationRunner = nullptr;
     ToolDispatcher* m_toolDispatcher = nullptr;  // Claude Generated 2026 - runs tools on the right thread
+#ifdef USE_LLM
+    // Claude Generated 2026 - The assistant. The session owns the conversation and
+    // the approval policy; the dock is only a view onto it.
+    ChatDock* m_chatDock = nullptr;
+    LlmClient* m_llmClient = nullptr;
+    LlmSession* m_llmSession = nullptr;
+    QSet<QString> m_toolsAllowedForSession;  ///< "allow for this session", per tool
+#endif
 
     // Claude Generated 2026 - Docked viewer display options (replaces the modal dialog)
     DisplayPanel* m_displayPanel = nullptr;

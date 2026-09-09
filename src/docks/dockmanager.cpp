@@ -13,6 +13,9 @@
 #include "displaydock.h"
 #include "imagegallerydock.h"
 #include "chartdock.h"
+#ifdef USE_LLM
+#include "chatdock.h"  // Claude Generated 2026
+#endif
 #include "ncidock.h"
 
 #include <QDockWidget>
@@ -99,6 +102,15 @@ ImageGalleryDock* DockManager::imageGalleryDockImpl() const
 ChartDock* DockManager::chartDockImpl() const
 {
     return qobject_cast<ChartDock*>(m_chartDock);
+}
+
+ChatDock* DockManager::chatDockImpl() const
+{
+#ifdef USE_LLM
+    return qobject_cast<ChatDock*>(m_chatDock);
+#else
+    return nullptr;  // built without USE_LLM
+#endif
 }
 
 NciDock* DockManager::nciDockImpl() const
@@ -282,6 +294,11 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
     m_imageGalleryDock = new ImageGalleryDock(m_mainWindow);
     m_nciDock = new NciDock(m_mainWindow);
     m_chartDock = new ChartDock(m_mainWindow);
+#ifdef USE_LLM
+    // Claude Generated 2026 - The assistant. Hidden by default like the chart and
+    // NCI docks; it is opened from View > Dock Panels when wanted.
+    m_chatDock = new ChatDock(m_mainWindow);
+#endif
 }
 
 void DockManager::placeDocks()
@@ -333,6 +350,14 @@ void DockManager::placeDocks()
             m_mainWindow->tabifyDockWidget(m_outputViewDock, m_chartDock);
         m_chartDock->hide();
     }
+
+#ifdef USE_LLM
+    if (m_chatDock) {
+        m_chatDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
+        m_mainWindow->addDockWidget(DockConfig::ChatDockArea, m_chatDock);
+        m_chatDock->hide();
+    }
+#endif
 
     // The image-gallery dock shares the bottom area (tabified with Output) and
     // stays hidden until the first image is exported (ImageGalleryDock shows
