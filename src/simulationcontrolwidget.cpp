@@ -1558,19 +1558,103 @@ void SimulationControlWidget::onStepClicked()
 
 void SimulationControlWidget::onPauseClicked()
 {
-    if (!m_worker)
+    // The button toggles; pauseRun()/resumeRun() are the idempotent halves, which
+    // is what a caller that cannot see the button needs. Claude Generated 2026.
+    if (m_paused)
+        resumeRun();
+    else
+        pauseRun();
+}
+
+void SimulationControlWidget::pauseRun()
+{
+    if (!m_worker || m_paused)
         return;
-    if (m_paused) {
-        m_worker->requestResume();
-        m_pauseBtn->setText(tr("⏸"));
-        setState(tr("● Running"), "#27ae60");  // green
-        m_paused = false;
-    } else {
-        m_worker->requestPause();
-        m_pauseBtn->setText(tr("▶"));
-        setState(tr("⏸ Paused"), "#d4a017");  // amber
-        m_paused = true;
+    m_worker->requestPause();
+    m_pauseBtn->setText(tr("▶"));
+    setState(tr("⏸ Paused"), "#d4a017");  // amber
+    m_paused = true;
+    publishLiveState();
+}
+
+void SimulationControlWidget::resumeRun()
+{
+    if (!m_worker || !m_paused)
+        return;
+    m_worker->requestResume();
+    m_pauseBtn->setText(tr("⏸"));
+    setState(tr("● Running"), "#27ae60");  // green
+    m_paused = false;
+    publishLiveState();
+}
+
+bool SimulationControlWidget::isRunning() const
+{
+    return m_thread && m_thread->isRunning();
+}
+
+/// The userData of every item of @p box, which is what buildConfig() reads.
+static QStringList comboValues(const QComboBox* box)
+{
+    QStringList values;
+    if (!box)
+        return values;
+    for (int i = 0; i < box->count(); ++i) {
+        const QString value = box->itemData(i).toString();
+        if (!value.isEmpty())
+            values << value;
     }
+    return values;
+}
+
+QStringList SimulationControlWidget::methodValues() const { return comboValues(m_methodCombo); }
+QStringList SimulationControlWidget::optimizerValues() const { return comboValues(m_optimizerCombo); }
+QStringList SimulationControlWidget::thermostatValues() const { return comboValues(m_thermostatCombo); }
+
+void SimulationControlWidget::setLiveTemperature(double kelvin)
+{
+    if (m_tempSlider)
+        m_tempSlider->setValue(kelvin);   // emits valueChanged -> temperatureChanged
+}
+
+bool SimulationControlWidget::startRun(const SimulationConfig& cfg, QString* error)
+{
+    const auto fail = [error](const QString& message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+    if (isRunning())
+        return fail(tr("a simulation is already running -- stop it first"));
+    if (m_atoms.isEmpty())
+        return fail(tr("no structure is loaded"));
+
+    // Drive the controls from the config, then start from the controls. One source
+    // of truth, and the operator sees in the dock exactly what was asked for.
+    applyConfig(cfg);
+    startWithConfig(buildConfig());
+    if (!isRunning())
+        return fail(tr("the run did not start; see the Output dock"));
+    if (error)
+        error->clear();
+    return true;
+}
+
+void SimulationControlWidget::publishLiveState()
+{
+    m_liveState.running = isRunning();
+    m_liveState.paused = m_paused;
+    m_liveState.mode = m_liveState.running
+        ? (m_config.mode == SimulationConfig::Mode::MolecularDynamics
+                ? QStringLiteral("md") : QStringLiteral("opt"))
+        : QString();
+    m_liveState.method = m_config.method;
+    m_liveState.totalSteps = m_config.steps;
+    m_liveState.targetTemperature = m_tempSlider ? m_tempSlider->value() : m_config.temperature;
+    if (!m_liveState.running) {
+        m_liveState.paused = false;
+    }
+    emit liveStateChanged(m_liveState);
 }
 
 void SimulationControlWidget::onStopClicked()
@@ -1601,11 +1685,19 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
         fpsText = tr("%1 fps").arg(m_actualFps, 0, 'f', 1);
     }
 
+    // Claude Generated 2026 - keep the live record in step with the label, so a
+    // caller outside the dock reads the same numbers the operator is looking at.
+    m_liveState.step = frame->step;
+    m_liveState.energy = frame->energy;
+    m_liveState.kineticEnergy = frame->ekin;
+    m_liveState.timeFs = frame->step * m_config.timestep;
+
     if (m_config.mode == SimulationConfig::Mode::MolecularDynamics) {
         const double kB_Eh = 3.1668114e-6;
         double tempK = (frame->ekin > 0 && !m_atoms.isEmpty())
             ? (2.0 * frame->ekin) / (3.0 * m_atoms.size() * kB_Eh)
             : 0.0;
+        m_liveState.temperature = tempK;
         m_statusLabel->setText(
             tr("Step %1 | E= %2 Eh | T≈ %3 K | %4")
                 .arg(frame->step)
@@ -1652,6 +1744,8 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
                 addRow(p, tr("broken"));
         }
     }
+
+    publishLiveState();
 }
 
 // Claude Generated 2026 - Reaction events of a reactive GFN-FF run: one row per
@@ -1822,6 +1916,8 @@ void SimulationControlWidget::setMode(SimulationConfig::Mode mode)
 void SimulationControlWidget::setRunning(bool running)
 {
     m_running = running;
+    if (!running)
+        m_paused = false;
     m_startBtn->setEnabled(!running);
     m_pauseBtn->setEnabled(running);
     m_stopBtn->setEnabled(running);
@@ -1884,6 +1980,8 @@ void SimulationControlWidget::setRunning(bool running)
     m_rmsdMtdDtSpin->setEnabled(!running && m_rmsdMtdWtmtdCheck->isChecked());
 
     emit simulationRunningChanged(running);
+
+    publishLiveState();
 }
 
 // Claude Generated 2026 - Update the state pill (color-coded run-state indicator

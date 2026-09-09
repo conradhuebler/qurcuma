@@ -81,6 +81,7 @@
 #include "llm/tools_compute.h"
 #include "llm/tools_edit.h"
 #include "llm/tools_files.h"
+#include "llm/tools_simulation.h"
 #ifdef USE_LLM
 #include "docks/chatdock.h"
 #include "llm/llmclient.h"
@@ -4427,6 +4428,7 @@ void MainWindow::createDockWidgets()
         fileContext.viewer = m_moleculeView;
         fileContext.workingDirectory = [this] { return m_workingDirectory; };
         registerFileTools(ToolRegistry::instance(), fileContext);
+
         m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), &LogHub::instance(), this);
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
             tr("%1 tools registered").arg(ToolRegistry::instance().size()));
@@ -4454,6 +4456,21 @@ void MainWindow::createDockWidgets()
         m_simulationControlWidget = m_simulationDock->simulationControlWidget();
         m_snapshotsWidget = m_simulationDock->snapshotsWidget();
         m_rmsdWidget = m_simulationDock->rmsdWidget();
+
+        // Claude Generated 2026 - MD and optimisation are a process, not a query:
+        // they push frames into the viewer and can be steered while they run, so
+        // they go through the dock that owns that lifecycle rather than starting a
+        // second engine beside it. Registered here rather than with the other tools
+        // above because the widget does not exist until this point.
+        if (m_simulationControlWidget && ToolRegistry::instance().size() > 0) {
+            SimulationToolContext simContext;
+            simContext.control = m_simulationControlWidget;
+            const int simTools = registerSimulationTools(ToolRegistry::instance(), simContext);
+            if (simTools > 0) {
+                LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+                    tr("%1 simulation tools registered").arg(simTools));
+            }
+        }
     }
 
     // Image-gallery dock (bottom, hidden until the first export): collect exported

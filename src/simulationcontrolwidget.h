@@ -37,8 +37,52 @@ class SimulationControlWidget : public QWidget {
     Q_OBJECT
 
 public:
+    /// What a run is doing right now, for a caller that is not the dock itself
+    /// (the tool layer). A value type on purpose: it crosses to the agent loop's
+    /// thread, which must not touch widgets. Claude Generated 2026.
+    struct LiveState {
+        bool running = false;
+        bool paused = false;
+        QString mode;               ///< "md" | "opt", empty when idle
+        QString method;
+        int step = 0;
+        int totalSteps = 0;
+        double energy = 0.0;        ///< Eh
+        double kineticEnergy = 0.0; ///< Eh, MD only
+        double temperature = 0.0;   ///< K, from the kinetic energy; MD only
+        double targetTemperature = 0.0;
+        double timeFs = 0.0;        ///< MD only
+    };
+
     explicit SimulationControlWidget(QWidget* parent = nullptr);
     ~SimulationControlWidget() override;
+
+    /// Is a worker thread up? Claude Generated 2026.
+    bool isRunning() const;
+    /// Latest live state; step and energies are those of the last frame.
+    LiveState liveState() const { return m_liveState; }
+
+    /// Start a run from @p cfg. The dock's own controls are driven from it first,
+    /// so what runs is what the operator can see, and the run then starts from the
+    /// controls exactly as pressing Start would. Returns false and fills @p error
+    /// when there is no structure or a run is already going. Claude Generated 2026.
+    bool startRun(const SimulationConfig& cfg, QString* error = nullptr);
+
+    /// Pause and resume, each idempotent -- unlike the button, which toggles.
+    /// Claude Generated 2026.
+    void pauseRun();
+    void resumeRun();
+
+    /// Move the live thermostat setpoint, i.e. the slider, which is what reaches
+    /// the worker. Claude Generated 2026.
+    void setLiveTemperature(double kelvin);
+
+    /// The values the dock's own combos accept. Read out of the combos rather than
+    /// written down a second time: a tool schema that listed them by hand would be
+    /// the third copy of the same list and the first to go stale. Claude Generated 2026.
+    QStringList methodValues() const;
+    QStringList optimizerValues() const;
+    QStringList thermostatValues() const;
 
     /** @brief Feed the current molecule + bond graph to the worker before start. */
     void setMolecule(const QVector<MoleculeViewer::Atom>& atoms,
@@ -92,6 +136,9 @@ signals:
      *  forwards it live to the worker (SimulationWorker::setTargetTemperature).
      *  Claude Generated 2026. */
     void temperatureChanged(double temperature);
+    /// Live progress for consumers outside the dock, on every frame and on every
+    /// change of the running/paused state. Claude Generated 2026.
+    void liveStateChanged(SimulationControlWidget::LiveState state);
 
     /** @brief Emitted when the wall_temp slider moves — live during a run. */
     void wallTempChanged(double T);
@@ -299,6 +346,8 @@ private:
     SimulationWorker* m_worker = nullptr;
     QThread* m_thread = nullptr;
     bool m_paused = false;
+    LiveState m_liveState;                  ///< Claude Generated 2026
+    void publishLiveState();                ///< refresh m_liveState and emit
     // Claude Generated 2026 - throttle for the Step button: re-enabled after 1000/fpsLimit ms
     // so the user can click at the configured "max XXX FPS" but not faster.
     QElapsedTimer m_stepThrottleTimer;
