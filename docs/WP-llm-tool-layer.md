@@ -206,7 +206,7 @@ soll — Kandidat für eine getrennte Ansicht oder Filterung nach `source`.
 | **1.1** *(erledigt `a15a581`)* | `qurcuma_core`: `ToolSpec`, `ToolResult`, `ToolRegistry`, Schema-Prüfung. `qurcuma_core_init()` ruft `initialize_generated_registry()`. Den `-march`/AVX-Block aus `CMakeLists.txt:288-311` **spiegeln** (Eigen-ABI). | `test_toolregistry` grün (37 Prüfungen); über `compile_commands.json` belegt, dass beide Kern-TUs weder QtWidgets noch Quick3D, QtCharts oder curcuma im Include-Pfad haben. | **erledigt** |
 | **1.2** | GUI-Thread-Marshalling im Dispatcher; Audit-Spur in den `LogHub`. | `test_tooldispatcher` grün (18 Prüfungen), inkl. Nachweis des Threadwechsels und des Zeitlimits. | **erledigt** |
 | **1.3** | ~12 lesende Werkzeuge (`src/llm/tools_view.cpp`), Analyse über `moleculebridge` gegen `curcuma::Molecule`: `get_structure_summary`, `list_atoms`, `select_atoms` (FragString-Grammatik), `get_selection`, `get_fragments`, `measure`, `get_frame_info`, `read_log`, `list_workdir`, `get_camera`, `get_display`, `describe_tools`. | Kern-Werkzeuge headless geprüft (`test_toolscore`, 25 Prüfungen); die zehn Viewer-Werkzeuge brauchen ein Widget und bleiben beim Operator-Check. | **erledigt** |
-| **1.4** | **Vorführbar #1:** Command-Palette zeigt Menü-Actions **plus** parameterlose Registry-Werkzeuge (Vereinigung, kein Ersatz — die Palette bekommt heute ~120 Menüeinträge samt `enabled`-Zustand geschenkt). | Ctrl+K führt Registry-Werkzeuge aus. | offen |
+| **1.4** | **Vorführbar #1:** Command-Palette zeigt Menü-Actions **plus** parameterlose Registry-Werkzeuge (Vereinigung, kein Ersatz — die Palette bekommt heute ~120 Menüeinträge samt `enabled`-Zustand geschenkt). | Ctrl+K führt Registry-Werkzeuge aus; das Ergebnis landet im Output-Dock. **Operator-Check offen.** | **erledigt** (`7bf965d`) |
 
 #### WP1.1 im Einzelnen — **erledigt** (`a15a581`)
 
@@ -259,15 +259,15 @@ im Kleinen, und sie greift, bevor der Katalog groß wird. Und `tools_view` binde
 `mainwindow.h` ein: was es von `MainWindow` braucht (das Arbeitsverzeichnis) kommt als
 `std::function`, sodass die Kopplung auf den Viewer beschränkt bleibt.
 
-#### WP1.4 im Einzelnen (Stand: in Arbeit)
+#### WP1.4 im Einzelnen — **erledigt** (`7bf965d`)
 
 | # | Schritt | Status |
 |---|---|---|
-| a | `src/llm/tools_palette.{h,cpp}`: Registry-Werkzeuge zu `CommandPalette::Command` — **nur die, die ohne Argumente laufen**, geprüft über `validateAgainst(schema, {})`, was auch Werkzeuge mit rein optionalen Parametern einschließt | offen |
-| b | Ausführung über den **Dispatcher**, nicht über die Registry: so gelten Threadwechsel und Audit-Spur auch für den Palettenweg | offen |
-| c | Ergebnis sichtbar machen: `text` bzw. eingerücktes JSON in den Output-Dock, gekappt; Fehler auf `Warning` | offen |
-| d | Einhängen in `showCommandPalette()` als **Vereinigung** — Menü-Actions und die zehn kuratierten Einträge bleiben unverändert | offen |
-| e | Build grün, Tests grün, Commit, Doku/Changelog | offen |
+| a | `src/llm/tools_palette.{h,cpp}`: Registry-Werkzeuge zu `CommandPalette::Command` — **nur die, die ohne Argumente laufen**, geprüft über `validateAgainst(schema, {})`, was auch Werkzeuge mit rein optionalen Parametern einschließt | erledigt |
+| b | Ausführung über den **Dispatcher**, nicht über die Registry: so gelten Threadwechsel und Audit-Spur auch für den Palettenweg | erledigt |
+| c | Ergebnis sichtbar machen: `text` bzw. eingerücktes JSON in den Output-Dock, gekappt; Fehler auf `Warning` | erledigt |
+| d | Einhängen in `showCommandPalette()` als **Vereinigung** — Menü-Actions und die zehn kuratierten Einträge bleiben unverändert | erledigt |
+| e | Build grün, Tests grün, Commit, Doku/Changelog | erledigt |
 
 **Warum Vereinigung und nicht Ersatz:** die Palette bekommt heute rund 120 Menüeinträge samt
 ihrem `enabled`-Zustand geschenkt (`collectMenuCommands`, `mainwindow.cpp:649`). Sie durch die
