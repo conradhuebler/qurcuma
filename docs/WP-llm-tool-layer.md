@@ -147,7 +147,7 @@ Ein Paket = ein baubarer Commit, Build grün nach jedem Schritt.
 | WP | Inhalt | Fertig, wenn | Status |
 |---|---|---|---|
 | **0.1** | `canEditStructure()` (`view.h:363`) liefert zusätzlich `false`, solange `m_simulationActive` gilt; die mutierenden Viewer-APIs kehren früh zurück (Abschnitt 2). | GUI-verhaltensneutral, da die Mauspfade bereits über dieselbe Flagge gesperrt sind. Operator-Sichtprüfung. | **erledigt** (`1ea0317`) |
-| **0.2** | `MoleculeViewer::Atom`/`::Bond` nach `src/core/moleculedata.h`; in `view.h` bleiben Typaliase. `MoleculeFileLoader` zieht heute `view.h` (968 Zeilen, `QWidget`) allein wegen dieser Structs herein. | Build grün **ohne Änderung an den 51 Dateien**, die die Typen verwenden. | offen |
+| **0.2** | `MoleculeViewer::Atom`/`::Bond` nach `src/core/moleculedata.h`; in `view.h` bleiben Typaliase. `MoleculeFileLoader` zieht heute `view.h` (968 Zeilen, `QWidget`) allein wegen dieser Structs herein. | Build grün; 42 Dateien behalten `MoleculeViewer::Atom` unverändert (der Alias fängt sie ab). Der Parse-Pfad (4 Parser + Loader, 10 Dateien) ist echt umgestellt: eine TU mit nur `moleculefileloader.h` übersetzt mit Qt6Core+Qt6Gui allein und zieht **0** QtWidgets-Header, wo `view.h` **10** einzieht. | **erledigt** (`b71baf5`) |
 | **0.3** | `src/core/loghub.{h,cpp}` (QtCore-only) + `qInstallMessageHandler`; `OutputDock` wird Abonnent. | `test_loghub` grün; qurcumas `qDebug`-Meldungen erscheinen im Output-Dock statt nur im Terminal. | offen |
 
 Beim Umsetzen von 0.1 kam zweierlei dazu. Der Spiegel in den Struktur-Texteditor ist ein
