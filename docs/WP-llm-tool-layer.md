@@ -203,21 +203,21 @@ soll — Kandidat für eine getrennte Ansicht oder Filterung nach `source`.
 
 | WP | Inhalt | Fertig, wenn | Status |
 |---|---|---|---|
-| **1.1** | `qurcuma_core`: `ToolSpec`, `ToolResult`, `ToolRegistry`, Schema-Prüfung. `qurcuma_core_init()` ruft `initialize_generated_registry()`. Den `-march`/AVX-Block aus `CMakeLists.txt:288-311` **spiegeln** (Eigen-ABI). | `test_toolregistry` grün; linkt nur `Qt6::Core`/`Qt6::Gui`. | offen |
+| **1.1** *(erledigt `a15a581`)* | `qurcuma_core`: `ToolSpec`, `ToolResult`, `ToolRegistry`, Schema-Prüfung. `qurcuma_core_init()` ruft `initialize_generated_registry()`. Den `-march`/AVX-Block aus `CMakeLists.txt:288-311` **spiegeln** (Eigen-ABI). | `test_toolregistry` grün (37 Prüfungen); über `compile_commands.json` belegt, dass beide Kern-TUs weder QtWidgets noch Quick3D, QtCharts oder curcuma im Include-Pfad haben. | **erledigt** |
 | **1.2** | GUI-Thread-Marshalling im Dispatcher (`BlockingQueuedConnection` + Timeout); Audit-Spur in den `LogHub`. | `test_toolregistry_threading` grün. | offen |
 | **1.3** | ~12 lesende Werkzeuge (`src/llm/tools_view.cpp`), Analyse über `moleculebridge` gegen `curcuma::Molecule`: `get_structure_summary`, `list_atoms`, `select_atoms` (FragString-Grammatik), `get_selection`, `get_fragments`, `measure`, `get_frame_info`, `read_log`, `list_workdir`, `get_camera`, `get_display`, `describe_tools`. | Headless aufrufbar, soweit ohne GUI möglich. | offen |
 | **1.4** | **Vorführbar #1:** Command-Palette zeigt Menü-Actions **plus** parameterlose Registry-Werkzeuge (Vereinigung, kein Ersatz — die Palette bekommt heute ~120 Menüeinträge samt `enabled`-Zustand geschenkt). | Ctrl+K führt Registry-Werkzeuge aus. | offen |
 
-#### WP1.1 im Einzelnen (Stand: in Arbeit)
+#### WP1.1 im Einzelnen — **erledigt** (`a15a581`)
 
 | # | Schritt | Status |
 |---|---|---|
-| a | `src/core/tool.h`: `ToolEffect`, `ToolAffinity`, `ToolResult` (inkl. `image`, `truncated`), `ToolSpec` — reine Wertetypen, ohne Registry | offen |
-| b | `src/core/toolregistry.{h,cpp}`: Registrierung (lehnt Doppelnamen und fehlerhafte Schemata **beim Anmelden** ab), Nachschlagen, Auflisten, `validate()`, `invoke()` | offen |
-| c | Schema-Prüfung: `type`/`required`/`enum`/`minimum`/`maximum` und **Ablehnung unbekannter Schlüssel** | offen |
-| d | `test_toolregistry`: Wohlgeformtheit, fehlende Pflichtfelder, Typfehler, `enum`-Verstoß, unbekannter Schlüssel, Doppelanmeldung, `invoke`-Durchlauf | offen |
-| e | CMake: statische Bibliothek `qurcuma_core` (nur `Qt6::Core`/`Qt6::Gui`), `loghub` und `moleculedata` ziehen um, `qurcuma` linkt sie, Testziel | offen |
-| f | Build grün, Tests grün, Commit, Doku/Changelog | offen |
+| a | `src/core/tool.h`: `ToolEffect`, `ToolAffinity`, `ToolResult` (inkl. `image`, `truncated`), `ToolSpec` — reine Wertetypen, ohne Registry | erledigt |
+| b | `src/core/toolregistry.{h,cpp}`: Registrierung (lehnt Doppelnamen und fehlerhafte Schemata **beim Anmelden** ab), Nachschlagen, Auflisten, `validate()`, `invoke()` | erledigt |
+| c | Schema-Prüfung: `type`/`required`/`enum`/`minimum`/`maximum` und **Ablehnung unbekannter Schlüssel** | erledigt |
+| d | `test_toolregistry`: Wohlgeformtheit, fehlende Pflichtfelder, Typfehler, `enum`-Verstoß, unbekannter Schlüssel, Doppelanmeldung, `invoke`-Durchlauf | erledigt |
+| e | CMake: statische Bibliothek `qurcuma_core` (nur `Qt6::Core`/`Qt6::Gui`), `loghub` und `moleculedata` ziehen um, `qurcuma` linkt sie, Testziel | erledigt |
+| f | Build grün, Tests grün, Commit, Doku/Changelog | erledigt |
 
 **Abweichung vom Plantext, bewusst:** der Plan sah ein `qurcuma_core_init()` vor, das curcumas
 `initialize_generated_registry()` ruft. Das erzwänge eine curcuma-Abhängigkeit für eine
