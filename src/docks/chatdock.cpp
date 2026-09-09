@@ -8,7 +8,10 @@
 #include "llm/llmsession.h"
 #include "widgets/collapsiblesection.h"
 
+#include <QClipboard>
 #include <QComboBox>
+#include <QGuiApplication>
+#include <QIcon>
 #include <QHBoxLayout>
 #include <QJsonDocument>
 #include <QLabel>
@@ -40,6 +43,14 @@ void ChatDock::setupUI()
     title->setStyleSheet(QStringLiteral("font-weight: bold;"));
     header->addWidget(title);
     header->addStretch();
+    m_copyButton = new QPushButton(content);
+    m_copyButton->setIcon(QIcon::fromTheme(QStringLiteral("edit-copy")));
+    m_copyButton->setToolTip(tr("Copy the whole conversation, including the reasoning, "
+                                "to the clipboard"));
+    m_copyButton->setMaximumWidth(30);
+    connect(m_copyButton, &QPushButton::clicked, this, &ChatDock::copyTranscript);
+    header->addWidget(m_copyButton);
+
     m_profileBox = new QComboBox(content);
     m_profileBox->setToolTip(tr("Endpoint profile (~/.config/qurcuma/llm.json)"));
     connect(m_profileBox, &QComboBox::currentTextChanged, this, &ChatDock::profileChanged);
@@ -116,12 +127,48 @@ QLabel* ChatDock::addBlock(const QString& who, const QString& text, const QStrin
     label->setTextFormat(Qt::RichText);
     label->setProperty("who", who);
     label->setProperty("colour", colour);
+    // Every block keeps its unescaped text, not just the streamed answer: that is
+    // what transcript() reads, and recovering it from the rendered HTML would be a
+    // second escaping bug waiting to happen.
+    label->setProperty("plain", text);
     label->setText(QStringLiteral("<b style=\"color:%1\">%2:</b> %3")
                        .arg(colour, who.toHtmlEscaped(), text.toHtmlEscaped()));
     // Before the trailing stretch, so the column keeps growing downwards.
     m_messageLayout->insertWidget(m_messageLayout->count() - 1, label);
     scrollToEnd();
     return label;
+}
+
+QString ChatDock::transcript() const
+{
+    if (!m_messageLayout)
+        return QString();
+
+    QStringList lines;
+    for (int i = 0; i < m_messageLayout->count(); ++i) {
+        QWidget* widget = m_messageLayout->itemAt(i)->widget();
+        if (!widget)
+            continue;   // the trailing stretch
+        if (auto* label = qobject_cast<QLabel*>(widget)) {
+            lines << QStringLiteral("%1: %2").arg(label->property("who").toString(),
+                                                  label->property("plain").toString());
+        } else if (auto* section = qobject_cast<CollapsibleSection*>(widget)) {
+            // Folded or not: the reasoning is part of what happened, and someone
+            // pasting a session elsewhere wants it.
+            if (auto* text = section->findChild<QTextEdit*>())
+                lines << QStringLiteral("[%1]\n%2").arg(section->title(), text->toPlainText());
+        }
+    }
+    return lines.join(QStringLiteral("\n\n"));
+}
+
+void ChatDock::copyTranscript()
+{
+    const QString text = transcript();
+    QGuiApplication::clipboard()->setText(text);
+    setStatus(text.isEmpty()
+            ? tr("Nothing to copy yet.")
+            : tr("Conversation copied — %1 characters.").arg(QLocale().toString(text.size())));
 }
 
 void ChatDock::scrollToEnd()

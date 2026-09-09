@@ -55,6 +55,17 @@ public:
     /// A line above the input, for "no endpoint configured" and the like.
     void setStatus(const QString& text, bool isError = false);
 
+    /// The whole conversation as plain text: every block with its label, and the
+    /// reasoning of each turn even while it is folded away. The column of widgets
+    /// that makes the folding possible is also what makes a mouse selection stop
+    /// at the first block boundary, so the transcript is assembled rather than
+    /// selected. Claude Generated 2026.
+    QString transcript() const;
+
+public slots:
+    /// Put transcript() on the clipboard.
+    void copyTranscript();
+
 signals:
     /// The user picked another endpoint profile.
     void profileChanged(const QString& name);
@@ -88,6 +99,7 @@ private:
     QComboBox* m_modelBox = nullptr;
     QLabel* m_modelInfo = nullptr;
     QLabel* m_status = nullptr;
+    QPushButton* m_copyButton = nullptr;
 
     /// Widgets of the turn in progress. Null between turns.
     QLabel* m_currentAnswer = nullptr;

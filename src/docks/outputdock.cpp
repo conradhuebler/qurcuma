@@ -8,7 +8,10 @@
 
 #include "core/loghub.h"
 
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollBar>
@@ -35,6 +38,13 @@ void OutputDock::setupUI()
     outputHeaderLayout->addWidget(outputLabel);
     outputHeaderLayout->addStretch();
 
+    QPushButton* copyOutputButton = new QPushButton;
+    copyOutputButton->setIcon(QIcon::fromTheme(QStringLiteral("edit-copy")));
+    copyOutputButton->setToolTip(tr("Copy the log (the selection, or all of it)"));
+    copyOutputButton->setMaximumWidth(30);
+    connect(copyOutputButton, &QPushButton::clicked, this, &OutputDock::copyOutput);
+    outputHeaderLayout->addWidget(copyOutputButton);
+
     QPushButton* clearOutputButton = new QPushButton;
     clearOutputButton->setIcon(QIcon::fromTheme(QStringLiteral("edit-clear")));
     clearOutputButton->setToolTip(tr("Clear output (Ctrl+L)"));
@@ -55,6 +65,18 @@ void OutputDock::setupUI()
 QTextEdit* OutputDock::outputView() const
 {
     return m_outputView;
+}
+
+void OutputDock::copyOutput()
+{
+    if (!m_outputView)
+        return;
+    const QString selected = m_outputView->textCursor().selectedText();
+    // selectedText() joins lines with U+2029; the clipboard wants real newlines.
+    const QString text = selected.isEmpty()
+        ? m_outputView->toPlainText()
+        : QString(selected).replace(QChar(0x2029), QLatin1Char('\n'));
+    QGuiApplication::clipboard()->setText(text);
 }
 
 void OutputDock::appendOutput(const QString& text)

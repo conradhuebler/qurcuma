@@ -24,6 +24,9 @@ public:
     void setExpanded(bool expanded);
     /// Current expand state (for persistence). Claude Generated 2026.
     bool isExpanded() const;
+    /// The header text. Claude Generated 2026 - the chat transcript labels each
+    /// folded section by it, so it has to be readable back out.
+    QString title() const;
 
 signals:
     /// Claude Generated 2026 - fired on every expand/collapse (user click or

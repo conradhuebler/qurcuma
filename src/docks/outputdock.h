@@ -38,6 +38,11 @@ public:
 public slots:
     void appendOutput(const QString& text);
     void clearOutput();
+    /// Copy the log to the clipboard: the selection if there is one, otherwise the
+    /// whole thing. Claude Generated 2026 - the window-wide Ctrl+C used to reach
+    /// the structure text no matter where the focus was, so a log line could not
+    /// be got out of the program at all.
+    void copyOutput();
     /// Replace the whole log with @p text; optionally scroll to the bottom.
     void setText(const QString& text, bool scrollToBottom = false);
 

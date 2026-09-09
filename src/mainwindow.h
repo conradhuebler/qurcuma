@@ -237,6 +237,11 @@ private slots:
     void createNewDirectory();
 
 private:
+    /// Let a focused text widget answer Ctrl+C itself; true when it did. A helper,
+    /// not a slot: the Edit-menu Copy calls it before falling back to the
+    /// structure. Claude Generated 2026.
+    bool copySelectedTextFromFocusWidget();
+
     void setupUI();
     void createToolbars();
     void createModeBar();                       // Claude Generated 2026 - P2 Explore/Compute switch

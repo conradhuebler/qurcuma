@@ -56,3 +56,8 @@ void CollapsibleSection::setTitle(const QString& title)
     if (m_header)
         m_header->setText(title);
 }
+
+QString CollapsibleSection::title() const
+{
+    return m_header ? m_header->text() : QString();
+}

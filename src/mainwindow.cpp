@@ -926,6 +926,12 @@ void MainWindow::createMenus()
     copyAction->setShortcut(QKeySequence::Copy);
     copyAction->setToolTip(tr("Edit mode: copy the selected atoms. Otherwise: copy the structure text."));
     connect(copyAction, &QAction::triggered, this, [this]() {
+        // A window-level shortcut beats a widget's own key handling, so this used
+        // to put the 3D structure on the clipboard even when the user had text
+        // selected in the chat or the log -- there was no way to get a line of
+        // either out of the program. Selected text wins now.
+        if (copySelectedTextFromFocusWidget())
+            return;
         if (m_moleculeView && m_moleculeView->editMode() && !m_moleculeView->getSelectedAtoms().isEmpty()) {
             m_moleculeView->copySelection();
             statusBar()->showMessage(tr("Copied %1 atom(s)").arg(m_moleculeView->getSelectedAtoms().size()), 2000);
@@ -3302,6 +3308,45 @@ void MainWindow::mergeFileIntoScene(const QString& filePath)
     m_moleculeView->appendMolecule(atoms, bonds);  // selects new atoms + enters placement
     statusBar()->showMessage(
         tr("Added %1 atoms — drag to place, then Resolve clashes if needed").arg(atoms.size()), 3000);
+}
+
+// Claude Generated 2026 - Let a focused text widget answer Ctrl+C itself.
+// Returns true when it did, i.e. when there was a selection to copy. Only the
+// classes that actually carry text are asked; a QAction shortcut fires before any
+// widget sees the key, so without this the Edit-menu Copy swallowed every Ctrl+C
+// in the window.
+bool MainWindow::copySelectedTextFromFocusWidget()
+{
+    QWidget* focus = QApplication::focusWidget();
+    if (!focus)
+        return false;
+
+    if (auto* edit = qobject_cast<QTextEdit*>(focus)) {
+        if (!edit->textCursor().hasSelection())
+            return false;
+        edit->copy();
+        return true;
+    }
+    if (auto* edit = qobject_cast<QPlainTextEdit*>(focus)) {
+        if (!edit->textCursor().hasSelection())
+            return false;
+        edit->copy();
+        return true;
+    }
+    if (auto* edit = qobject_cast<QLineEdit*>(focus)) {
+        if (!edit->hasSelectedText())
+            return false;
+        edit->copy();
+        return true;
+    }
+    if (auto* label = qobject_cast<QLabel*>(focus)) {
+        // The chat blocks are labels; selectable, but with no copy() of their own.
+        if (!label->hasSelectedText())
+            return false;
+        QGuiApplication::clipboard()->setText(label->selectedText());
+        return true;
+    }
+    return false;
 }
 
 void MainWindow::copyStructureToClipboard()
