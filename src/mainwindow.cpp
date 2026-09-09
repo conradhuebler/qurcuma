@@ -70,8 +70,12 @@
 #include <QString>
 #include "view.h"
 #include "moleculefileloader.h"  // Claude Generated 2026 - unified structure-file reader
-#include "calculationrunner.h"
-#include "core/loghub.h"  // Claude Generated 2026 - Output dock follows the log hub  // Claude Generated 2026 - WP T3 external-process orchestration
+#include "calculationrunner.h"  // Claude Generated 2026 - WP T3 external-process orchestration
+#include "core/loghub.h"       // Claude Generated 2026 - Output dock follows the log hub
+#include "core/tooldispatcher.h"  // Claude Generated 2026 - tool layer
+#include "core/toolregistry.h"
+#include "core/tools_core.h"
+#include "llm/tools_view.h"
 #include "lessoncontroller.h"  // Claude Generated 2026 - WP T4 lesson feature controller
 #include "frequencydialog.h"
 #include "displaypanel.h"
@@ -4290,6 +4294,22 @@ void MainWindow::createDockWidgets()
     // terminal. The hub already holds whatever was logged during startup.
     if (m_outputViewDock)
         m_outputViewDock->followLogHub(&LogHub::instance());
+
+    // Claude Generated 2026 - The tool layer. Registration is by whoever owns the
+    // capability: the core registers what needs only the log and the catalogue,
+    // MainWindow registers what reaches the viewer. The dispatcher is created here,
+    // on the GUI thread, because that is the thread Gui-affinity handlers get
+    // marshalled to.
+    if (!m_toolDispatcher) {
+        registerCoreTools(ToolRegistry::instance(), LogHub::instance());
+        ViewToolContext toolContext;
+        toolContext.viewer = m_moleculeView;
+        toolContext.workingDirectory = [this] { return m_workingDirectory; };
+        registerViewTools(ToolRegistry::instance(), toolContext);
+        m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), &LogHub::instance(), this);
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+            tr("%1 tools registered").arg(ToolRegistry::instance().size()));
+    }
     m_displayDock = m_dockManager->displayDockImpl();
     m_simulationDock = m_dockManager->simulationDockImpl();
     // Pull the wrapped internal widgets into MainWindow members so the rest of the

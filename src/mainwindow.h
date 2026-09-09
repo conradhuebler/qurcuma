@@ -71,6 +71,7 @@ class LessonController;          // Claude Generated 2026 - WP T4 lesson feature
 class ChartDock;                // Claude Generated 2026 - live charts dock
 class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog
 class CalculationRunner;        // Claude Generated 2026 - WP T3 external-process orchestration
+class ToolDispatcher;           // Claude Generated 2026 - tool layer (core/tooldispatcher.h)
 
 
 // CalculationEntry + the calculations.json persistence live here now.
@@ -329,6 +330,7 @@ private:
     Settings m_settings;
     // Claude Generated 2026 - WP T3: owns the calculation QProcess + completer commands.
     CalculationRunner* m_calculationRunner = nullptr;
+    ToolDispatcher* m_toolDispatcher = nullptr;  // Claude Generated 2026 - runs tools on the right thread
 
     // Claude Generated 2026 - Docked viewer display options (replaces the modal dialog)
     DisplayPanel* m_displayPanel = nullptr;
