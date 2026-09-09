@@ -17,6 +17,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
+#include <QStringList>
 #include <QString>
 
 class QNetworkAccessManager;
@@ -40,6 +41,20 @@ public:
     /// OpenAI shape. Exactly one of finished()/failed() follows.
     void send(const QJsonArray& messages, const QJsonArray& tools = {});
 
+    /// Override the profile's model for this session. Empty falls back to the
+    /// profile's own, and if that is empty too a send() fails with a clear reason.
+    void setModel(const QString& model);
+    QString effectiveModel() const;
+
+    /// Ask the endpoint which models it serves (GET /v1/models). One request.
+    void listModels();
+
+    /// Ask about one model: context length and capabilities. Ollama answers this
+    /// on its native /api/show; other endpoints do not, and then the reply carries
+    /// detailsKnown = false rather than a guess. One request, on demand -- asking
+    /// for all of them on every profile switch would be two dozen.
+    void describeModel(const QString& id);
+
     /// Abort the request in flight. failed() is not emitted for a cancellation.
     void cancel();
     bool isBusy() const { return m_reply != nullptr; }
@@ -50,12 +65,23 @@ signals:
     void finished(const QJsonObject& assistantMessage);
     /// Transport, HTTP or protocol failure, in words a user can act on.
     void failed(const QString& error);
+    /// Answer to listModels(); empty when the endpoint offers no listing.
+    void modelsListed(const QStringList& models);
+    /// Answer to describeModel().
+    void modelDescribed(const LlmModelInfo& info);
 
 private:
     void handleReply();
+    void handleModelList();
+    void handleModelDetails(const QString& id);
+    /// Base URL with the trailing "/v1" removed, for Ollama's native endpoints.
+    QString nativeBase() const;
 
     QNetworkAccessManager* m_network = nullptr;
     QNetworkReply* m_reply = nullptr;
+    QNetworkReply* m_listReply = nullptr;
+    QNetworkReply* m_detailReply = nullptr;
     LlmProfile m_profile;
+    QString m_model;   ///< session override; empty = use the profile's
     QString m_apiKey;
 };

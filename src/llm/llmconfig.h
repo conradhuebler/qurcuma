@@ -13,16 +13,34 @@
 #include <QString>
 #include <QVector>
 
+/// What an endpoint says about one of its models.
+///
+/// Claude Generated 2026 - The OpenAI /v1/models listing is only a list of names.
+/// Ollama additionally answers /api/show with the context length and, more
+/// usefully, a capability list: whether the model can call tools at all and
+/// whether it can see images. Both are asked lazily for the selected model, and
+/// both degrade to "unknown" against an endpoint that does not offer them.
+struct LlmModelInfo {
+    QString id;
+    int contextLength = 0;        ///< tokens; 0 = not reported
+    bool supportsTools = false;
+    bool supportsVision = false;
+    bool detailsKnown = false;    ///< false when the endpoint told us nothing
+};
+
 struct LlmProfile {
     QString name;            ///< how the profile is referred to, e.g. "local"
     QString baseUrl;         ///< e.g. "http://localhost:11434/v1"
-    QString model;           ///< e.g. "qwen2.5:14b"
+    /// Preferred model. May be empty: which models exist is a property of the
+    /// endpoint, not of this file, and guessing one produces a first run that
+    /// fails for no reason. The client asks the endpoint and the user picks.
+    QString model;
     QString apiKeyEnv;       ///< NAME of the env var holding the key; never the key
     bool supportsVision = false;  ///< may be sent images (render_view)
     int maxToolIterations = 12;   ///< stop an agent loop that will not converge
     int requestTimeoutMs = 120000;
 
-    bool isValid() const { return !name.isEmpty() && !baseUrl.isEmpty() && !model.isEmpty(); }
+    bool isValid() const { return !name.isEmpty() && !baseUrl.isEmpty(); }
     /// Full endpoint for a chat completion, with exactly one slash at the join.
     QString chatCompletionsUrl() const;
 };

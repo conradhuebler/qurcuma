@@ -67,7 +67,7 @@ bool LlmConfig::loadFromJson(const QByteArray& json, QString* error)
                             .arg(p.name.isEmpty() ? QStringLiteral("<unnamed>") : p.name));
         }
         if (!p.isValid()) {
-            return fail(QStringLiteral("profile \"%1\" needs name, base_url and model")
+            return fail(QStringLiteral("profile \"%1\" needs a name and a base_url")
                             .arg(p.name.isEmpty() ? QStringLiteral("<unnamed>") : p.name));
         }
         parsed.append(p);
@@ -117,7 +117,8 @@ bool LlmConfig::writeExampleIfMissing(const QString& path, QString* error)
     "No API key belongs in this file. 'api_key_env' names the environment variable",
     "the key is read from, so this file can be shared or committed safely.",
     "Any OpenAI-compatible endpoint works; base_url is the part before /chat/completions.",
-    "The model must actually exist at that endpoint -- for Ollama, check 'ollama list'.",
+    "Leave 'model' empty to pick from whatever the endpoint offers; the Assistant dock",
+    "lists them and remembers your choice. A name here is only the preferred default.",
     "Tool calling depends on the model, not on the endpoint: a model that cannot call tools",
     "will answer in prose and never touch the structure."
   ],
@@ -126,7 +127,7 @@ bool LlmConfig::writeExampleIfMissing(const QString& path, QString* error)
     {
       "name": "local",
       "base_url": "http://localhost:11434/v1",
-      "model": "qwen2.5:14b",
+      "model": "",
       "api_key_env": "",
       "supports_vision": false,
       "max_tool_iterations": 12

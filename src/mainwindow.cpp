@@ -5343,6 +5343,31 @@ void MainWindow::setupAssistant()
     m_chatDock->attachSession(m_llmSession);
     connect(m_chatDock, &ChatDock::profileChanged, this, &MainWindow::applyLlmProfile);
 
+    // Which models exist belongs to the endpoint, so it is asked rather than
+    // guessed, and the answer is remembered per profile.
+    connect(m_llmClient, &LlmClient::modelsListed, this, [this](const QStringList& models) {
+        if (!m_chatDock)
+            return;
+        const QString profileName = m_chatDock->currentProfile();
+        QSettings settings;
+        QString remembered = settings.value(QStringLiteral("llm/model/%1").arg(profileName)).toString();
+        if (remembered.isEmpty() || !models.contains(remembered))
+            remembered = models.value(0);
+        m_chatDock->setModels(models, remembered);
+    });
+    connect(m_llmClient, &LlmClient::modelDescribed, this, [this](const LlmModelInfo& info) {
+        if (m_chatDock)
+            m_chatDock->setModelInfo(info);
+    });
+    connect(m_chatDock, &ChatDock::modelChanged, this, [this](const QString& model) {
+        if (!m_llmClient || model.isEmpty())
+            return;
+        m_llmClient->setModel(model);
+        QSettings settings;
+        settings.setValue(QStringLiteral("llm/model/%1").arg(m_chatDock->currentProfile()), model);
+        m_llmClient->describeModel(model);
+    });
+
     LlmConfig config;
     if (!config.load(configPath, &error)) {
         m_chatDock->setStatus(tr("No usable endpoint configuration: %1").arg(error), true);
@@ -5387,8 +5412,12 @@ void MainWindow::applyLlmProfile(const QString& name)
             tr("%1 is not set in the environment; %2 will refuse the request.")
                 .arg(profile.apiKeyEnv, profile.name), true);
     } else {
-        m_chatDock->setStatus(tr("%1 · %2").arg(profile.name, profile.model));
+        m_chatDock->setStatus(profile.baseUrl);
     }
+
+    // Ask the endpoint what it serves. The answer repopulates the model box, which
+    // is what makes a profile without a "model" entry usable at all.
+    m_llmClient->listModels();
 }
 
 bool MainWindow::approveToolCall(const ToolSpec& spec, const QJsonObject& args)

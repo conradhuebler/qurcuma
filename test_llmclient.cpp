@@ -209,6 +209,99 @@ int main(int argc, char** argv)
             "sending without a configured profile fails immediately and says so");
     }
 
+    // --- model discovery ----------------------------------------------------
+    // Shapes taken from a real Ollama (09.09.2026): /v1/models is the plain OpenAI
+    // listing, and /api/show carries the capability list plus a context length
+    // under an architecture-prefixed key.
+    {
+        LlmClient client;
+        client.setProfile(profile);
+        server.reply(200, R"JSON({"object":"list","data":[
+            {"id":"zeta:latest"},{"id":"alpha:cloud"},{"id":"mid:9b"}]})JSON");
+
+        QEventLoop loop;
+        QStringList got;
+        QObject::connect(&client, &LlmClient::modelsListed, &loop, [&](const QStringList& m) {
+            got = m;
+            loop.quit();
+        });
+        QTimer::singleShot(5000, &loop, [&loop] { loop.quit(); });
+        client.listModels();
+        loop.exec();
+
+        check(got.size() == 3, "the model listing is read");
+        check(got == QStringList({ "alpha:cloud", "mid:9b", "zeta:latest" }),
+            "and sorted, so the box does not reshuffle between runs");
+    }
+    {
+        LlmClient client;
+        client.setProfile(profile);
+        server.reply(200, R"JSON({"capabilities":["completion","thinking","tools","vision"],
+            "model_info":{"glm5_next.context_length":1048576,"general.architecture":"glm5_next"}})JSON");
+
+        QEventLoop loop;
+        LlmModelInfo info;
+        QObject::connect(&client, &LlmClient::modelDescribed, &loop, [&](const LlmModelInfo& i) {
+            info = i;
+            loop.quit();
+        });
+        QTimer::singleShot(5000, &loop, [&loop] { loop.quit(); });
+        client.describeModel(QStringLiteral("glm-5.3-flash:cloud"));
+        loop.exec();
+
+        check(info.detailsKnown, "the endpoint's model details are read");
+        check(info.supportsTools, "and say whether it can call tools at all");
+        check(info.supportsVision, "and whether it can see images");
+        check(info.contextLength == 1048576,
+            "the context length is found under its architecture-prefixed key");
+    }
+    {
+        // An endpoint that is not Ollama answers this with an error page. That is
+        // not a failure worth reporting -- the extra detail is a bonus.
+        LlmClient client;
+        client.setProfile(profile);
+        server.reply(404, "<html>not found</html>", "text/html");
+
+        QEventLoop loop;
+        LlmModelInfo info;
+        info.detailsKnown = true;  // must be overwritten
+        QObject::connect(&client, &LlmClient::modelDescribed, &loop, [&](const LlmModelInfo& i) {
+            info = i;
+            loop.quit();
+        });
+        QTimer::singleShot(5000, &loop, [&loop] { loop.quit(); });
+        client.describeModel(QStringLiteral("whatever"));
+        loop.exec();
+        check(!info.detailsKnown,
+            "an endpoint without that facility yields \"unknown\" rather than a guess");
+    }
+
+    // --- which model actually gets sent -------------------------------------
+    {
+        LlmProfile withModel = profile;
+        withModel.model = QStringLiteral("from-profile");
+        LlmClient client;
+        client.setProfile(withModel);
+        check(client.effectiveModel() == QLatin1String("from-profile"),
+            "the profile's model is used when nothing overrides it");
+        client.setModel(QStringLiteral("from-ui"));
+        check(client.effectiveModel() == QLatin1String("from-ui"),
+            "and the session's choice wins over it");
+    }
+    {
+        LlmProfile modelless = profile;
+        modelless.model.clear();
+        check(modelless.isValid(),
+            "a profile without a model is still valid -- the model is picked from the endpoint");
+        LlmClient client;
+        client.setProfile(modelless);
+        QJsonObject message;
+        QString error;
+        check(!roundTrip(client, messages, {}, message, error)
+                && error.contains(QStringLiteral("no model")),
+            "but sending without any model fails with a reason, not an empty request");
+    }
+
     std::printf("%s (%d failed)\n", g_failed ? "FAIL" : "PASS", g_failed);
     return g_failed ? 1 : 0;
 }

@@ -4,6 +4,7 @@
 
 #include "llmclient.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -28,6 +29,112 @@ void LlmClient::setApiKey(const QString& key)
     m_apiKey = key;
 }
 
+void LlmClient::setModel(const QString& model)
+{
+    m_model = model;
+}
+
+QString LlmClient::effectiveModel() const
+{
+    return m_model.isEmpty() ? m_profile.model : m_model;
+}
+
+QString LlmClient::nativeBase() const
+{
+    QString base = m_profile.baseUrl;
+    while (base.endsWith(QLatin1Char('/')))
+        base.chop(1);
+    if (base.endsWith(QLatin1String("/v1")))
+        base.chop(3);
+    return base;
+}
+
+void LlmClient::listModels()
+{
+    if (!m_profile.isValid() || m_listReply)
+        return;
+    QString base = m_profile.baseUrl;
+    while (base.endsWith(QLatin1Char('/')))
+        base.chop(1);
+
+    QNetworkRequest request { QUrl(base + QStringLiteral("/models")) };
+    if (!m_apiKey.isEmpty())
+        request.setRawHeader("Authorization", QByteArray("Bearer ") + m_apiKey.toUtf8());
+    request.setTransferTimeout(15000);
+    m_listReply = m_network->get(request);
+    connect(m_listReply, &QNetworkReply::finished, this, &LlmClient::handleModelList);
+}
+
+void LlmClient::handleModelList()
+{
+    QNetworkReply* reply = m_listReply;
+    if (!reply)
+        return;
+    m_listReply = nullptr;
+    reply->deleteLater();
+
+    QStringList models;
+    const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
+    for (const QJsonValue& value : root.value(QStringLiteral("data")).toArray()) {
+        const QString id = value.toObject().value(QStringLiteral("id")).toString();
+        if (!id.isEmpty())
+            models << id;
+    }
+    models.sort(Qt::CaseInsensitive);
+    emit modelsListed(models);
+}
+
+void LlmClient::describeModel(const QString& id)
+{
+    if (id.isEmpty() || m_detailReply)
+        return;
+
+    // Ollama's native endpoint. Anything else answers 404 or HTML, which is not an
+    // error worth reporting -- the extra information is a bonus, not a requirement.
+    QNetworkRequest request { QUrl(nativeBase() + QStringLiteral("/api/show")) };
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setTransferTimeout(15000);
+
+    QJsonObject body;
+    body.insert(QStringLiteral("model"), id);
+    m_detailReply = m_network->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
+    connect(m_detailReply, &QNetworkReply::finished, this,
+        [this, id] { handleModelDetails(id); });
+}
+
+void LlmClient::handleModelDetails(const QString& id)
+{
+    QNetworkReply* reply = m_detailReply;
+    if (!reply)
+        return;
+    m_detailReply = nullptr;
+    reply->deleteLater();
+
+    LlmModelInfo info;
+    info.id = id;
+
+    const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
+    const QJsonArray capabilities = root.value(QStringLiteral("capabilities")).toArray();
+    for (const QJsonValue& value : capabilities) {
+        const QString capability = value.toString();
+        if (capability == QLatin1String("tools"))
+            info.supportsTools = true;
+        else if (capability == QLatin1String("vision"))
+            info.supportsVision = true;
+    }
+    // The key is architecture-prefixed (glm5_next.context_length, llama.context_length,
+    // ...), so look for the suffix rather than guessing the architecture.
+    const QJsonObject modelInfo = root.value(QStringLiteral("model_info")).toObject();
+    for (auto it = modelInfo.begin(); it != modelInfo.end(); ++it) {
+        if (it.key().endsWith(QLatin1String(".context_length"))) {
+            info.contextLength = it.value().toInt();
+            break;
+        }
+    }
+    info.detailsKnown = !capabilities.isEmpty() || info.contextLength > 0;
+    emit modelDescribed(info);
+}
+
 void LlmClient::send(const QJsonArray& messages, const QJsonArray& tools)
 {
     if (m_reply) {
@@ -39,8 +146,15 @@ void LlmClient::send(const QJsonArray& messages, const QJsonArray& tools)
         return;
     }
 
+    const QString model = effectiveModel();
+    if (model.isEmpty()) {
+        emit failed(tr("no model is selected -- pick one in the Assistant dock, or set "
+                       "\"model\" in the profile"));
+        return;
+    }
+
     QJsonObject body;
-    body.insert(QStringLiteral("model"), m_profile.model);
+    body.insert(QStringLiteral("model"), model);
     body.insert(QStringLiteral("messages"), messages);
     if (!tools.isEmpty()) {
         body.insert(QStringLiteral("tools"), tools);
