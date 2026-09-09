@@ -208,6 +208,22 @@ soll — Kandidat für eine getrennte Ansicht oder Filterung nach `source`.
 | **1.3** | ~12 lesende Werkzeuge (`src/llm/tools_view.cpp`), Analyse über `moleculebridge` gegen `curcuma::Molecule`: `get_structure_summary`, `list_atoms`, `select_atoms` (FragString-Grammatik), `get_selection`, `get_fragments`, `measure`, `get_frame_info`, `read_log`, `list_workdir`, `get_camera`, `get_display`, `describe_tools`. | Headless aufrufbar, soweit ohne GUI möglich. | offen |
 | **1.4** | **Vorführbar #1:** Command-Palette zeigt Menü-Actions **plus** parameterlose Registry-Werkzeuge (Vereinigung, kein Ersatz — die Palette bekommt heute ~120 Menüeinträge samt `enabled`-Zustand geschenkt). | Ctrl+K führt Registry-Werkzeuge aus. | offen |
 
+#### WP1.1 im Einzelnen (Stand: in Arbeit)
+
+| # | Schritt | Status |
+|---|---|---|
+| a | `src/core/tool.h`: `ToolEffect`, `ToolAffinity`, `ToolResult` (inkl. `image`, `truncated`), `ToolSpec` — reine Wertetypen, ohne Registry | offen |
+| b | `src/core/toolregistry.{h,cpp}`: Registrierung (lehnt Doppelnamen und fehlerhafte Schemata **beim Anmelden** ab), Nachschlagen, Auflisten, `validate()`, `invoke()` | offen |
+| c | Schema-Prüfung: `type`/`required`/`enum`/`minimum`/`maximum` und **Ablehnung unbekannter Schlüssel** | offen |
+| d | `test_toolregistry`: Wohlgeformtheit, fehlende Pflichtfelder, Typfehler, `enum`-Verstoß, unbekannter Schlüssel, Doppelanmeldung, `invoke`-Durchlauf | offen |
+| e | CMake: statische Bibliothek `qurcuma_core` (nur `Qt6::Core`/`Qt6::Gui`), `loghub` und `moleculedata` ziehen um, `qurcuma` linkt sie, Testziel | offen |
+| f | Build grün, Tests grün, Commit, Doku/Changelog | offen |
+
+**Abweichung vom Plantext, bewusst:** der Plan sah ein `qurcuma_core_init()` vor, das curcumas
+`initialize_generated_registry()` ruft. Das erzwänge eine curcuma-Abhängigkeit für eine
+Bibliothek, die keine braucht — die Registry selbst kennt curcuma nicht. `main.cpp:25` ruft es
+bereits; der Helfer entsteht dort, wo der erste curcuma-berührende Kern-Code liegt (Phase 4).
+
 ### Phase 2 — Das LLM (erstes sichtbares Feature, ohne curcuma-Änderung)
 
 | WP | Inhalt | Fertig, wenn | Status |
