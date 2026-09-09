@@ -171,6 +171,7 @@ set(SOURCES
     src/xyzparser.cpp
     src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
     src/llm/tools_view.cpp  # Claude Generated 2026 - read-only tools over the viewer
+    src/llm/tools_palette.cpp  # Claude Generated 2026 - tools in the command palette
     src/calculationhistory.cpp  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.cpp  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.cpp
@@ -238,6 +239,7 @@ set(HEADERS
     src/xyzparser.h
     src/moleculefileloader.h  # Claude Generated 2026 - unified structure-file reader
     src/llm/tools_view.h  # Claude Generated 2026 - read-only tools over the viewer
+    src/llm/tools_palette.h  # Claude Generated 2026 - tools in the command palette
     src/calculationhistory.h  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.h  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.h

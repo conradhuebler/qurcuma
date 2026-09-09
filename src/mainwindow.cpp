@@ -76,6 +76,7 @@
 #include "core/toolregistry.h"
 #include "core/tools_core.h"
 #include "llm/tools_view.h"
+#include "llm/tools_palette.h"
 #include "lessoncontroller.h"  // Claude Generated 2026 - WP T4 lesson feature controller
 #include "frequencydialog.h"
 #include "displaypanel.h"
@@ -710,8 +711,50 @@ void MainWindow::showCommandPalette()
     add(tr("Select All Atoms"), tr("Selection"), [this]() { selectAllAtoms(); });
     add(tr("Clear Selection"), tr("Selection"), [this]() { clearAtomSelection(); });
 
+    // Claude Generated 2026 - Registry tools, ADDED to the menu entries above. Only
+    // those that run without arguments; the rest need a caller that can supply them.
+    // Routed through the dispatcher, so the palette path gets the same GUI-thread
+    // marshalling and the same audit record as the one a model will take.
+    if (m_toolDispatcher) {
+        cmds += paletteCommandsForTools(ToolRegistry::instance(), m_toolDispatcher,
+            [this](const QString& name, const ToolResult& result) { showToolResult(name, result); });
+    }
+
     m_commandPalette->setCommands(cmds);
     m_commandPalette->popUp();
+}
+
+// Claude Generated 2026 - Put a tool's answer where a human can read it. The audit
+// record in the LogHub says that the call happened; this says what it returned.
+void MainWindow::showToolResult(const QString& name, const ToolResult& result)
+{
+    QString body;
+    if (!result.ok) {
+        body = result.error;
+    } else if (!result.text.isEmpty()) {
+        body = result.text;
+    } else if (!result.data.isEmpty()) {
+        body = QString::fromUtf8(QJsonDocument(result.data).toJson(QJsonDocument::Indented));
+    } else {
+        body = tr("(no output)");
+    }
+
+    // A tool result can be long; the dock is a log, not a report viewer.
+    constexpr int kMaxChars = 4000;
+    if (body.size() > kMaxChars) {
+        body = body.left(kMaxChars)
+            + tr("\n… truncated, %1 characters in total").arg(body.size());
+    }
+    if (result.truncated)
+        body += tr("\n(the tool had more to give; ask it for the next page)");
+
+    LogHub::instance().append(QStringLiteral("tool"),
+        result.ok ? LogLevel::Info : LogLevel::Warning,
+        QStringLiteral("%1 =>\n%2").arg(name, body));
+
+    statusBar()->showMessage(result.ok ? tr("%1: see the Output dock").arg(name)
+                                       : tr("%1 failed: %2").arg(name, result.error),
+        result.ok ? 4000 : 0);
 }
 
 void MainWindow::createMenus()

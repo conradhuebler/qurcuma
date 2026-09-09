@@ -72,6 +72,7 @@ class ChartDock;                // Claude Generated 2026 - live charts dock
 class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog
 class CalculationRunner;        // Claude Generated 2026 - WP T3 external-process orchestration
 class ToolDispatcher;           // Claude Generated 2026 - tool layer (core/tooldispatcher.h)
+struct ToolResult;              // Claude Generated 2026 - core/tool.h
 
 
 // CalculationEntry + the calculations.json persistence live here now.
@@ -232,7 +233,9 @@ private:
     void createToolbars();
     void createModeBar();                       // Claude Generated 2026 - P2 Explore/Compute switch
     void setAppMode(DockConfig::AppMode mode, bool reflow = true);  // apply mode (toolbar + dock visibility)
-    void showCommandPalette();                  // Claude Generated 2026 - P3 Ctrl+K palette
+    void showCommandPalette();
+    /// Show a tool's answer in the Output dock and the status bar. Claude Generated 2026.
+    void showToolResult(const QString& name, const ToolResult& result);                  // Claude Generated 2026 - P3 Ctrl+K palette
     void createMenus();
     void seedRMSDReference();  // Claude Generated 2026 - re-seed RMSD reference from viewer
     void setupProjectViewContextMenu();
