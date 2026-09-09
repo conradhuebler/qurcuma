@@ -173,6 +173,8 @@ set(SOURCES
     src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
     src/llm/tools_view.cpp  # Claude Generated 2026 - read-only tools over the viewer
     src/llm/curcumajob.cpp  # Claude Generated 2026 - in-process curcuma calculation
+    src/llm/tools_compute.cpp  # Claude Generated 2026
+    src/llm/curcuma_schemas.cpp  # Claude Generated 2026
     src/llm/tools_palette.cpp  # Claude Generated 2026 - tools in the command palette
     $<$<BOOL:${USE_LLM}>:${CMAKE_CURRENT_SOURCE_DIR}/src/docks/chatdock.cpp>  # Claude Generated 2026 (see the SKIP_AUTOMOC note below)
     src/calculationhistory.cpp  # Claude Generated 2026 - calculations.json persistence
@@ -243,6 +245,8 @@ set(HEADERS
     src/moleculefileloader.h  # Claude Generated 2026 - unified structure-file reader
     src/llm/tools_view.h  # Claude Generated 2026 - read-only tools over the viewer
     src/llm/curcumajob.h  # Claude Generated 2026 - in-process curcuma calculation
+    src/llm/tools_compute.h  # Claude Generated 2026
+    src/llm/curcuma_schemas.h  # Claude Generated 2026
     src/llm/tools_palette.h  # Claude Generated 2026 - tools in the command palette
     src/calculationhistory.h  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.h  # Claude Generated 2026 - WP T3 external-process orchestration
@@ -598,6 +602,26 @@ target_include_directories(test_curcumajob PRIVATE
 )
 add_test(NAME curcumajob COMMAND test_curcumajob)
 set_tests_properties(curcumajob PROPERTIES LABELS qurcuma)
+
+# Schema-generation test - Claude Generated 2026
+add_executable(test_curcumaschemas test_curcumaschemas.cpp src/llm/curcuma_schemas.cpp)
+target_link_libraries(test_curcumaschemas PRIVATE
+qurcuma_core
+curcuma_core
+$<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
+)
+qurcuma_match_curcuma_simd(test_curcumaschemas)
+target_include_directories(test_curcumaschemas PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+add_test(NAME curcumaschemas COMMAND test_curcumaschemas)
+set_tests_properties(curcumaschemas PROPERTIES LABELS qurcuma)
 
 # LogHub test - Claude Generated 2026
 # LogHub is QtCore-only by design (it has to link into a widget-free core), so this

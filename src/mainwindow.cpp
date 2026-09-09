@@ -77,6 +77,8 @@
 #include "core/tools_core.h"
 #include "llm/tools_view.h"
 #include "llm/tools_palette.h"
+#include "llm/curcumajob.h"
+#include "llm/tools_compute.h"
 #ifdef USE_LLM
 #include "docks/chatdock.h"
 #include "llm/llmclient.h"
@@ -4360,6 +4362,15 @@ void MainWindow::createDockWidgets()
         toolContext.viewer = m_moleculeView;
         toolContext.workingDirectory = [this] { return m_workingDirectory; };
         registerViewTools(ToolRegistry::instance(), toolContext);
+
+        // Claude Generated 2026 - Calculations run in process on their own thread;
+        // the tools start one and return, because a calculation takes seconds to
+        // minutes and a blocking tool would freeze the window it was called from.
+        m_curcumaJob = new CurcumaJob(&LogHub::instance(), this);
+        ComputeToolContext computeContext;
+        computeContext.viewer = m_moleculeView;
+        computeContext.job = m_curcumaJob;
+        registerComputeTools(ToolRegistry::instance(), computeContext);
         m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), &LogHub::instance(), this);
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
             tr("%1 tools registered").arg(ToolRegistry::instance().size()));

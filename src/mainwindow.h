@@ -73,6 +73,7 @@ class ChartDock;                // Claude Generated 2026 - live charts dock
 class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog
 class CalculationRunner;        // Claude Generated 2026 - WP T3 external-process orchestration
 class ToolDispatcher;           // Claude Generated 2026 - tool layer (core/tooldispatcher.h)
+class CurcumaJob;               // Claude Generated 2026 - in-process calculation
 struct ToolResult;              // Claude Generated 2026 - core/tool.h
 #ifdef USE_LLM
 class ChatDock;                 // Claude Generated 2026 - docks/chatdock.h
@@ -351,6 +352,7 @@ private:
     // Claude Generated 2026 - WP T3: owns the calculation QProcess + completer commands.
     CalculationRunner* m_calculationRunner = nullptr;
     ToolDispatcher* m_toolDispatcher = nullptr;  // Claude Generated 2026 - runs tools on the right thread
+    CurcumaJob* m_curcumaJob = nullptr;          // Claude Generated 2026 - one calculation at a time
 #ifdef USE_LLM
     // Claude Generated 2026 - The assistant. The session owns the conversation and
     // the approval policy; the dock is only a view onto it.
