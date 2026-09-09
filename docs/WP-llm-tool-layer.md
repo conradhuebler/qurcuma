@@ -163,17 +163,29 @@ weitere registriert, deren Binaries hier nicht gebaut werden.
 Build-Leiste kann also nicht ausgrauen und lehnt nur ab; `pasteClipboard` und `deleteSelection`
 lehnen stumm ab (das taten sie für Trajektorien schon vorher).
 
-#### WP0.3 im Einzelnen (Stand: in Arbeit)
+#### WP0.3 im Einzelnen — **erledigt** (`2c24a2c`)
 
 | # | Schritt | Status |
 |---|---|---|
-| a | `LogHub`-Header: `LogRecord {seq, ts, source, level, text, jobId}`, Ringpuffer mit fester Kapazität, `Query {source, minLevel, sinceSeq, grep, limit}`, harte Obergrenze | offen |
-| b | Implementierung, **thread-sicher** (`qDebug` kommt auch aus dem `SimulationWorker`-Thread), Sequenznummer bleibt über den Umlauf hinweg monoton, verworfene Datensätze werden gezählt | offen |
-| c | `test_loghub` (ctest, Label `qurcuma`): Umlauf, Filter nach Quelle/Level/`sinceSeq`/Muster, Obergrenze greift, nebenläufiges Anhängen | offen |
-| d | `qInstallMessageHandler`-Brücke in `main.cpp`, **mit Weitergabe an den vorherigen Handler**, damit die Terminalausgabe erhalten bleibt | offen |
-| e | `OutputDock` wird Abonnent; die vorhandene `appendOutput`-API bleibt für den `CalculationRunner`-Pfad | offen |
-| f | `CMakeLists.txt`: Quellen + Testziel | offen |
-| g | Build grün, Tests grün, Commit, Doku/Changelog | offen |
+| a | `LogHub`-Header: `LogRecord {seq, ts, source, level, text, jobId}`, Ringpuffer mit fester Kapazität, `Query {source, minLevel, sinceSeq, grep, limit}`, harte Obergrenze | erledigt |
+| b | Implementierung, **thread-sicher** (`qDebug` kommt auch aus dem `SimulationWorker`-Thread), Sequenznummer bleibt über den Umlauf hinweg monoton, verworfene Datensätze werden gezählt | erledigt |
+| c | `test_loghub` (ctest, Label `qurcuma`): Umlauf, Filter nach Quelle/Level/`sinceSeq`/Muster, Obergrenze greift, nebenläufiges Anhängen | erledigt |
+| d | `qInstallMessageHandler`-Brücke in `main.cpp`, **mit Weitergabe an den vorherigen Handler**, damit die Terminalausgabe erhalten bleibt | erledigt |
+| e | `OutputDock` wird Abonnent; die vorhandene `appendOutput`-API bleibt für den `CalculationRunner`-Pfad | erledigt |
+| f | `CMakeLists.txt`: Quellen + Testziel | erledigt |
+| g | Build grün, Tests grün, Commit, Doku/Changelog | erledigt |
+
+Zwei Punkte aus der Umsetzung, die im Kopf bleiben sollten. Der `OutputDock` sammelt
+Anhänge über 100 ms, weil `simulationworker.cpp:920` im Optimierer-Callback pro Iteration
+loggt — ein `QTextEdit::append` je Zeile lässt die GUI beim Greifen stehen. Und die
+Weitergabe an Qts eigenen Handler *sieht* kaputt aus, wenn man sie prüft: auf einem
+systemd-System geht Qts Standard-Handler an journald, sobald stderr kein Terminal ist. Mit
+`QT_LOGGING_TO_CONSOLE=1` sind die Zeilen da. Nachgemessen am 09.09.2026.
+
+**Noch offen:** `MainWindow::updateOutputView()` ersetzt den gesamten Dock-Inhalt durch eine
+Logdatei (`setText`), überschreibt also die LogHub-Zeilen. Das ist Altverhalten des
+Rechnungs-Pfads und wird erst dann unangenehm, wenn der Dock zwei Quellen gleichzeitig zeigen
+soll — Kandidat für eine getrennte Ansicht oder Filterung nach `source`.
 
 ### Phase 1 — Die Registry, mit einem menschlichen Nutzer
 
