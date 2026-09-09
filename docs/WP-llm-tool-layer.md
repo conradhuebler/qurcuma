@@ -224,6 +224,20 @@ soll — Kandidat für eine getrennte Ansicht oder Filterung nach `source`.
 Bibliothek, die keine braucht — die Registry selbst kennt curcuma nicht. `main.cpp:25` ruft es
 bereits; der Helfer entsteht dort, wo der erste curcuma-berührende Kern-Code liegt (Phase 4).
 
+#### WP1.2 im Einzelnen (Stand: in Arbeit)
+
+| # | Schritt | Status |
+|---|---|---|
+| a | `src/core/tooldispatcher.{h,cpp}`: Direktaufruf bei `Affinity::Any` **und** wenn schon auf dem Zielthread (sonst verklemmt sich `BlockingQueuedConnection` selbst) | offen |
+| b | Marshalling mit **Zeitlimit**: Qt kennt für `BlockingQueuedConnection` keines, also `QueuedConnection` + `QSemaphore::tryAcquire`, Zustand über `shared_ptr`, damit ein Zeitüberlauf keinen freigegebenen Speicher beschreibt | offen |
+| c | Audit-Spur in den `LogHub`: Name, Effekt, gekappte Argumente, Ergebnis, Dauer, ob marshallt wurde | offen |
+| d | `test_tooldispatcher`: `Gui`-Handler aus einem Arbeitsthread landet auf dem Zielthread; `Any` läuft an Ort und Stelle; Zeitüberlauf ergibt einen sauberen Fehler statt einer Verklemmung; Audit-Datensätze erscheinen | offen |
+| e | CMake: Quelle in `qurcuma_core`, Testziel | offen |
+| f | Build grün, Tests grün, Commit, Doku/Changelog | offen |
+
+**Nicht in diesem Paket:** die Freigabepolitik. Sie hängt an `ToolEffect`, gehört aber zur
+Sitzung (WP2.2) und bekommt ihren Einhängepunkt dort, wo bekannt ist, was sie braucht.
+
 ### Phase 2 — Das LLM (erstes sichtbares Feature, ohne curcuma-Änderung)
 
 | WP | Inhalt | Fertig, wenn | Status |
