@@ -282,8 +282,8 @@ täglich, und ein kaputtes Werkzeug fällt sofort auf statt erst, wenn ein Model
 | WP | Inhalt | Fertig, wenn | Status |
 |---|---|---|---|
 | **2.1** | `option(USE_LLM ... ON)` nach dem Vorbild von `USE_SFTP` (`CMakeLists.txt:66`); `Qt6::Network`; `LlmClient` (OpenAI-kompatibel, SSE, Tool-Calls); `LlmConfig` (Profile aus `~/.config/qurcuma/llm.json`, **einfache JSON-Datei, nie QSettings**, Key nur aus der Umgebung). | `test_llmclient` gegen einen `QTcpServer`-Stub, **kein Netz in ctest**; `-DUSE_LLM=OFF` baut wie bisher. | offen |
-| **2.2** | `LlmSession`: Agentenschleife off-thread, Dispatch über die Registry, Freigabepolitik, Audit-Spur. | `test_llmsession` mit skriptbarem Fake-Client: Iterationsobergrenze greift; kein `Mutate`/`Compute` ohne Freigabe. | offen |
-| **2.3** | **Vorführbar #2:** `ChatDock` als achter Dock (`dockmanager.cpp:273`, `dockconfig.h`), Streaming, Werkzeugzeilen mit Freigeben/Ablehnen. | „Was ist das für ein Molekül, miss den H-N-H-Winkel, färbe nach Fragment, zeig mir das Log" läuft durch. | offen |
+| **2.2** | `LlmSession`: Agentenschleife off-thread, Dispatch über die Registry, Freigabepolitik, Audit-Spur. | `test_llmsession` (24 Prüfungen) gegen den echten Client am Stub-Endpunkt: Iterationsgrenze, Freigabe, erfundene Werkzeugnamen, kaputte Argumente. | **erledigt** |
+| **2.3** | **Vorführbar #2:** `ChatDock` als achter Dock (`dockmanager.cpp:273`, `dockconfig.h`), Streaming, Werkzeugzeilen mit Freigeben/Ablehnen. | Code steht, `USE_LLM=ON` und `OFF` beide vollständig gebaut. **Operator-Check offen.** | **erledigt** |
 
 #### WP2.1 im Einzelnen — **a–e erledigt** (`52ddc3a`), **f offen**
 
@@ -302,20 +302,31 @@ tragende Teil ist die Anfrage/Antwort mit Tool-Calls — sie entscheidet, ob die
 Zusammensetzen von `tool_calls` aus Bruchstücken und ist reine Bedienqualität. Getrennt gebaut
 ist beides prüfbar; zusammen wäre der erste Commit ein Klumpen.
 
-#### WP2.2 im Einzelnen (Stand: in Arbeit)
+#### WP2.2 im Einzelnen — **erledigt**
 
 | # | Schritt | Status |
 |---|---|---|
-| a | `src/llm/llmsession.{h,cpp}`: Gesprächsverlauf, Werkzeugkatalog im OpenAI-Format aus der Registry, Schleife *senden → Werkzeug ausführen → Ergebnis zurückschicken* | offen |
-| b | Freigabepolitik über `ToolEffect`: `Read`/`Display` laufen durch, alles andere fragt. **Ohne gesetzten Rückfrage-Haken wird abgelehnt**, nicht durchgewinkt | offen |
-| c | Iterationsobergrenze, Abbruch, und eine Kappung der Werkzeugergebnisse, bevor sie in den Verlauf wandern | offen |
-| d | `test_llmsession` gegen den `QTcpServer`-Stub mit einer **Folge** vorbereiteter Antworten: schlichte Antwort, Werkzeugaufruf mit Rückgabe, verweigerte Freigabe, Iterationsgrenze, Transportfehler | offen |
-| e | Build grün, Tests grün, Commit, Doku | offen |
+| a | `src/llm/llmsession.{h,cpp}`: Gesprächsverlauf, Werkzeugkatalog im OpenAI-Format aus der Registry, Schleife *senden → Werkzeug ausführen → Ergebnis zurückschicken* | erledigt |
+| b | Freigabepolitik über `ToolEffect`: `Read`/`Display` laufen durch, alles andere fragt. **Ohne gesetzten Rückfrage-Haken wird abgelehnt**, nicht durchgewinkt | erledigt |
+| c | Iterationsobergrenze, Abbruch, und eine Kappung der Werkzeugergebnisse, bevor sie in den Verlauf wandern | erledigt |
+| d | `test_llmsession` gegen den `QTcpServer`-Stub mit einer **Folge** vorbereiteter Antworten: schlichte Antwort, Werkzeugaufruf mit Rückgabe, verweigerte Freigabe, Iterationsgrenze, Transportfehler | erledigt |
+| e | Build grün, Tests grün, Commit, Doku | erledigt |
 
 **Warum der Test gegen den echten Client läuft** und nicht gegen eine Attrappe: die interessante
 Frage ist, ob Client und Sitzung *zusammen* das Richtige tun — ob ein `tool_calls`-Block wirklich
 zu einem Dispatch führt und das Ergebnis in der richtigen Nachrichtenform zurückgeht. Eine
 Attrappe würde genau diese Naht überspringen.
+
+#### WP2.3 im Einzelnen — **erledigt**
+
+| # | Schritt | Status |
+|---|---|---|
+| a | `src/docks/chatdock.{h,cpp}`: Gesprächsansicht, Eingabe, Profilauswahl, Abbruch-Knopf, Werkzeugzeilen | erledigt |
+| b | Registrierung als achter Dock (`dockconfig.h`, `dockmanager.cpp:273`) | erledigt |
+| c | Verdrahtung in `MainWindow`: `LlmClient` + `LlmSession`, Systemprompt, Profil aus `LlmConfig` (Beispieldatei anlegen, wenn keine da ist) | erledigt |
+| d | Freigabedialog mit **„einmal / für diese Sitzung / ablehnen"**, pro Werkzeug gemerkt | erledigt |
+| e | `-DUSE_LLM=OFF` baut **vollständig** — hier wird die Option zum ersten Mal tragend, vorher war sie folgenlos | erledigt |
+| f | Build grün, Tests grün, Commit, Doku | erledigt |
 
 ### Phase 3 — curcuma-Kern
 Eigenes Dokument: `external/curcuma/docs/TOOL_API_WP.md` (WP1–WP7: Registry-Ausbau,
