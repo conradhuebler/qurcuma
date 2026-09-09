@@ -385,7 +385,26 @@ Fähigkeitstabelle). Voraussetzung für Phase 4.
 |---|---|---|---|
 | **4.1** | `src/llm/curcumajob.{h,cpp}`: Einzellauf auf einem Worker-Thread, Log über die Scope-Senke mit `job_id` in den `LogHub`, `Results()` zurück. Mutex „nur ein In-Prozess-Rechenjob" (OpenMP). Optionaler Controller-Export als Reproduzierbarkeits-Artefakt: derselbe Lauf ist mit `curcuma -import_config run.json` nachstellbar. | `test_curcumajob` grün: echtes `sp` auf einem 3-Atom-XYZ, Energie aus `Results()`, Log unter der `job_id`. | **erledigt** (`1c93ecc`) |
 | **4.2** | Schema-Erzeugung **aus curcumas Registry** (Kommando↔Modul aus `ModuleDefinition`, Auswahl über `tier=primary`, Constraints aus `allowed`/`unit`/`min`/`max`, bedingte Felder aus `requires`), dazu `describe_job(command)`. Keine handgepflegte Parametertabelle in qurcuma. | `test_curcumaschemas` grün: Schema für die exponierten Kommandos ohne handgepflegte Liste, Modulzuordnung und Auflösbarkeit geprüft. | **erledigt** (`b6eec1e`) |
-| **4.3** | Rechen-Werkzeuge (`Effect::Compute`), asynchron: `run_job → {status:"started", job_id}`, `job_status`, `job_result`. Dazu `set_temperature`, `pause_md`, `resume_md`, `stop_md`, `step_once` über die vorhandenen `SimulationWorker`-Slots per QueuedConnection. | MD per Werkzeug steuerbar, GUI bedienbar, `Mutate` während des Laufs sauber abgelehnt. | **teilweise** — `run_single_point`, `job_status`, `describe_job` stehen (`b6eec1e`); die Laufzeitsteuerung (`set_temperature`, `pause_md`, `resume_md`, `stop_md`, `step_once`) ist **offen** |
+| **4.3** | Rechen-Werkzeuge (`Effect::Compute`), asynchron: `run_job → {status:"started", job_id}`, `job_status`, `job_result`. Dazu `set_temperature`, `pause_md`, `resume_md`, `stop_md`, `step_once` über die vorhandenen `SimulationWorker`-Slots per QueuedConnection. | MD per Werkzeug steuerbar, GUI bedienbar, `Mutate` während des Laufs sauber abgelehnt. | **erledigt** — Einzelläufe `b6eec1e`, Warteschlange und `wait_seconds` `9249313`, Laufzeitsteuerung `95c2185` |
+
+Zur Laufzeitsteuerung: die Werkzeuge gehen **über `SimulationControlWidget`**, nicht direkt auf
+die Worker-Slots wie im Plan angenommen. Das Dock hält den Thread-Lebenszyklus (`startWithConfig`,
+Teardown, Wiederverdrahtung des Viewers über `workerStarted`); ein zweiter Einstieg daneben hätte
+ihn verdoppelt. Der Nebeneffekt ist der eigentliche Gewinn: der Bediener sieht den Lauf im Dock
+mit genau den Parametern stehen, die das Modell angefragt hat.
+
+| Werkzeug | Wirkung |
+|---|---|
+| `run_simulation` | MD oder Optimierung starten (`mode`, `method`, `steps`, `temperature`, `timestep`, `thermostat`, `optimizer`, `convergence`) |
+| `simulation_status` | Schritt, Energie, Temperatur; mit `wait_seconds` wartet es auf das Laufende statt zu pollen |
+| `pause_simulation` / `resume_simulation` | idempotent, anders als der Knopf, der umschaltet |
+| `stop_simulation` / `step_simulation` | beenden bzw. genau einen Schritt |
+| `set_temperature` | Sollwert des Thermostaten im laufenden MD |
+
+Die `enum`-Listen für `method`, `optimizer` und `thermostat` liest das Schema aus den Comboboxen
+des Docks (`methodValues()` und die beiden Geschwister). Von Hand abgeschrieben standen dort
+schon `diis` und `rfo`, wo das Dock `native_diis` und `native_rfo` sagt — genau der Drift, den
+Abschnitt 7.2 für die Thermostatliste beschreibt.
 
 ### Leitszenario — agentisches Docking
 
