@@ -285,15 +285,15 @@ täglich, und ein kaputtes Werkzeug fällt sofort auf statt erst, wenn ein Model
 | **2.2** | `LlmSession`: Agentenschleife off-thread, Dispatch über die Registry, Freigabepolitik, Audit-Spur. | `test_llmsession` mit skriptbarem Fake-Client: Iterationsobergrenze greift; kein `Mutate`/`Compute` ohne Freigabe. | offen |
 | **2.3** | **Vorführbar #2:** `ChatDock` als achter Dock (`dockmanager.cpp:273`, `dockconfig.h`), Streaming, Werkzeugzeilen mit Freigeben/Ablehnen. | „Was ist das für ein Molekül, miss den H-N-H-Winkel, färbe nach Fragment, zeig mir das Log" läuft durch. | offen |
 
-#### WP2.1 im Einzelnen (Stand: in Arbeit)
+#### WP2.1 im Einzelnen — **a–e erledigt** (`52ddc3a`), **f offen**
 
 | # | Schritt | Status |
 |---|---|---|
-| a | `option(USE_LLM ... ON)`; neue Bibliothek `qurcuma_llm` (Core + Gui + **Network**), damit `qurcuma_core` seine geprüfte Eigenschaft „nur Core/Gui" behält | offen |
-| b | `src/llm/llmconfig.{h,cpp}`: Profile aus `~/.config/qurcuma/llm.json` (einfache JSON-Datei, **nie QSettings**); das Profil nennt nur den **Namen der Umgebungsvariablen**, nie den Schlüssel selbst | offen |
-| c | `src/llm/llmclient.{h,cpp}`: `POST /v1/chat/completions`, Tool-Calls in beide Richtungen, Abbruch, Fehler mit Klartext statt stiller Leere | offen |
-| d | `test_llmclient` gegen einen `QTcpServer`-Stub: Anfrageform, `Authorization`-Kopfzeile nur bei gesetztem Schlüssel, Antwort mit `content` und mit `tool_calls`, HTTP-Fehler, kaputtes JSON. **Kein Netzzugriff.** | offen |
-| e | Build grün, Tests grün, `-DUSE_LLM=OFF` baut wie bisher, Commit | offen |
+| a | `option(USE_LLM ... ON)`; neue Bibliothek `qurcuma_llm` (Core + Gui + **Network**), damit `qurcuma_core` seine geprüfte Eigenschaft „nur Core/Gui" behält | erledigt |
+| b | `src/llm/llmconfig.{h,cpp}`: Profile aus `~/.config/qurcuma/llm.json` (einfache JSON-Datei, **nie QSettings**); das Profil nennt nur den **Namen der Umgebungsvariablen**, nie den Schlüssel selbst | erledigt |
+| c | `src/llm/llmclient.{h,cpp}`: `POST /v1/chat/completions`, Tool-Calls in beide Richtungen, Abbruch, Fehler mit Klartext statt stiller Leere | erledigt |
+| d | `test_llmclient` gegen einen `QTcpServer`-Stub: Anfrageform, `Authorization`-Kopfzeile nur bei gesetztem Schlüssel, Antwort mit `content` und mit `tool_calls`, HTTP-Fehler, kaputtes JSON. **Kein Netzzugriff.** | erledigt |
+| e | Build grün, Tests grün, `-DUSE_LLM=OFF` baut wie bisher, Commit | erledigt |
 | f | *Danach eigener Schritt:* SSE-Streaming (Teilantworten, zusammengesetzte `tool_calls`) | offen |
 
 **Warum Streaming abgetrennt ist:** die Zeile zu WP2.1 versprach es zusammen mit dem Rest. Der
@@ -301,6 +301,21 @@ tragende Teil ist die Anfrage/Antwort mit Tool-Calls — sie entscheidet, ob die
 überhaupt erreichbar ist. Streaming setzt darauf auf, verlangt aber das schrittweise
 Zusammensetzen von `tool_calls` aus Bruchstücken und ist reine Bedienqualität. Getrennt gebaut
 ist beides prüfbar; zusammen wäre der erste Commit ein Klumpen.
+
+#### WP2.2 im Einzelnen (Stand: in Arbeit)
+
+| # | Schritt | Status |
+|---|---|---|
+| a | `src/llm/llmsession.{h,cpp}`: Gesprächsverlauf, Werkzeugkatalog im OpenAI-Format aus der Registry, Schleife *senden → Werkzeug ausführen → Ergebnis zurückschicken* | offen |
+| b | Freigabepolitik über `ToolEffect`: `Read`/`Display` laufen durch, alles andere fragt. **Ohne gesetzten Rückfrage-Haken wird abgelehnt**, nicht durchgewinkt | offen |
+| c | Iterationsobergrenze, Abbruch, und eine Kappung der Werkzeugergebnisse, bevor sie in den Verlauf wandern | offen |
+| d | `test_llmsession` gegen den `QTcpServer`-Stub mit einer **Folge** vorbereiteter Antworten: schlichte Antwort, Werkzeugaufruf mit Rückgabe, verweigerte Freigabe, Iterationsgrenze, Transportfehler | offen |
+| e | Build grün, Tests grün, Commit, Doku | offen |
+
+**Warum der Test gegen den echten Client läuft** und nicht gegen eine Attrappe: die interessante
+Frage ist, ob Client und Sitzung *zusammen* das Richtige tun — ob ein `tool_calls`-Block wirklich
+zu einem Dispatch führt und das Ergebnis in der richtigen Nachrichtenform zurückgeht. Eine
+Attrappe würde genau diese Naht überspringen.
 
 ### Phase 3 — curcuma-Kern
 Eigenes Dokument: `external/curcuma/docs/TOOL_API_WP.md` (WP1–WP7: Registry-Ausbau,
