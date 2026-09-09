@@ -278,6 +278,10 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
                 entry.insert(QStringLiteral("indices"), toJsonArray(indices, 100, &truncated));
                 if (truncated)
                     entry.insert(QStringLiteral("indices_truncated"), true);
+                // Complete however long the fragment is, and short: the index list
+                // is capped for context, which would otherwise leave a big fragment
+                // impossible to name exactly. Zero-based, like every index here.
+                entry.insert(QStringLiteral("index_range"), compactRange(indices));
                 array.append(entry);
             }
 

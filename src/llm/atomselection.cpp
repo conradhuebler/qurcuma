@@ -7,6 +7,9 @@
 #include "moleculebridge.h"
 
 #include <QSet>
+#include <QStringList>
+
+#include <algorithm>
 
 #include <map>
 #include <vector>
@@ -62,6 +65,31 @@ QVector<moldata::Atom> subsetAtoms(const QVector<moldata::Atom>& atoms,
             out.append(atoms.at(index));
     }
     return out;
+}
+
+QString compactRange(const QVector<int>& indices)
+{
+    if (indices.isEmpty())
+        return QString();
+    QVector<int> sorted = indices;
+    std::sort(sorted.begin(), sorted.end());
+    QStringList parts;
+    int runStart = sorted.first();
+    int previous = runStart;
+    const auto flush = [&parts, &runStart, &previous] {
+        parts << (runStart == previous ? QString::number(runStart)
+                                       : QStringLiteral("%1-%2").arg(runStart).arg(previous));
+    };
+    for (int i = 1; i < sorted.size(); ++i) {
+        if (sorted.at(i) == previous + 1) {
+            previous = sorted.at(i);
+            continue;
+        }
+        flush();
+        runStart = previous = sorted.at(i);
+    }
+    flush();
+    return parts.join(QLatin1Char(','));
 }
 
 int severedBondCount(const QVector<moldata::Atom>& atoms, const QVector<int>& indices)

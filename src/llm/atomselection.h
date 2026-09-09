@@ -30,6 +30,10 @@ bool resolveAtomSet(const QVector<moldata::Atom>& atoms, const QString& expressi
 QVector<moldata::Atom> subsetAtoms(const QVector<moldata::Atom>& atoms,
                                    const QVector<int>& indices);
 
+/// "0-147,200-205" for an index list: complete at any length, unlike a list that
+/// has to be capped for context, and readable at a glance. Sorted on the way.
+QString compactRange(const QVector<int>& indices);
+
 /// How many covalent bonds have exactly one end inside @p indices, i.e. how many
 /// bonds a calculation on that subset would cut. Zero means the selection is a set
 /// of whole molecules and its energy stands on its own; anything above zero means

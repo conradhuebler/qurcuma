@@ -166,6 +166,18 @@ int main(int argc, char** argv)
             "leaving one hydrogen behind cuts exactly one C-H bond");
         check(severedBondCount(atoms, QVector<int>({ 0, 1, 2, 3, 4 })) == 0,
             "selecting everything cuts nothing");
+
+        // A fragment's index list is capped for context, which would leave a big
+        // fragment impossible to name back exactly; the range is complete instead.
+        check(compactRange(QVector<int>({ 0, 1, 2 })) == QLatin1String("0-2"),
+            "a run of indices compacts to a range");
+        check(compactRange(QVector<int>({ 3, 4 })) == QLatin1String("3-4"),
+            "so does a run of two");
+        check(compactRange(QVector<int>({ 5, 0, 1, 2, 9 })) == QLatin1String("0-2,5,9"),
+            "gaps split it, singles stay single, and the input need not be sorted");
+        check(compactRange(QVector<int>({ 7 })) == QLatin1String("7"),
+            "one index is just the index");
+        check(compactRange({}).isEmpty(), "and nothing is empty");
     }
 
     std::printf("%s (%d failed)\n", g_failed ? "FAIL" : "PASS", g_failed);

@@ -529,13 +529,13 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                               "description": "selection grammar, e.g. \"F2\" for the second fragment" },
             "atom_indices": { "type": "array", "description": "explicit 0-based indices" },
             "force":        { "type": "array",
-                              "description": "[fx, fy, fz] in Eh/Bohr, applied to each atom of the selection" },
+                              "description": "[fx, fy, fz] in Eh/Bohr, applied to EACH atom of the selection, so a 27-atom fragment feels 27 times this in total" },
             "add":          { "type": "boolean",
                               "description": "keep the pulls already set (default false: replace them)" },
             "alpha":        { "type": "number", "minimum": 0, "maximum": 1,
                               "description": "how much of the force reaches the next bonded shell (default 0.4)" },
             "max_shells":   { "type": "integer", "minimum": 0, "maximum": 10,
-                              "description": "how many bonded shells it spreads through (default 3)" }
+                              "description": "how many bonded shells the force spreads through; default 3 for a single atom, 0 for a set (spreading a whole fragment's pulls would multiply them)" }
           },
           "required": ["force"]
         })JSON");
@@ -576,17 +576,35 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             }
             const double alpha = args.contains(QStringLiteral("alpha"))
                 ? args.value(QStringLiteral("alpha")).toDouble() : 0.4;
+            // Spreading through the bond graph is what makes a single-atom mouse grab
+            // move a molecule instead of tearing one atom off. Applied to a whole
+            // fragment it does the opposite: every atom's pull also leaks onto its
+            // neighbours, which are being pulled themselves, so a 27-atom selection
+            // ends up with several times the force asked for. Default it off unless
+            // exactly one atom was named.
+            const int defaultShells = indices.size() == 1 ? 3 : 0;
             const int shells = args.contains(QStringLiteral("max_shells"))
-                ? args.value(QStringLiteral("max_shells")).toInt() : 3;
+                ? args.value(QStringLiteral("max_shells")).toInt() : defaultShells;
             control->requestExternalForces(indices, forces, alpha, shells);
+
+            QJsonArray pulled;
+            for (int index : indices)
+                pulled.append(index);
 
             QJsonObject data;
             data.insert(QStringLiteral("pulled_now"), wanted.size());
             data.insert(QStringLiteral("pulled_total"), indices.size());
             data.insert(QStringLiteral("force"), forceArray);
+            data.insert(QStringLiteral("max_shells"), shells);
+            // The indices, so the same set can be followed afterwards: fragment
+            // numbering is geometric and moves when the structure does, but an index
+            // list does not.
+            data.insert(QStringLiteral("atom_indices"), pulled);
             return ToolResult::success(data,
                 QStringLiteral("Pulling on %1 atom(s) in total; it acts from the next step until "
-                               "clear_forces. Watch what it does with watch_simulation.")
+                               "clear_forces. Follow it with watch_simulation -- pass these "
+                               "atom_indices rather than \"F2\", because pulling the parts "
+                               "apart is exactly what renumbers the fragments.")
                     .arg(indices.size()));
         };
         add(spec);
@@ -616,11 +634,14 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
         spec.name = QStringLiteral("watch_simulation");
         spec.category = QStringLiteral("simulation");
         spec.description = QStringLiteral(
-            "Measure the running simulation, and wait for it to reach something. Give below or "
-            "above and it returns when the quantity crosses it -- so \"run until the guest is "
-            "within 3 A of the host\" is one call, not a poll every second. Without a threshold "
-            "it answers straight away. Every answer also carries the fragment picture: how many "
-            "there are, how big they are, how close they come.");
+            "Measure the running simulation while it keeps going. Three ways to use it: ask "
+            "once and get the value now; give below or above and it returns when the quantity "
+            "crosses it (\"run until the guest is within 3 A of the host\"); give every_steps "
+            "and it reports back regularly, returning a trace of the value against step rather "
+            "than a single number, which is how a run is followed rather than sampled. The two "
+            "can be combined -- it then returns on whichever comes first. Every answer also "
+            "carries the fragment picture: how many there are, how big they are, how close they "
+            "come.");
         spec.effect = ToolEffect::Read;
         spec.affinity = ToolAffinity::Any;   // it waits, so it must not be the GUI thread
         spec.paramSchema = schema(R"JSON({
@@ -634,8 +655,15 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                           "description": "first selection, e.g. \"F1\"; needed by the geometric quantities" },
             "atoms_b":  { "type": "string",
                           "description": "second selection, for min_distance and centroid_distance" },
+            "atom_indices":   { "type": "array",
+                                "description": "explicit 0-based indices instead of atoms -- use these to follow a fixed set, since fragment numbering is geometric and changes as the structure does" },
+            "atom_indices_b": { "type": "array", "description": "explicit indices instead of atoms_b" },
             "below":    { "type": "number", "description": "return once the quantity drops under this" },
             "above":    { "type": "number", "description": "return once the quantity rises over this" },
+            "every_steps": { "type": "integer", "minimum": 1, "maximum": 100000,
+                             "description": "sample the quantity at least this many steps apart and return the trace" },
+            "max_samples": { "type": "integer", "minimum": 1, "maximum": 100,
+                             "description": "how many samples to collect before returning (default 20)" },
             "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 60,
                               "description": "how long to wait for that (default 0: answer at once)" }
           },
@@ -649,6 +677,8 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             const double below = args.value(QStringLiteral("below")).toDouble();
             const double above = args.value(QStringLiteral("above")).toDouble();
             const int waitSeconds = qBound(0, args.value(QStringLiteral("wait_seconds")).toInt(), 60);
+            const int everySteps = qBound(0, args.value(QStringLiteral("every_steps")).toInt(), 100000);
+            const int maxSamples = qBound(1, args.value(QStringLiteral("max_samples")).toInt(20), 100);
 
             QElapsedTimer clock;
             clock.start();
@@ -658,6 +688,9 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             QString unit;
             bool met = false;
             bool ran = false;
+            QJsonArray trace;          // step/value pairs when every_steps was asked for
+            int lastSampled = 0;
+            bool sampledOnce = false;
             forever {
                 if (cache->atoms.isEmpty()) {
                     if (!cache->state.running)
@@ -669,9 +702,31 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                     QString error;
                     const QString a = args.value(QStringLiteral("atoms")).toString();
                     const QString b = args.value(QStringLiteral("atoms_b")).toString();
-                    if (!a.isEmpty() && !resolveAtomSet(cache->atoms, a, {}, setA, error))
+                    const QJsonArray indicesA = args.value(QStringLiteral("atom_indices")).toArray();
+                    const QJsonArray indicesB = args.value(QStringLiteral("atom_indices_b")).toArray();
+
+                    // A selection is re-resolved on the current frame, and fragment
+                    // perception is geometric: pulling two parts apart is precisely
+                    // what makes "F2" stop meaning what it meant. Say so instead of
+                    // reporting an empty match and leaving the model to guess.
+                    const auto resolve = [&](const QString& expression, const QJsonArray& explicitIndices,
+                                             QVector<int>& target, const char* which) -> bool {
+                        if (expression.isEmpty() && explicitIndices.isEmpty())
+                            return true;
+                        if (resolveAtomSet(cache->atoms, expression, explicitIndices, target, error))
+                            return true;
+                        if (!expression.isEmpty() && expression.startsWith(QLatin1Char('F'))) {
+                            error += QStringLiteral(" -- %1 is resolved again on the current frame, "
+                                                    "and fragments are perceived from the geometry, "
+                                                    "so they renumber as the structure moves. Pass "
+                                                    "%2 to follow a fixed set.")
+                                         .arg(expression, QLatin1String(which));
+                        }
+                        return false;
+                    };
+                    if (!resolve(a, indicesA, setA, "atom_indices"))
                         return ToolResult::failure(error);
-                    if (!b.isEmpty() && !resolveAtomSet(cache->atoms, b, {}, setB, error))
+                    if (!resolve(b, indicesB, setB, "atom_indices_b"))
                         return ToolResult::failure(error);
 
                     bool ok = false;
@@ -684,12 +739,31 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                     }
                     ran = true;
                     met = (hasBelow && value < below) || (hasAbove && value > above);
+
+                    // The waiter is woken on every frame, so every_steps is a
+                    // minimum spacing rather than an exact stride: a sample is
+                    // taken at the first frame that is far enough from the last.
+                    if (everySteps > 0
+                        && (!sampledOnce || cache->state.step - lastSampled >= everySteps)) {
+                        QJsonObject sample;
+                        sample.insert(QStringLiteral("step"), cache->state.step);
+                        sample.insert(QStringLiteral("value"), value);
+                        trace.append(sample);
+                        lastSampled = cache->state.step;
+                        sampledOnce = true;
+                    }
                 }
 
-                if (met || (!hasBelow && !hasAbove))
+                if (met)
                     break;
+                if (everySteps > 0) {
+                    if (trace.size() >= maxSamples)
+                        break;
+                } else if (!hasBelow && !hasAbove) {
+                    break;   // a plain read: the value now, no waiting
+                }
                 if (!cache->state.running)
-                    break;   // the run ended before the threshold was reached
+                    break;   // the run ended first
                 const qint64 left = qint64(waitSeconds) * 1000 - clock.elapsed();
                 if (left <= 0)
                     break;
@@ -705,6 +779,10 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             }
             if (hasBelow || hasAbove)
                 data.insert(QStringLiteral("condition_met"), met);
+            if (!trace.isEmpty()) {
+                data.insert(QStringLiteral("trace"), trace);
+                data.insert(QStringLiteral("samples"), trace.size());
+            }
             const QJsonObject fragments = fragmentSummary(cache->atoms);
             if (!fragments.isEmpty())
                 data.insert(QStringLiteral("fragments"), fragments);
@@ -715,10 +793,19 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                 ? QStringLiteral("%1 = %2 %3").arg(quantity)
                       .arg(value, 0, 'f', 4).arg(unit)
                 : QStringLiteral("%1 could not be measured").arg(quantity);
+            if (!trace.isEmpty()) {
+                const QJsonObject first = trace.first().toObject();
+                note += QStringLiteral(", %1 samples from step %2 to %3")
+                            .arg(trace.size())
+                            .arg(first.value(QStringLiteral("step")).toInt())
+                            .arg(trace.last().toObject().value(QStringLiteral("step")).toInt());
+            }
             if (hasBelow || hasAbove) {
                 note += met ? QStringLiteral(" -- the threshold was reached.")
                             : running ? QStringLiteral(" -- not there yet within the time given.")
                                       : QStringLiteral(" -- the run ended before it got there.");
+            } else if (!trace.isEmpty() && !running) {
+                note += QStringLiteral(" -- the run ended.");
             }
             return ToolResult::success(data, note);
         };
