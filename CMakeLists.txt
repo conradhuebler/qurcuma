@@ -301,6 +301,8 @@ add_library(qurcuma_core STATIC
     src/core/loghub.h
     src/core/toolregistry.cpp
     src/core/toolregistry.h
+    src/core/tooldispatcher.cpp
+    src/core/tooldispatcher.h
     src/core/tool.h
     src/core/moleculedata.h
 )
@@ -512,6 +514,17 @@ qurcuma_core
 )
 add_test(NAME toolregistry COMMAND test_toolregistry)
 set_tests_properties(toolregistry PROPERTIES LABELS qurcuma)
+
+# ToolDispatcher test - Claude Generated 2026
+# Needs Threads because it dispatches from a real second thread; that is the whole
+# point of the target.
+add_executable(test_tooldispatcher test_tooldispatcher.cpp)
+target_link_libraries(test_tooldispatcher PRIVATE
+qurcuma_core
+Threads::Threads
+)
+add_test(NAME tooldispatcher COMMAND test_tooldispatcher)
+set_tests_properties(tooldispatcher PROPERTIES LABELS qurcuma)
 
 add_executable(test_scenefiller test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp
     src/elementdata.cpp src/fragmentlibrary.cpp)
