@@ -170,7 +170,6 @@ set(SOURCES
     src/vtfparser.cpp
     src/xyzparser.cpp
     src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
-    src/core/loghub.cpp  # Claude Generated 2026 - structured in-process log buffer
     src/calculationhistory.cpp  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.cpp  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.cpp
@@ -237,8 +236,6 @@ set(HEADERS
     src/vtfparser.h
     src/xyzparser.h
     src/moleculefileloader.h  # Claude Generated 2026 - unified structure-file reader
-    src/core/moleculedata.h  # Claude Generated 2026 - Atom/Bond records, free of QtWidgets
-    src/core/loghub.h  # Claude Generated 2026 - structured in-process log buffer
     src/calculationhistory.h  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.h  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.h
@@ -289,6 +286,27 @@ if(USE_SFTP)
     )
 endif()
 
+# --- qurcuma_core: the widget-free core -------------------------------------
+# Claude Generated 2026 - The tool registry, the log hub and the molecule records.
+# Linking ONLY Qt6::Core and Qt6::Gui is the point of this target, not an accident:
+# it is what lets ctest drive the registry headlessly and turns "GUI-free" into a
+# property the build checks rather than a claim in a comment. Qt6::Gui is needed
+# for QVector3D and QColor in the data records; Widgets and Quick3D must stay out.
+#
+# No curcuma here yet, so qurcuma_match_curcuma_simd() is deliberately NOT applied:
+# there is no Eigen type crossing this boundary. The moment a core TU includes a
+# curcuma header, add the include dirs AND that call together.
+add_library(qurcuma_core STATIC
+    src/core/loghub.cpp
+    src/core/loghub.h
+    src/core/toolregistry.cpp
+    src/core/toolregistry.h
+    src/core/tool.h
+    src/core/moleculedata.h
+)
+target_link_libraries(qurcuma_core PUBLIC Qt6::Core Qt6::Gui)
+target_include_directories(qurcuma_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 add_executable(qurcuma
     ${SOURCES}
     ${HEADERS}
@@ -299,35 +317,43 @@ target_compile_definitions(qurcuma PRIVATE
     $<$<BOOL:${USE_SFTP}>:USE_SFTP>
     QURCUMA_VERSION="${PROJECT_VERSION}")
 
-# Claude Generated 2026 - Match curcuma's CPU/SIMD flags on the qurcuma target.
+# Claude Generated 2026 - Match curcuma's CPU/SIMD flags on a target.
 #
 # curcuma (FetchContent, above) compiles its TUs with -march=native (or AVX-512)
 # when USE_MARCH_NATIVE/USE_AVX512 is set, but that set(CMAKE_CXX_FLAGS ...) lives
-# in curcuma's subdirectory scope and does NOT reach this parent-scope target.
+# in curcuma's subdirectory scope and does NOT reach parent-scope targets.
 # The mismatch changes Eigen's EIGEN_MAX_ALIGN_BYTES (16 for SSE2 here vs 64 for
 # AVX-512), so a curcuma-allocated Eigen Geometry copied/freed inside a qurcuma TU
 # (e.g. moleculeToFrame: `Geometry geo = mol.getGeometry();`) hits mismatched
 # aligned-alloc bookkeeping -> "double free or corruption" the instant the
 # interactive MD/Opt starts (Release-only; Debug builds both sides SSE2 and works).
-# Mirroring curcuma's flag selection keeps both sides on the same Eigen ABI.
+#
+# A function rather than a copied block: EVERY parent-scope target that ever sees a
+# curcuma header has to carry these flags, and a copied block is the kind of thing
+# that gets added to three targets and forgotten on the fourth.
 include(CheckCXXCompilerFlag)
-if(USE_MARCH_NATIVE)
-    check_cxx_compiler_flag("-march=native" QURCUMA_SUPPORTS_MARCH_NATIVE)
-    if(QURCUMA_SUPPORTS_MARCH_NATIVE)
-        target_compile_options(qurcuma PRIVATE -march=native)
-        message(STATUS "qurcuma: matching curcuma -march=native (Eigen ABI alignment)")
+function(qurcuma_match_curcuma_simd target)
+    if(USE_MARCH_NATIVE)
+        check_cxx_compiler_flag("-march=native" QURCUMA_SUPPORTS_MARCH_NATIVE)
+        if(QURCUMA_SUPPORTS_MARCH_NATIVE)
+            target_compile_options(${target} PRIVATE -march=native)
+            message(STATUS "${target}: matching curcuma -march=native (Eigen ABI alignment)")
+        endif()
+    elseif(USE_AVX512)
+        target_compile_options(${target} PRIVATE -mavx512f -mavx512vl -mavx512dq -mfma)
+        message(STATUS "${target}: matching curcuma AVX-512 flags (Eigen ABI alignment)")
+    elseif(USE_AVX2)
+        target_compile_options(${target} PRIVATE -mavx2 -mfma)
+        message(STATUS "${target}: matching curcuma AVX2 flags (Eigen ABI alignment)")
     endif()
-elseif(USE_AVX512)
-    target_compile_options(qurcuma PRIVATE -mavx512f -mavx512vl -mavx512dq -mfma)
-    message(STATUS "qurcuma: matching curcuma AVX-512 flags (Eigen ABI alignment)")
-elseif(USE_AVX2)
-    target_compile_options(qurcuma PRIVATE -mavx2 -mfma)
-    message(STATUS "qurcuma: matching curcuma AVX2 flags (Eigen ABI alignment)")
-endif()
+endfunction()
+
+qurcuma_match_curcuma_simd(qurcuma)
 
 # Claude Generated - OpenMP needed by curcuma_core
 find_package(OpenMP)
 target_link_libraries(qurcuma PRIVATE
+qurcuma_core  # Claude Generated 2026 - tool registry + log hub
 Qt6::Core
 Qt6::Gui
 Qt6::GuiPrivate
@@ -467,9 +493,9 @@ set_tests_properties(measurements PROPERTIES LABELS qurcuma)
 # target needs neither Gui nor curcuma. Threads::Threads is explicit because the
 # test appends from several std::threads to pin the locking.
 find_package(Threads REQUIRED)
-add_executable(test_loghub test_loghub.cpp src/core/loghub.cpp)
+add_executable(test_loghub test_loghub.cpp)
 target_link_libraries(test_loghub PRIVATE
-Qt6::Core
+qurcuma_core
 Threads::Threads
 )
 target_include_directories(test_loghub PRIVATE
@@ -478,6 +504,14 @@ target_include_directories(test_loghub PRIVATE
 )
 add_test(NAME loghub COMMAND test_loghub)
 set_tests_properties(loghub PROPERTIES LABELS qurcuma)
+
+# ToolRegistry test - Claude Generated 2026
+add_executable(test_toolregistry test_toolregistry.cpp)
+target_link_libraries(test_toolregistry PRIVATE
+qurcuma_core
+)
+add_test(NAME toolregistry COMMAND test_toolregistry)
+set_tests_properties(toolregistry PROPERTIES LABELS qurcuma)
 
 add_executable(test_scenefiller test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp
     src/elementdata.cpp src/fragmentlibrary.cpp)
