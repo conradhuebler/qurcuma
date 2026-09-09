@@ -172,6 +172,7 @@ set(SOURCES
     src/xyzparser.cpp
     src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
     src/llm/tools_view.cpp  # Claude Generated 2026 - read-only tools over the viewer
+    src/llm/curcumajob.cpp  # Claude Generated 2026 - in-process curcuma calculation
     src/llm/tools_palette.cpp  # Claude Generated 2026 - tools in the command palette
     $<$<BOOL:${USE_LLM}>:${CMAKE_CURRENT_SOURCE_DIR}/src/docks/chatdock.cpp>  # Claude Generated 2026 (see the SKIP_AUTOMOC note below)
     src/calculationhistory.cpp  # Claude Generated 2026 - calculations.json persistence
@@ -241,6 +242,7 @@ set(HEADERS
     src/xyzparser.h
     src/moleculefileloader.h  # Claude Generated 2026 - unified structure-file reader
     src/llm/tools_view.h  # Claude Generated 2026 - read-only tools over the viewer
+    src/llm/curcumajob.h  # Claude Generated 2026 - in-process curcuma calculation
     src/llm/tools_palette.h  # Claude Generated 2026 - tools in the command palette
     src/calculationhistory.h  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.h  # Claude Generated 2026 - WP T3 external-process orchestration
@@ -570,6 +572,32 @@ target_include_directories(test_curcumalogsink PRIVATE
 )
 add_test(NAME curcumalogsink COMMAND test_curcumalogsink)
 set_tests_properties(curcumalogsink PROPERTIES LABELS qurcuma)
+
+# In-process job test - Claude Generated 2026
+# Runs a real single point and a real RMSD, so the four properties the in-process
+# path had to acquire are checked together: captured output, per-run state, a
+# result without a file, and nothing left in the working directory.
+add_executable(test_curcumajob test_curcumajob.cpp src/llm/curcumajob.cpp)
+target_link_libraries(test_curcumajob PRIVATE
+qurcuma_core
+curcuma_core
+curcuma_cap
+$<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
+Threads::Threads
+)
+qurcuma_match_curcuma_simd(test_curcumajob)
+target_include_directories(test_curcumajob PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/LBFGSpp/include  # rmsd.h pulls LBFGS.h
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+add_test(NAME curcumajob COMMAND test_curcumajob)
+set_tests_properties(curcumajob PROPERTIES LABELS qurcuma)
 
 # LogHub test - Claude Generated 2026
 # LogHub is QtCore-only by design (it has to link into a widget-free core), so this
