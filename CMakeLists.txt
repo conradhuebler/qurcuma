@@ -75,6 +75,7 @@ if(NOT TARGET Qt6::GuiPrivate)
 endif()
 
 option(USE_SFTP "Enable SFTP remote file access (requires libssh)" OFF)
+option(USE_LLM "Enable LLM support: OpenAI-compatible endpoints (needs Qt6::Network)" ON)
 if(USE_SFTP)
     find_package(PkgConfig)
     if(PKG_CONFIG_FOUND)
@@ -315,6 +316,23 @@ add_library(qurcuma_core STATIC
 target_link_libraries(qurcuma_core PUBLIC Qt6::Core Qt6::Gui)
 target_include_directories(qurcuma_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+# --- qurcuma_llm: the endpoint client ---------------------------------------
+# Claude Generated 2026 - Separate from qurcuma_core on purpose. The core's
+# verified property is that it links only Qt6::Core and Qt6::Gui; putting the
+# network stack in there would quietly end that. This target adds Qt6::Network and
+# nothing else, so it stays testable headlessly against a local stub server.
+if(USE_LLM)
+    find_package(Qt6 COMPONENTS Network REQUIRED)
+    add_library(qurcuma_llm STATIC
+        src/llm/llmconfig.cpp
+        src/llm/llmconfig.h
+        src/llm/llmclient.cpp
+        src/llm/llmclient.h
+    )
+    target_link_libraries(qurcuma_llm PUBLIC qurcuma_core Qt6::Network)
+    target_include_directories(qurcuma_llm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+endif()
+
 add_executable(qurcuma
     ${SOURCES}
     ${HEADERS}
@@ -323,6 +341,7 @@ add_executable(qurcuma
 
 target_compile_definitions(qurcuma PRIVATE
     $<$<BOOL:${USE_SFTP}>:USE_SFTP>
+    $<$<BOOL:${USE_LLM}>:USE_LLM>
     QURCUMA_VERSION="${PROJECT_VERSION}")
 
 # Claude Generated 2026 - Match curcuma's CPU/SIMD flags on a target.
@@ -362,6 +381,7 @@ qurcuma_match_curcuma_simd(qurcuma)
 find_package(OpenMP)
 target_link_libraries(qurcuma PRIVATE
 qurcuma_core  # Claude Generated 2026 - tool registry + log hub
+$<$<BOOL:${USE_LLM}>:qurcuma_llm>  # Claude Generated 2026 - endpoint client
 Qt6::Core
 Qt6::Gui
 Qt6::GuiPrivate
@@ -539,6 +559,17 @@ qurcuma_core
 )
 add_test(NAME toolscore COMMAND test_toolscore)
 set_tests_properties(toolscore PROPERTIES LABELS qurcuma)
+
+# LLM client/config test - Claude Generated 2026
+# Talks to a QTcpServer stub inside the test process. ctest never touches a network.
+if(USE_LLM)
+    add_executable(test_llmclient test_llmclient.cpp)
+    target_link_libraries(test_llmclient PRIVATE
+    qurcuma_llm
+    )
+    add_test(NAME llmclient COMMAND test_llmclient)
+    set_tests_properties(llmclient PROPERTIES LABELS qurcuma)
+endif()
 
 add_executable(test_scenefiller test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp
     src/elementdata.cpp src/fragmentlibrary.cpp)
