@@ -1589,7 +1589,7 @@ void MoleculeViewer::appendMolecule(const QVector<Atom>& newAtoms, const QVector
         return;
     }
     if (!canEditStructure()) {
-        qWarning() << "appendMolecule: only single-frame structures can be edited";
+        qWarning() << "appendMolecule: structure edits need a single frame and no running simulation";
         return;
     }
     emit editSnapshotRequested(tr("Before add molecule"));  // pre-merge state for undo
@@ -2559,7 +2559,7 @@ int MoleculeViewer::addAtomAt(const QVector3D& modelPos, const QString& element,
         return 0;
     }
     if (!canEditStructure()) {
-        qWarning() << "addAtomAt: only single-frame structures can be edited";
+        qWarning() << "addAtomAt: structure edits need a single frame and no running simulation";
         return -1;
     }
     requestBuildSnapshot();
@@ -2807,7 +2807,7 @@ void MoleculeViewer::attachFragment(const build::Fragment& fragment, int targetA
     if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
         return;
     if (!canEditStructure()) {
-        qWarning() << "attachFragment: only single-frame structures can be edited";
+        qWarning() << "attachFragment: structure edits need a single frame and no running simulation";
         return;
     }
     QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
@@ -3011,7 +3011,7 @@ void MoleculeViewer::startFragmentCarry(const build::Fragment& fragment)
     if (!buildMode())
         setBuildMode(true);
     if (!m_trajectoryAtoms.isEmpty() && !canEditStructure())
-        return;  // insertFragment would refuse anyway (multi-frame)
+        return;  // insertFragment would refuse anyway (multi-frame or running simulation)
     insertFragment(fragment);  // snapshot + append + select
     if (m_selectedAtoms.size() != fragment.atoms.size())
         return;  // insertion did not happen
@@ -3347,7 +3347,7 @@ void MoleculeViewer::addHydrogens(const QVector<int>& targets)
     if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
         return;
     if (!canEditStructure()) {
-        qWarning() << "addHydrogens: only single-frame structures can be edited";
+        qWarning() << "addHydrogens: structure edits need a single frame and no running simulation";
         return;
     }
     QVector<Atom> newH;

@@ -2967,11 +2967,16 @@ void MainWindow::updateAtomTableFromViewer()
 // Mirror the viewer's current-frame geometry into the structure text editor as XYZ.
 // Single-frame structures only (a trajectory's text stays the loaded file), and
 // never while the user is typing in the editor (focus) — that would fight them.
+// Deliberately gated on the frame count and not on canEditStructure(): this is a
+// read, and canEditStructure() is false while a simulation runs — but the run-end
+// refresh wired in setupConnections() is delivered before createDockWidgets()'s
+// handler clears the viewer's simulation flag, so that gate would leave the editor
+// showing the pre-run geometry.
 void MainWindow::updateStructureTextFromViewer()
 {
     if (!m_structureView || !m_moleculeView)
         return;
-    if (!m_moleculeView->canEditStructure() || m_structureView->hasFocus())
+    if (m_moleculeView->getFrameCount() > 1 || m_structureView->hasFocus())
         return;
     const QVector<MoleculeViewer::Atom> atoms = m_moleculeView->getCurrentFrameAtoms();
     if (atoms.isEmpty())
@@ -2986,6 +2991,10 @@ void MainWindow::applyStructureTextToViewer()
 {
     if (!m_structureView || !m_moleculeView)
         return;
+    if (m_moleculeView->simulationActive()) {
+        statusBar()->showMessage(tr("Apply is not available while a simulation is running"), 3000);
+        return;
+    }
     if (!m_moleculeView->canEditStructure()) {
         statusBar()->showMessage(tr("Apply works on single-frame structures only"), 3000);
         return;
@@ -3187,6 +3196,11 @@ void MainWindow::addMoleculeToScene()
 {
     if (!m_moleculeView)
         return;
+    if (m_moleculeView->simulationActive()) {
+        QMessageBox::information(this, tr("Add Molecule to Scene"),
+            tr("Merging is not available while a simulation is running."));
+        return;
+    }
     if (!m_moleculeView->canEditStructure()) {
         QMessageBox::information(this, tr("Add Molecule to Scene"),
             tr("Merging is only available for single-frame structures, not trajectories."));
@@ -3205,6 +3219,11 @@ void MainWindow::mergeFileIntoScene(const QString& filePath)
 {
     if (!m_moleculeView || filePath.isEmpty())
         return;
+    if (m_moleculeView->simulationActive()) {
+        QMessageBox::information(this, tr("Add Molecule to Scene"),
+            tr("Merging is not available while a simulation is running."));
+        return;
+    }
     if (!m_moleculeView->canEditStructure()) {
         QMessageBox::information(this, tr("Add Molecule to Scene"),
             tr("Merging is only available for single-frame structures, not trajectories."));

@@ -359,8 +359,12 @@ public slots:
     void deleteSelection();
     /// Translate the moving selection along the net overlap direction until clash-free.
     void resolveClashes();
-    /// True when structural edits (add/remove atoms) are allowed (single frame only).
-    bool canEditStructure() const { return m_frameCount <= 1; }
+    /// True when structural edits (add/remove atoms) are allowed: a single frame and no
+    /// running simulation. A live run rebuilds frame 0 from the worker's geometry, so an
+    /// edit would be overwritten on the next frame -- and if it changes the atom count,
+    /// updateSimulationFrame() takes the mismatch for a topology change and rebuilds the
+    /// molecule: atoms past the cached frame become carbon and the bond graph is dropped.
+    bool canEditStructure() const { return m_frameCount <= 1 && !m_simulationActive; }
     int getCollisionCount() const { return m_collisionAtoms.size(); }
     /// Rotate the scene (or, with @p nudge in Edit mode, translate the selection) from a
     /// WASD/QE key. Driven by MainWindow's application-level key filter (focus-independent).
