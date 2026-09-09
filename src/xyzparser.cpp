@@ -100,14 +100,14 @@ bool XYZParser::parseAsciiFormat(const QString& filePath, QVector<XYZFrame>& fra
 }
 
 void XYZParser::convertToMoleculeViewer(const XYZFrame& xyzFrame,
-                                       QVector<MoleculeViewer::Atom>& atoms,
-                                       QVector<MoleculeViewer::Bond>& bonds)
+                                       QVector<moldata::Atom>& atoms,
+                                       QVector<moldata::Bond>& bonds)
 {
     atoms.clear();
     bonds.clear();
 
     for (const auto& xyzAtom : xyzFrame.atoms) {
-        MoleculeViewer::Atom atom;
+        moldata::Atom atom;
         atom.element = xyzAtom.element;
         atom.position = QVector3D(xyzAtom.x, xyzAtom.y, xyzAtom.z);
         atoms.append(atom);
@@ -187,7 +187,7 @@ bool XYZParser::writeTrajectory(const QString& filePath, const QVector<XYZFrame>
     return true;
 }
 
-bool XYZParser::convertFromMoleculeViewer(const QVector<MoleculeViewer::Atom>& atoms,
+bool XYZParser::convertFromMoleculeViewer(const QVector<moldata::Atom>& atoms,
                                          const QString& comment,
                                          XYZFrame& xyzFrame)
 {

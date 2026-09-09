@@ -343,8 +343,8 @@ void PDBParser::detectBonds(const PDBFrame& frame)
 }
 
 void PDBParser::convertToMoleculeViewer(const PDBFrame& pdbFrame,
-                                       QVector<MoleculeViewer::Atom>& atoms,
-                                       QVector<MoleculeViewer::Bond>& bonds,
+                                       QVector<moldata::Atom>& atoms,
+                                       QVector<moldata::Bond>& bonds,
                                        const QVector<PDBBond>& pdbBonds)
 {
     atoms.clear();
@@ -352,7 +352,7 @@ void PDBParser::convertToMoleculeViewer(const PDBFrame& pdbFrame,
 
     // Convert atoms
     for (const PDBAtom& pdbAtom : pdbFrame.atoms) {
-        MoleculeViewer::Atom atom;
+        moldata::Atom atom;
         atom.element = pdbAtom.element;
         atom.position = QVector3D(pdbAtom.x, pdbAtom.y, pdbAtom.z);
         atom.charge = 0.0f;  // PDB doesn't typically contain charge
@@ -361,7 +361,7 @@ void PDBParser::convertToMoleculeViewer(const PDBFrame& pdbFrame,
 
     // Convert bonds
     for (const PDBBond& pdbBond : pdbBonds) {
-        MoleculeViewer::Bond bond;
+        moldata::Bond bond;
         bond.atom1 = pdbBond.atom1;
         bond.atom2 = pdbBond.atom2;
         bond.bondOrder = 1;  // Default single bond

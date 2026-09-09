@@ -236,6 +236,7 @@ set(HEADERS
     src/vtfparser.h
     src/xyzparser.h
     src/moleculefileloader.h  # Claude Generated 2026 - unified structure-file reader
+    src/core/moleculedata.h  # Claude Generated 2026 - Atom/Bond records, free of QtWidgets
     src/calculationhistory.h  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.h  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.h

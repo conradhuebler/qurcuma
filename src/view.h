@@ -18,6 +18,7 @@
 #include <QHash>
 #include <QPair>
 #include <QVector>
+#include "core/moleculedata.h"  // Claude Generated 2026 - Atom/Bond records (see the alias below)
 #include "simulationframe.h"  // Claude Generated - Zero-copy simulation payload
 #include "viewpreset.h"  // Claude Generated 2026 - reproducible camera/display presets
 #include "imagemetadata.h"  // Claude Generated 2026 - export image provenance
@@ -84,20 +85,11 @@ public:
         Index           // 0-based atom index
     };
 
-    struct Atom {
-        QVector3D position;
-        QString element;
-        float charge = 0.0f;  // Claude Generated - for charge-based coloring
-        // Claude Generated 2026 - coarse-grained (VTF bead) support:
-        float radius = 0.0f;  // per-atom draw radius; 0 = fall back to element vdW
-        QString type;         // bead/residue type label; drives "By Type" colouring
-    };
-
-    struct Bond {
-        int atom1;
-        int atom2;
-        int bondOrder;
-    };
+    // Claude Generated 2026 - The records themselves live in core/moleculedata.h so
+    // parsers and tools can use them without including this QWidget header. These
+    // aliases keep every `MoleculeViewer::Atom` / `::Bond` spelling in the tree valid.
+    using Atom = moldata::Atom;
+    using Bond = moldata::Bond;
 
     explicit MoleculeViewer(QWidget *parent = nullptr);
     ~MoleculeViewer();

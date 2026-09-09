@@ -30,8 +30,8 @@ MoleculeFileLoader::Result MoleculeFileLoader::load(const QString& path)
                 XYZParser::XYZFrame frame;
                 if (!parser.getFrame(i, frame))
                     continue;
-                QVector<MoleculeViewer::Atom> atoms;
-                QVector<MoleculeViewer::Bond> bonds;
+                QVector<moldata::Atom> atoms;
+                QVector<moldata::Bond> bonds;
                 XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
                 r.frames.append(atoms);
                 r.frameBonds.append(bonds);
@@ -46,8 +46,8 @@ MoleculeFileLoader::Result MoleculeFileLoader::load(const QString& path)
                 VTFParser::VTFFrame frame;
                 if (!parser.getFrame(i, frame))
                     continue;
-                QVector<MoleculeViewer::Atom> atoms;
-                QVector<MoleculeViewer::Bond> bonds;
+                QVector<moldata::Atom> atoms;
+                QVector<moldata::Bond> bonds;
                 VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
                 r.frames.append(atoms);
                 r.frameBonds.append(bonds);
@@ -58,8 +58,8 @@ MoleculeFileLoader::Result MoleculeFileLoader::load(const QString& path)
         PDBParser parser;
         PDBParser::PDBFrame frame;
         if (parser.parseFile(path, frame)) {
-            QVector<MoleculeViewer::Atom> atoms;
-            QVector<MoleculeViewer::Bond> bonds;
+            QVector<moldata::Atom> atoms;
+            QVector<moldata::Bond> bonds;
             PDBParser::convertToMoleculeViewer(frame, atoms, bonds, parser.getBonds());
             r.frames.append(atoms);
             r.frameBonds.append(bonds);
@@ -71,8 +71,8 @@ MoleculeFileLoader::Result MoleculeFileLoader::load(const QString& path)
         MOL2Parser parser;
         MOL2Parser::MOL2Molecule molecule;
         if (parser.parseFile(path, molecule)) {
-            QVector<MoleculeViewer::Atom> atoms;
-            QVector<MoleculeViewer::Bond> bonds;
+            QVector<moldata::Atom> atoms;
+            QVector<moldata::Bond> bonds;
             MOL2Parser::convertToMoleculeViewer(molecule, atoms, bonds);
             r.frames.append(atoms);
             r.frameBonds.append(bonds);

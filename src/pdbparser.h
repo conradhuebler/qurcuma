@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "view.h"
+#include "core/moleculedata.h"  // moldata::Atom / ::Bond
 #include <QString>
 #include <QVector>
 #include <QFile>
@@ -103,8 +103,8 @@ public:
      * @param bonds Output bond array
      */
     static void convertToMoleculeViewer(const PDBFrame& pdbFrame,
-                                       QVector<MoleculeViewer::Atom>& atoms,
-                                       QVector<MoleculeViewer::Bond>& bonds,
+                                       QVector<moldata::Atom>& atoms,
+                                       QVector<moldata::Bond>& bonds,
                                        const QVector<PDBBond>& pdbBonds);
 
     /**

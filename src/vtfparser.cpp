@@ -262,14 +262,14 @@ bool VTFParser::parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& fra
 }
 
 void VTFParser::convertToMoleculeViewer(const VTFFrame& vtfFrame, 
-                                       QVector<MoleculeViewer::Atom>& atoms,
-                                       QVector<MoleculeViewer::Bond>& bonds)
+                                       QVector<moldata::Atom>& atoms,
+                                       QVector<moldata::Bond>& bonds)
 {
     atoms.clear();
     bonds.clear();
     
     for (const auto& vtfAtom : vtfFrame.atoms) {
-        MoleculeViewer::Atom atom;
+        moldata::Atom atom;
         atom.element = vtfAtom.element;
         atom.position = QVector3D(vtfAtom.x, vtfAtom.y, vtfAtom.z);
         atom.radius = vtfAtom.radius;  // coarse-grained beads carry their own radius
@@ -278,7 +278,7 @@ void VTFParser::convertToMoleculeViewer(const VTFFrame& vtfFrame,
     }
     
     for (const auto& vtfBond : vtfFrame.bonds) {
-        MoleculeViewer::Bond bond;
+        moldata::Bond bond;
         bond.atom1 = vtfBond.atom1;
         bond.atom2 = vtfBond.atom2;
         bond.bondOrder = 1; // Default bond order
@@ -289,4 +289,4 @@ void VTFParser::convertToMoleculeViewer(const VTFFrame& vtfFrame,
 // Claude Generated 2026 - getAtomColor()/getAtomRadius() removed: dead legacy
 // helpers with the same hard-coded polymer→colour table that broke generic VTF.
 // Colour is now the renderer's "By Type" scheme (SceneController::typeColor) and
-// the per-bead radius flows through MoleculeViewer::Atom::radius.
+// the per-bead radius flows through moldata::Atom::radius.
