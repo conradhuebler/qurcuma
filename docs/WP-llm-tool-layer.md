@@ -280,6 +280,52 @@ Fähigkeitstabelle). Voraussetzung für Phase 4.
 | **4.2** | Schema-Erzeugung **aus curcumas Registry** (Kommando↔Modul aus `ModuleDefinition`, Auswahl über `tier=primary`, Constraints aus `allowed`/`unit`/`min`/`max`, bedingte Felder aus `requires`), dazu `describe_job(command)`. Keine handgepflegte Parametertabelle in qurcuma. | Schema für die exponierten Kommandos ohne handgepflegte Liste; Test prüft Modulzuordnung und Auflösbarkeit. | offen |
 | **4.3** | Rechen-Werkzeuge (`Effect::Compute`), asynchron: `run_job → {status:"started", job_id}`, `job_status`, `job_result`. Dazu `set_temperature`, `pause_md`, `resume_md`, `stop_md`, `step_once` über die vorhandenen `SimulationWorker`-Slots per QueuedConnection. | MD per Werkzeug steuerbar, GUI bedienbar, `Mutate` während des Laufs sauber abgelehnt. | offen |
 
+### Leitszenario — agentisches Docking
+
+Der Operator hat als Zielbild genannt: **zwei Moleküle laden, dann interaktiv-agentisch docken**
+— ein Rezeptor mit Kavität, ein Gast, der hineinmuss. Und ausdrücklich so, dass **das Modell alle
+nötigen Befehle und Analysen selbst ausführt und selbst prüft**.
+
+Das ist als Prüfstein wertvoller denn als Feature: es misst den Werkzeugsatz an einer Aufgabe
+statt an einer Liste. Daraus folgt ein Entwurfsgrundsatz, der über die Werkzeugauswahl
+entscheidet: **zu jeder Handlung muss es eine Beobachtung geben.** Ein Modell, das platzieren
+darf, aber nicht messen kann, ob es getroffen hat, rät. Die Schleife lautet
+*platzieren → messen → bewerten → wiederholen*, und jeder Pfeil braucht ein Werkzeug.
+
+**Was es dafür schon gibt:**
+
+| Baustein | Stand |
+|---|---|
+| Fragmenterkennung (welches ist Rezeptor, welches Gast) | `get_fragments`, über curcumas `GetFragments()` — **fertig** (WP1.3) |
+| Fragment auswählen | `select_atoms` mit `"F0"`/`"F1"` — **fertig** (WP1.3) |
+| Geometrie prüfen | `measure` (Abstand, Winkel, Diederwinkel, Gyrationsradius) — **fertig** (WP1.3) |
+| Überlappung zählen | `MoleculeViewer::getCollisionCount()` (`view.h:360`) und `resolveClashes()` (`:353`), beide öffentlich — **Werkzeug fehlt noch** |
+| Zwei Strukturen in eine Szene | `MainWindow::mergeFileIntoScene()` — vorhanden, aber modal und ohne Werkzeug |
+| Docking als Rechnung | curcumas `Docking` (25 PARAMs, `capabilities/docking.h:103`) |
+| Wechselwirkungsenergie | curcumas `interaction` — aber `main.cpp`-resident, ohne Klasse und ohne Schema (eines der 22 modul-losen Kommandos) |
+
+**Was konkret fehlt, mit Fundstelle:**
+
+1. **Ein Fragment bewegen.** `MoleculeViewer::moveSelection()` ist **privat** (`view.h:863`). Für
+   ein `transform_fragment`-Werkzeug (Translation + Rotation um den Fragmentschwerpunkt, `Mutate`)
+   muss es eine öffentliche, snapshot-fähige Entsprechung geben. Rotation gibt es noch gar nicht.
+2. **Laden und Zusammenführen als Werkzeuge** (`load_structure`, `merge_structure`, beide
+   `Mutate`), mit der nicht-interaktiven Variante ohne `QMessageBox` (Abschnitt 6).
+3. **Die Kavität finden.** Nichts davon existiert bisher — weder in qurcuma noch als
+   curcuma-Fähigkeit. Für den Anfang reicht wahrscheinlich Billigeres als echte Kavitätssuche:
+   Schwerpunkt und Trägheitsachsen des Rezeptors, plus `render_view` aus mehreren Richtungen,
+   und das Modell schließt daraus. Ob das trägt, ist eine offene Frage, keine Zusage.
+4. **`render_view`.** Steht heute in Phase 5, gehört für dieses Szenario aber nach vorn: eine
+   Kavität aus Koordinatenlisten zu erschließen ist deutlich schwerer, als sie anzusehen.
+5. **Bewerten.** Single Point auf dem Komplex gegen die getrennten Teile, also Phase 4 — oder
+   curcumas `interaction` direkt, was WP3.5/WP6 auf curcuma-Seite voraussetzt.
+6. **Schleifenkosten.** Eine agentische Schleife ruft Werkzeuge dutzendfach. Das ist genau der
+   Fall, für den der TODO zum effizienten Tooling geschrieben wurde: Katalog klein halten,
+   Ergebnisse kappen, Bilder nur auf Anforderung.
+
+Kein eigenes Arbeitspaket. Der Eintrag steht hier, damit die Reihenfolge der nächsten Pakete an
+dieser Aufgabe geprüft werden kann statt an einer Featureliste.
+
 ### Phase 5 — Nachgelagert
 - `render_view` mit Dimensionsobergrenzen und Sperre während laufender MD (`exportImage`
   läuft synchron und hielte den MD-`QTimer` für die Dauer eines 4K-SSAA-Renders an).
