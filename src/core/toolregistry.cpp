@@ -11,6 +11,32 @@
 #include <QMutexLocker>
 #include <QSet>
 
+bool needsApprovalAt(ToolEffect effect, ToolAutonomy autonomy)
+{
+    switch (autonomy) {
+    case ToolAutonomy::Full:
+        return false;
+    case ToolAutonomy::InProgram:
+        // Everything that stays inside the program. A structure edit lands in the
+        // snapshot stack and Ctrl+Z takes it back; a calculation costs time and
+        // nothing else. Writing a file and starting a program do not undo.
+        return effect == ToolEffect::FileWrite || effect == ToolEffect::Process;
+    case ToolAutonomy::Ask:
+        return effect != ToolEffect::Read && effect != ToolEffect::Display;
+    }
+    return true;   // an unknown level is the careful one
+}
+
+QString toolAutonomyName(ToolAutonomy autonomy)
+{
+    switch (autonomy) {
+    case ToolAutonomy::Ask:       return QStringLiteral("ask");
+    case ToolAutonomy::InProgram: return QStringLiteral("auto in the program");
+    case ToolAutonomy::Full:      return QStringLiteral("full auto");
+    }
+    return QStringLiteral("ask");
+}
+
 QString toolEffectName(ToolEffect effect)
 {
     switch (effect) {

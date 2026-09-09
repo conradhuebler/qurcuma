@@ -75,6 +75,35 @@ void ChatDock::setupUI()
     m_modelInfo->hide();
     layout->addWidget(m_modelInfo);
 
+    // How much may run unattended. A single control over the effect classes rather
+    // than a per-tool list: an agentic run measures, calculates and moves atoms
+    // dozens of times, and confirming each one makes the work impossible.
+    auto* autonomyRow = new QHBoxLayout;
+    autonomyRow->addWidget(new QLabel(tr("Autonomy:"), content));
+    m_autonomyBox = new QComboBox(content);
+    m_autonomyBox->addItem(tr("Ask before acting"), int(ToolAutonomy::Ask));
+    m_autonomyBox->addItem(tr("Auto in the program"), int(ToolAutonomy::InProgram));
+    m_autonomyBox->addItem(tr("Full auto"), int(ToolAutonomy::Full));
+    m_autonomyBox->setToolTip(tr(
+        "Ask: reading and display run freely, everything else asks.\n"
+        "Auto in the program: calculations and structure changes run too -- they stay "
+        "inside qurcuma and a structure change is undoable with Ctrl+Z.\n"
+        "Full auto: writing files and starting external programs as well. Nothing asks."));
+    connect(m_autonomyBox, &QComboBox::currentIndexChanged, this, [this](int index) {
+        const auto level = ToolAutonomy(m_autonomyBox->itemData(index).toInt());
+        updateAutonomyNote();
+        emit autonomyChanged(level);
+    });
+    autonomyRow->addWidget(m_autonomyBox, 1);
+    layout->addLayout(autonomyRow);
+
+    // The level is never hidden: a run that needs no confirmation must still be
+    // visibly a run that needs no confirmation.
+    m_autonomyNote = new QLabel(content);
+    m_autonomyNote->setWordWrap(true);
+    m_autonomyNote->hide();
+    layout->addWidget(m_autonomyNote);
+
     // The conversation is a column of widgets: each turn's reasoning has to be its
     // own foldable block that stays in the history, which one text view cannot do.
     m_scroll = new QScrollArea(content);
@@ -137,6 +166,46 @@ QLabel* ChatDock::addBlock(const QString& who, const QString& text, const QStrin
     m_messageLayout->insertWidget(m_messageLayout->count() - 1, label);
     scrollToEnd();
     return label;
+}
+
+void ChatDock::setAutonomy(ToolAutonomy autonomy)
+{
+    if (!m_autonomyBox)
+        return;
+    QSignalBlocker block(m_autonomyBox);
+    const int index = m_autonomyBox->findData(int(autonomy));
+    if (index >= 0)
+        m_autonomyBox->setCurrentIndex(index);
+    updateAutonomyNote();
+}
+
+ToolAutonomy ChatDock::autonomy() const
+{
+    if (!m_autonomyBox)
+        return ToolAutonomy::Ask;
+    return ToolAutonomy(m_autonomyBox->currentData().toInt());
+}
+
+void ChatDock::updateAutonomyNote()
+{
+    if (!m_autonomyNote)
+        return;
+    switch (autonomy()) {
+    case ToolAutonomy::Ask:
+        m_autonomyNote->hide();
+        return;
+    case ToolAutonomy::InProgram:
+        m_autonomyNote->setText(tr("Calculations and structure changes run without asking. "
+                                   "Ctrl+Z takes a structure change back."));
+        m_autonomyNote->setStyleSheet(QStringLiteral("color:#d4a017; font-weight:bold;"));
+        break;
+    case ToolAutonomy::Full:
+        m_autonomyNote->setText(tr("Nothing asks — files are written and external programs "
+                                   "started on the assistant's own decision."));
+        m_autonomyNote->setStyleSheet(QStringLiteral("color:#c62828; font-weight:bold;"));
+        break;
+    }
+    m_autonomyNote->show();
 }
 
 QString ChatDock::transcript() const

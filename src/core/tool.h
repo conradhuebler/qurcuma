@@ -27,6 +27,27 @@ enum class ToolEffect {
     Process     ///< starts an external program
 };
 
+/// How much the assistant may do without being asked. The operator sets it in the
+/// Assistant dock; it is one switch over the effects above rather than a per-tool
+/// list, so what it permits can be read off in one line.
+///
+/// Claude Generated 2026 - The graded middle rung is the useful one: an agentic
+/// run measures, calculates and moves atoms dozens of times, and confirming each
+/// makes the work impossible, while writing files and starting external programs
+/// leaves the program and deserves a separate decision.
+enum class ToolAutonomy {
+    Ask,        ///< Read and Display run; everything else asks
+    InProgram,  ///< also Mutate and Compute: everything that stays inside qurcuma
+    Full        ///< also FileWrite and Process: nothing asks
+};
+
+/// Does @p effect still need a human answer at @p autonomy? The single place the
+/// rule lives, so the dock's label and the policy cannot say different things.
+bool needsApprovalAt(ToolEffect effect, ToolAutonomy autonomy);
+
+/// Name of @p autonomy for a label and for the log.
+QString toolAutonomyName(ToolAutonomy autonomy);
+
 /// Which thread a handler must run on. Anything reaching MoleculeViewer, MainWindow
 /// or a widget is Gui; the dispatcher marshals those. Getting this wrong is a data
 /// race on the viewer's frame storage, not a crash you would notice in testing,

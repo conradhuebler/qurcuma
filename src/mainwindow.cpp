@@ -5438,6 +5438,32 @@ void MainWindow::setupAssistant()
     m_chatDock->attachSession(m_llmSession);
     connect(m_chatDock, &ChatDock::profileChanged, this, &MainWindow::applyLlmProfile);
 
+    // Claude Generated 2026 - Autonomy: remembered across sessions, because being
+    // asked to set it again on every launch is what makes people leave it on the
+    // loosest rung. It is never hidden -- the dock says what is armed, and every
+    // change is written to the log, so "what was it allowed to do" has an answer
+    // after the fact.
+    {
+        QSettings settings;
+        const int stored = settings.value(QStringLiteral("llm/autonomy"),
+            int(ToolAutonomy::Ask)).toInt();
+        m_autonomy = (stored >= int(ToolAutonomy::Ask) && stored <= int(ToolAutonomy::Full))
+            ? ToolAutonomy(stored)
+            : ToolAutonomy::Ask;
+        m_chatDock->setAutonomy(m_autonomy);
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+            tr("assistant autonomy: %1").arg(toolAutonomyName(m_autonomy)));
+    }
+    connect(m_chatDock, &ChatDock::autonomyChanged, this, [this](ToolAutonomy autonomy) {
+        m_autonomy = autonomy;
+        QSettings().setValue(QStringLiteral("llm/autonomy"), int(autonomy));
+        // A level that permits more than before starts from a clean slate: the
+        // per-tool "allow for this session" grants were given under the old one.
+        m_toolsAllowedForSession.clear();
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+            tr("assistant autonomy set to: %1").arg(toolAutonomyName(autonomy)));
+    });
+
     // Which models exist belongs to the endpoint, so it is asked rather than
     // guessed, and the answer is remembered per profile.
     connect(m_llmClient, &LlmClient::modelsListed, this, [this](const QStringList& models) {
@@ -5530,6 +5556,11 @@ void MainWindow::applyLlmProfile(const QString& name)
 
 bool MainWindow::approveToolCall(const ToolSpec& spec, const QJsonObject& args)
 {
+    // Claude Generated 2026 - The autonomy level first: it is the operator's one
+    // switch over the effect classes, and needsApprovalAt() is the only place that
+    // grades them, so the dock's label and this decision cannot disagree.
+    if (!needsApprovalAt(spec.effect, m_autonomy))
+        return true;
     if (m_toolsAllowedForSession.contains(spec.name))
         return true;
 

@@ -201,6 +201,44 @@ int main(int argc, char** argv)
             && toolAffinityName(ToolAffinity::Gui) == QLatin1String("gui"),
         "effect and affinity have stable spellings for logs and catalogues");
 
+    // --- what each autonomy level permits ------------------------------------
+    //
+    // The whole point of the switch is that the operator can read off what it
+    // allows. Pinned here so a later effect or a reordered enum cannot quietly
+    // widen a level: this is the one rule that decides whether a model writes to
+    // the disk without being asked.
+    {
+        const auto asks = [](ToolEffect e, ToolAutonomy a) { return needsApprovalAt(e, a); };
+
+        check(!asks(ToolEffect::Read, ToolAutonomy::Ask)
+                && !asks(ToolEffect::Display, ToolAutonomy::Ask),
+            "Ask lets reading and display through");
+        check(asks(ToolEffect::Mutate, ToolAutonomy::Ask)
+                && asks(ToolEffect::Compute, ToolAutonomy::Ask)
+                && asks(ToolEffect::FileWrite, ToolAutonomy::Ask)
+                && asks(ToolEffect::Process, ToolAutonomy::Ask),
+            "and stops everything else");
+
+        check(!asks(ToolEffect::Mutate, ToolAutonomy::InProgram)
+                && !asks(ToolEffect::Compute, ToolAutonomy::InProgram),
+            "InProgram adds structure changes and calculations -- both stay in the program");
+        check(asks(ToolEffect::FileWrite, ToolAutonomy::InProgram)
+                && asks(ToolEffect::Process, ToolAutonomy::InProgram),
+            "but still asks before a file is written or a program started, "
+            "because neither undoes");
+
+        check(!asks(ToolEffect::Read, ToolAutonomy::Full)
+                && !asks(ToolEffect::Display, ToolAutonomy::Full)
+                && !asks(ToolEffect::Mutate, ToolAutonomy::Full)
+                && !asks(ToolEffect::Compute, ToolAutonomy::Full)
+                && !asks(ToolEffect::FileWrite, ToolAutonomy::Full)
+                && !asks(ToolEffect::Process, ToolAutonomy::Full),
+            "Full asks nothing at all -- every effect, deliberately");
+
+        check(toolAutonomyName(ToolAutonomy::Full) == QLatin1String("full auto"),
+            "the level has a stable spelling for the log");
+    }
+
     std::printf("%s (%d failed)\n", g_failed ? "FAIL" : "PASS", g_failed);
     return g_failed ? 1 : 0;
 }

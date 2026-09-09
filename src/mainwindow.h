@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/tool.h"  // Claude Generated 2026 - ToolAutonomy
 #include "docks/dockconfig.h"  // Claude Generated 2026 - Dock system restructuring
 #include "settings.h"
 #include "vtfparser.h"
@@ -241,6 +242,11 @@ private:
     /// not a slot: the Edit-menu Copy calls it before falling back to the
     /// structure. Claude Generated 2026.
     bool copySelectedTextFromFocusWidget();
+#ifdef USE_LLM
+    /// How much the assistant may do unasked; set in the Assistant dock, kept in
+    /// QSettings, consulted by approveToolCall(). Claude Generated 2026.
+    ToolAutonomy m_autonomy = ToolAutonomy::Ask;
+#endif
 
     void setupUI();
     void createToolbars();

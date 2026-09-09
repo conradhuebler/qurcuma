@@ -11,6 +11,8 @@
 // again later. A single text view cannot do that.
 #pragma once
 
+#include "core/tool.h"
+
 #include "dockconfig.h"
 
 #include "llm/llmconfig.h"  // LlmModelInfo
@@ -52,6 +54,11 @@ public:
     /// prose and never touch the structure.
     void setModelInfo(const LlmModelInfo& info);
 
+    /// How much may run without being asked. The dock owns the control; the policy
+    /// that reads it lives in MainWindow. Claude Generated 2026.
+    void setAutonomy(ToolAutonomy autonomy);
+    ToolAutonomy autonomy() const;
+
     /// A line above the input, for "no endpoint configured" and the like.
     void setStatus(const QString& text, bool isError = false);
 
@@ -71,6 +78,8 @@ signals:
     void profileChanged(const QString& name);
     /// The user picked another model.
     void modelChanged(const QString& model);
+    /// The user changed how much may run unattended. Claude Generated 2026.
+    void autonomyChanged(ToolAutonomy autonomy);
 
 private:
     void setupUI();
@@ -84,6 +93,7 @@ private:
     void appendReasoning(const QString& text);
     void appendAnswer(const QString& text);
     void beginTurn();
+    void updateAutonomyNote();
     void scrollToEnd();
 
     LlmSession* m_session = nullptr;
@@ -100,6 +110,8 @@ private:
     QLabel* m_modelInfo = nullptr;
     QLabel* m_status = nullptr;
     QPushButton* m_copyButton = nullptr;
+    QComboBox* m_autonomyBox = nullptr;
+    QLabel* m_autonomyNote = nullptr;   ///< visible whenever it is not "ask"
 
     /// Widgets of the turn in progress. Null between turns.
     QLabel* m_currentAnswer = nullptr;
