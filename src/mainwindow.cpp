@@ -79,6 +79,7 @@
 #include "llm/tools_palette.h"
 #include "llm/curcumajob.h"
 #include "llm/tools_compute.h"
+#include "llm/tools_edit.h"
 #ifdef USE_LLM
 #include "docks/chatdock.h"
 #include "llm/llmclient.h"
@@ -4371,6 +4372,10 @@ void MainWindow::createDockWidgets()
         computeContext.viewer = m_moleculeView;
         computeContext.job = m_curcumaJob;
         registerComputeTools(ToolRegistry::instance(), computeContext);
+
+        EditToolContext editContext;
+        editContext.viewer = m_moleculeView;
+        registerEditTools(ToolRegistry::instance(), editContext);
         m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), &LogHub::instance(), this);
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
             tr("%1 tools registered").arg(ToolRegistry::instance().size()));

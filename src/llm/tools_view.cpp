@@ -7,9 +7,12 @@
 #include "core/toolregistry.h"
 #include "measurements.h"
 #include "moleculebridge.h"
+#include "imagemetadata.h"
 #include "view.h"
 
 #include <QDir>
+#include <QFile>
+#include <QTemporaryFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QMap>
@@ -703,6 +706,76 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
                                   .arg(cutoff)
                                   .arg(cross ? QStringLiteral(" across the two selections") : QString());
             }
+            return result;
+        };
+        add(spec);
+    }
+
+    // --- render_view --------------------------------------------------------
+    {
+        ToolSpec spec = base(QStringLiteral("render_view"), QStringLiteral("display"),
+            QStringLiteral("Render what is on screen and return it as a PNG. Use this when the "
+                           "question is about shape, arrangement or where something sits -- a "
+                           "cavity is far easier to see than to infer from coordinates. Change "
+                           "the camera or the representation first if another angle would help."),
+            ToolEffect::Display, R"JSON({
+              "type": "object",
+              "properties": {
+                "width":  { "type": "integer", "minimum": 128, "maximum": 1600,
+                            "description": "pixels (default 800)" },
+                "height": { "type": "integer", "minimum": 128, "maximum": 1600,
+                            "description": "pixels (default 600)" },
+                "background": { "type": "string", "enum": ["scene", "white", "transparent"],
+                                "description": "default white, which reads best in a chat" }
+              }
+            })JSON");
+        spec.handler = [viewer](const QJsonObject& args) -> ToolResult {
+            // exportImage renders synchronously on this thread. During a run that
+            // would stall the MD timer for the whole render, so it is refused
+            // rather than quietly making the simulation stutter.
+            if (viewer->simulationActive()) {
+                return ToolResult::failure(
+                    QStringLiteral("not while a simulation is running -- rendering would stall it"));
+            }
+            if (viewer->getCurrentFrameAtoms().isEmpty())
+                return noStructure();
+
+            const int width = qBound(128, args.value(QStringLiteral("width")).toInt(800), 1600);
+            const int height = qBound(128, args.value(QStringLiteral("height")).toInt(600), 1600);
+            const QString background = args.value(QStringLiteral("background"))
+                                           .toString(QStringLiteral("white"));
+            const int backgroundMode = background == QLatin1String("scene") ? 0
+                : background == QLatin1String("transparent")                ? 2
+                                                                            : 1;
+
+            // exportImage writes a file; the bytes are what a model can look at, so
+            // the file is a temporary and goes away again.
+            QTemporaryFile file(QDir::tempPath() + QStringLiteral("/qurcuma-render-XXXXXX.png"));
+            file.setAutoRemove(true);
+            if (!file.open())
+                return ToolResult::failure(QStringLiteral("could not create a temporary file"));
+            const QString path = file.fileName();
+            file.close();
+
+            ImageMetadata metadata;
+            metadata.embed = false;   // no provenance block in a throwaway view
+            if (!viewer->exportImage(path, width, height, backgroundMode, /*ssaa=*/false, metadata))
+                return ToolResult::failure(QStringLiteral("rendering failed"));
+
+            QFile rendered(path);
+            if (!rendered.open(QIODevice::ReadOnly))
+                return ToolResult::failure(QStringLiteral("could not read the rendered image back"));
+            const QByteArray bytes = rendered.readAll();
+            rendered.close();
+
+            QJsonObject data;
+            data.insert(QStringLiteral("width"), width);
+            data.insert(QStringLiteral("height"), height);
+            data.insert(QStringLiteral("bytes"), bytes.size());
+            ToolResult result = ToolResult::success(data,
+                QStringLiteral("Rendered %1x%2.").arg(width).arg(height));
+            result.image = bytes;
+            result.imageMimeType = QStringLiteral("image/png");
             return result;
         };
         add(spec);
