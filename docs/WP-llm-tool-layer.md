@@ -182,6 +182,18 @@ Weitergabe an Qts eigenen Handler *sieht* kaputt aus, wenn man sie prüft: auf e
 systemd-System geht Qts Standard-Handler an journald, sobald stderr kein Terminal ist. Mit
 `QT_LOGGING_TO_CONSOLE=1` sind die Zeilen da. Nachgemessen am 09.09.2026.
 
+**Was die neue Sichtbarkeit sofort zutage gefördert hat** (Operator-Lauf 09.09.2026): beim
+Start stehen **zehnmal** `QLayout::addChildLayout: layout QHBoxLayout "" already has a parent`
+im Dock — acht vor dem NMR-Dialog, zwei währenddessen. Ein echter Layout-Fehler, der bisher nur
+im Terminal stand. Nicht eingegrenzt: ein Textmuster über die Quellen liefert nur einen
+Fehltreffer (`simulationchart.cpp` erzeugt sein `row` ohne Elternteil), die Stelle braucht einen
+Lauf unter dem Debugger. Ebenfalls sichtbar: `This plugin supports grabbing the mouse only for
+popup windows` beim Ziehen — die bekannte Wayland-Grenze des Cursor-Pinnings (`view.h`).
+
+**Offene Frage zur Lautstärke:** der Dock zeigt derzeit auch `Debug`-Datensätze, weshalb interne
+Zeilen wie `[NMRDataStore] DataStore created` beim Benutzer landen. Ein Vorgabefilter ab `Info`
+(mit Umschalter) würde das aufräumen, ist aber eine Bedienentscheidung.
+
 **Noch offen:** `MainWindow::updateOutputView()` ersetzt den gesamten Dock-Inhalt durch eine
 Logdatei (`setText`), überschreibt also die LogHub-Zeilen. Das ist Altverhalten des
 Rechnungs-Pfads und wird erst dann unangenehm, wenn der Dock zwei Quellen gleichzeitig zeigen
