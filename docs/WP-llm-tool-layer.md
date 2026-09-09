@@ -247,7 +247,7 @@ brauchen ein Widget und Quick3D, die bleiben beim Operator-Check.
 |---|---|---|
 | a | `src/core/tools_core.{h,cpp}`: `read_log` und `describe_tools` — brauchen nur `LogHub` und die Registry, bleiben also in `qurcuma_core` | erledigt |
 | b | `test_toolscore`: Schemata wohlgeformt, `read_log`-Filter und Kappung, `next_seq` fürs Blättern, `describe_tools` mit und ohne Schema | erledigt |
-| c | `src/llm/tools_view.{h,cpp}` mit `ViewToolContext`: `get_structure_summary`, `list_atoms` (gekappt), `get_selection`, `select_atoms`, `get_fragments`, `measure`, `get_frame_info`, `get_camera`, `get_display`, `list_workdir` | erledigt |
+| c | `src/llm/tools_view.{h,cpp}` mit `ViewToolContext`: `get_structure_summary`, `list_atoms` (gekappt), `get_selection`, `select_atoms`, `get_fragments`, `measure`, `get_distance_matrix`, `get_contacts`, `get_frame_info`, `get_camera`, `get_display`, `list_workdir` | erledigt |
 | d | Verdrahtung in `MainWindow`: Registry und Dispatcher anlegen, Kern- und Viewer-Werkzeuge anmelden | erledigt |
 | e | CMake: Quellen, Testziel | erledigt |
 | f | Build grün, Tests grün, Commit, Doku/Changelog | erledigt |
@@ -299,6 +299,7 @@ darf, aber nicht messen kann, ob es getroffen hat, rät. Die Schleife lautet
 | Fragmenterkennung (welches ist Rezeptor, welches Gast) | `get_fragments`, über curcumas `GetFragments()` — **fertig** (WP1.3) |
 | Fragment auswählen | `select_atoms` mit `"F0"`/`"F1"` — **fertig** (WP1.3) |
 | Geometrie prüfen | `measure` (Abstand, Winkel, Diederwinkel, Gyrationsradius) — **fertig** (WP1.3) |
+| Kontakte Rezeptor↔Gast | `get_contacts` mit zwei Auswahlen — **fertig** |
 | Überlappung zählen | `MoleculeViewer::getCollisionCount()` (`view.h:360`) und `resolveClashes()` (`:353`), beide öffentlich — **Werkzeug fehlt noch** |
 | Zwei Strukturen in eine Szene | `MainWindow::mergeFileIntoScene()` — vorhanden, aber modal und ohne Werkzeug |
 | Docking als Rechnung | curcumas `Docking` (25 PARAMs, `capabilities/docking.h:103`) |
@@ -319,7 +320,13 @@ darf, aber nicht messen kann, ob es getroffen hat, rät. Die Schleife lautet
    Kavität aus Koordinatenlisten zu erschließen ist deutlich schwerer, als sie anzusehen.
 5. **Bewerten.** Single Point auf dem Komplex gegen die getrennten Teile, also Phase 4 — oder
    curcumas `interaction` direkt, was WP3.5/WP6 auf curcuma-Seite voraussetzt.
-6. **Schleifenkosten.** Eine agentische Schleife ruft Werkzeuge dutzendfach. Das ist genau der
+6. **Ziehen statt setzen.** Der Operator will, dass das Modell an Atomen *zieht*, nicht nur
+   Koordinaten setzt. `SimpleMD::applyExternalForces()` sieht danach aus, ist aber transient
+   („cleared after use", `simplemd.h:503`) und nur zwischen zwei `step()`-Aufrufen wirksam — eine
+   Injektion, kein Potential. Deklarative, im Controller stehende und zur Laufzeit änderbare
+   externe Potentiale sind als **WP8** in `external/curcuma/docs/TOOL_API_WP.md` beschrieben.
+
+7. **Schleifenkosten.** Eine agentische Schleife ruft Werkzeuge dutzendfach. Das ist genau der
    Fall, für den der TODO zum effizienten Tooling geschrieben wurde: Katalog klein halten,
    Ergebnisse kappen, Bilder nur auf Anforderung.
 
