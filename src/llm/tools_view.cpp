@@ -13,6 +13,11 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QMap>
+#include <QPair>
+#include <QSet>
+
+#include <algorithm>
+#include <vector>
 
 namespace {
 
@@ -64,6 +69,46 @@ QString empiricalFormula(const QVector<MoleculeViewer::Atom>& atoms)
         formula += it.value() == 1 ? it.key() : QStringLiteral("%1%2").arg(it.key()).arg(it.value());
     }
     return formula;
+}
+
+/// Resolve an atom set given either as curcuma's selection grammar or as explicit
+/// indices. Shared by select_atoms, get_distance_matrix and get_contacts so there
+/// is one place that knows the grammar and one place that range-checks.
+bool resolveAtomSet(const QVector<MoleculeViewer::Atom>& atoms, const QString& expression,
+                    const QJsonArray& explicitIndices, QVector<int>& out, QString& error)
+{
+    out.clear();
+    if (!expression.isEmpty() && !explicitIndices.isEmpty()) {
+        error = QStringLiteral("pass either an expression or explicit indices, not both");
+        return false;
+    }
+
+    if (!expression.isEmpty()) {
+        const curcuma::Molecule molecule = atomsToMolecule(atoms);
+        const std::vector<int> resolved = molecule.FragString2Indicies(expression.toStdString());
+        if (resolved.empty()) {
+            error = QStringLiteral("selection \"%1\" matched no atoms").arg(expression);
+            return false;
+        }
+        for (int index : resolved)
+            out.append(index);
+    } else {
+        for (const QJsonValue& value : explicitIndices) {
+            if (!value.isDouble()) {
+                error = QStringLiteral("atom indices must be numbers");
+                return false;
+            }
+            out.append(value.toInt());
+        }
+    }
+
+    for (int index : out) {
+        if (index < 0 || index >= atoms.size()) {
+            error = QStringLiteral("atom index %1 is outside 0..%2").arg(index).arg(atoms.size() - 1);
+            return false;
+        }
+    }
+    return true;
 }
 
 ToolSpec base(const QString& name, const QString& category, const QString& description,
@@ -223,32 +268,9 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             }
 
             QVector<int> wanted;
-            if (!expression.isEmpty()) {
-                // curcuma owns this grammar; re-implementing it here would be a
-                // second parser to keep in step with the engine.
-                const curcuma::Molecule molecule = atomsToMolecule(atoms);
-                const std::vector<int> resolved =
-                    molecule.FragString2Indicies(expression.toStdString());
-                if (resolved.empty()) {
-                    return ToolResult::failure(
-                        QStringLiteral("selection \"%1\" matched no atoms").arg(expression));
-                }
-                for (int index : resolved)
-                    wanted.append(index);
-            } else {
-                for (const QJsonValue& value : explicitIndices) {
-                    if (!value.isDouble())
-                        return ToolResult::failure(QStringLiteral("\"indices\" must hold numbers"));
-                    wanted.append(value.toInt());
-                }
-            }
-
-            for (int index : wanted) {
-                if (index < 0 || index >= atoms.size()) {
-                    return ToolResult::failure(QStringLiteral("atom index %1 is outside 0..%2")
-                                                   .arg(index).arg(atoms.size() - 1));
-                }
-            }
+            QString error;
+            if (!resolveAtomSet(atoms, expression, explicitIndices, wanted, error))
+                return ToolResult::failure(error);
 
             viewer->selectAtoms(wanted, append);
             QJsonObject data;
@@ -490,6 +512,183 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             data.insert(QStringLiteral("total"), entries.size());
             ToolResult result = ToolResult::success(data);
             result.truncated = entries.size() > array.size();
+            return result;
+        };
+        add(spec);
+    }
+
+    // --- get_distance_matrix ------------------------------------------------
+    {
+        ToolSpec spec = base(QStringLiteral("get_distance_matrix"), QStringLiteral("analysis"),
+            QStringLiteral("Lower-triangle distance matrix over a chosen set of atoms, in Angstrom. "
+                           "The set has to be given -- a full matrix over a whole structure is "
+                           "hundreds of thousands of numbers. Use get_contacts to find close pairs "
+                           "without naming them first."),
+            ToolEffect::Read, R"JSON({
+              "type": "object",
+              "properties": {
+                "expression": { "type": "string",  "description": "selection grammar, e.g. F1 or 1:20" },
+                "atoms":      { "type": "array",   "description": "explicit 0-based atom indices" },
+                "max_atoms":  { "type": "integer", "minimum": 2, "maximum": 60,
+                                "description": "refuse larger sets (default 40)" }
+              }
+            })JSON");
+        spec.handler = [viewer](const QJsonObject& args) {
+            const QVector<MoleculeViewer::Atom> atoms = viewer->getCurrentFrameAtoms();
+            if (atoms.isEmpty())
+                return noStructure();
+
+            QVector<int> set;
+            QString error;
+            if (!resolveAtomSet(atoms, args.value(QStringLiteral("expression")).toString(),
+                    args.value(QStringLiteral("atoms")).toArray(), set, error)) {
+                return ToolResult::failure(error);
+            }
+            if (set.isEmpty())
+                return ToolResult::failure(QStringLiteral("name an atom set: \"expression\" or \"atoms\""));
+
+            const int maxAtoms = qBound(2, args.value(QStringLiteral("max_atoms")).toInt(40), 60);
+            if (set.size() > maxAtoms) {
+                return ToolResult::failure(
+                    QStringLiteral("%1 atoms would be %2 pairs; raise max_atoms (up to 60) or "
+                                   "narrow the selection")
+                        .arg(set.size()).arg(set.size() * (set.size() - 1) / 2));
+            }
+
+            QJsonArray labels;
+            for (int index : set)
+                labels.append(QStringLiteral("%1 %2").arg(index).arg(atoms.at(index).element));
+
+            QJsonArray matrix;
+            for (int i = 1; i < set.size(); ++i) {
+                QJsonArray row;
+                for (int j = 0; j < i; ++j) {
+                    row.append(measure::distance(atoms.at(set.at(i)).position,
+                        atoms.at(set.at(j)).position));
+                }
+                matrix.append(row);
+            }
+
+            QJsonObject data;
+            data.insert(QStringLiteral("labels"), labels);
+            data.insert(QStringLiteral("matrix"), matrix);
+            data.insert(QStringLiteral("unit"), QStringLiteral("A"));
+            data.insert(QStringLiteral("layout"),
+                QStringLiteral("lower triangle; matrix[i-1][j] is the distance between labels[i] and labels[j], j < i"));
+            return ToolResult::success(data);
+        };
+        add(spec);
+    }
+
+    // --- get_contacts -------------------------------------------------------
+    {
+        ToolSpec spec = base(QStringLiteral("get_contacts"), QStringLiteral("analysis"),
+            QStringLiteral("Atom pairs closer than a cutoff, nearest first. Give two selections to "
+                           "get only the pairs BETWEEN them -- that is how you tell whether a guest "
+                           "sits in a receptor's cavity and what touches what."),
+            ToolEffect::Read, R"JSON({
+              "type": "object",
+              "properties": {
+                "cutoff":         { "type": "number",  "minimum": 0.5, "maximum": 20.0,
+                                    "description": "maximum distance in Angstrom (default 4.0)" },
+                "selection_a":    { "type": "string",  "description": "selection grammar; with selection_b, only cross pairs" },
+                "selection_b":    { "type": "string",  "description": "the other side of the cross pairs" },
+                "exclude_bonded": { "type": "boolean", "description": "skip directly bonded pairs (default true)" },
+                "limit":          { "type": "integer", "minimum": 1, "maximum": 300,
+                                    "description": "how many pairs at most (default 50)" }
+              }
+            })JSON");
+        spec.handler = [viewer](const QJsonObject& args) {
+            const QVector<MoleculeViewer::Atom> atoms = viewer->getCurrentFrameAtoms();
+            if (atoms.isEmpty())
+                return noStructure();
+
+            const double cutoff = args.value(QStringLiteral("cutoff")).toDouble(4.0);
+            const int limit = qBound(1, args.value(QStringLiteral("limit")).toInt(50), 300);
+            const bool excludeBonded = args.value(QStringLiteral("exclude_bonded")).toBool(true);
+            const QString selA = args.value(QStringLiteral("selection_a")).toString();
+            const QString selB = args.value(QStringLiteral("selection_b")).toString();
+
+            if (selA.isEmpty() != selB.isEmpty()) {
+                return ToolResult::failure(
+                    QStringLiteral("give both selection_a and selection_b, or neither"));
+            }
+
+            QVector<int> setA;
+            QVector<int> setB;
+            QString error;
+            const bool cross = !selA.isEmpty();
+            if (cross) {
+                if (!resolveAtomSet(atoms, selA, {}, setA, error)
+                    || !resolveAtomSet(atoms, selB, {}, setB, error)) {
+                    return ToolResult::failure(error);
+                }
+            } else {
+                for (int i = 0; i < atoms.size(); ++i)
+                    setA.append(i);
+                setB = setA;
+            }
+
+            // Directly bonded pairs are not contacts; without this the nearest
+            // neighbours of every atom drown out what one actually wants to see.
+            QSet<QPair<int, int>> bonded;
+            if (excludeBonded) {
+                for (const MoleculeViewer::Bond& b : viewer->getCurrentFrameBonds())
+                    bonded.insert(qMakePair(qMin(b.atom1, b.atom2), qMax(b.atom1, b.atom2)));
+            }
+
+            struct Contact {
+                int a;
+                int b;
+                double d;
+            };
+            std::vector<Contact> contacts;
+            for (int ia : setA) {
+                for (int ib : setB) {
+                    if (!cross && ib <= ia)
+                        continue;   // each unordered pair once
+                    if (cross && ia == ib)
+                        continue;
+                    const double d = measure::distance(atoms.at(ia).position, atoms.at(ib).position);
+                    if (d > cutoff)
+                        continue;
+                    if (excludeBonded
+                        && bonded.contains(qMakePair(qMin(ia, ib), qMax(ia, ib)))) {
+                        continue;
+                    }
+                    contacts.push_back({ ia, ib, d });
+                }
+            }
+            std::sort(contacts.begin(), contacts.end(),
+                [](const Contact& l, const Contact& r) { return l.d < r.d; });
+
+            QJsonArray array;
+            const int shown = qMin(static_cast<int>(contacts.size()), limit);
+            for (int i = 0; i < shown; ++i) {
+                const Contact& c = contacts[i];
+                QJsonObject entry;
+                entry.insert(QStringLiteral("a"), c.a);
+                entry.insert(QStringLiteral("a_element"), atoms.at(c.a).element);
+                entry.insert(QStringLiteral("b"), c.b);
+                entry.insert(QStringLiteral("b_element"), atoms.at(c.b).element);
+                entry.insert(QStringLiteral("distance"), c.d);
+                array.append(entry);
+            }
+
+            QJsonObject data;
+            data.insert(QStringLiteral("contacts"), array);
+            data.insert(QStringLiteral("returned"), shown);
+            data.insert(QStringLiteral("total"), static_cast<int>(contacts.size()));
+            data.insert(QStringLiteral("cutoff"), cutoff);
+            data.insert(QStringLiteral("unit"), QStringLiteral("A"));
+            data.insert(QStringLiteral("cross_selection"), cross);
+            ToolResult result = ToolResult::success(data);
+            result.truncated = shown < static_cast<int>(contacts.size());
+            if (contacts.empty()) {
+                result.text = QStringLiteral("No pair is closer than %1 A%2.")
+                                  .arg(cutoff)
+                                  .arg(cross ? QStringLiteral(" across the two selections") : QString());
+            }
             return result;
         };
         add(spec);
