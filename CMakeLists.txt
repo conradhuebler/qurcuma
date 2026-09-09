@@ -328,6 +328,8 @@ if(USE_LLM)
         src/llm/llmconfig.h
         src/llm/llmclient.cpp
         src/llm/llmclient.h
+        src/llm/llmsession.cpp
+        src/llm/llmsession.h
     )
     target_link_libraries(qurcuma_llm PUBLIC qurcuma_core Qt6::Network)
     target_include_directories(qurcuma_llm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -569,6 +571,13 @@ if(USE_LLM)
     )
     add_test(NAME llmclient COMMAND test_llmclient)
     set_tests_properties(llmclient PROPERTIES LABELS qurcuma)
+
+    add_executable(test_llmsession test_llmsession.cpp)
+    target_link_libraries(test_llmsession PRIVATE
+    qurcuma_llm
+    )
+    add_test(NAME llmsession COMMAND test_llmsession)
+    set_tests_properties(llmsession PROPERTIES LABELS qurcuma)
 endif()
 
 add_executable(test_scenefiller test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp

@@ -7,11 +7,11 @@
 #include "llm/llmclient.h"
 #include "llm/llmconfig.h"
 
+#include "test_stubserver.h"
+
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QJsonDocument>
-#include <QTcpServer>
-#include <QTcpSocket>
 #include <QTimer>
 #include <cstdio>
 
@@ -23,78 +23,6 @@ static void check(bool ok, const QString& what)
     if (!ok)
         ++g_failed;
 }
-
-/// Minimal HTTP/1.1 endpoint: reads one request, answers with a canned reply, and
-/// keeps what it was sent so the test can look at it.
-class StubServer : public QTcpServer {
-public:
-    explicit StubServer(QObject* parent = nullptr)
-        : QTcpServer(parent)
-    {
-        listen(QHostAddress::LocalHost, 0);
-    }
-
-    QString baseUrl() const
-    {
-        return QStringLiteral("http://127.0.0.1:%1/v1").arg(serverPort());
-    }
-
-    void reply(int status, const QByteArray& body, const QByteArray& contentType = "application/json")
-    {
-        m_status = status;
-        m_body = body;
-        m_contentType = contentType;
-    }
-
-    QByteArray requestHeaders;
-    QByteArray requestBody;
-
-protected:
-    void incomingConnection(qintptr descriptor) override
-    {
-        auto* socket = new QTcpSocket(this);
-        socket->setSocketDescriptor(descriptor);
-        connect(socket, &QTcpSocket::readyRead, this, [this, socket] {
-            m_buffer += socket->readAll();
-            const int headerEnd = m_buffer.indexOf("\r\n\r\n");
-            if (headerEnd < 0)
-                return;
-            const QByteArray headers = m_buffer.left(headerEnd);
-            const int contentLength = lengthOf(headers);
-            const QByteArray body = m_buffer.mid(headerEnd + 4);
-            if (body.size() < contentLength)
-                return;  // wait for the rest
-
-            requestHeaders = headers;
-            requestBody = body.left(contentLength);
-            m_buffer.clear();
-
-            const QByteArray response = "HTTP/1.1 " + QByteArray::number(m_status) + " X\r\n"
-                + "Content-Type: " + m_contentType + "\r\n"
-                + "Content-Length: " + QByteArray::number(m_body.size()) + "\r\n"
-                + "Connection: close\r\n\r\n" + m_body;
-            socket->write(response);
-            socket->flush();
-            socket->disconnectFromHost();
-        });
-    }
-
-private:
-    static int lengthOf(const QByteArray& headers)
-    {
-        for (const QByteArray& line : headers.split('\n')) {
-            const QByteArray trimmed = line.trimmed();
-            if (trimmed.toLower().startsWith("content-length:"))
-                return trimmed.mid(trimmed.indexOf(':') + 1).trimmed().toInt();
-        }
-        return 0;
-    }
-
-    QByteArray m_buffer;
-    int m_status = 200;
-    QByteArray m_body = "{}";
-    QByteArray m_contentType = "application/json";
-};
 
 /// Run one request to completion. Returns true on finished(), false on failed().
 static bool roundTrip(LlmClient& client, const QJsonArray& messages, const QJsonArray& tools,
