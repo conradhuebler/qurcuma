@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.20)
 project(qurcuma VERSION 1.0 LANGUAGES CXX)
 
+# Claude Generated 2026 - Without this, CMake writes no CTestTestfile.cmake and the
+# add_test() calls further down are inert: the test binaries are built but
+# `ctest` reports "No tests were found". Must be in the top-level list file.
+#
+# It also activates the 312 tests that curcuma's own CMakeLists registers through
+# add_subdirectory(test_cases) -- their executables are EXCLUDE_FROM_ALL here (see
+# the FetchContent block below), so a bare `ctest` would try to run binaries that
+# were never built. qurcuma's own tests therefore carry the label `qurcuma`:
+#     ctest --test-dir debug -L qurcuma
+enable_testing()
+
 # Claude Generated 2026 - Qt/QtCharts's exported CMake targets still list
 # AGL.framework (legacy pre-Metal OpenGL entry points) as a link dependency on
 # macOS, even though nothing in the RHI-based rendering path ever calls into
@@ -446,6 +457,7 @@ target_include_directories(test_measurements PRIVATE
     ${curcuma_BINARY_DIR}
 )
 add_test(NAME measurements COMMAND test_measurements)
+set_tests_properties(measurements PROPERTIES LABELS qurcuma)
 
 add_executable(test_scenefiller test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp
     src/elementdata.cpp src/fragmentlibrary.cpp)
@@ -465,6 +477,7 @@ target_include_directories(test_scenefiller PRIVATE
     ${curcuma_BINARY_DIR}
 )
 add_test(NAME scenefiller COMMAND test_scenefiller)
+set_tests_properties(scenefiller PROPERTIES LABELS qurcuma)
 
 add_executable(test_buildtools test_buildtools.cpp src/buildtools.cpp src/elementdata.cpp
     src/fragmentlibrary.cpp)
