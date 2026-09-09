@@ -84,7 +84,11 @@ bool resolveAtomSet(const QVector<MoleculeViewer::Atom>& atoms, const QString& e
     }
 
     if (!expression.isEmpty()) {
-        const curcuma::Molecule molecule = atomsToMolecule(atoms);
+        curcuma::Molecule molecule = atomsToMolecule(atoms);
+        // FragString2Indicies reads m_fragments directly, and that cache is only
+        // filled by GetFragments(). Without this call every "Fn" silently matches
+        // nothing -- which is exactly how it failed the first time it was used.
+        molecule.GetFragments();
         const std::vector<int> resolved = molecule.FragString2Indicies(expression.toStdString());
         if (resolved.empty()) {
             error = QStringLiteral("selection \"%1\" matched no atoms").arg(expression);
@@ -237,12 +241,15 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
     {
         ToolSpec spec = base(QStringLiteral("select_atoms"), QStringLiteral("structure"),
             QStringLiteral("Select atoms, either by explicit indices or with curcuma's selection "
-                           "grammar: \"1:10,15\" is a range plus a single atom, \"F2\" is fragment 2, "
-                           "\"-1\" is everything. Pass neither to clear the selection."),
+                           "grammar. Mind the numbering: the grammar is ONE-based -- \"1:10\" is the "
+                           "first ten atoms, \"F1\" is the first fragment, \"-1\" is everything -- "
+                           "while \"indices\" and every index this tool reports are ZERO-based. When "
+                           "in doubt use get_fragments, which hands back a ready-made selector per "
+                           "fragment. Pass neither argument to clear the selection."),
             ToolEffect::Display, R"JSON({
               "type": "object",
               "properties": {
-                "expression": { "type": "string",  "description": "selection grammar, e.g. 1:10,15 or F2" },
+                "expression": { "type": "string",  "description": "ONE-based selection grammar: 1:10,15 or F1 or -1 for all" },
                 "indices":    { "type": "array",   "description": "explicit 0-based atom indices" },
                 "append":     { "type": "boolean", "description": "add to the current selection" }
               }
@@ -285,7 +292,8 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
     {
         ToolSpec spec = base(QStringLiteral("get_fragments"), QStringLiteral("structure"),
             QStringLiteral("Connected fragments of the current frame, as curcuma perceives them. "
-                           "Fragment n can then be selected with the expression \"Fn\"."),
+                           "Each entry carries a ready-made \"selector\" string -- pass that verbatim "
+                           "to select_atoms or get_contacts instead of building one yourself."),
             ToolEffect::Read, R"JSON({"type":"object"})JSON");
         spec.handler = [viewer](const QJsonObject&) {
             const QVector<MoleculeViewer::Atom> atoms = viewer->getCurrentFrameAtoms();
@@ -298,6 +306,10 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             for (size_t i = 0; i < fragments.size(); ++i) {
                 QJsonObject entry;
                 entry.insert(QStringLiteral("fragment"), static_cast<int>(i));
+                // The selector is handed over ready-made. The grammar is one-based
+                // while this "fragment" number is zero-based like everything else
+                // here, and a model asked to bridge that gap gets it wrong.
+                entry.insert(QStringLiteral("selector"), QStringLiteral("F%1").arg(i + 1));
                 entry.insert(QStringLiteral("atom_count"), static_cast<int>(fragments[i].size()));
                 QVector<int> indices;
                 for (int index : fragments[i])
@@ -527,7 +539,7 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             ToolEffect::Read, R"JSON({
               "type": "object",
               "properties": {
-                "expression": { "type": "string",  "description": "selection grammar, e.g. F1 or 1:20" },
+                "expression": { "type": "string",  "description": "ONE-based selection grammar: F1 or 1:20 (see select_atoms)" },
                 "atoms":      { "type": "array",   "description": "explicit 0-based atom indices" },
                 "max_atoms":  { "type": "integer", "minimum": 2, "maximum": 60,
                                 "description": "refuse larger sets (default 40)" }
@@ -585,14 +597,16 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
         ToolSpec spec = base(QStringLiteral("get_contacts"), QStringLiteral("analysis"),
             QStringLiteral("Atom pairs closer than a cutoff, nearest first. Give two selections to "
                            "get only the pairs BETWEEN them -- that is how you tell whether a guest "
-                           "sits in a receptor's cavity and what touches what."),
+                           "sits in a receptor's cavity and what touches what. Take the selectors "
+                           "from get_fragments rather than writing them by hand; the grammar is "
+                           "one-based while the reported indices are zero-based."),
             ToolEffect::Read, R"JSON({
               "type": "object",
               "properties": {
                 "cutoff":         { "type": "number",  "minimum": 0.5, "maximum": 20.0,
                                     "description": "maximum distance in Angstrom (default 4.0)" },
-                "selection_a":    { "type": "string",  "description": "selection grammar; with selection_b, only cross pairs" },
-                "selection_b":    { "type": "string",  "description": "the other side of the cross pairs" },
+                "selection_a":    { "type": "string",  "description": "ONE-based selection grammar (e.g. F1); with selection_b, only cross pairs" },
+                "selection_b":    { "type": "string",  "description": "the other side of the cross pairs (e.g. F2)" },
                 "exclude_bonded": { "type": "boolean", "description": "skip directly bonded pairs (default true)" },
                 "limit":          { "type": "integer", "minimum": 1, "maximum": 300,
                                     "description": "how many pairs at most (default 50)" }

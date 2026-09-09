@@ -5354,6 +5354,19 @@ void MainWindow::setupAssistant()
         if (remembered.isEmpty() || !models.contains(remembered))
             remembered = models.value(0);
         m_chatDock->setModels(models, remembered);
+
+        // setModels() blocks the box's signals while it fills, so modelChanged does
+        // NOT fire for this first selection. Without pushing it by hand the client
+        // keeps the model from the config file and the box is decoration -- which is
+        // exactly how it failed: the dock showed one model and the request sent another.
+        const QString chosen = m_chatDock->currentModel();
+        if (chosen.isEmpty()) {
+            m_chatDock->setStatus(tr("The endpoint listed no models."), true);
+            return;
+        }
+        m_llmClient->setModel(chosen);
+        settings.setValue(QStringLiteral("llm/model/%1").arg(profileName), chosen);
+        m_llmClient->describeModel(chosen);
     });
     connect(m_llmClient, &LlmClient::modelDescribed, this, [this](const LlmModelInfo& info) {
         if (m_chatDock)

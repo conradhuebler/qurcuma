@@ -530,6 +530,26 @@ target_include_directories(test_measurements PRIVATE
 add_test(NAME measurements COMMAND test_measurements)
 set_tests_properties(measurements PROPERTIES LABELS qurcuma)
 
+# Selection-grammar test - Claude Generated 2026
+# Pins curcuma's FragString2Indicies: one-based, and Fn needs GetFragments() first.
+add_executable(test_selectiongrammar test_selectiongrammar.cpp)
+target_link_libraries(test_selectiongrammar PRIVATE
+Qt6::Core
+curcuma_core
+)
+qurcuma_match_curcuma_simd(test_selectiongrammar)
+target_include_directories(test_selectiongrammar PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+add_test(NAME selectiongrammar COMMAND test_selectiongrammar)
+set_tests_properties(selectiongrammar PROPERTIES LABELS qurcuma)
+
 # LogHub test - Claude Generated 2026
 # LogHub is QtCore-only by design (it has to link into a widget-free core), so this
 # target needs neither Gui nor curcuma. Threads::Threads is explicit because the
