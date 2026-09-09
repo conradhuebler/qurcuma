@@ -146,9 +146,22 @@ Ein Paket = ein baubarer Commit, Build grün nach jedem Schritt.
 
 | WP | Inhalt | Fertig, wenn | Status |
 |---|---|---|---|
-| **0.1** | `canEditStructure()` (`view.h:363`) liefert zusätzlich `false`, solange `m_simulationActive` gilt; die mutierenden Viewer-APIs kehren früh zurück (Abschnitt 2). | GUI-verhaltensneutral, da die Mauspfade bereits über dieselbe Flagge gesperrt sind. Operator-Sichtprüfung. | offen |
+| **0.1** | `canEditStructure()` (`view.h:363`) liefert zusätzlich `false`, solange `m_simulationActive` gilt; die mutierenden Viewer-APIs kehren früh zurück (Abschnitt 2). | GUI-verhaltensneutral, da die Mauspfade bereits über dieselbe Flagge gesperrt sind. Operator-Sichtprüfung. | **erledigt** (`1ea0317`) |
 | **0.2** | `MoleculeViewer::Atom`/`::Bond` nach `src/core/moleculedata.h`; in `view.h` bleiben Typaliase. `MoleculeFileLoader` zieht heute `view.h` (968 Zeilen, `QWidget`) allein wegen dieser Structs herein. | Build grün **ohne Änderung an den 51 Dateien**, die die Typen verwenden. | offen |
 | **0.3** | `src/core/loghub.{h,cpp}` (QtCore-only) + `qInstallMessageHandler`; `OutputDock` wird Abonnent. | `test_loghub` grün; qurcumas `qDebug`-Meldungen erscheinen im Output-Dock statt nur im Terminal. | offen |
+
+Beim Umsetzen von 0.1 kam zweierlei dazu. Der Spiegel in den Struktur-Texteditor ist ein
+*Lesen* und hing trotzdem an `canEditStructure()`; er gatet jetzt auf die Frame-Zahl, weil die
+Auffrischung nach Laufende aus `setupConnections()` **vor** dem Löschen der Simulationsflagge
+in `createDockWidgets()` zugestellt wird — die gemeinsame Bedingung hätte den Editor sonst auf
+der Geometrie von vor dem Lauf stehen lassen. Und `enable_testing()` fehlte im obersten
+CMake-File, die beiden `add_test`-Aufrufe waren also wirkungslos (`639370e`); qurcumas eigene
+Tests tragen jetzt das Label `qurcuma`, weil curcuma über `add_subdirectory(test_cases)` 312
+weitere registriert, deren Binaries hier nicht gebaut werden.
+
+**Noch offen als kleine Folgearbeit:** `setSimulationActive()` sendet kein Signal, die
+Build-Leiste kann also nicht ausgrauen und lehnt nur ab; `pasteClipboard` und `deleteSelection`
+lehnen stumm ab (das taten sie für Trajektorien schon vorher).
 
 ### Phase 1 — Die Registry, mit einem menschlichen Nutzer
 
