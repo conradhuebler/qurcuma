@@ -550,6 +550,27 @@ target_include_directories(test_selectiongrammar PRIVATE
 add_test(NAME selectiongrammar COMMAND test_selectiongrammar)
 set_tests_properties(selectiongrammar PROPERTIES LABELS qurcuma)
 
+# CurcumaLogger sink test - Claude Generated 2026
+# The property under test is thread-locality, so this one needs Threads.
+add_executable(test_curcumalogsink test_curcumalogsink.cpp)
+target_link_libraries(test_curcumalogsink PRIVATE
+Qt6::Core
+curcuma_core
+Threads::Threads
+)
+qurcuma_match_curcuma_simd(test_curcumalogsink)
+target_include_directories(test_curcumalogsink PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+add_test(NAME curcumalogsink COMMAND test_curcumalogsink)
+set_tests_properties(curcumalogsink PROPERTIES LABELS qurcuma)
+
 # LogHub test - Claude Generated 2026
 # LogHub is QtCore-only by design (it has to link into a widget-free core), so this
 # target needs neither Gui nor curcuma. Threads::Threads is explicit because the
