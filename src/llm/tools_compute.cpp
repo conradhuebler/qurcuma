@@ -5,6 +5,7 @@
 #include "tools_compute.h"
 
 #include "atomselection.h"
+#include "core/tooldispatcher.h"
 #include "core/toolregistry.h"
 #include "curcumajob.h"
 #include "curcuma_schemas.h"
@@ -100,6 +101,7 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
 {
     MoleculeViewer* const viewer = context.viewer;
     CurcumaJob* const job = context.job;
+    ToolDispatcher* const dispatcher = context.dispatcher;
     if (!viewer || !job)
         return 0;
 
@@ -211,14 +213,14 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
           "type": "object",
           "properties": {
             "job_id": { "type": "string", "description": "the job to ask about" },
-            "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 60,
-                              "description": "wait up to this long for the job to finish (default 0)" }
+            "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 300,
+                              "description": "wait up to this long for the job to finish (default 0). Waiting once for long costs one round; asking again every minute costs one each time." }
           }
         })JSON");
 
-        spec.handler = [job, store](const QJsonObject& args) {
+        spec.handler = [job, store, dispatcher](const QJsonObject& args) {
             const QString wanted = args.value(QStringLiteral("job_id")).toString();
-            const int waitSeconds = qBound(0, args.value(QStringLiteral("wait_seconds")).toInt(), 60);
+            const int waitSeconds = qBound(0, args.value(QStringLiteral("wait_seconds")).toInt(), 300);
 
             if (!wanted.isEmpty()) {
                 QElapsedTimer clock;
@@ -238,7 +240,7 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
                         return ToolResult::failure(QStringLiteral("no job called \"%1\"").arg(wanted));
 
                     const qint64 left = qint64(waitSeconds) * 1000 - clock.elapsed();
-                    if (left <= 0) {
+                    if (left <= 0 || (dispatcher && dispatcher->isInterrupted())) {
                         QJsonObject data;
                         data.insert(QStringLiteral("job_id"), wanted);
                         data.insert(QStringLiteral("status"),

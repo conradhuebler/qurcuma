@@ -14,6 +14,8 @@
 #include "tool.h"
 #include "toolregistry.h"
 
+#include <atomic>
+
 #include <QObject>
 #include <QString>
 
@@ -35,6 +37,14 @@ public:
     void setTimeoutMs(int ms);
     int timeoutMs() const { return m_timeoutMs; }
 
+    /// Ask any tool that is waiting to give up now. Set from the GUI thread when the
+    /// user presses Stop, read by the waiting handlers on the agent loop's thread --
+    /// a queued cancel() cannot reach a loop that is itself blocked, so the flag is
+    /// the only way out of a long wait. Claude Generated 2026.
+    void requestInterrupt() { m_interrupted.store(true); }
+    void clearInterrupt() { m_interrupted.store(false); }
+    bool isInterrupted() const { return m_interrupted.load(); }
+
     /// Validate, run on the appropriate thread, and record the call.
     ///
     /// A ToolAffinity::Gui handler called from another thread is posted to this
@@ -53,5 +63,6 @@ private:
     ToolRegistry* m_registry = nullptr;
     LogHub* m_hub = nullptr;
     int m_timeoutMs = kDefaultTimeoutMs;
+    std::atomic<bool> m_interrupted { false };
     quint64 m_callCount = 0;
 };

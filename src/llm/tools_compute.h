@@ -11,11 +11,14 @@
 
 class CurcumaJob;
 class MoleculeViewer;
+class ToolDispatcher;
 class ToolRegistry;
 
 struct ComputeToolContext {
     MoleculeViewer* viewer = nullptr;
     CurcumaJob* job = nullptr;
+    /// Consulted while waiting, so Stop reaches a wait that may last minutes.
+    ToolDispatcher* dispatcher = nullptr;
 };
 
 /// Register run_single_point, job_status and describe_job. Returns how many.

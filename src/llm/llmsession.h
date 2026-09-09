@@ -40,6 +40,12 @@ public:
     /// is the one where nobody has to remember to switch it on.
     void setApprovalPolicy(ApprovalFn approve);
 
+    /// Whether the selected model may be sent images. A tool that renders one is
+    /// otherwise answered with a note saying so, rather than with a picture nobody
+    /// looks at. Claude Generated 2026.
+    void setVisionCapable(bool capable) { m_visionCapable = capable; }
+    bool visionCapable() const { return m_visionCapable; }
+
     void setSystemPrompt(const QString& prompt);
     /// Cap on send/run rounds within one turn. Reached, the model is asked once
     /// more without any tools, so the turn ends with an answer built from what it
@@ -81,6 +87,10 @@ private:
     /// Answer every pending tool_call with a refusal, so the history stays valid
     /// when the loop stops before the calls are run.
     void declineRemainingCalls(const QJsonArray& toolCalls, const QString& reason);
+    /// Put @p image in front of the model as its own user message, and drop the one
+    /// before it: the history is resent every round, so keeping every picture ever
+    /// rendered would be paid for again on each of them.
+    void showImage(const QByteArray& image, const QString& mimeType, const QString& toolName);
     QJsonArray toolCatalogue() const;
     void setBusy(bool busy);
     void endTurn();
@@ -96,11 +106,15 @@ private:
     QJsonArray m_messages;
     // 12 was too few for real work: comparing three methods on a complex and its
     // two fragments is nine calculations before a word is written, and the turn
-    // died mid-way with everything discarded.
-    int m_maxIterations = 30;
+    // died mid-way with everything discarded. 30 then ran out on a dissociation
+    // study that had already done the hard part. Each round is one request with the
+    // whole history in it, so this is a real cost -- but a task abandoned two steps
+    // from the end costs all of it.
+    int m_maxIterations = 50;
     int m_iteration = 0;
     /// Set for the one round that runs without tools, to force a closing answer.
     bool m_finalRound = false;
+    bool m_visionCapable = false;
     int m_maxToolResultChars = 8000;
     bool m_busy = false;
 };

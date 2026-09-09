@@ -117,6 +117,8 @@ void LlmSession::ask(const QString& userMessage)
 
     m_iteration = 0;
     m_finalRound = false;
+    if (m_dispatcher)
+        m_dispatcher->clearInterrupt();
     setBusy(true);
     sendRound();
 }
@@ -133,6 +135,10 @@ void LlmSession::cancel()
 {
     if (!m_busy)
         return;
+    // Set first, and unconditionally: a tool may be waiting right now, and the
+    // queued cancel below cannot reach a loop that is itself blocked inside one.
+    if (m_dispatcher)
+        m_dispatcher->requestInterrupt();
     if (m_client)
         m_client->cancel();
     note(LogLevel::Info, tr("cancelled by the user"));
@@ -298,6 +304,20 @@ void LlmSession::runToolCalls(const QJsonArray& toolCalls)
         if (!result.text.isEmpty() && !result.data.isEmpty())
             payload = result.text + QLatin1Char('\n') + payload;
 
+        // A rendered image is not part of the tool result in this protocol: tool
+        // messages are text. It has to arrive as its own user message, and only if
+        // the model can look at one -- otherwise say so, so it works from the
+        // numbers instead of waiting for a picture that never comes.
+        if (!result.image.isEmpty()) {
+            if (m_visionCapable) {
+                payload += tr("\n(the image follows as the next message)");
+            } else {
+                payload += tr("\n(%1 cannot be shown: the selected model does not take images. "
+                              "Work from the coordinates and the measurements instead.)")
+                               .arg(name);
+            }
+        }
+
         // The history is resent in full every round, so one oversized result is
         // paid for again on every subsequent call.
         if (payload.size() > m_maxToolResultChars) {
@@ -308,5 +328,49 @@ void LlmSession::runToolCalls(const QJsonArray& toolCalls)
             payload += tr("\n(the tool had more to give; ask for the next page)");
         }
         reply(true, payload);
+        if (!result.image.isEmpty() && m_visionCapable)
+            showImage(result.image, result.imageMimeType, name);
     }
+}
+
+void LlmSession::showImage(const QByteArray& image, const QString& mimeType,
+                           const QString& toolName)
+{
+    // Only the newest picture stays. The whole history goes out again every round,
+    // so an image left in it is paid for on every subsequent one.
+    for (int i = m_messages.size() - 1; i >= 0; --i) {
+        const QJsonObject entry = m_messages.at(i).toObject();
+        if (entry.value(QStringLiteral("role")).toString() != QLatin1String("user"))
+            continue;
+        const QJsonArray parts = entry.value(QStringLiteral("content")).toArray();
+        bool carriesImage = false;
+        for (const QJsonValue& part : parts) {
+            if (part.toObject().value(QStringLiteral("type")).toString()
+                == QLatin1String("image_url")) {
+                carriesImage = true;
+                break;
+            }
+        }
+        if (carriesImage)
+            m_messages.removeAt(i);
+    }
+
+    const QString mime = mimeType.isEmpty() ? QStringLiteral("image/png") : mimeType;
+    QJsonObject text;
+    text.insert(QStringLiteral("type"), QStringLiteral("text"));
+    text.insert(QStringLiteral("text"), tr("The image %1 returned.").arg(toolName));
+    QJsonObject url;
+    url.insert(QStringLiteral("url"), QStringLiteral("data:%1;base64,%2")
+                                          .arg(mime, QString::fromLatin1(image.toBase64())));
+    QJsonObject picture;
+    picture.insert(QStringLiteral("type"), QStringLiteral("image_url"));
+    picture.insert(QStringLiteral("image_url"), url);
+
+    QJsonObject entry;
+    entry.insert(QStringLiteral("role"), QStringLiteral("user"));
+    entry.insert(QStringLiteral("content"), QJsonArray { text, picture });
+    m_messages.append(entry);
+
+    note(LogLevel::Info, tr("sent a %1 image (%2 kB) to the model")
+                             .arg(mime).arg(image.size() / 1024));
 }

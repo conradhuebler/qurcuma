@@ -4429,6 +4429,7 @@ void MainWindow::createDockWidgets()
         ComputeToolContext computeContext;
         computeContext.viewer = m_moleculeView;
         computeContext.job = m_curcumaJob;
+        computeContext.dispatcher = m_toolDispatcher;
         registerComputeTools(ToolRegistry::instance(), computeContext);
 
         EditToolContext editContext;
@@ -4440,7 +4441,6 @@ void MainWindow::createDockWidgets()
         fileContext.workingDirectory = [this] { return m_workingDirectory; };
         registerFileTools(ToolRegistry::instance(), fileContext);
 
-        m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), &LogHub::instance(), this);
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
             tr("%1 tools registered").arg(ToolRegistry::instance().size()));
     }
@@ -4477,6 +4477,7 @@ void MainWindow::createDockWidgets()
             SimulationToolContext simContext;
             simContext.control = m_simulationControlWidget;
             simContext.viewer = m_moleculeView;
+            simContext.dispatcher = m_toolDispatcher;
             const int simTools = registerSimulationTools(ToolRegistry::instance(), simContext);
             if (simTools > 0) {
                 LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
@@ -5534,6 +5535,11 @@ void MainWindow::setupAssistant()
     connect(m_llmClient, &LlmClient::modelDescribed, this, [this](const LlmModelInfo& info) {
         if (m_chatDock)
             m_chatDock->setModelInfo(info);
+        // render_view is only worth anything against a model that takes images; a
+        // model that does not is told so instead of being handed a PNG it cannot
+        // open. Claude Generated 2026.
+        const bool vision = info.supportsVision;
+        invokeOnLlmThread([this, vision] { m_llmSession->setVisionCapable(vision); });
     });
     connect(m_chatDock, &ChatDock::modelChanged, this, [this](const QString& model) {
         if (!m_llmClient || model.isEmpty())

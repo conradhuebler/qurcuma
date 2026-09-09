@@ -15,12 +15,15 @@
 
 class MoleculeViewer;
 class SimulationControlWidget;
+class ToolDispatcher;
 class ToolRegistry;
 
 struct SimulationToolContext {
     SimulationControlWidget* control = nullptr;
     /// For the element list and for a structure to measure when nothing is running.
     MoleculeViewer* viewer = nullptr;
+    /// Consulted while waiting, so Stop reaches a wait that may last minutes.
+    ToolDispatcher* dispatcher = nullptr;
 };
 
 /// Register the simulation tools. Returns how many.

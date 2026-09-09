@@ -5,6 +5,7 @@
 #include "tools_simulation.h"
 
 #include "atomselection.h"
+#include "core/tooldispatcher.h"
 #include "core/toolregistry.h"
 #include "measurements.h"
 #include "moleculebridge.h"
@@ -256,6 +257,7 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
         return 0;
 
     MoleculeViewer* const viewer = context.viewer;
+    ToolDispatcher* const dispatcher = context.dispatcher;
 
     auto cache = std::make_shared<StatusCache>();
     QObject::connect(control, &SimulationControlWidget::liveStateChanged, control,
@@ -374,19 +376,21 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
         spec.paramSchema = schema(R"JSON({
           "type": "object",
           "properties": {
-            "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 60,
-                              "description": "wait up to this long for the run to end (default 0)" }
+            "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 600,
+                              "description": "wait up to this long for the run to end (default 0). One long wait costs one round; asking again every minute costs one each time." }
           }
         })JSON");
 
-        spec.handler = [cache](const QJsonObject& args) {
-            const int waitSeconds = qBound(0, args.value(QStringLiteral("wait_seconds")).toInt(), 60);
+        spec.handler = [cache, dispatcher](const QJsonObject& args) {
+            const int waitSeconds = qBound(0, args.value(QStringLiteral("wait_seconds")).toInt(), 600);
             QElapsedTimer clock;
             clock.start();
 
             QMutexLocker lock(&cache->mutex);
             forever {
                 if (!cache->state.running || waitSeconds == 0)
+                    break;
+                if (dispatcher && dispatcher->isInterrupted())
                     break;
                 const qint64 left = qint64(waitSeconds) * 1000 - clock.elapsed();
                 if (left <= 0)
@@ -664,13 +668,13 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                              "description": "sample the quantity at least this many steps apart and return the trace" },
             "max_samples": { "type": "integer", "minimum": 1, "maximum": 100,
                              "description": "how many samples to collect before returning (default 20)" },
-            "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 60,
-                              "description": "how long to wait for that (default 0: answer at once)" }
+            "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 600,
+                              "description": "how long to wait for that (default 30 when a trace or a threshold was asked for, else 0). One long wait costs one round; asking again every minute costs one each time." }
           },
           "required": ["quantity"]
         })JSON");
 
-        spec.handler = [cache](const QJsonObject& args) {
+        spec.handler = [cache, dispatcher](const QJsonObject& args) {
             const QString quantity = args.value(QStringLiteral("quantity")).toString();
             const bool hasBelow = args.contains(QStringLiteral("below"));
             const bool hasAbove = args.contains(QStringLiteral("above"));
@@ -683,7 +687,7 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             // request that cannot be answered. Default to a useful span there and to
             // "answer now" for a plain read.
             const int waitSeconds = qBound(0,
-                args.value(QStringLiteral("wait_seconds")).toInt(wantsToWait ? 30 : 0), 60);
+                args.value(QStringLiteral("wait_seconds")).toInt(wantsToWait ? 30 : 0), 600);
             const int maxSamples = qBound(1, args.value(QStringLiteral("max_samples")).toInt(20), 100);
 
             QElapsedTimer clock;
@@ -773,6 +777,8 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                 }
                 if (!cache->state.running)
                     break;   // the run ended first
+                if (dispatcher && dispatcher->isInterrupted())
+                    break;
                 const qint64 left = qint64(waitSeconds) * 1000 - clock.elapsed();
                 if (left <= 0)
                     break;
