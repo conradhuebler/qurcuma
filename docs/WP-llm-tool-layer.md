@@ -187,6 +187,35 @@ Fähigkeitstabelle). Voraussetzung für Phase 4.
 - Weitere native Analyse-Werkzeuge aus `curcuma::Molecule`.
 - *Nur falls der Drift-Test regelmäßig ausschlägt:* `SimulationConfig` aufteilen.
 
+### TODO — effizientes Tooling (offen, spannt über alle Phasen)
+
+Der Werkzeugkatalog geht bei **jedem** Zug vollständig mit: Name, Beschreibung und
+Parameter-Schema jedes registrierten Werkzeugs stehen im `tools:`-Feld jedes Requests. Das ist
+der wiederkehrende Kostenposten der ganzen Funktion, und er wächst mit jedem neuen Werkzeug.
+Zu klären, bevor der Katalog groß wird:
+
+- **Stufen auch für Werkzeuge, nicht nur für Parameter.** Ein kleiner Kern, der immer
+  mitgeht, der Rest über `describe_tools`/`search_tools` auf Nachfrage nachladbar.
+- **Kontextabhängige Teilmengen.** Ohne geladene Struktur braucht es keine Mess- und
+  Auswahlwerkzeuge; im Explore-Modus keine Builder-Werkzeuge. Die Registry kennt Kategorie und
+  Effekt, die Auswahl ist also ableitbar.
+- **Beschreibungen kurz halten.** Das Schema ist der Kontrakt; die Beschreibung soll ihn nicht
+  in Prosa wiederholen.
+- **Messen statt schätzen.** Ein ctest, der die Katalogröße in Token gegen ein Budget prüft und
+  fehlschlägt, wenn eine Erweiterung darüber hinausschießt. Ohne diesen Test merkt man das
+  Wachstum erst an der Rechnung.
+- **Prompt-Caching prüfen.** Der Werkzeugblock ist über die Züge einer Sitzung stabil und
+  gehört deshalb an den Anfang des Requests, wo ein Anbieter-Cache ihn abdecken kann. Ob und
+  wie das greift, ist pro Endpunkt zu prüfen — OpenAI-kompatibel heißt nicht gleich
+  cache-kompatibel.
+- **Ergebnisgrößen.** Nicht nur der Katalog, auch die Rückgaben füllen den Kontext. `truncated`
+  in `ToolResult` ist der Anfang; Werkzeuge mit potenziell großer Ausgabe (`read_log`,
+  `list_atoms`, `job_result`) brauchen sinnvolle Vorgaben und Zusammenfassungen statt roher
+  Vollausgabe.
+
+Nichts davon blockiert Phase 0 bis 2 — bei einem Dutzend lesender Werkzeuge ist der Katalog
+klein. Es blockiert den Zeitpunkt, an dem curcumas 36 Kommandos dazukommen.
+
 ### Bewusst nicht gemacht
 - **Ablösung von `SimulationConfig`.** Der Struct (`simulationworker.h:42-140`, 60+ Felder)
   spiegelt curcumas PARAM-Blöcke von Hand; gemessen ~316 Feldzugriffe (65 in
