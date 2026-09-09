@@ -4465,6 +4465,7 @@ void MainWindow::createDockWidgets()
         if (m_simulationControlWidget && ToolRegistry::instance().size() > 0) {
             SimulationToolContext simContext;
             simContext.control = m_simulationControlWidget;
+            simContext.viewer = m_moleculeView;
             const int simTools = registerSimulationTools(ToolRegistry::instance(), simContext);
             if (simTools > 0) {
                 LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
@@ -5251,6 +5252,16 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
     if (m_simulationControlWidget) {
         connect(m_simulationControlWidget, &SimulationControlWidget::temperatureChanged,
             worker, &SimulationWorker::setTargetTemperature,
+            Qt::QueuedConnection);
+        // Claude Generated 2026 - The same path as the mouse grab, but for a caller
+        // that is not a mouse: the tool layer names the atoms and the directions,
+        // the worker spreads each pull through the bond graph and re-applies the
+        // sum at every step until it is cleared.
+        connect(m_simulationControlWidget, &SimulationControlWidget::externalForcesRequested,
+            worker, &SimulationWorker::injectForces,
+            Qt::QueuedConnection);
+        connect(m_simulationControlWidget, &SimulationControlWidget::externalForcesCleared,
+            worker, &SimulationWorker::clearInjectedForce,
             Qt::QueuedConnection);
         connect(m_simulationControlWidget, &SimulationControlWidget::wallTempChanged,
             worker, &SimulationWorker::setWallTemp,

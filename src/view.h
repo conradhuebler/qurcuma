@@ -396,6 +396,22 @@ public slots:
      *  Returns false if rejected (multi-frame or empty). */
     bool applyStructureFromAtoms(const QVector<Atom>& atoms);
 
+    /** @brief Rotate a set of atoms about its own centroid, then move it.
+     *
+     *  Rotation first, translation second, both in one snapshot: placing a guest
+     *  in a cavity is one gesture, not two, and splitting it would put a
+     *  half-placed pose in the undo stack. @p rotationDegrees == 0 or a null axis
+     *  skips the rotation. Distances in Angstrom, model space.
+     *
+     *  Refuses on a trajectory and while a simulation runs, and says why in
+     *  @p error. During a run the viewer rebuilds the frame from the worker's
+     *  geometry, so a moved atom would be overwritten at the next frame -- that is
+     *  what the injected forces are for: during a run you pull, outside one you
+     *  set. Claude Generated 2026. */
+    bool transformAtoms(const QVector<int>& indices, const QVector3D& translation,
+                        const QVector3D& rotationAxis, double rotationDegrees,
+                        QString* error = nullptr);
+
     /**
      * @brief Update atom positions for live simulation. When dynamic bonds are enabled, the bond
      * graph is re-detected from the new geometry each frame so bond breaking/formation in MD/Opt

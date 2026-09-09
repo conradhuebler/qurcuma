@@ -674,7 +674,10 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             QStringLiteral("Render what is on screen and return it as a PNG. Use this when the "
                            "question is about shape, arrangement or where something sits -- a "
                            "cavity is far easier to see than to infer from coordinates. Change "
-                           "the camera or the representation first if another angle would help."),
+                           "the camera or the representation first if another angle would help. "
+                           "It works during a simulation too, so a run can be followed by eye as "
+                           "well as by watch_simulation; the run is held for the render, so keep "
+                           "the size modest there (it is capped at 800 px)."),
             ToolEffect::Display, R"JSON({
               "type": "object",
               "properties": {
@@ -687,18 +690,19 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
               }
             })JSON");
         spec.handler = [viewer](const QJsonObject& args) -> ToolResult {
-            // exportImage renders synchronously on this thread. During a run that
-            // would stall the MD timer for the whole render, so it is refused
-            // rather than quietly making the simulation stutter.
-            if (viewer->simulationActive()) {
-                return ToolResult::failure(
-                    QStringLiteral("not while a simulation is running -- rendering would stall it"));
-            }
             if (viewer->getCurrentFrameAtoms().isEmpty())
                 return noStructure();
 
-            const int width = qBound(128, args.value(QStringLiteral("width")).toInt(800), 1600);
-            const int height = qBound(128, args.value(QStringLiteral("height")).toInt(600), 1600);
+            // exportImage renders synchronously on the GUI thread, which is where the
+            // MD timer also lives, so the run is held for the length of the render.
+            // A running simulation is refused nothing here -- watching it is half the
+            // point -- but the ceiling drops, because the stall grows with the
+            // resolution and a stuttering trajectory is a worse answer than a smaller
+            // picture. (SSAA is off in either case.)
+            const bool running = viewer->simulationActive();
+            const int ceiling = running ? 800 : 1600;
+            const int width = qBound(128, args.value(QStringLiteral("width")).toInt(800), ceiling);
+            const int height = qBound(128, args.value(QStringLiteral("height")).toInt(600), ceiling);
             const QString background = args.value(QStringLiteral("background"))
                                            .toString(QStringLiteral("white"));
             const int backgroundMode = background == QLatin1String("scene") ? 0
@@ -729,8 +733,10 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             data.insert(QStringLiteral("width"), width);
             data.insert(QStringLiteral("height"), height);
             data.insert(QStringLiteral("bytes"), bytes.size());
-            ToolResult result = ToolResult::success(data,
-                QStringLiteral("Rendered %1x%2.").arg(width).arg(height));
+            ToolResult result = ToolResult::success(data, running
+                    ? QStringLiteral("Rendered %1x%2 of the running simulation; it was held for "
+                                     "the length of the render.").arg(width).arg(height)
+                    : QStringLiteral("Rendered %1x%2.").arg(width).arg(height));
             result.image = bytes;
             result.imageMimeType = QStringLiteral("image/png");
             return result;

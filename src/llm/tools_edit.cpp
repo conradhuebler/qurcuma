@@ -4,6 +4,7 @@
 
 #include "tools_edit.h"
 
+#include "atomselection.h"
 #include "core/toolregistry.h"
 #include "fragmentlibrary.h"
 #include "view.h"
@@ -45,6 +46,29 @@ ToolSpec base(const QString& name, const QString& description, ToolEffect effect
     spec.affinity = ToolAffinity::Gui;
     spec.paramSchema = schema(schemaJson);
     return spec;
+}
+
+}  // namespace
+
+namespace {
+
+/// Shared by transform_atoms: the set to move, from a selection expression, from
+/// explicit indices, or -- when neither is given -- whatever is selected in the
+/// viewer, which is what a follow-up to select_atoms means.
+bool setToMove(MoleculeViewer* viewer, const QJsonObject& args, QVector<int>& out, QString& error)
+{
+    const QString expression = args.value(QStringLiteral("atoms")).toString();
+    const QJsonArray indices = args.value(QStringLiteral("atom_indices")).toArray();
+    if (expression.isEmpty() && indices.isEmpty()) {
+        out = viewer->getSelectedAtoms();
+        if (out.isEmpty()) {
+            error = QStringLiteral("nothing to move: pass atoms or atom_indices, or select "
+                                   "something first");
+            return false;
+        }
+        return true;
+    }
+    return resolveAtomSet(viewer->getCurrentFrameAtoms(), expression, indices, out, error);
 }
 
 }  // namespace
@@ -287,6 +311,75 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
             data.insert(QStringLiteral("removed"), atomCount - viewer->getCurrentFrameAtoms().size());
             data.insert(QStringLiteral("atom_count"), viewer->getCurrentFrameAtoms().size());
             return ToolResult::success(data);
+        };
+        add(spec);
+    }
+
+    // --- transform_atoms ----------------------------------------------------
+    {
+        ToolSpec spec = base(QStringLiteral("transform_atoms"),
+            QStringLiteral(
+                "Move a set of atoms rigidly: rotate it about its own centroid, then shift it. "
+                "This is how a guest is placed in a cavity -- rotate to the right orientation, "
+                "translate into the pocket, then check with get_contacts. Not available while a "
+                "simulation runs; pull on the atoms instead."),
+            ToolEffect::Mutate, R"JSON({
+              "type": "object",
+              "properties": {
+                "atoms":        { "type": "string",
+                                  "description": "selection grammar, e.g. \"F2\" for the second fragment" },
+                "atom_indices": { "type": "array",
+                                  "description": "explicit 0-based indices, as an alternative to atoms" },
+                "translate":    { "type": "array",
+                                  "description": "[dx, dy, dz] in Angstrom; omitted means no shift" },
+                "rotate_axis":  { "type": "array",
+                                  "description": "[x, y, z] axis through the set's centroid" },
+                "rotate_degrees": { "type": "number", "minimum": -360, "maximum": 360,
+                                    "description": "rotation about rotate_axis, applied before the shift" }
+              }
+            })JSON");
+
+        spec.handler = [viewer](const QJsonObject& args) {
+            const ToolResult blocked = refusedIfNotEditable(viewer);
+            if (!blocked.ok)
+                return blocked;
+
+            QVector<int> wanted;
+            QString error;
+            if (!setToMove(viewer, args, wanted, error))
+                return ToolResult::failure(error);
+
+            const auto vector3 = [](const QJsonArray& a) {
+                return a.size() == 3
+                    ? QVector3D(float(a.at(0).toDouble()), float(a.at(1).toDouble()),
+                          float(a.at(2).toDouble()))
+                    : QVector3D();
+            };
+            const QJsonArray translateArray = args.value(QStringLiteral("translate")).toArray();
+            const QJsonArray axisArray = args.value(QStringLiteral("rotate_axis")).toArray();
+            if (!translateArray.isEmpty() && translateArray.size() != 3)
+                return ToolResult::failure(QStringLiteral("translate needs three numbers"));
+            if (!axisArray.isEmpty() && axisArray.size() != 3)
+                return ToolResult::failure(QStringLiteral("rotate_axis needs three numbers"));
+
+            const QVector3D translation = vector3(translateArray);
+            const QVector3D axis = vector3(axisArray);
+            const double degrees = args.value(QStringLiteral("rotate_degrees")).toDouble();
+            if (!qFuzzyIsNull(degrees) && axis.isNull())
+                return ToolResult::failure(QStringLiteral("a rotation needs rotate_axis as well"));
+            if (translation.isNull() && qFuzzyIsNull(degrees))
+                return ToolResult::failure(QStringLiteral("nothing to do: give translate, a "
+                                                          "rotation, or both"));
+
+            if (!viewer->transformAtoms(wanted, translation, axis, degrees, &error))
+                return ToolResult::failure(error);
+
+            QJsonObject data;
+            data.insert(QStringLiteral("moved_atoms"), wanted.size());
+            data.insert(QStringLiteral("clashes"), viewer->getCollisionCount());
+            return ToolResult::success(data,
+                QStringLiteral("Moved %1 atoms; %2 clash(es) now.")
+                    .arg(wanted.size()).arg(viewer->getCollisionCount()));
         };
         add(spec);
     }

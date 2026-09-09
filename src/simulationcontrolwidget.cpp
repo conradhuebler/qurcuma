@@ -1607,6 +1607,17 @@ static QStringList comboValues(const QComboBox* box)
     return values;
 }
 
+void SimulationControlWidget::requestExternalForces(const QVector<int>& atoms,
+    const QVector<QVector3D>& forces, double alpha, int maxShells)
+{
+    emit externalForcesRequested(atoms, forces, alpha, maxShells);
+}
+
+void SimulationControlWidget::clearExternalForces()
+{
+    emit externalForcesCleared();
+}
+
 QStringList SimulationControlWidget::methodValues() const { return comboValues(m_methodCombo); }
 QStringList SimulationControlWidget::optimizerValues() const { return comboValues(m_optimizerCombo); }
 QStringList SimulationControlWidget::thermostatValues() const { return comboValues(m_thermostatCombo); }
@@ -1667,6 +1678,11 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
 {
     if (!frame)
         return;
+
+    // Claude Generated 2026 - hand the frame on before anything else: a watcher
+    // reads the geometry that just arrived, and it must not wait for the label
+    // formatting below.
+    emit frameObserved(frame);
 
     // Measure actual FPS (update every second)
     m_frameCount++;

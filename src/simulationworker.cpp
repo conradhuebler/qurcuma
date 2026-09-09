@@ -242,6 +242,35 @@ void SimulationWorker::setBonds(const QVector<MoleculeViewer::Bond>& bonds)
     m_adjacency = forceinjector::buildAdjacency(m_initialAtoms.size(), m_bonds);
 }
 
+void SimulationWorker::injectForces(QVector<int> atoms, QVector<QVector3D> forces,
+    double alpha, int maxShells)
+{
+    if (m_initialAtoms.isEmpty() || atoms.size() != forces.size())
+        return;
+    if (atoms.isEmpty()) {
+        clearInjectedForce();
+        return;
+    }
+
+    // Each pull is distributed through the bond graph on its own and the results
+    // are summed: the atoms may be in the same molecule, and a shell that two
+    // pulls both reach should feel both.
+    Eigen::MatrixXd total = Eigen::MatrixXd::Zero(m_initialAtoms.size(), 3);
+    for (int i = 0; i < atoms.size(); ++i) {
+        const int index = atoms.at(i);
+        if (index < 0 || index >= m_initialAtoms.size())
+            continue;
+        const QVector3D& f = forces.at(i);
+        total += forceinjector::distributeForce(index,
+            Eigen::Vector3d(f.x(), f.y(), f.z()),
+            m_adjacency, alpha, maxShells, m_initialAtoms.size());
+    }
+
+    QMutexLocker lock(&m_forceMutex);
+    m_pendingForces = total;
+    m_pendingForcesValid = true;
+}
+
 void SimulationWorker::injectForce(int atomIndex, QVector3D force, double alpha, int maxShells)
 {
     if (m_initialAtoms.isEmpty())

@@ -7,6 +7,8 @@
 // Claude Generated 2026.
 #include "view.h"
 
+#include <QQuaternion>
+
 #include "measurements.h"
 
 #include "bondeditor.h"
@@ -3469,6 +3471,69 @@ void MoleculeViewer::moveSelection(const QVector3D& modelDelta)
             atoms[idx].position += modelDelta;
     syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/false);
     computeCollisions();
+}
+
+// Claude Generated 2026 - Rigid placement of an atom set: rotate about its own
+// centroid, then translate. One snapshot for the pair, because putting a guest
+// into a cavity is one gesture and a half-placed pose in the undo stack would be
+// a nuisance rather than a safety net.
+bool MoleculeViewer::transformAtoms(const QVector<int>& indices, const QVector3D& translation,
+    const QVector3D& rotationAxis, double rotationDegrees, QString* error)
+{
+    const auto fail = [error](const QString& message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+
+    if (m_simulationActive) {
+        return fail(tr("not while a simulation is running: the viewer rebuilds the frame from "
+                       "the worker's geometry, so the move would be overwritten at the next "
+                       "frame. Pull on the atoms instead, or stop the run first."));
+    }
+    if (!canEditStructure())
+        return fail(tr("only single-frame structures can be edited, not a trajectory"));
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return fail(tr("no structure is loaded"));
+    if (indices.isEmpty())
+        return fail(tr("no atoms given"));
+
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    for (int index : indices) {
+        if (index < 0 || index >= atoms.size()) {
+            return fail(tr("atom index %1 is outside 0..%2").arg(index).arg(atoms.size() - 1));
+        }
+    }
+
+    emit editSnapshotRequested(tr("Move %1 atom(s)").arg(indices.size()));
+
+    const bool rotating = !qFuzzyIsNull(rotationDegrees) && !rotationAxis.isNull();
+    QVector3D centroid;
+    QQuaternion rotation;
+    if (rotating) {
+        for (int index : indices)
+            centroid += atoms[index].position;
+        centroid /= float(indices.size());
+        rotation = QQuaternion::fromAxisAndAngle(rotationAxis.normalized(),
+            float(rotationDegrees));
+    }
+
+    for (int index : indices) {
+        QVector3D position = atoms[index].position;
+        if (rotating)
+            position = centroid + rotation.rotatedVector(position - centroid);
+        atoms[index].position = position + translation;
+    }
+
+    // Positions only: no atom was added or removed, so the bond graph and the
+    // instancing buffers stand and the cheap path suffices.
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/false);
+    computeCollisions();
+    onStructureChanged();
+    emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
+    if (error)
+        error->clear();
+    return true;
 }
 
 // Claude Generated 2026 - Apply a single-atom edit coming from the atom table.

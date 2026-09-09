@@ -13,11 +13,14 @@
 // sees in the GUI what the model asked for instead of a run appearing from nowhere.
 #pragma once
 
+class MoleculeViewer;
 class SimulationControlWidget;
 class ToolRegistry;
 
 struct SimulationToolContext {
     SimulationControlWidget* control = nullptr;
+    /// For the element list and for a structure to measure when nothing is running.
+    MoleculeViewer* viewer = nullptr;
 };
 
 /// Register the simulation tools. Returns how many.

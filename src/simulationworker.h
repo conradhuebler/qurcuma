@@ -218,6 +218,17 @@ public slots:
      *  from the GUI thread via QueuedConnection. */
     void injectForce(int atomIndex, QVector3D force, double alpha, int maxShells);
 
+    /** @brief Replace the whole set of injected forces at once: @p forces[i] acts
+     *  on @p atoms[i], each spread through the bond graph the same way injectForce()
+     *  spreads one. Same stickiness and the same clearInjectedForce().
+     *
+     *  Claude Generated 2026 - injectForce() *replaces* what is pending, which is
+     *  right for a mouse that can only grab one atom at a time. Pulling on several
+     *  atoms at once needs the whole set in one call, or the last one would be the
+     *  only one that survived. Parallel plain-type vectors rather than a struct so
+     *  the queued cross-thread connection needs no metatype registration. */
+    void injectForces(QVector<int> atoms, QVector<QVector3D> forces, double alpha, int maxShells);
+
     /** @brief Drop the sticky injected force (mouse release / stop grab). After
      *  this the next step/iteration applies no external bias. */
     void clearInjectedForce();

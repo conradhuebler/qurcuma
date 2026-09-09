@@ -84,6 +84,15 @@ public:
     QStringList optimizerValues() const;
     QStringList thermostatValues() const;
 
+    /// Pull on atoms while the run continues: @p forces[i] (Eh/Bohr, model space)
+    /// acts on @p atoms[i], each spread through the bond graph with exponential
+    /// decay. Sticky -- it is re-applied at every step until clearExternalForces().
+    /// Reaches the worker over the same queued connection the mouse grab uses.
+    /// Claude Generated 2026.
+    void requestExternalForces(const QVector<int>& atoms, const QVector<QVector3D>& forces,
+                               double alpha, int maxShells);
+    void clearExternalForces();
+
     /** @brief Feed the current molecule + bond graph to the worker before start. */
     void setMolecule(const QVector<MoleculeViewer::Atom>& atoms,
         const QVector<MoleculeViewer::Bond>& bonds = {});
@@ -139,6 +148,14 @@ signals:
     /// Live progress for consumers outside the dock, on every frame and on every
     /// change of the running/paused state. Claude Generated 2026.
     void liveStateChanged(SimulationControlWidget::LiveState state);
+    /// Every frame, for consumers outside the dock that need the geometry itself
+    /// rather than the summary -- the tool layer evaluates watched quantities on
+    /// it as it arrives. Claude Generated 2026.
+    void frameObserved(SimulationFramePtr frame);
+    /// Forwarded to the worker in wireSimulationWorker(). Claude Generated 2026.
+    void externalForcesRequested(QVector<int> atoms, QVector<QVector3D> forces,
+                                 double alpha, int maxShells);
+    void externalForcesCleared();
 
     /** @brief Emitted when the wall_temp slider moves — live during a run. */
     void wallTempChanged(double T);
