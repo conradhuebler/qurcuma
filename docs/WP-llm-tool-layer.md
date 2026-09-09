@@ -1,7 +1,9 @@
 # WP — LLM-Werkzeugschicht: Tool-Registry, Logs, curcuma in-process
 
-> **Status (Sep 2026):** geplant, nichts umgesetzt. Kein Abschnitt beschreibt vorhandenes
-> Verhalten, außer wo er ausdrücklich unter „Ausgangslage" steht. Branch: `feature/llm-tools`.
+> **Status (09.09.2026):** Phase 0 und Phase 1 sind umgesetzt (WP0.1–0.3, WP1.1–1.4), Phase 2
+> ist in Arbeit. Branch: `feature/llm-tools`. Abschnitt 2 („Ausgangslage") beschreibt den Stand
+> **vor** dieser Arbeit und bleibt als Begründung stehen; was inzwischen existiert, steht in den
+> Arbeitspaket-Tabellen. Alles ohne Erledigt-Vermerk ist geplant, nicht vorhanden.
 > Die curcuma-Seite hat ein eigenes Dokument: `external/curcuma/docs/TOOL_API_WP.md`
 > (Branch `llm-core`, Integration über `reactff2-llm`).
 > **Zweck:** LLM-Unterstützung bei Analyse und Darstellung über OpenAI-kompatible Endpunkte,
