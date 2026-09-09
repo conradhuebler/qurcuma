@@ -303,6 +303,8 @@ add_library(qurcuma_core STATIC
     src/core/toolregistry.h
     src/core/tooldispatcher.cpp
     src/core/tooldispatcher.h
+    src/core/tools_core.cpp
+    src/core/tools_core.h
     src/core/tool.h
     src/core/moleculedata.h
 )
@@ -525,6 +527,14 @@ Threads::Threads
 )
 add_test(NAME tooldispatcher COMMAND test_tooldispatcher)
 set_tests_properties(tooldispatcher PROPERTIES LABELS qurcuma)
+
+# Core tools test - Claude Generated 2026
+add_executable(test_toolscore test_toolscore.cpp)
+target_link_libraries(test_toolscore PRIVATE
+qurcuma_core
+)
+add_test(NAME toolscore COMMAND test_toolscore)
+set_tests_properties(toolscore PROPERTIES LABELS qurcuma)
 
 add_executable(test_scenefiller test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp
     src/elementdata.cpp src/fragmentlibrary.cpp)
