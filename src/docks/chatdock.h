@@ -4,6 +4,11 @@
 // Claude Generated 2026 - A view onto an LlmSession: it shows the conversation and
 // what the assistant did, and it takes questions. It holds no policy and runs no
 // tools; both belong to the session.
+//
+// The conversation is a column of widgets rather than one QTextEdit, because each
+// turn's reasoning is its own collapsible block: it opens while the model thinks,
+// folds away when the answer arrives, and STAYS in the history so it can be read
+// again later. A single text view cannot do that.
 #pragma once
 
 #include "dockconfig.h"
@@ -19,7 +24,9 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QScrollArea;
 class QTextEdit;
+class QVBoxLayout;
 struct ToolResult;
 
 class ChatDock : public QDockWidget {
@@ -56,14 +63,24 @@ signals:
 
 private:
     void setupUI();
-    void appendStreamedText(const QString& text);
-    void beginTurn();
     void submit();
-    void appendBlock(const QString& who, const QString& text, const QString& colour);
     void setBusy(bool busy);
 
+    /// Append a labelled block to the conversation and return it, so streamed
+    /// text can keep extending the same one.
+    QLabel* addBlock(const QString& who, const QString& text, const QString& colour);
+    /// The collapsible reasoning block of the current turn, created on demand.
+    void appendReasoning(const QString& text);
+    void appendAnswer(const QString& text);
+    void beginTurn();
+    void scrollToEnd();
+
     LlmSession* m_session = nullptr;
-    QTextEdit* m_conversation = nullptr;
+
+    QScrollArea* m_scroll = nullptr;
+    QWidget* m_messages = nullptr;
+    QVBoxLayout* m_messageLayout = nullptr;   ///< holds the blocks, then a stretch
+
     QLineEdit* m_input = nullptr;
     QPushButton* m_sendButton = nullptr;
     QPushButton* m_stopButton = nullptr;
@@ -71,9 +88,9 @@ private:
     QComboBox* m_modelBox = nullptr;
     QLabel* m_modelInfo = nullptr;
     QLabel* m_status = nullptr;
-    CollapsibleSection* m_reasoningSection = nullptr;
-    QTextEdit* m_reasoning = nullptr;
-    /// True once the current turn has streamed any answer text, so the complete
-    /// message that follows is not appended a second time.
-    bool m_streamedThisTurn = false;
+
+    /// Widgets of the turn in progress. Null between turns.
+    QLabel* m_currentAnswer = nullptr;
+    CollapsibleSection* m_currentReasoning = nullptr;
+    QTextEdit* m_currentReasoningText = nullptr;
 };

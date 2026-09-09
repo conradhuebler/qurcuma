@@ -5,19 +5,21 @@
 #include "chatdock.h"
 
 #include "core/tool.h"
-#include "widgets/collapsiblesection.h"
 #include "llm/llmsession.h"
+#include "widgets/collapsiblesection.h"
 
 #include <QComboBox>
-#include <QLocale>
 #include <QHBoxLayout>
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QTextCursor>
 #include <QTextEdit>
+#include <QTimer>
 #include <QVBoxLayout>
 
 ChatDock::ChatDock(QWidget* parent)
@@ -62,25 +64,18 @@ void ChatDock::setupUI()
     m_modelInfo->hide();
     layout->addWidget(m_modelInfo);
 
-    m_conversation = new QTextEdit(content);
-    m_conversation->setReadOnly(true);
-    m_conversation->setPlaceholderText(
-        tr("Ask about the loaded structure. The assistant can read it, measure it and change how "
-           "it is shown; anything that calculates or writes asks first."));
-    layout->addWidget(m_conversation, 1);
-
-    // The model's reasoning: streamed live so a long think does not look like a
-    // hang, and foldable because it is usually not what you came to read.
-    m_reasoningSection = new CollapsibleSection(tr("Reasoning"), content);
-    m_reasoning = new QTextEdit(content);
-    m_reasoning->setReadOnly(true);
-    m_reasoning->setMaximumHeight(160);
-    auto* reasoningLayout = new QVBoxLayout;
-    reasoningLayout->setContentsMargins(0, 0, 0, 0);
-    reasoningLayout->addWidget(m_reasoning);
-    m_reasoningSection->setContentLayout(reasoningLayout);
-    m_reasoningSection->hide();
-    layout->addWidget(m_reasoningSection);
+    // The conversation is a column of widgets: each turn's reasoning has to be its
+    // own foldable block that stays in the history, which one text view cannot do.
+    m_scroll = new QScrollArea(content);
+    m_scroll->setWidgetResizable(true);
+    m_scroll->setFrameShape(QFrame::StyledPanel);
+    m_messages = new QWidget(m_scroll);
+    m_messageLayout = new QVBoxLayout(m_messages);
+    m_messageLayout->setContentsMargins(6, 6, 6, 6);
+    m_messageLayout->setSpacing(6);
+    m_messageLayout->addStretch(1);   // blocks are inserted before this
+    m_scroll->setWidget(m_messages);
+    layout->addWidget(m_scroll, 1);
 
     m_status = new QLabel(content);
     m_status->setWordWrap(true);
@@ -89,7 +84,9 @@ void ChatDock::setupUI()
 
     auto* inputRow = new QHBoxLayout;
     m_input = new QLineEdit(content);
-    m_input->setPlaceholderText(tr("Ask something…"));
+    m_input->setPlaceholderText(
+        tr("Ask about the loaded structure — reading and display run freely, "
+           "anything that calculates or writes asks first."));
     connect(m_input, &QLineEdit::returnPressed, this, &ChatDock::submit);
     inputRow->addWidget(m_input, 1);
 
@@ -109,65 +106,145 @@ void ChatDock::setupUI()
     setWidget(content);
 }
 
+QLabel* ChatDock::addBlock(const QString& who, const QString& text, const QString& colour)
+{
+    if (!m_messageLayout)
+        return nullptr;
+    auto* label = new QLabel(m_messages);
+    label->setWordWrap(true);
+    label->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    label->setTextFormat(Qt::RichText);
+    label->setProperty("who", who);
+    label->setProperty("colour", colour);
+    label->setText(QStringLiteral("<b style=\"color:%1\">%2:</b> %3")
+                       .arg(colour, who.toHtmlEscaped(), text.toHtmlEscaped()));
+    // Before the trailing stretch, so the column keeps growing downwards.
+    m_messageLayout->insertWidget(m_messageLayout->count() - 1, label);
+    scrollToEnd();
+    return label;
+}
+
+void ChatDock::scrollToEnd()
+{
+    // After the layout has run, not before -- the maximum is not final yet.
+    QTimer::singleShot(0, this, [this] {
+        if (m_scroll && m_scroll->verticalScrollBar())
+            m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum());
+    });
+}
+
+void ChatDock::appendReasoning(const QString& text)
+{
+    if (!m_messageLayout)
+        return;
+    if (!m_currentReasoning) {
+        m_currentReasoning = new CollapsibleSection(tr("Reasoning"), m_messages);
+        m_currentReasoningText = new QTextEdit(m_messages);
+        m_currentReasoningText->setReadOnly(true);
+        m_currentReasoningText->setMaximumHeight(180);
+        auto* inner = new QVBoxLayout;
+        inner->setContentsMargins(0, 0, 0, 0);
+        inner->addWidget(m_currentReasoningText);
+        m_currentReasoning->setContentLayout(inner);
+        m_currentReasoning->setExpanded(true);   // open while it is happening
+        m_messageLayout->insertWidget(m_messageLayout->count() - 1, m_currentReasoning);
+    }
+
+    m_currentReasoningText->moveCursor(QTextCursor::End);
+    m_currentReasoningText->insertPlainText(text);
+    if (auto* bar = m_currentReasoningText->verticalScrollBar())
+        bar->setValue(bar->maximum());
+    m_currentReasoning->setTitle(tr("Reasoning (%1 characters)")
+            .arg(QLocale().toString(m_currentReasoningText->toPlainText().size())));
+    scrollToEnd();
+}
+
+void ChatDock::appendAnswer(const QString& text)
+{
+    if (text.isEmpty())
+        return;
+    // The answer starting is the moment the thinking stops being interesting.
+    if (m_currentReasoning && m_currentReasoning->isExpanded())
+        m_currentReasoning->setExpanded(false);
+
+    if (!m_currentAnswer) {
+        m_currentAnswer = addBlock(tr("Assistant"), text, QStringLiteral("#2e7d32"));
+        // Keep the plain text alongside: the next fragment extends it, and
+        // recovering it from the rendered HTML would be a second escaping bug
+        // waiting to happen.
+        if (m_currentAnswer)
+            m_currentAnswer->setProperty("plain", text);
+        return;
+    }
+    // Extend the block already on screen rather than starting a new paragraph per
+    // fragment. The stored plain text is kept alongside so escaping stays correct.
+    const QString grown = m_currentAnswer->property("plain").toString() + text;
+    m_currentAnswer->setProperty("plain", grown);
+    m_currentAnswer->setText(QStringLiteral("<b style=\"color:#2e7d32\">%1:</b> %2")
+                                 .arg(tr("Assistant"), grown.toHtmlEscaped()));
+    scrollToEnd();
+}
+
+void ChatDock::beginTurn()
+{
+    // Deliberately NOT clearing anything: the previous turn's reasoning stays in
+    // the conversation, folded, and can be reopened at any time.
+    m_currentAnswer = nullptr;
+    m_currentReasoning = nullptr;
+    m_currentReasoningText = nullptr;
+}
+
 void ChatDock::attachSession(LlmSession* session)
 {
     m_session = session;
     if (!session)
         return;
 
+    connect(session, &LlmSession::assistantChunk, this, &ChatDock::appendAnswer);
+    connect(session, &LlmSession::reasoningChunk, this, &ChatDock::appendReasoning);
+
     connect(session, &LlmSession::assistantMessage, this, [this](const QString& text) {
         // Already on screen when it was streamed; appending would double it.
-        if (m_streamedThisTurn) {
-            m_streamedThisTurn = false;
+        if (m_currentAnswer)
             return;
-        }
         if (!text.isEmpty())
-            appendBlock(tr("Assistant"), text, QStringLiteral("#2e7d32"));
+            addBlock(tr("Assistant"), text, QStringLiteral("#2e7d32"));
+        if (m_currentReasoning)
+            m_currentReasoning->setExpanded(false);
     });
-    connect(session, &LlmSession::assistantChunk, this, &ChatDock::appendStreamedText);
-    connect(session, &LlmSession::reasoningChunk, this, [this](const QString& text) {
-        if (!m_reasoning || !m_reasoningSection)
-            return;
-        if (!m_reasoningSection->isVisible()) {
-            m_reasoningSection->show();
-            m_reasoningSection->setExpanded(true);   // open while it is happening
-        }
-        m_reasoning->moveCursor(QTextCursor::End);
-        m_reasoning->insertPlainText(text);
-        if (auto* bar = m_reasoning->verticalScrollBar())
-            bar->setValue(bar->maximum());
-        m_reasoningSection->setTitle(
-            tr("Reasoning (%1 characters)")
-                .arg(QLocale().toString(m_reasoning->toPlainText().size())));
-    });
+
     connect(session, &LlmSession::toolStarted, this,
         [this](const QString& name, const QJsonObject& args) {
+            // A tool call ends the current answer block: what follows belongs to
+            // the next round and gets its own.
+            m_currentAnswer = nullptr;
+            if (m_currentReasoning)
+                m_currentReasoning->setExpanded(false);
             const QString shown = args.isEmpty()
                 ? QString()
                 : QStringLiteral(" %1").arg(QString::fromUtf8(
                       QJsonDocument(args).toJson(QJsonDocument::Compact)));
-            appendBlock(tr("Tool"), name + shown, QStringLiteral("#616161"));
+            addBlock(tr("Tool"), name + shown, QStringLiteral("#616161"));
         });
     connect(session, &LlmSession::toolFinished, this,
         [this](const QString& name, const ToolResult& result) {
             if (result.ok)
-                return;  // the failure text is what matters, and it comes back to the model
-            appendBlock(tr("Tool failed"), QStringLiteral("%1: %2").arg(name, result.error),
+                return;  // the failure text is what matters, and it goes to the model too
+            addBlock(tr("Tool failed"), QStringLiteral("%1: %2").arg(name, result.error),
                 QStringLiteral("#c62828"));
         });
     connect(session, &LlmSession::toolRefused, this,
         [this](const QString& name, const QString& reason) {
-            appendBlock(tr("Refused"), QStringLiteral("%1: %2").arg(name, reason),
+            addBlock(tr("Refused"), QStringLiteral("%1: %2").arg(name, reason),
                 QStringLiteral("#ef6c00"));
         });
     connect(session, &LlmSession::failed, this, [this](const QString& error) {
-        appendBlock(tr("Error"), error, QStringLiteral("#c62828"));
+        addBlock(tr("Error"), error, QStringLiteral("#c62828"));
     });
     connect(session, &LlmSession::busyChanged, this, [this](bool busy) {
         setBusy(busy);
-        // Fold it away once the answer is there; it stays available to reopen.
-        if (!busy && m_reasoningSection && m_reasoningSection->isVisible())
-            m_reasoningSection->setExpanded(false);
+        if (!busy && m_currentReasoning)
+            m_currentReasoning->setExpanded(false);
     });
 }
 
@@ -178,18 +255,8 @@ void ChatDock::submit()
     const QString question = m_input->text().trimmed();
     m_input->clear();
     beginTurn();
-    appendBlock(tr("You"), question, QStringLiteral("#1565c0"));
+    addBlock(tr("You"), question, QStringLiteral("#1565c0"));
     m_session->ask(question);
-}
-
-void ChatDock::appendBlock(const QString& who, const QString& text, const QString& colour)
-{
-    if (!m_conversation)
-        return;
-    m_conversation->append(QStringLiteral("<b style=\"color:%1\">%2:</b> %3")
-                               .arg(colour, who.toHtmlEscaped(), text.toHtmlEscaped()));
-    if (auto* bar = m_conversation->verticalScrollBar())
-        bar->setValue(bar->maximum());
 }
 
 void ChatDock::setBusy(bool busy)
@@ -216,15 +283,6 @@ void ChatDock::setProfiles(const QStringList& names, const QString& active)
 QString ChatDock::currentProfile() const
 {
     return m_profileBox ? m_profileBox->currentText() : QString();
-}
-
-void ChatDock::setStatus(const QString& text, bool isError)
-{
-    if (!m_status)
-        return;
-    m_status->setText(text);
-    m_status->setStyleSheet(isError ? QStringLiteral("color: #c62828;") : QString());
-    m_status->setVisible(!text.isEmpty());
 }
 
 void ChatDock::setModels(const QStringList& models, const QString& current)
@@ -255,50 +313,29 @@ void ChatDock::setModelInfo(const LlmModelInfo& info)
     }
 
     QStringList parts;
-    if (info.contextLength > 0) {
-        parts << tr("%1 tokens context")
-                     .arg(QLocale().toString(info.contextLength));
-    }
+    if (info.contextLength > 0)
+        parts << tr("%1 tokens context").arg(QLocale().toString(info.contextLength));
     if (info.supportsVision)
         parts << tr("can see images");
 
     if (info.supportsTools) {
         m_modelInfo->setStyleSheet(QStringLiteral("color: palette(mid);"));
         parts.prepend(tr("can call tools"));
-        m_modelInfo->setText(parts.join(QStringLiteral(" · ")));
     } else {
         // The single most useful thing to say: this one will chat about the
         // structure and never actually look at it.
         m_modelInfo->setStyleSheet(QStringLiteral("color: #c62828;"));
         parts.prepend(tr("cannot call tools, so it will answer from guesswork"));
-        m_modelInfo->setText(parts.join(QStringLiteral(" · ")));
     }
+    m_modelInfo->setText(parts.join(QStringLiteral(" · ")));
     m_modelInfo->show();
 }
 
-// Claude Generated 2026 - Streamed answer text goes in as plain text at the end of
-// the view; appendBlock() would start a new paragraph for every fragment.
-void ChatDock::appendStreamedText(const QString& text)
+void ChatDock::setStatus(const QString& text, bool isError)
 {
-    if (!m_conversation || text.isEmpty())
+    if (!m_status)
         return;
-    if (!m_streamedThisTurn) {
-        m_streamedThisTurn = true;
-        appendBlock(tr("Assistant"), QString(), QStringLiteral("#2e7d32"));
-    }
-    m_conversation->moveCursor(QTextCursor::End);
-    m_conversation->insertPlainText(text);
-    if (auto* bar = m_conversation->verticalScrollBar())
-        bar->setValue(bar->maximum());
-}
-
-void ChatDock::beginTurn()
-{
-    m_streamedThisTurn = false;
-    if (m_reasoning)
-        m_reasoning->clear();
-    if (m_reasoningSection) {
-        m_reasoningSection->setTitle(tr("Reasoning"));
-        m_reasoningSection->hide();
-    }
+    m_status->setText(text);
+    m_status->setStyleSheet(isError ? QStringLiteral("color: #c62828;") : QString());
+    m_status->setVisible(!text.isEmpty());
 }
