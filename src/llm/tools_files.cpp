@@ -7,7 +7,10 @@
 #include "atomselection.h"
 #include "core/toolregistry.h"
 #include "lesson.h"              // atomsToXyz
+#include "moleculebridge.h"
 #include "moleculefileloader.h"
+
+#include <src/tools/cif.h>
 #include "view.h"
 
 #include <QDir>
@@ -63,15 +66,18 @@ int registerFileTools(ToolRegistry& registry, const FileToolContext& context)
         spec.description = QStringLiteral(
             "Add the structure in a file to the current scene, keeping what is already "
             "there. The new atoms arrive at the coordinates the file gives them, so they "
-            "may overlap -- check with get_contacts. xyz, vtf, pdb and mol2; of a "
-            "multi-frame file only the first frame.");
+            "may overlap -- check with get_contacts. xyz, vtf, pdb, mol2 and cif; of a "
+            "multi-frame file only the first frame. A cif arrives with its symmetry "
+            "operations applied, and can be replicated on the way in with supercell.");
         spec.effect = ToolEffect::Mutate;
         spec.affinity = ToolAffinity::Gui;
         spec.paramSchema = schema(R"JSON({
           "type": "object",
           "properties": {
             "path": { "type": "string",
-                      "description": "file to read; relative to the working directory" }
+                      "description": "file to read; relative to the working directory" },
+            "supercell": { "type": "array",
+                           "description": "cif only: [a, b, c] repeats along the cell vectors, built before the atoms arrive. Omitted means the cell as written" }
           },
           "required": ["path"]
         })JSON");
@@ -92,6 +98,53 @@ int registerFileTools(ToolRegistry& registry, const FileToolContext& context)
                 workingDirectory);
             if (!QFileInfo::exists(path))
                 return ToolResult::failure(QStringLiteral("no such file: %1").arg(path));
+
+            // A cif can be replicated on the way in. The supercell is built in
+            // curcuma, where the cell lives -- qurcuma's atom records are render
+            // records and carry no cell, so a structure that has arrived here can
+            // no longer be replicated. Doing it at the door is what makes it
+            // possible at all.
+            const QJsonArray repeats = args.value(QStringLiteral("supercell")).toArray();
+            if (!repeats.isEmpty()) {
+                if (repeats.size() != 3)
+                    return ToolResult::failure(QStringLiteral("supercell needs three numbers"));
+                if (QFileInfo(path).suffix().compare(QLatin1String("cif"), Qt::CaseInsensitive) != 0)
+                    return ToolResult::failure(QStringLiteral(
+                        "only a cif carries a unit cell, so only a cif can be replicated"));
+
+                const curcuma::CifResult cif = curcuma::ReadCif(path.toStdString());
+                if (!cif.ok())
+                    return ToolResult::failure(QString::fromStdString(cif.error));
+                std::string cellError;
+                const curcuma::Molecule big = curcuma::Supercell(cif.molecule,
+                    repeats.at(0).toInt(), repeats.at(1).toInt(), repeats.at(2).toInt(),
+                    &cellError);
+                if (!cellError.empty())
+                    return ToolResult::failure(QString::fromStdString(cellError));
+
+                const QVector<moldata::Atom> cellAtoms = moleculeToAtoms(big);
+                const int had = viewer->getCurrentFrameAtoms().size();
+                viewer->appendMolecule(cellAtoms, {}, false);
+
+                QJsonObject data;
+                data.insert(QStringLiteral("path"), path);
+                data.insert(QStringLiteral("added_atoms"), cellAtoms.size());
+                data.insert(QStringLiteral("total_atoms"), had + cellAtoms.size());
+                data.insert(QStringLiteral("cell_atoms"), int(cif.molecule.AtomCount()));
+                data.insert(QStringLiteral("asymmetric_atoms"), cif.asymmetric_atoms);
+                data.insert(QStringLiteral("symmetry_operations"), cif.symmetry_operations);
+                QString note = QStringLiteral("Read %1: %2 sites in the file, %3 symmetry "
+                                              "operation(s), %4 atoms in the cell; %5x%6x%7 gives "
+                                              "%8 atoms.")
+                                   .arg(QFileInfo(path).fileName())
+                                   .arg(cif.asymmetric_atoms).arg(cif.symmetry_operations)
+                                   .arg(int(cif.molecule.AtomCount()))
+                                   .arg(repeats.at(0).toInt()).arg(repeats.at(1).toInt())
+                                   .arg(repeats.at(2).toInt()).arg(cellAtoms.size());
+                for (const std::string& cifNote : cif.notes)
+                    note += QStringLiteral(" %1.").arg(QString::fromStdString(cifNote));
+                return ToolResult::success(data, note);
+            }
 
             const MoleculeFileLoader::Result parsed = MoleculeFileLoader::load(path);
             if (!parsed.supported) {

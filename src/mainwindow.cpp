@@ -807,7 +807,7 @@ void MainWindow::createMenus()
         const QString path = QFileDialog::getOpenFileName(this,
             tr("Open Molecule File"),
             startDir,
-            tr("Molecule Files (*.xyz *.vtf *.pdb *.mol2);;All Files (*)"));
+            tr("Molecule Files (*.xyz *.vtf *.pdb *.mol2 *.cif);;All Files (*)"));
         if (path.isEmpty()) return;
         loadMoleculeFile(path);
     });
@@ -3256,7 +3256,7 @@ void MainWindow::loadDrafts()
 
 // Claude Generated - Quick Win: Copy/Paste structures
 // Claude Generated 2026 - Parse the first frame of a structure file into viewer
-// atoms/bonds via the shared MoleculeFileLoader (xyz/vtf/pdb/mol2).
+// atoms/bonds via the shared MoleculeFileLoader (xyz/vtf/pdb/mol2/cif).
 bool MainWindow::parseFirstFrame(const QString& filePath, QVector<MoleculeViewer::Atom>& atoms,
     QVector<MoleculeViewer::Bond>& bonds)
 {
@@ -3288,7 +3288,7 @@ void MainWindow::addMoleculeToScene()
         return;
     }
     const QString path = QFileDialog::getOpenFileName(this, tr("Add Molecule to Scene"), QString(),
-        tr("Molecule files (*.xyz *.vtf *.pdb *.mol2);;All files (*)"));
+        tr("Molecule files (*.xyz *.vtf *.pdb *.mol2 *.cif);;All files (*)"));
     if (path.isEmpty())
         return;
     mergeFileIntoScene(path);

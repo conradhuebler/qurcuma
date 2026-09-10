@@ -5,7 +5,12 @@
 
 #include "moleculefileloader.h"
 
+#include "moleculebridge.h"   // moleculeToAtoms
 #include "mol2parser.h"
+
+#include <src/tools/cif.h>
+
+#include <QDebug>
 #include "pdbparser.h"
 #include "vtfparser.h"
 #include "xyzparser.h"
@@ -78,6 +83,21 @@ MoleculeFileLoader::Result MoleculeFileLoader::load(const QString& path)
             r.frameBonds.append(bonds);
         } else {
             r.error = parser.getLastError();
+        }
+    } else if (suffix == "cif") {
+        // Claude Generated 2026 - Read through curcuma: a CIF is a unit cell plus an
+        // asymmetric unit plus symmetry operations, and reimplementing that here
+        // would be a second reader to keep in step with the first. What comes back
+        // is the expanded cell.
+        r.supported = true;
+        const curcuma::CifResult cif = curcuma::ReadCif(path.toStdString());
+        if (!cif.ok()) {
+            r.error = QString::fromStdString(cif.error);
+        } else {
+            r.frames.append(moleculeToAtoms(cif.molecule));
+            r.frameBonds.append(QVector<moldata::Bond>());   // detected from the geometry
+            for (const std::string& note : cif.notes)
+                qWarning().noquote() << "cif:" << QString::fromStdString(note);
         }
     }
 

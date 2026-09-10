@@ -2,7 +2,7 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
 // Claude Generated 2026 - Single entry point for reading molecular structure
-// files (xyz / vtf / pdb / mol2) into viewer atoms/bonds. Replaces the format
+// files (xyz / vtf / pdb / mol2 / cif) into viewer atoms/bonds. Replaces the format
 // dispatch ladder that was copy-pasted across MainWindow (full trajectory load,
 // first-frame merge, remote download). Parsing only — no UI side effects, and
 // since 2026-09 no dependency on view.h either: the whole parse path speaks
@@ -19,7 +19,8 @@ class MoleculeFileLoader
 {
 public:
     /// Result of parsing a structure file. @a frames / @a frameBonds hold one
-    /// entry per trajectory frame (xyz/vtf/pdb multi-model; mol2 single frame).
+    /// entry per trajectory frame (xyz/vtf/pdb multi-model; mol2 and cif single
+    /// frame). A cif arrives with its symmetry operations already applied.
     struct Result {
         bool supported = false;  // extension is a known structure format
         bool ok = false;         // supported AND at least one frame parsed
