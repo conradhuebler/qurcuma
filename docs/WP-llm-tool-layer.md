@@ -452,13 +452,22 @@ darf, aber nicht messen kann, ob es getroffen hat, rät. Die Schleife lautet
    Ausschnitt, der kovalente Bindungen schneidet, wird als solcher gemeldet, damit keine
    Radikalenergie subtrahiert wird. curcumas `interaction` als eigene Fähigkeit bleibt offen
    (WP3.5/WP6 auf curcuma-Seite).
-6. **Ziehen statt setzen.** Der Operator will, dass das Modell an Atomen *zieht*, nicht nur
+6. **Freie Energie.** Nach einer Bindungs*energie* gefragt liefert das Modell heute eine
+   Differenz von Potentialenergien und sagt das auch dazu. Für ΔG fehlt die ganze Kette:
+   die Arbeit entlang eines gesteuerten Zugs, eine restrainte Kollektivvariable samt
+   Histogrammen für ein PMF, und λ-Kopplung mit Soft-Core für FEP/TI. Gestaffelt und mit
+   dem Vorhandenen abgeglichen (curcumas RMSD-Metadynamik ist bereits eine
+   gradientenexakte Biasing-Form) als **WP9** in `external/curcuma/docs/TOOL_API_WP.md`.
+   Stufe 1 hängt an WP8; Stufe 3 reicht in die Energiemethoden und ist bewusst nicht
+   terminiert.
+
+7. **Ziehen statt setzen.** Der Operator will, dass das Modell an Atomen *zieht*, nicht nur
    Koordinaten setzt. `SimpleMD::applyExternalForces()` sieht danach aus, ist aber transient
    („cleared after use", `simplemd.h:503`) und nur zwischen zwei `step()`-Aufrufen wirksam — eine
    Injektion, kein Potential. Deklarative, im Controller stehende und zur Laufzeit änderbare
    externe Potentiale sind als **WP8** in `external/curcuma/docs/TOOL_API_WP.md` beschrieben.
 
-7. **Schleifenkosten.** Eine agentische Schleife ruft Werkzeuge dutzendfach. Das ist genau der
+8. **Schleifenkosten.** Eine agentische Schleife ruft Werkzeuge dutzendfach. Das ist genau der
    Fall, für den der TODO zum effizienten Tooling geschrieben wurde: Katalog klein halten,
    Ergebnisse kappen, Bilder nur auf Anforderung.
 
