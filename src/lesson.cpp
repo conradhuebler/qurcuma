@@ -58,6 +58,7 @@ QJsonObject simConfigToJson(const SimulationConfig& cfg)
     o["timestep"] = cfg.timestep;
     o["steps"] = cfg.steps;
     o["convergence"] = cfg.convergence;
+    o["energy_convergence"] = cfg.energyConvergence;
     o["optKeepParameters"] = cfg.optKeepParameters;
     o["writeTrajectory"] = cfg.writeTrajectory;
     o["fpsLimit"] = cfg.fpsLimit;
@@ -138,6 +139,9 @@ SimulationConfig simConfigFromJson(const QJsonObject& o)
     cfg.timestep = o.value("timestep").toDouble(cfg.timestep);
     cfg.steps = o.value("steps").toInt(cfg.steps);
     cfg.convergence = o.value("convergence").toDouble(cfg.convergence);
+    // Absent in lessons written before the criterion existed, which then keep the
+    // current default rather than a zero. Claude Generated 2026.
+    cfg.energyConvergence = o.value("energy_convergence").toDouble(cfg.energyConvergence);
     cfg.optKeepParameters = o.value("optKeepParameters").toBool(cfg.optKeepParameters);
     cfg.writeTrajectory = o.value("writeTrajectory").toBool(cfg.writeTrajectory);
     cfg.fpsLimit = o.value("fpsLimit").toInt(cfg.fpsLimit);

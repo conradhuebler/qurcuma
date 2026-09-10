@@ -202,6 +202,10 @@ json buildOptConfig(const SimulationConfig& cfg, bool singleStep)
     json c;
     c["max_iterations"] = singleStep ? 1 : cfg.steps;
     c["gradient_threshold"] = cfg.convergence;
+    // Set explicitly rather than left to the engine's fallback: an optimisation
+    // that has stopped changing energy should say so through a criterion the
+    // caller can see and adjust, not through one nobody wrote down.
+    c["energy_threshold"] = cfg.energyConvergence;
     c["write_trajectory"] = singleStep ? false : cfg.writeTrajectory;
     c["verbosity"] = 0;
     c["max_energy_rise"] = 1.0e12;

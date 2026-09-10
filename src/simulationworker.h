@@ -48,7 +48,13 @@ struct SimulationConfig {
     double temperature = 300.0;   // K (MD only)
     double timestep = 1.0;        // fs (MD only)
     int steps = 1000;             // Total MD steps or max opt iterations
-    double convergence = 1e-6;    // Gradient convergence threshold (opt only)
+    // Convergence of a geometry optimisation. Both defaults are curcuma's own
+    // (optimizer_driver.h / optimizer_interface.cpp); the gradient tolerance used
+    // to default to 1e-6 here, 500x tighter than the engine's, which the methods
+    // cannot reach -- the energy went flat and the run went on to its iteration
+    // ceiling. Units matter and are named: Eh/Bohr and kJ/mol. Claude Generated 2026.
+    double convergence = 5e-4;         // gradient norm threshold [Eh/Bohr] (opt only)
+    double energyConvergence = 0.1;    // energy change threshold [kJ/mol] (opt only)
     // Interactive Opt: keep the force-field parameters/topology fixed across the
     // keep-alive restarts (no rebuild from grab-distorted geometry). Default ON —
     // rebuilding GFN-FF from a heavily distorted geometry is slow and can crash.

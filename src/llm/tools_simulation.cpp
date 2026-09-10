@@ -242,8 +242,13 @@ SimulationConfig configFromArgs(const SimulationConfig& base, const QJsonObject&
     // would otherwise get restarts for ever -- that exists so a mouse grab can drag
     // atoms against the optimiser, and with nobody holding a mouse it is a process
     // that never ends on its own.
-    if (cfg.mode == SimulationConfig::Mode::GeometryOptimization)
+    if (cfg.mode == SimulationConfig::Mode::GeometryOptimization) {
         cfg.optSingleShot = !args.value(QStringLiteral("keep_alive")).toBool();
+        // The steps box belongs to the MD and stands at 10000. As an iteration
+        // ceiling for an optimisation that is not a limit, it is an afternoon.
+        if (!args.contains(QStringLiteral("steps")))
+            cfg.steps = 500;
+    }
 
     takeString("method", cfg.method);
     takeString("optimizer", cfg.optimizer);
@@ -252,6 +257,7 @@ SimulationConfig configFromArgs(const SimulationConfig& base, const QJsonObject&
     takeDouble("temperature", cfg.temperature);
     takeDouble("timestep", cfg.timestep);
     takeDouble("convergence", cfg.convergence);
+    takeDouble("energy_convergence", cfg.energyConvergence);
     return cfg;
 }
 
@@ -334,7 +340,10 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                              "description": "fs (md)" },
             "thermostat":  { "type": "string", "description": "md only" },
             "optimizer":   { "type": "string", "description": "opt only" },
-            "convergence": { "type": "number", "description": "gradient threshold (opt only)" },
+            "convergence": { "type": "number", "minimum": 1e-8, "maximum": 0.1,
+                             "description": "opt only: gradient norm below which it is converged, in Eh/Bohr (default 5e-4). Much tighter is below what the methods resolve, and the run then goes to its iteration ceiling with the energy long flat" },
+            "energy_convergence": { "type": "number", "minimum": 1e-4, "maximum": 10,
+                             "description": "opt only: energy change between iterations below which it is converged, in kJ/mol (default 0.1)" },
             "keep_alive":  { "type": "boolean",
                              "description": "opt only: keep restarting the optimiser instead of stopping when it converges. Needed only to pull on atoms against it; it never ends by itself, so stop_simulation is the only way out (default false)" }
           },
@@ -366,9 +375,11 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                 ? QStringLiteral("MD started: %1 steps of %2 fs at %3 K with %4. Ask "
                                  "simulation_status with wait_seconds.")
                       .arg(cfg.steps).arg(cfg.timestep).arg(cfg.temperature).arg(cfg.method)
-                : QStringLiteral("Optimisation started: at most %1 iterations with %2. Ask "
-                                 "simulation_status with wait_seconds.")
-                      .arg(cfg.steps).arg(cfg.method);
+                : QStringLiteral("Optimisation started: %1 with %2, converged at %3 Eh/Bohr or "
+                                 "%4 kJ/mol, at most %5 iterations. Ask simulation_status with "
+                                 "wait_seconds.")
+                      .arg(cfg.method).arg(cfg.optimizer)
+                      .arg(cfg.convergence).arg(cfg.energyConvergence).arg(cfg.steps);
             if (!md && !cfg.optSingleShot) {
                 note += QStringLiteral(" keep_alive is set, so it restarts for ever: it will not "
                                        "end on its own and stop_simulation is the only way out.");

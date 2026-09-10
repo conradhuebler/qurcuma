@@ -734,11 +734,27 @@ QGroupBox* SimulationControlWidget::createOptGroup()
     optForm->addRow(tr("Algorithm:"), m_optimizerCombo);
 
     m_convergenceSpin = new QDoubleSpinBox(this);
-    m_convergenceSpin->setRange(1e-10, 1e-2);
-    m_convergenceSpin->setDecimals(10);
-    m_convergenceSpin->setSingleStep(1e-7);
-    m_convergenceSpin->setValue(1e-6);
-    optForm->addRow(tr("Gradient tol:"), m_convergenceSpin);
+    m_convergenceSpin->setRange(1e-8, 1e-1);
+    m_convergenceSpin->setDecimals(8);
+    m_convergenceSpin->setSingleStep(1e-4);
+    m_convergenceSpin->setValue(5e-4);   // curcuma's own default
+    m_convergenceSpin->setToolTip(tr("Gradient norm below which the optimisation is converged. "
+                                     "curcuma's own default is 5e-4; markedly tighter values are "
+                                     "below what the methods resolve, and the run then goes to "
+                                     "its iteration ceiling with the energy long flat."));
+    optForm->addRow(tr("Gradient tol [Eh/Bohr]:"), m_convergenceSpin);
+
+    // Claude Generated 2026 - The criterion that matches "nothing is changing any
+    // more". It was never written into the controller at all, so it sat at the
+    // engine's fallback where nobody could see or adjust it.
+    m_energyConvergenceSpin = new QDoubleSpinBox(this);
+    m_energyConvergenceSpin->setRange(1e-4, 10.0);
+    m_energyConvergenceSpin->setDecimals(4);
+    m_energyConvergenceSpin->setSingleStep(0.05);
+    m_energyConvergenceSpin->setValue(0.1);   // curcuma's own default
+    m_energyConvergenceSpin->setToolTip(tr("Energy change between iterations below which the "
+                                           "optimisation is converged."));
+    optForm->addRow(tr("Energy tol [kJ/mol]:"), m_energyConvergenceSpin);
 
     // Claude Generated 2026 - Opt-in: keep the force-field parameters/topology
     // fixed while interactively dragging atoms during a geometry optimization.
@@ -1065,6 +1081,7 @@ void SimulationControlWidget::setupConnections()
     connect(m_writeTrjCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_perfCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_convergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_energyConvergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_optKeepParamsCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_rattle12Check, &QCheckBox::toggled, this, notifyConfig);
@@ -1191,6 +1208,7 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.writeTrajectory = m_writeTrjCheck->isChecked();
     cfg.performanceAnalysis = m_perfCheck->isChecked();
     cfg.convergence = m_convergenceSpin->value();
+    cfg.energyConvergence = m_energyConvergenceSpin->value();
     cfg.optKeepParameters = m_optKeepParamsCheck->isChecked();
     cfg.rattleMode    = m_rattleCombo->currentData().toInt();
     cfg.rattle12      = m_rattle12Check->isChecked();
@@ -1296,7 +1314,7 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
         m_modeCombo, m_methodCombo, m_optimizerCombo, m_tempSlider, m_timestepSpin,
         m_stepsSpin, m_fpsLimitSpin, m_hmassSpin, m_thermostatCombo, m_couplingSpin,
         m_andersenProbSpin, m_noseChainSpin, m_gpuCombo, m_writeTrjCheck, m_perfCheck,
-        m_convergenceSpin, m_optKeepParamsCheck, m_rattleCombo, m_rattle12Check,
+        m_convergenceSpin, m_energyConvergenceSpin, m_optKeepParamsCheck, m_rattleCombo, m_rattle12Check,
         m_rattle13Check, m_rattleTol12Spin, m_rattleTol13Spin, m_rattleMaxIterSpin,
         m_topologyModeCombo, m_reactFormSpin, m_reactBreakSpin, m_reactCheckEverySpin,
         m_reactRefractorySpin, m_reactValenceCapCheck, m_reactExchangeSpin,
@@ -1327,6 +1345,7 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     m_writeTrjCheck->setChecked(cfg.writeTrajectory);
     m_perfCheck->setChecked(cfg.performanceAnalysis);
     m_convergenceSpin->setValue(cfg.convergence);
+    m_energyConvergenceSpin->setValue(cfg.energyConvergence);
     m_optKeepParamsCheck->setChecked(cfg.optKeepParameters);
     selectData(m_rattleCombo, cfg.rattleMode);
     m_rattle12Check->setChecked(cfg.rattle12);
@@ -1992,6 +2011,7 @@ void SimulationControlWidget::setRunning(bool running)
     m_writeTrjCheck->setEnabled(!running);
     m_perfCheck->setEnabled(!running);
     m_convergenceSpin->setEnabled(!running);
+    m_energyConvergenceSpin->setEnabled(!running);
     if (m_optKeepParamsCheck)
         m_optKeepParamsCheck->setEnabled(!running);
     m_rattleCombo->setEnabled(!running);
