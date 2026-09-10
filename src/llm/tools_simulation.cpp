@@ -668,16 +668,22 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             const QVector3D force(float(forceArray.at(0).toDouble()),
                 float(forceArray.at(1).toDouble()), float(forceArray.at(2).toDouble()));
 
+            const QString expression = args.value(QStringLiteral("atoms")).toString();
+
+            // A pre-check, not the resolution that counts. curcuma resolves the
+            // selection itself when it takes the potential, and it is the authority;
+            // this only catches an obviously wrong expression here and now, because
+            // otherwise the refusal comes back asynchronously from the worker and
+            // the model has moved on. The count below is therefore "as of the frame
+            // on screen".
             QVector<int> wanted;
             QString error;
             const QVector<moldata::Atom> atoms = viewer ? viewer->getCurrentFrameAtoms()
                                                         : control->currentAtoms();
-            if (!resolveAtomSet(atoms, args.value(QStringLiteral("atoms")).toString(),
-                    args.value(QStringLiteral("atom_indices")).toArray(), wanted, error)) {
+            if (!expression.isEmpty()
+                && !resolveAtomSet(atoms, expression, {}, wanted, error)) {
                 return ToolResult::failure(error);
             }
-
-            const QString expression = args.value(QStringLiteral("atoms")).toString();
             if (expression.isEmpty()) {
                 return ToolResult::failure(QStringLiteral(
                     "a configured pull is named by a selection: pass atoms, e.g. \"F2\""));
