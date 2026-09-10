@@ -467,7 +467,29 @@ darf, aber nicht messen kann, ob es getroffen hat, rät. Die Schleife lautet
    Injektion, kein Potential. Deklarative, im Controller stehende und zur Laufzeit änderbare
    externe Potentiale sind als **WP8** in `external/curcuma/docs/TOOL_API_WP.md` beschrieben.
 
-8. **Schleifenkosten.** Eine agentische Schleife ruft Werkzeuge dutzendfach. Das ist genau der
+8. **Solvatation.** `fill_container` packt jetzt Kopien einer Bibliotheksmolekel um die
+   Struktur — brauchbar für eine **Mikrosolvatationsschale** (ein paar Dutzend explizite
+   Wasser um eine Bindungstasche) und für Gasphasen-Szenen. Eine **Wasserbox im Sinne einer
+   Solvatationsrechnung ist es nicht**, und das ist keine Beschriftungsfrage:
+
+   - Die Zufallspackung mit Mindestabstand erreicht die Flüssigkeitsdichte nicht. Eine echte
+     Box entsteht aus einer vorequilibrierten Wasserzelle, die repliziert und um die
+     Solut-Überlappungen bereinigt wird.
+   - **Es gibt keine periodischen Randbedingungen in den Nichtbindungstermen.** curcumas
+     `wall_potential=pbc` setzt ein austretendes Molekül auf der Gegenseite wieder ein, aber
+     ohne Minimum-Image werden Wechselwirkungen über die Grenze nicht fortgesetzt
+     (`external/curcuma/docs/WP-PERIODIC-NONBONDED.md`). Eine endliche Box im Vakuum hat eine
+     Oberfläche und zieht sich zum Tropfen zusammen.
+   - Nichts equilibriert das Ergebnis; eine Zufallspackung braucht Minimierung und NVT/NPT,
+     bevor irgendeine Zahl daraus etwas bedeutet.
+   - Größenordnung: 175 Atome Solut plus 10 Å Wasserhülle sind einige tausend Moleküle. GFN-FF
+     bei interaktiven Bildraten trägt das nicht.
+
+   Der tragende Teil davon liegt in curcuma (PBC in den Nichtbindungstermen) und ist dort als
+   Arbeitspaket beschrieben. Bis dahin ist Mikrosolvatation das, was wissenschaftlich
+   verteidigbar bleibt.
+
+9. **Schleifenkosten.** Eine agentische Schleife ruft Werkzeuge dutzendfach. Das ist genau der
    Fall, für den der TODO zum effizienten Tooling geschrieben wurde: Katalog klein halten,
    Ergebnisse kappen, Bilder nur auf Anforderung.
 
