@@ -307,21 +307,9 @@ void ChatDock::appendReasoning(const QString& text)
         m_messageLayout->insertWidget(m_messageLayout->count() - 1, m_currentReasoning);
     }
 
-    // Whatever the endpoint decides to think, the dock keeps a bounded amount of
-    // it. A QTextEdit that grows to tens of thousands of characters per turn costs
-    // layout work on every chunk, and nobody reads past the first screen anyway.
-    // The count in the title stays truthful about how much there was.
     m_reasoningCharsSeen += text.size();
-    if (m_reasoningCharsSeen <= m_reasoningCharLimit) {
-        m_currentReasoningText->moveCursor(QTextCursor::End);
-        m_currentReasoningText->insertPlainText(text);
-    } else if (!m_reasoningTruncated) {
-        m_reasoningTruncated = true;
-        m_currentReasoningText->moveCursor(QTextCursor::End);
-        m_currentReasoningText->insertPlainText(
-            tr("\n… kept the first %1 characters; the rest is not shown.")
-                .arg(QLocale().toString(m_reasoningCharLimit)));
-    }
+    m_currentReasoningText->moveCursor(QTextCursor::End);
+    m_currentReasoningText->insertPlainText(text);
     if (auto* bar = m_currentReasoningText->verticalScrollBar())
         bar->setValue(bar->maximum());
     m_currentReasoning->setTitle(tr("Reasoning (%1 characters)")
@@ -363,7 +351,6 @@ void ChatDock::beginTurn()
     m_currentReasoning = nullptr;
     m_currentReasoningText = nullptr;
     m_reasoningCharsSeen = 0;
-    m_reasoningTruncated = false;
 }
 
 void ChatDock::attachSession(LlmSession* session)

@@ -246,6 +246,11 @@ private:
     /// How much the assistant may do unasked; set in the Assistant dock, kept in
     /// QSettings, consulted by approveToolCall(). Claude Generated 2026.
     ToolAutonomy m_autonomy = ToolAutonomy::Ask;
+    /// How much the model should think, as chosen in the dock. Sent to the endpoint
+    /// as a request field AND put in the system prompt, because an endpoint that
+    /// does not know the field would otherwise ignore the setting entirely.
+    /// Claude Generated 2026.
+    QString m_reasoningEffort;
     /// Build the system prompt for the current autonomy level and push it to the
     /// session. Claude Generated 2026.
     void applySystemPrompt();

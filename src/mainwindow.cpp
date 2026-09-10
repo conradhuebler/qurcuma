@@ -5492,7 +5492,11 @@ void MainWindow::setupAssistant()
     connect(m_chatDock, &ChatDock::reasoningEffortChanged, this, [this](const QString& effort) {
         QSettings().setValue(
             QStringLiteral("llm/reasoning/%1").arg(m_chatDock->currentProfile()), effort);
+        m_reasoningEffort = effort;
         invokeOnLlmThread([this, effort] { m_llmClient->setReasoningEffort(effort); });
+        // The prompt carries the same request, because an endpoint that does not
+        // know the field would otherwise leave the setting with no effect at all.
+        applySystemPrompt();
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
             effort.isEmpty() ? tr("thinking: the endpoint's own default")
                              : tr("thinking: %1").arg(effort));
@@ -5654,8 +5658,10 @@ void MainWindow::applyLlmProfile(const QString& name)
 
     const QString effort = QSettings()
         .value(QStringLiteral("llm/reasoning/%1").arg(profile.name)).toString();
+    m_reasoningEffort = effort;
     m_chatDock->setReasoningEffort(effort);
     invokeOnLlmThread([this, effort] { m_llmClient->setReasoningEffort(effort); });
+    applySystemPrompt();
 
     // Ask the endpoint what it serves. The answer repopulates the model box, which
     // is what makes a profile without a "model" entry usable at all.
@@ -5681,7 +5687,19 @@ void MainWindow::applySystemPrompt()
         "A simulation takes a moment to produce its first frame. simulation_status and "
         "watch_simulation take wait_seconds, and job_status does too: wait for the answer "
         "rather than asking again, and do not conclude from one immediate reply that nothing "
-        "is happening.\n");
+        "is happening.\n"
+        "Think briefly. Nearly every question here is settled by calling a tool, so call it "
+        "instead of reasoning about what the answer might be. In particular, do not try to "
+        "recall a compound from its formula and do not work through candidate names: you "
+        "cannot confirm one, and a list of guesses is worse than saying what the structure "
+        "shows and what would settle it.\n");
+
+    // The Thinking selector asks the endpoint for less; a model whose endpoint
+    // ignores the field only hears it here.
+    if (m_reasoningEffort == QLatin1String("off") || m_reasoningEffort == QLatin1String("low")) {
+        prompt += tr("Keep any reasoning to a few sentences. Decide from what the tools "
+                     "reported and act.\n");
+    }
 
     switch (m_autonomy) {
     case ToolAutonomy::Ask:

@@ -128,10 +128,7 @@ private:
     QComboBox* m_autonomyBox = nullptr;
     QLineEdit* m_endpointEdit = nullptr;
     QComboBox* m_reasoningBox = nullptr;
-    /// Characters of reasoning kept per turn; the rest is dropped with a note.
-    int m_reasoningCharLimit = 4000;
-    int m_reasoningCharsSeen = 0;      ///< this turn, before the cap
-    bool m_reasoningTruncated = false;
+    int m_reasoningCharsSeen = 0;   ///< this turn, for the section title
     QString m_appliedEndpoint;   ///< what the field held when it was last applied
     QLabel* m_autonomyNote = nullptr;   ///< visible whenever it is not "ask"
 
