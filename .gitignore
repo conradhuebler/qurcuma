@@ -107,3 +107,9 @@ external/ripser/
 external/cpp-d4/
 external/ulysses-main/
 
+
+# Agent session state and run leftovers (Claude Generated 2026)
+.claude/
+.snapshots/
+curcuma_citations.bib
+spike_*.png
