@@ -874,15 +874,6 @@ void SimulationWorker::runOptimization()
         // is reset per cycle.
         Molecule current = mol;          // geometry carried across cycles
         Molecule lastSeen = current;     // latest accepted geometry from the callback
-        // [GRAB-DEBUG] temporary: max per-coordinate displacement between two geometries.
-        auto maxDisp = [](const Molecule& a, const Molecule& b) -> double {
-            Geometry ga = a.getGeometry();
-            Geometry gb = b.getGeometry();
-            if (ga.rows() != gb.rows() || ga.rows() == 0)
-                return -1.0;
-            return (ga - gb).cwiseAbs().maxCoeff();
-        };
-
         auto optimizer = Optimization::OptimizerFactory::createOptimizer(opt_type, &calc);
         if (!optimizer) {
             emit errorOccurred(tr("Failed to create optimizer '%1'").arg(m_config.optimizer));
@@ -979,10 +970,6 @@ void SimulationWorker::runOptimization()
                     return;
                 }
             }
-            // [GRAB-DEBUG] temporary: does the displaced geometry carry into this cycle?
-            qDebug().nospace() << "[GRAB] cycle " << cycle
-                               << " START dispFromOrig=" << maxDisp(current, mol);
-
             // Claude Generated 2026 - Seed iteration 1 with the force held right now
             // (mouse-grab in Opt mode); the callback above keeps it refreshed. Always
             // set or clear so a release immediately drops the bias even when no force
@@ -1005,13 +992,6 @@ void SimulationWorker::runOptimization()
                 current = lastSeen;
             else if (result.final_molecule.AtomCount() == static_cast<std::size_t>(m_initialAtoms.size()))
                 current = result.final_molecule;
-
-            // [GRAB-DEBUG] temporary: did this cycle move the geometry, and did it carry?
-            qDebug().nospace() << "[GRAB] cycle " << cycle
-                               << " END success=" << result.success
-                               << " iters=" << result.iterations_performed
-                               << " carried=" << carried
-                               << " dispFromOrig=" << maxDisp(current, mol);
 
             emit frameReady(moleculeToFrame(current, m_initialAtoms.size(),
                 result.final_energy, 0.0, result.iterations_performed));

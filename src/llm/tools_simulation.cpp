@@ -238,6 +238,13 @@ SimulationConfig configFromArgs(const SimulationConfig& base, const QJsonObject&
             target = value.toInt();
     };
 
+    // An optimisation started from here runs once and stops. The keep-alive loop it
+    // would otherwise get restarts for ever -- that exists so a mouse grab can drag
+    // atoms against the optimiser, and with nobody holding a mouse it is a process
+    // that never ends on its own.
+    if (cfg.mode == SimulationConfig::Mode::GeometryOptimization)
+        cfg.optSingleShot = !args.value(QStringLiteral("keep_alive")).toBool();
+
     takeString("method", cfg.method);
     takeString("optimizer", cfg.optimizer);
     takeString("thermostat", cfg.thermostat);
@@ -327,7 +334,9 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                              "description": "fs (md)" },
             "thermostat":  { "type": "string", "description": "md only" },
             "optimizer":   { "type": "string", "description": "opt only" },
-            "convergence": { "type": "number", "description": "gradient threshold (opt only)" }
+            "convergence": { "type": "number", "description": "gradient threshold (opt only)" },
+            "keep_alive":  { "type": "boolean",
+                             "description": "opt only: keep restarting the optimiser instead of stopping when it converges. Needed only to pull on atoms against it; it never ends by itself, so stop_simulation is the only way out (default false)" }
           },
           "required": ["mode"]
         })JSON");
@@ -351,13 +360,20 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                 data.insert(QStringLiteral("temperature"), cfg.temperature);
                 data.insert(QStringLiteral("timestep_fs"), cfg.timestep);
             }
-            return ToolResult::success(data, md
-                    ? QStringLiteral("MD started: %1 steps of %2 fs at %3 K with %4. Ask "
-                                     "simulation_status with wait_seconds.")
-                          .arg(cfg.steps).arg(cfg.timestep).arg(cfg.temperature).arg(cfg.method)
-                    : QStringLiteral("Optimisation started: at most %1 iterations with %2. Ask "
-                                     "simulation_status with wait_seconds.")
-                          .arg(cfg.steps).arg(cfg.method));
+            if (!md)
+                data.insert(QStringLiteral("keep_alive"), !cfg.optSingleShot);
+            QString note = md
+                ? QStringLiteral("MD started: %1 steps of %2 fs at %3 K with %4. Ask "
+                                 "simulation_status with wait_seconds.")
+                      .arg(cfg.steps).arg(cfg.timestep).arg(cfg.temperature).arg(cfg.method)
+                : QStringLiteral("Optimisation started: at most %1 iterations with %2. Ask "
+                                 "simulation_status with wait_seconds.")
+                      .arg(cfg.steps).arg(cfg.method);
+            if (!md && !cfg.optSingleShot) {
+                note += QStringLiteral(" keep_alive is set, so it restarts for ever: it will not "
+                                       "end on its own and stop_simulation is the only way out.");
+            }
+            return ToolResult::success(data, note);
         };
         add(spec);
     }

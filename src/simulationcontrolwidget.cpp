@@ -1640,10 +1640,17 @@ bool SimulationControlWidget::startRun(const SimulationConfig& cfg, QString* err
     if (m_atoms.isEmpty())
         return fail(tr("no structure is loaded"));
 
-    // Drive the controls from the config, then start from the controls. One source
-    // of truth, and the operator sees in the dock exactly what was asked for.
+    // Drive the controls from the config, then start from the controls, so the
+    // operator sees in the dock exactly what was asked for.
     applyConfig(cfg);
-    startWithConfig(buildConfig());
+    SimulationConfig effective = buildConfig();
+    // Fields the dock has no control for do not survive that round trip and have to
+    // be carried over by hand. optSingleShot is the one that matters: without it an
+    // optimisation started from outside gets the interactive keep-alive loop, which
+    // restarts for ever by design and has no reason to when nobody is holding a
+    // mouse. Claude Generated 2026.
+    effective.optSingleShot = cfg.optSingleShot;
+    startWithConfig(effective);
     if (!isRunning())
         return fail(tr("the run did not start; see the Output dock"));
     if (error)
