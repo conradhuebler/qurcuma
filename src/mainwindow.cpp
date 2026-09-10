@@ -4474,8 +4474,13 @@ void MainWindow::createDockWidgets()
         fileContext.workingDirectory = [this] { return m_workingDirectory; };
         registerFileTools(ToolRegistry::instance(), fileContext);
 
+        // The catalogue size is the recurring cost of the whole feature: it goes
+        // out in full with every request. Logged rather than estimated, so growth
+        // is visible where it happens. Claude Generated 2026.
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
-            tr("%1 tools registered").arg(ToolRegistry::instance().size()));
+            tr("%1 tools registered, catalogue %2 kB per request")
+                .arg(ToolRegistry::instance().size())
+                .arg(ToolRegistry::instance().catalogueBytes() / 1024.0, 0, 'f', 1));
     }
 
 #ifdef USE_LLM

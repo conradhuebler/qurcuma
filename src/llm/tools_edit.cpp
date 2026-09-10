@@ -49,6 +49,15 @@ ToolSpec base(const QString& name, const QString& description, ToolEffect effect
     return spec;
 }
 
+/// True while the structure can actually be edited. All of these refuse during a
+/// run and on a trajectory anyway; leaving them out of the catalogue then saves
+/// the tokens AND stops a model spending a round being told no.
+/// Claude Generated 2026.
+std::function<bool()> whenEditable(MoleculeViewer* viewer)
+{
+    return [viewer] { return viewer && viewer->canEditStructure(); };
+}
+
 }  // namespace
 
 namespace {
@@ -161,6 +170,7 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
             data.insert(QStringLiteral("atom_count"), after);
             return ToolResult::success(data);
         };
+        spec.available = whenEditable(viewer);
         add(spec);
     }
 
@@ -236,6 +246,7 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
             data.insert(QStringLiteral("change"), after - before);
             return ToolResult::success(data);
         };
+        spec.available = whenEditable(viewer);
         add(spec);
     }
 
@@ -274,6 +285,7 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
             data.insert(QStringLiteral("atom_count"), after);
             return ToolResult::success(data);
         };
+        spec.available = whenEditable(viewer);
         add(spec);
     }
 
@@ -314,6 +326,7 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
             data.insert(QStringLiteral("atom_count"), viewer->getCurrentFrameAtoms().size());
             return ToolResult::success(data);
         };
+        spec.available = whenEditable(viewer);
         add(spec);
     }
 
@@ -383,6 +396,7 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
                 QStringLiteral("Moved %1 atoms; %2 clash(es) now.")
                     .arg(wanted.size()).arg(viewer->getCollisionCount()));
         };
+        spec.available = whenEditable(viewer);
         add(spec);
     }
 
@@ -561,6 +575,7 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
                                    "and watch the energy settle before reading anything out of it.");
             return ToolResult::success(data, note);
         };
+        spec.available = whenEditable(viewer);
         add(spec);
     }
 

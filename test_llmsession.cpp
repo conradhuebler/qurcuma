@@ -351,6 +351,47 @@ int main(int argc, char** argv)
         check(!error.isEmpty(), "an endpoint failure surfaces as failed(), not as an empty answer");
     }
 
+    // --- a tool that cannot work now is not in the catalogue -----------------
+    //
+    // The catalogue goes out in full with every request and grows with every tool,
+    // so a tool that can only refuse is paid for on every turn for nothing.
+    {
+        ToolSpec spec;
+        spec.name = QStringLiteral("only_sometimes");
+        spec.description = QStringLiteral("Available only when the flag is set");
+        spec.category = QStringLiteral("test");
+        spec.effect = ToolEffect::Read;
+        spec.paramSchema = obj(R"({"type":"object"})");
+        spec.available = [] { return false; };
+        spec.handler = [](const QJsonObject&) { return ToolResult::success(); };
+        registry.add(spec);
+
+        session.reset();
+        session.setMaxIterations(12);
+        server.requests.clear();
+        server.reply(200, textResponse("nothing to do"));
+        runTurn(session, QStringLiteral("hello"), answer, error);
+
+        const QJsonArray tools = QJsonDocument::fromJson(server.requests.first())
+                                     .object()
+                                     .value(QStringLiteral("tools"))
+                                     .toArray();
+        bool offered = false;
+        bool othersOffered = false;
+        for (const QJsonValue& entry : tools) {
+            const QString name = entry.toObject().value(QStringLiteral("function"))
+                                     .toObject().value(QStringLiteral("name")).toString();
+            if (name == QLatin1String("only_sometimes"))
+                offered = true;
+            else
+                othersOffered = true;
+        }
+        check(!offered, "a tool whose availability says no is left out of the catalogue");
+        check(othersOffered, "and the ones that can work are still there");
+        check(registry.catalogueBytes() > 0,
+            "the catalogue can say what it costs, so growth is measured and not estimated");
+    }
+
     // --- waiting is not what the budget is there to stop ---------------------
     //
     // Watching a simulation is a dozen calls that each hand back a number and cost

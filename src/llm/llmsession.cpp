@@ -9,6 +9,8 @@
 #include "core/toolregistry.h"
 #include "llmclient.h"
 
+#include <QSet>
+#include <QThread>
 #include <QElapsedTimer>
 #include <QJsonDocument>
 
@@ -87,7 +89,26 @@ QJsonArray LlmSession::toolCatalogue() const
     QJsonArray catalogue;
     if (!m_registry)
         return catalogue;
+
+    // Which tools can do anything right now. The predicates may look at the viewer,
+    // so they are evaluated on the thread that owns it; this loop is on the agent
+    // loop's. Blocking is safe here for the same reason the approval dialog is --
+    // nothing on the GUI thread ever waits on this one.
+    QSet<QString> unavailable;
+    const auto collect = [this, &unavailable] {
+        for (const ToolSpec& spec : m_registry->all()) {
+            if (spec.available && !spec.available())
+                unavailable.insert(spec.name);
+        }
+    };
+    if (m_dispatcher && QThread::currentThread() != m_dispatcher->thread())
+        QMetaObject::invokeMethod(m_dispatcher, collect, Qt::BlockingQueuedConnection);
+    else
+        collect();
+
     for (const ToolSpec& spec : m_registry->all()) {
+        if (unavailable.contains(spec.name))
+            continue;
         QJsonObject function;
         function.insert(QStringLiteral("name"), spec.name);
         function.insert(QStringLiteral("description"), spec.description);

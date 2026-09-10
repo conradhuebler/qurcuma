@@ -5,6 +5,7 @@
 #include "toolregistry.h"
 
 #include <QDebug>
+#include <QJsonDocument>
 
 #include <QJsonArray>
 #include <QJsonValue>
@@ -249,6 +250,22 @@ ToolRegistry& ToolRegistry::instance()
 {
     static ToolRegistry registry;
     return registry;
+}
+
+int ToolRegistry::catalogueBytes() const
+{
+    QJsonArray catalogue;
+    for (const ToolSpec& spec : all()) {
+        QJsonObject function;
+        function.insert(QStringLiteral("name"), spec.name);
+        function.insert(QStringLiteral("description"), spec.description);
+        function.insert(QStringLiteral("parameters"), spec.paramSchema);
+        QJsonObject entry;
+        entry.insert(QStringLiteral("type"), QStringLiteral("function"));
+        entry.insert(QStringLiteral("function"), function);
+        catalogue.append(entry);
+    }
+    return QJsonDocument(catalogue).toJson(QJsonDocument::Compact).size();
 }
 
 bool ToolRegistry::add(const ToolSpec& spec, QString* error)

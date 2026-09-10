@@ -88,6 +88,15 @@ ToolSpec base(const QString& name, const QString& category, const QString& descr
     return spec;
 }
 
+/// True when there is a structure to work on. Most of these tools can only answer
+/// "no structure is loaded" otherwise, and a tool that can only refuse is not
+/// worth the catalogue space it costs on every single turn.
+/// Claude Generated 2026.
+std::function<bool()> whenLoaded(MoleculeViewer* viewer)
+{
+    return [viewer] { return viewer && !viewer->getCurrentFrameAtoms().isEmpty(); };
+}
+
 }  // namespace
 
 int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
@@ -199,6 +208,7 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             result.truncated = end < atoms.size();
             return result;
         };
+        spec.available = whenLoaded(viewer);
         add(spec);
     }
 
@@ -217,6 +227,7 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             result.truncated = truncated;
             return result;
         };
+        spec.available = whenLoaded(viewer);
         add(spec);
     }
 
@@ -268,6 +279,7 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             data.insert(QStringLiteral("requested"), wanted.size());
             return ToolResult::success(data);
         };
+        spec.available = whenLoaded(viewer);
         add(spec);
     }
 
@@ -313,6 +325,7 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             data.insert(QStringLiteral("count"), static_cast<int>(fragments.size()));
             return ToolResult::success(data);
         };
+        spec.available = whenLoaded(viewer);
         add(spec);
     }
 
@@ -396,6 +409,7 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             return ToolResult::success(data,
                 QStringLiteral("%1 = %2 %3").arg(kind).arg(value, 0, 'f', 4).arg(unit));
         };
+        spec.available = whenLoaded(viewer);
         add(spec);
     }
 
@@ -411,6 +425,7 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             data.insert(QStringLiteral("is_trajectory"), viewer->getFrameCount() > 1);
             return ToolResult::success(data);
         };
+        spec.available = whenLoaded(viewer);
         add(spec);
     }
 
@@ -576,6 +591,7 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
                 QStringLiteral("lower triangle; matrix[i-1][j] is the distance between labels[i] and labels[j], j < i"));
             return ToolResult::success(data);
         };
+        spec.available = whenLoaded(viewer);
         add(spec);
     }
 
@@ -692,6 +708,7 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             }
             return result;
         };
+        spec.available = whenLoaded(viewer);
         add(spec);
     }
 
@@ -768,6 +785,7 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             result.imageMimeType = QStringLiteral("image/png");
             return result;
         };
+        spec.available = whenLoaded(viewer);
         add(spec);
     }
 

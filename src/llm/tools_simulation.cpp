@@ -533,6 +533,10 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
         spec.effect = ToolEffect::Compute;
         spec.affinity = ToolAffinity::Gui;
         spec.paramSchema = schema(R"JSON({ "type": "object", "properties": {} })JSON");
+        // Only while something is running: pausing, resuming, stopping and stepping
+        // can do nothing otherwise, and a tool that can only refuse still costs its
+        // schema in every request. Claude Generated 2026.
+        spec.available = [control] { return control && control->isRunning(); };
         spec.handler = [control, act](const QJsonObject&) { return act(control); };
         add(spec);
     };
@@ -601,6 +605,10 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
           "required": ["temperature"]
         })JSON");
 
+        spec.available = [control] {
+            return control && control->isRunning()
+                && control->liveState().mode == QLatin1String("md");
+        };
         spec.handler = [control](const QJsonObject& args) {
             const double kelvin = args.value(QStringLiteral("temperature")).toDouble();
             if (!control->isRunning())
@@ -656,6 +664,7 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
           "required": ["atoms", "force"]
         })JSON");
 
+        spec.available = [control] { return control && control->isRunning(); };
         spec.handler = [control, viewer, pulls](const QJsonObject& args) {
             if (!control->isRunning())
                 return ToolResult::failure(QStringLiteral(
@@ -762,6 +771,7 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
           "required": ["kind", "atoms"]
         })JSON");
 
+        restrain.available = [control] { return control && control->isRunning(); };
         restrain.handler = [control, pulls](const QJsonObject& args) {
             if (!control->isRunning()) {
                 return ToolResult::failure(QStringLiteral(
@@ -833,6 +843,7 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
         clear.effect = ToolEffect::Compute;
         clear.affinity = ToolAffinity::Gui;
         clear.paramSchema = schema(R"JSON({ "type": "object", "properties": {} })JSON");
+        clear.available = [control] { return control && control->isRunning(); };
         clear.handler = [control, pulls](const QJsonObject&) {
             const int had = pulls->size();
             pulls->clear();
@@ -851,14 +862,10 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
         spec.name = QStringLiteral("watch_simulation");
         spec.category = QStringLiteral("simulation");
         spec.description = QStringLiteral(
-            "Measure the running simulation while it keeps going. Three ways to use it: ask "
-            "once and get the value now; give below or above and it returns when the quantity "
-            "crosses it (\"run until the guest is within 3 A of the host\"); give every_steps "
-            "and it reports back regularly, returning a trace of the value against step rather "
-            "than a single number, which is how a run is followed rather than sampled. The two "
-            "can be combined -- it then returns on whichever comes first. Every answer also "
-            "carries the fragment picture: how many there are, how big they are, how close they "
-            "come.");
+            "Measure the running simulation while it keeps going. Without a threshold it "
+            "answers now; with below/above it returns when the quantity crosses it; with "
+            "every_steps it returns a trace of value against step. Every answer also carries "
+            "the fragment picture (count, sizes, closest approaches).");
         spec.effect = ToolEffect::Read;
         spec.affinity = ToolAffinity::Any;   // it waits, so it must not be the GUI thread
         spec.paramSchema = schema(R"JSON({
@@ -867,22 +874,20 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             "quantity": { "type": "string",
                           "enum": ["min_distance", "centroid_distance", "gyration_radius",
                                    "rmsd_to_start", "energy", "temperature", "step", "density", "external_work"],
-                          "description": "what to measure on every frame. step only ever rises, so wait on it with above, never below; to wait for a run to end, use simulation_status with wait_seconds instead. density is the mass in the confinement container over its volume, so it needs a wall to be set -- in a fixed container with a fixed number of molecules it does not change during a run, and its use is checking a packing before starting one (liquid water is 1.00 g/cm^3)" },
-            "atoms":    { "type": "string",
-                          "description": "first selection, e.g. \"F1\"; needed by the geometric quantities" },
-            "atoms_b":  { "type": "string",
-                          "description": "second selection, for min_distance and centroid_distance" },
+                          "description": "step only rises, so wait on it with above. density needs a wall and is constant in a fixed box (liquid water is 1.00 g/cm^3). To wait for a run to end use simulation_status" },
+            "atoms":    { "type": "string", "description": "selection, e.g. F1; the geometric quantities need it" },
+            "atoms_b":  { "type": "string", "description": "second selection, for the two-set quantities" },
             "atom_indices":   { "type": "array",
-                                "description": "explicit 0-based indices instead of atoms -- use these to follow a fixed set, since fragment numbering is geometric and changes as the structure does" },
+                                "description": "explicit 0-based indices instead of atoms; use these to follow a fixed set, since fragment numbering moves as the structure does" },
             "atom_indices_b": { "type": "array", "description": "explicit indices instead of atoms_b" },
-            "below":    { "type": "number", "description": "return once the quantity drops under this" },
-            "above":    { "type": "number", "description": "return once the quantity rises over this" },
+            "below":    { "type": "number", "description": "return once it drops under this" },
+            "above":    { "type": "number", "description": "return once it rises over this" },
             "every_steps": { "type": "integer", "minimum": 1, "maximum": 100000,
-                             "description": "sample the quantity at least this many steps apart and return the trace" },
+                             "description": "sample at least this many steps apart and return the trace" },
             "max_samples": { "type": "integer", "minimum": 1, "maximum": 100,
-                             "description": "how many samples to collect before returning (default 20)" },
+                             "description": "samples before returning (default 20)" },
             "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 600,
-                              "description": "how long to wait for that (default 30 when a trace or a threshold was asked for, else 0). One long wait costs one round; asking again every minute costs one each time." }
+                              "description": "how long to wait (default 30 with a trace or threshold). One long wait is one round; asking again every minute is one each time" }
           },
           "required": ["quantity"]
         })JSON");

@@ -43,6 +43,12 @@ public:
     bool tool(const QString& name, ToolSpec& out) const;
     /// All registered names, sorted, so catalogues and tests are reproducible.
     QStringList names() const;
+
+    /// Size of the tool catalogue in bytes of compact JSON, as it goes out in the
+    /// `tools:` field of every request. The recurring cost of the whole feature,
+    /// and it grows with each tool, so it is measured rather than estimated.
+    /// Claude Generated 2026.
+    int catalogueBytes() const;
     QVector<ToolSpec> all() const;
     int size() const;
     void clear();

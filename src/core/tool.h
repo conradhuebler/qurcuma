@@ -103,6 +103,20 @@ struct ToolSpec {
     ToolEffect effect = ToolEffect::Read;
     ToolAffinity affinity = ToolAffinity::Any;
 
+    /// Can this tool do anything right now? Unset means always.
+    ///
+    /// Claude Generated 2026 - The catalogue is the recurring cost of the whole
+    /// feature: name, description and schema of every registered tool go out in
+    /// the `tools:` field of EVERY request, and it grows with each tool added.
+    /// Measured on this build, 38 tools are 24 kB of JSON per turn.
+    ///
+    /// A tool that cannot work in the current state is not worth paying for, and
+    /// leaving it out also stops a model calling it and having to be told no --
+    /// measuring a structure that is not loaded, editing during a run. Evaluated
+    /// on the GUI thread each time the catalogue is built, so it may look at the
+    /// viewer.
+    std::function<bool()> available;
+
     std::function<ToolResult(const QJsonObject&)> handler;
 };
 
