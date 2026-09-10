@@ -39,6 +39,12 @@ struct LlmProfile {
     QString apiKeyEnv;       ///< NAME of the env var holding the key; never the key
     bool supportsVision = false;  ///< may be sent images (render_view)
     bool stream = true;           ///< SSE; off for an endpoint that cannot do it
+    /// Name of the request field that asks a reasoning model to think less or
+    /// more. There is no common spelling: OpenAI and most compatible servers take
+    /// "reasoning_effort", Ollama's own API takes "think". Empty means the level
+    /// is never sent, for an endpoint that rejects unknown fields.
+    /// Claude Generated 2026.
+    QString reasoningField = QStringLiteral("reasoning_effort");
     int maxToolIterations = 12;   ///< stop an agent loop that will not converge
     int requestTimeoutMs = 120000;
 

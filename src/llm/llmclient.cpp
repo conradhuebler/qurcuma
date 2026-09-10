@@ -135,6 +135,11 @@ void LlmClient::handleModelDetails(const QString& id)
     emit modelDescribed(info);
 }
 
+void LlmClient::setReasoningEffort(const QString& effort)
+{
+    m_reasoningEffort = effort;
+}
+
 void LlmClient::send(const QJsonArray& messages, const QJsonArray& tools)
 {
     if (m_reply) {
@@ -168,6 +173,21 @@ void LlmClient::send(const QJsonArray& messages, const QJsonArray& tools)
     if (!tools.isEmpty()) {
         body.insert(QStringLiteral("tools"), tools);
         body.insert(QStringLiteral("tool_choice"), QStringLiteral("auto"));
+    }
+    // How much the model should think, under whatever name this endpoint knows it
+    // by. Left out entirely unless both a field name and a level are set: an
+    // unknown key is rejected outright by some servers, and "the endpoint's own
+    // default" is a real choice rather than a missing one. Claude Generated 2026.
+    if (!m_reasoningEffort.isEmpty() && !m_profile.reasoningField.isEmpty()) {
+        if (m_profile.reasoningField == QLatin1String("think")) {
+            // Ollama's own field is a switch, not a level.
+            body.insert(m_profile.reasoningField,
+                m_reasoningEffort != QLatin1String("off"));
+        } else if (m_reasoningEffort == QLatin1String("off")) {
+            body.insert(m_profile.reasoningField, QStringLiteral("none"));
+        } else {
+            body.insert(m_profile.reasoningField, m_reasoningEffort);
+        }
     }
 
     QNetworkRequest request { QUrl(m_profile.chatCompletionsUrl()) };

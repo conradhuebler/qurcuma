@@ -45,6 +45,13 @@ public:
     /// Override the profile's model for this session. Empty falls back to the
     /// profile's own, and if that is empty too a send() fails with a clear reason.
     void setModel(const QString& model);
+
+    /// How hard the model should think, in the spelling the profile names
+    /// ("reasoning_effort" for most, "think" for Ollama's own API). Empty leaves
+    /// the field out entirely, which is what an endpoint's own default means.
+    /// Claude Generated 2026.
+    void setReasoningEffort(const QString& effort);
+    QString reasoningEffort() const { return m_reasoningEffort; }
     QString effectiveModel() const;
 
     /// Ask the endpoint which models it serves (GET /v1/models). One request.
@@ -101,6 +108,7 @@ private:
 
     // Streaming state, reset per request.
     bool m_streaming = false;
+    QString m_reasoningEffort;
     QByteArray m_streamBuffer;      ///< bytes not yet forming a whole line
     QString m_streamedContent;
     QString m_streamedReasoning;

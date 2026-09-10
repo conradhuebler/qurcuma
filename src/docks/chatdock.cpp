@@ -115,6 +115,25 @@ void ChatDock::setupUI()
         emit autonomyChanged(level);
     });
     autonomyRow->addWidget(m_autonomyBox, 1);
+
+    // How much the model should think. Reasoning is the quiet cost of an agentic
+    // run -- tens of thousands of characters for a single turn, paid for in time
+    // and tokens -- and for most of the work here it buys nothing.
+    autonomyRow->addWidget(new QLabel(tr("Thinking:"), content));
+    m_reasoningBox = new QComboBox(content);
+    m_reasoningBox->addItem(tr("Endpoint default"), QString());
+    m_reasoningBox->addItem(tr("Off"), QStringLiteral("off"));
+    m_reasoningBox->addItem(tr("Low"), QStringLiteral("low"));
+    m_reasoningBox->addItem(tr("Medium"), QStringLiteral("medium"));
+    m_reasoningBox->addItem(tr("High"), QStringLiteral("high"));
+    m_reasoningBox->setToolTip(tr(
+        "Sent as the field the profile names (reasoning_field: \"reasoning_effort\" for most "
+        "endpoints, \"think\" for Ollama's own API). An endpoint that does not know the "
+        "field ignores the setting -- watch the reasoning block to see whether it took."));
+    connect(m_reasoningBox, &QComboBox::currentIndexChanged, this, [this](int index) {
+        emit reasoningEffortChanged(m_reasoningBox->itemData(index).toString());
+    });
+    autonomyRow->addWidget(m_reasoningBox);
     layout->addLayout(autonomyRow);
 
     // The level is never hidden: a run that needs no confirmation must still be
@@ -288,12 +307,25 @@ void ChatDock::appendReasoning(const QString& text)
         m_messageLayout->insertWidget(m_messageLayout->count() - 1, m_currentReasoning);
     }
 
-    m_currentReasoningText->moveCursor(QTextCursor::End);
-    m_currentReasoningText->insertPlainText(text);
+    // Whatever the endpoint decides to think, the dock keeps a bounded amount of
+    // it. A QTextEdit that grows to tens of thousands of characters per turn costs
+    // layout work on every chunk, and nobody reads past the first screen anyway.
+    // The count in the title stays truthful about how much there was.
+    m_reasoningCharsSeen += text.size();
+    if (m_reasoningCharsSeen <= m_reasoningCharLimit) {
+        m_currentReasoningText->moveCursor(QTextCursor::End);
+        m_currentReasoningText->insertPlainText(text);
+    } else if (!m_reasoningTruncated) {
+        m_reasoningTruncated = true;
+        m_currentReasoningText->moveCursor(QTextCursor::End);
+        m_currentReasoningText->insertPlainText(
+            tr("\n… kept the first %1 characters; the rest is not shown.")
+                .arg(QLocale().toString(m_reasoningCharLimit)));
+    }
     if (auto* bar = m_currentReasoningText->verticalScrollBar())
         bar->setValue(bar->maximum());
     m_currentReasoning->setTitle(tr("Reasoning (%1 characters)")
-            .arg(QLocale().toString(m_currentReasoningText->toPlainText().size())));
+            .arg(QLocale().toString(m_reasoningCharsSeen)));
     scrollToEnd();
 }
 
@@ -330,6 +362,8 @@ void ChatDock::beginTurn()
     m_currentAnswer = nullptr;
     m_currentReasoning = nullptr;
     m_currentReasoningText = nullptr;
+    m_reasoningCharsSeen = 0;
+    m_reasoningTruncated = false;
 }
 
 void ChatDock::attachSession(LlmSession* session)
@@ -418,6 +452,20 @@ void ChatDock::setProfiles(const QStringList& names, const QString& active)
     m_profileBox->addItems(names);
     if (!active.isEmpty())
         m_profileBox->setCurrentText(active);
+}
+
+void ChatDock::setReasoningEffort(const QString& effort)
+{
+    if (!m_reasoningBox)
+        return;
+    QSignalBlocker block(m_reasoningBox);
+    const int index = m_reasoningBox->findData(effort);
+    m_reasoningBox->setCurrentIndex(index >= 0 ? index : 0);
+}
+
+QString ChatDock::reasoningEffort() const
+{
+    return m_reasoningBox ? m_reasoningBox->currentData().toString() : QString();
 }
 
 void ChatDock::setEndpoint(const QString& baseUrl)

@@ -58,6 +58,8 @@ bool LlmConfig::loadFromJson(const QByteArray& json, QString* error)
         p.apiKeyEnv = o.value(QStringLiteral("api_key_env")).toString();
         p.supportsVision = o.value(QStringLiteral("supports_vision")).toBool(false);
         p.stream = o.value(QStringLiteral("stream")).toBool(true);
+        p.reasoningField = o.value(QStringLiteral("reasoning_field"))
+                               .toString(QStringLiteral("reasoning_effort"));
         p.maxToolIterations = o.value(QStringLiteral("max_tool_iterations")).toInt(12);
         p.requestTimeoutMs = o.value(QStringLiteral("request_timeout_ms")).toInt(120000);
 

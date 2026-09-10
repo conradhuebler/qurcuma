@@ -45,6 +45,11 @@ public:
     void setProfiles(const QStringList& names, const QString& active);
     QString currentProfile() const;
 
+    /// How hard the model should think. Empty means the endpoint's own default.
+    /// Claude Generated 2026.
+    void setReasoningEffort(const QString& effort);
+    QString reasoningEffort() const;
+
     /// The endpoint of the active profile, editable in place. Moving an Ollama
     /// server to another host is a one-line change and should not need a text
     /// editor. Claude Generated 2026.
@@ -88,6 +93,8 @@ signals:
     void autonomyChanged(ToolAutonomy autonomy);
     /// The user pointed the active profile at another endpoint.
     void endpointChanged(const QString& baseUrl);
+    /// The user changed how much the model should think.
+    void reasoningEffortChanged(const QString& effort);
 
 private:
     void setupUI();
@@ -120,6 +127,11 @@ private:
     QPushButton* m_copyButton = nullptr;
     QComboBox* m_autonomyBox = nullptr;
     QLineEdit* m_endpointEdit = nullptr;
+    QComboBox* m_reasoningBox = nullptr;
+    /// Characters of reasoning kept per turn; the rest is dropped with a note.
+    int m_reasoningCharLimit = 4000;
+    int m_reasoningCharsSeen = 0;      ///< this turn, before the cap
+    bool m_reasoningTruncated = false;
     QString m_appliedEndpoint;   ///< what the field held when it was last applied
     QLabel* m_autonomyNote = nullptr;   ///< visible whenever it is not "ask"
 

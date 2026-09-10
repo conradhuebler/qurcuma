@@ -5486,6 +5486,18 @@ void MainWindow::setupAssistant()
     // Claude Generated 2026 - Point the active profile somewhere else and keep it:
     // the change goes back into llm.json (only that one key), then the profile is
     // re-applied, which asks the new endpoint what it serves.
+    // Claude Generated 2026 - How much the model should think, remembered per
+    // profile: what a local 7B needs and what a hosted reasoning model needs are
+    // not the same setting.
+    connect(m_chatDock, &ChatDock::reasoningEffortChanged, this, [this](const QString& effort) {
+        QSettings().setValue(
+            QStringLiteral("llm/reasoning/%1").arg(m_chatDock->currentProfile()), effort);
+        invokeOnLlmThread([this, effort] { m_llmClient->setReasoningEffort(effort); });
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+            effort.isEmpty() ? tr("thinking: the endpoint's own default")
+                             : tr("thinking: %1").arg(effort));
+    });
+
     connect(m_chatDock, &ChatDock::endpointChanged, this, [this](const QString& baseUrl) {
         const QString profileName = m_chatDock->currentProfile();
         QString writeError;
@@ -5639,6 +5651,11 @@ void MainWindow::applyLlmProfile(const QString& name)
         m_chatDock->setStatus(QString());   // the endpoint has its own field now
     }
     m_chatDock->setEndpoint(profile.baseUrl);
+
+    const QString effort = QSettings()
+        .value(QStringLiteral("llm/reasoning/%1").arg(profile.name)).toString();
+    m_chatDock->setReasoningEffort(effort);
+    invokeOnLlmThread([this, effort] { m_llmClient->setReasoningEffort(effort); });
 
     // Ask the endpoint what it serves. The answer repopulates the model box, which
     // is what makes a profile without a "model" entry usable at all.
