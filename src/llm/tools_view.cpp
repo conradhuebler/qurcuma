@@ -115,6 +115,29 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             data.insert(QStringLiteral("formula"), empiricalFormula(atoms));
             data.insert(QStringLiteral("frame_count"), viewer->getFrameCount());
             data.insert(QStringLiteral("current_frame"), viewer->getCurrentFrame());
+            // Centre and extent, so nobody has to page through every atom to find
+            // out how big the thing is or where to put a box around it.
+            QVector3D lower = atoms.first().position;
+            QVector3D upper = lower;
+            QVector3D centre;
+            for (const MoleculeViewer::Atom& atom : atoms) {
+                lower.setX(qMin(lower.x(), atom.position.x()));
+                lower.setY(qMin(lower.y(), atom.position.y()));
+                lower.setZ(qMin(lower.z(), atom.position.z()));
+                upper.setX(qMax(upper.x(), atom.position.x()));
+                upper.setY(qMax(upper.y(), atom.position.y()));
+                upper.setZ(qMax(upper.z(), atom.position.z()));
+                centre += atom.position;
+            }
+            centre /= float(atoms.size());
+            const auto triple = [](const QVector3D& v) {
+                return QJsonArray { v.x(), v.y(), v.z() };
+            };
+            data.insert(QStringLiteral("centre"), triple(centre));
+            data.insert(QStringLiteral("bounds_min"), triple(lower));
+            data.insert(QStringLiteral("bounds_max"), triple(upper));
+            data.insert(QStringLiteral("extent"), triple(upper - lower));
+
             data.insert(QStringLiteral("selected_count"), viewer->getSelectedAtoms().size());
             data.insert(QStringLiteral("simulation_running"), viewer->simulationActive());
             data.insert(QStringLiteral("structure_editable"), viewer->canEditStructure());

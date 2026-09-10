@@ -7,6 +7,7 @@
 #include "atomselection.h"
 #include "core/toolregistry.h"
 #include "fragmentlibrary.h"
+#include "scenefiller.h"
 #include "view.h"
 
 #include <QJsonArray>
@@ -380,6 +381,150 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
             return ToolResult::success(data,
                 QStringLiteral("Moved %1 atoms; %2 clash(es) now.")
                     .arg(wanted.size()).arg(viewer->getCollisionCount()));
+        };
+        add(spec);
+    }
+
+    // --- fill_container -----------------------------------------------------
+    //
+    // What this is, and is not, matters enough to say twice. It packs randomly
+    // oriented copies into a volume with a minimum separation. That is a scene
+    // setup -- a gas-phase mixture, or a handful of explicit waters around a
+    // binding site -- and it is NOT a solvation box: the packing does not reach
+    // liquid density, there are no periodic boundaries in the non-bonded terms
+    // (see curcuma's WP-PERIODIC-NONBONDED), and nothing here equilibrates it.
+    {
+        QJsonArray enumeration;
+        for (const build::Fragment& fragment : build::fragmentLibrary())
+            enumeration.append(fragment.name);
+
+        ToolSpec spec = base(QStringLiteral("fill_container"),
+            QStringLiteral(
+                "Pack copies of a library molecule around what is loaded, at random positions "
+                "and orientations, keeping a minimum distance to everything already there. "
+                "Use it for a microsolvation shell (a few dozen explicit waters around a site) "
+                "or a gas-phase mixture. It is NOT a solvation box: the packing does not reach "
+                "liquid density, there are no periodic boundaries, and it is not equilibrated -- "
+                "optimise afterwards before drawing anything from it."),
+            ToolEffect::Mutate, R"JSON({
+              "type": "object",
+              "properties": {
+                "molecule":     { "type": "string" },
+                "count":        { "type": "integer", "minimum": 1, "maximum": 2000,
+                                  "description": "how many copies to attempt" },
+                "shape":        { "type": "string", "enum": ["box", "sphere"],
+                                  "description": "default box, wrapped around the structure" },
+                "padding":      { "type": "number", "minimum": 0, "maximum": 50,
+                                  "description": "Angstrom added around the structure's own extent (default 6)" },
+                "radius":       { "type": "number", "minimum": 1, "maximum": 200,
+                                  "description": "sphere radius about the origin; overrides padding" },
+                "min_distance": { "type": "number", "minimum": 1, "maximum": 10,
+                                  "description": "closest approach allowed, in Angstrom (default 2.2)" },
+                "seed":         { "type": "integer", "minimum": 0,
+                                  "description": "0 draws fresh each time; anything else repeats exactly" }
+              },
+              "required": ["molecule", "count"]
+            })JSON");
+        {
+            QJsonObject properties = spec.paramSchema.value(QStringLiteral("properties")).toObject();
+            QJsonObject moleculeProperty = properties.value(QStringLiteral("molecule")).toObject();
+            moleculeProperty.insert(QStringLiteral("enum"), enumeration);
+            properties.insert(QStringLiteral("molecule"), moleculeProperty);
+            spec.paramSchema.insert(QStringLiteral("properties"), properties);
+        }
+
+        spec.handler = [viewer](const QJsonObject& args) {
+            const ToolResult blocked = refusedIfNotEditable(viewer);
+            if (!blocked.ok)
+                return blocked;
+
+            const QString wanted = args.value(QStringLiteral("molecule")).toString();
+            const build::Fragment* found = nullptr;
+            for (const build::Fragment& fragment : build::fragmentLibrary()) {
+                if (fragment.name == wanted)
+                    found = &fragment;
+            }
+            if (!found)
+                return ToolResult::failure(QStringLiteral("no molecule called \"%1\"").arg(wanted));
+            if (found->attachAtom >= 0) {
+                return ToolResult::failure(QStringLiteral(
+                    "\"%1\" is a substituent with an open valence, not a free molecule; "
+                    "packing copies of it would leave dangling bonds").arg(wanted));
+            }
+
+            const QVector<moldata::Atom> existing = viewer->getCurrentFrameAtoms();
+            build::Container container;
+            const QString shape = args.value(QStringLiteral("shape"))
+                                      .toString(QStringLiteral("box"));
+            if (shape == QLatin1String("sphere")) {
+                container.kind = build::Container::Sphere;
+                container.radius = float(args.value(QStringLiteral("radius")).toDouble(12.0));
+            } else {
+                container.kind = build::Container::Box;
+                const float padding = float(args.value(QStringLiteral("padding")).toDouble(6.0));
+                if (existing.isEmpty()) {
+                    container.min = QVector3D(-padding, -padding, -padding);
+                    container.max = QVector3D(padding, padding, padding);
+                } else {
+                    QVector3D lower = existing.first().position;
+                    QVector3D upper = lower;
+                    for (const moldata::Atom& atom : existing) {
+                        lower.setX(qMin(lower.x(), atom.position.x()));
+                        lower.setY(qMin(lower.y(), atom.position.y()));
+                        lower.setZ(qMin(lower.z(), atom.position.z()));
+                        upper.setX(qMax(upper.x(), atom.position.x()));
+                        upper.setY(qMax(upper.y(), atom.position.y()));
+                        upper.setZ(qMax(upper.z(), atom.position.z()));
+                    }
+                    const QVector3D pad(padding, padding, padding);
+                    container.min = lower - pad;
+                    container.max = upper + pad;
+                }
+            }
+
+            const int count = args.value(QStringLiteral("count")).toInt();
+            const float minDistance =
+                float(args.value(QStringLiteral("min_distance")).toDouble(2.2));
+            const quint32 seed = quint32(args.value(QStringLiteral("seed")).toInt(0));
+
+            const build::FillResult result = build::fillContainer(
+                { { found, count } }, container, existing, minDistance, 2000, seed);
+            if (result.atoms.isEmpty()) {
+                return ToolResult::failure(QStringLiteral(
+                    "nothing fitted: the volume is too small for even one copy at a %1 A "
+                    "separation").arg(minDistance));
+            }
+
+            viewer->appendMolecule(result.atoms, result.bonds, false);
+
+            QJsonObject data;
+            data.insert(QStringLiteral("placed"), result.placed);
+            data.insert(QStringLiteral("requested"), result.requested);
+            data.insert(QStringLiteral("added_atoms"), result.atoms.size());
+            data.insert(QStringLiteral("total_atoms"), existing.size() + result.atoms.size());
+            data.insert(QStringLiteral("shape"), shape);
+            if (container.kind == build::Container::Sphere) {
+                data.insert(QStringLiteral("radius"), container.radius);
+            } else {
+                data.insert(QStringLiteral("bounds_min"),
+                    QJsonArray { container.min.x(), container.min.y(), container.min.z() });
+                data.insert(QStringLiteral("bounds_max"),
+                    QJsonArray { container.max.x(), container.max.y(), container.max.z() });
+            }
+
+            QString note = QStringLiteral("Placed %1 of %2 copies of %3 (%4 atoms, %5 in the "
+                                          "scene now).")
+                               .arg(result.placed).arg(result.requested).arg(wanted)
+                               .arg(result.atoms.size())
+                               .arg(existing.size() + result.atoms.size());
+            if (result.placed < result.requested) {
+                note += QStringLiteral(" The rest did not fit at a %1 A separation; a larger "
+                                       "volume or a smaller min_distance takes more.")
+                            .arg(minDistance);
+            }
+            note += QStringLiteral(" This is a random packing, not an equilibrated liquid: "
+                                   "optimise before reading anything out of it.");
+            return ToolResult::success(data, note);
         };
         add(spec);
     }
