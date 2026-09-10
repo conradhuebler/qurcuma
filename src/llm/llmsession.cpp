@@ -223,11 +223,15 @@ void LlmSession::onClientFinished(const QJsonObject& assistantMessage)
         // a tool result for each tool_call in the history, and a dangling one makes
         // the next request invalid.
         declineRemainingCalls(toolCalls,
-            tr("the round budget for this turn is used up; no further tool will run"));
+            tr("the round budget for this turn (%1 rounds) is used up; no further tool will "
+               "run. The operator can raise it with the Rounds box in the Assistant dock.")
+                .arg(m_maxIterations));
         const QString reason = tr("%1 rounds of tool calls used (%2 of them spent only "
-                                  "waiting, which does not count). Answer now from the results "
-                                  "already gathered; no further tools will run.")
-                                   .arg(m_iteration).arg(m_freeRounds);
+                                  "waiting, which does not count), against a budget of %3. "
+                                  "Answer now from the results already gathered; no further "
+                                  "tools will run. The operator can raise the budget with the "
+                                  "Rounds box in the Assistant dock.")
+                                   .arg(m_iteration).arg(m_freeRounds).arg(m_maxIterations);
         m_messages.append(message(QStringLiteral("system"), reason));
         note(LogLevel::Warning, reason);
         m_finalRound = true;

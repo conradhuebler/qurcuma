@@ -5542,6 +5542,18 @@ void MainWindow::setupAssistant()
                              : tr("thinking: %1").arg(effort));
     });
 
+    // Claude Generated 2026 - The round budget, per profile. The dock's value wins
+    // over the profile file: the file always carries the key, so a value there
+    // silently overrode everything else, and the operator had no way to see or
+    // change it short of editing JSON.
+    connect(m_chatDock, &ChatDock::maxRoundsChanged, this, [this](int rounds) {
+        QSettings().setValue(
+            QStringLiteral("llm/rounds/%1").arg(m_chatDock->currentProfile()), rounds);
+        invokeOnLlmThread([this, rounds] { m_llmSession->setMaxIterations(rounds); });
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+            tr("round budget: %1 per question").arg(rounds));
+    });
+
     connect(m_chatDock, &ChatDock::endpointChanged, this, [this](const QString& baseUrl) {
         const QString profileName = m_chatDock->currentProfile();
         QString writeError;
@@ -5679,10 +5691,16 @@ void MainWindow::applyLlmProfile(const QString& name)
     }
 
     const QString key = LlmConfig::apiKeyFor(profile);
-    invokeOnLlmThread([this, profile, key] {
+    // The dock's remembered value if there is one, otherwise what the file says.
+    const int rounds = QSettings()
+                           .value(QStringLiteral("llm/rounds/%1").arg(profile.name),
+                               profile.maxToolIterations)
+                           .toInt();
+    m_chatDock->setMaxRounds(rounds);
+    invokeOnLlmThread([this, profile, key, rounds] {
         m_llmClient->setProfile(profile);
         m_llmClient->setApiKey(key);
-        m_llmSession->setMaxIterations(profile.maxToolIterations);
+        m_llmSession->setMaxIterations(rounds);
     });
 
     // Say which variable is missing rather than letting the first request fail with

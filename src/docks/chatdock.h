@@ -27,6 +27,7 @@ class QLabel;
 class QLineEdit;
 class QPushButton;
 class QScrollArea;
+class QSpinBox;
 class QTextEdit;
 class QVBoxLayout;
 struct ToolResult;
@@ -49,6 +50,12 @@ public:
     /// Claude Generated 2026.
     void setReasoningEffort(const QString& effort);
     QString reasoningEffort() const;
+
+    /// How many rounds of tool calls one turn may take. Visible and settable,
+    /// because a limit that only announces itself by stopping the work is a limit
+    /// nobody can plan around. Claude Generated 2026.
+    void setMaxRounds(int rounds);
+    int maxRounds() const;
 
     /// The endpoint of the active profile, editable in place. Moving an Ollama
     /// server to another host is a one-line change and should not need a text
@@ -95,6 +102,8 @@ signals:
     void endpointChanged(const QString& baseUrl);
     /// The user changed how much the model should think.
     void reasoningEffortChanged(const QString& effort);
+    /// The user changed how many rounds a turn may take.
+    void maxRoundsChanged(int rounds);
 
 private:
     void setupUI();
@@ -128,6 +137,7 @@ private:
     QComboBox* m_autonomyBox = nullptr;
     QLineEdit* m_endpointEdit = nullptr;
     QComboBox* m_reasoningBox = nullptr;
+    QSpinBox* m_roundsBox = nullptr;
     int m_reasoningCharsSeen = 0;   ///< this turn, for the section title
     QString m_appliedEndpoint;   ///< what the field held when it was last applied
     QLabel* m_autonomyNote = nullptr;   ///< visible whenever it is not "ask"

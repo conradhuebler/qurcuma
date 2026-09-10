@@ -20,6 +20,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSpinBox>
 #include <QTextCursor>
 #include <QTextEdit>
 #include <QTimer>
@@ -134,6 +135,21 @@ void ChatDock::setupUI()
         emit reasoningEffortChanged(m_reasoningBox->itemData(index).toString());
     });
     autonomyRow->addWidget(m_reasoningBox);
+
+    // How many rounds of tool calls one turn may take. On the same row as the
+    // other two, because it belongs to the same question -- how much the assistant
+    // is allowed to do on its own -- and because a limit that announces itself
+    // only by stopping the work halfway is a limit nobody can plan around.
+    autonomyRow->addWidget(new QLabel(tr("Rounds:"), content));
+    m_roundsBox = new QSpinBox(content);
+    m_roundsBox->setRange(5, 500);
+    m_roundsBox->setValue(60);
+    m_roundsBox->setToolTip(tr(
+        "Rounds of tool calls one question may take before the assistant is asked to answer "
+        "from what it has. Rounds spent only waiting do not count. Raise it for work that "
+        "runs many calculations; the turn ends with an answer either way."));
+    connect(m_roundsBox, &QSpinBox::valueChanged, this, &ChatDock::maxRoundsChanged);
+    autonomyRow->addWidget(m_roundsBox);
     layout->addLayout(autonomyRow);
 
     // The level is never hidden: a run that needs no confirmation must still be
@@ -453,6 +469,19 @@ void ChatDock::setReasoningEffort(const QString& effort)
 QString ChatDock::reasoningEffort() const
 {
     return m_reasoningBox ? m_reasoningBox->currentData().toString() : QString();
+}
+
+void ChatDock::setMaxRounds(int rounds)
+{
+    if (!m_roundsBox)
+        return;
+    QSignalBlocker block(m_roundsBox);
+    m_roundsBox->setValue(rounds);
+}
+
+int ChatDock::maxRounds() const
+{
+    return m_roundsBox ? m_roundsBox->value() : 60;
 }
 
 void ChatDock::setEndpoint(const QString& baseUrl)

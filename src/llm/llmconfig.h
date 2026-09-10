@@ -45,7 +45,7 @@ struct LlmProfile {
     /// is never sent, for an endpoint that rejects unknown fields.
     /// Claude Generated 2026.
     QString reasoningField = QStringLiteral("reasoning_effort");
-    int maxToolIterations = 12;   ///< stop an agent loop that will not converge
+    int maxToolIterations = 60;   ///< stop an agent loop that will not converge
     int requestTimeoutMs = 120000;
 
     bool isValid() const { return !name.isEmpty() && !baseUrl.isEmpty(); }

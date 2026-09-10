@@ -60,7 +60,9 @@ bool LlmConfig::loadFromJson(const QByteArray& json, QString* error)
         p.stream = o.value(QStringLiteral("stream")).toBool(true);
         p.reasoningField = o.value(QStringLiteral("reasoning_field"))
                                .toString(QStringLiteral("reasoning_effort"));
-        p.maxToolIterations = o.value(QStringLiteral("max_tool_iterations")).toInt(12);
+        // 12 was far too low for agentic work and, because a profile always carries
+        // the key, it silently overrode the session default. Claude Generated 2026.
+        p.maxToolIterations = o.value(QStringLiteral("max_tool_iterations")).toInt(60);
         p.requestTimeoutMs = o.value(QStringLiteral("request_timeout_ms")).toInt(120000);
 
         // A key in the file is the one mistake worth refusing outright rather than
@@ -193,7 +195,7 @@ bool LlmConfig::writeExampleIfMissing(const QString& path, QString* error)
       "model": "",
       "api_key_env": "",
       "supports_vision": false,
-      "max_tool_iterations": 12
+      "max_tool_iterations": 60
     },
     {
       "name": "hosted",
@@ -201,7 +203,7 @@ bool LlmConfig::writeExampleIfMissing(const QString& path, QString* error)
       "model": "gpt-4o-mini",
       "api_key_env": "OPENAI_API_KEY",
       "supports_vision": true,
-      "max_tool_iterations": 12
+      "max_tool_iterations": 60
     }
   ]
 }
