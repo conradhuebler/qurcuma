@@ -26,14 +26,34 @@ SimulationControlWidget::SimulationControlWidget(QWidget* parent)
     setupUI();
 }
 
-SimulationControlWidget::~SimulationControlWidget()
+// Claude Generated 2026 - Wind the worker thread down without ever leaving a
+// running QThread to be destroyed, which is a qFatal and came out as SIGABRT in
+// the middle of curcuma's own output when the window was closed during a run.
+//
+// Two seconds was not enough: the stop request is only looked at between steps,
+// and setting up a force field reaches none for several. If even the long wait
+// runs out, the thread is released from this parent rather than destroyed under
+// itself -- the worker's signals go nowhere once their receivers are gone, and a
+// thread object that outlives the widget costs nothing next to an abort.
+void SimulationControlWidget::stopWorkerThread()
 {
+    if (!m_thread)
+        return;
     if (m_worker)
         m_worker->requestStop();
-    if (m_thread && m_thread->isRunning()) {
-        m_thread->quit();
-        m_thread->wait(2000);
+    if (!m_thread->isRunning()) {
+        m_thread = nullptr;   // owned by its own finished->deleteLater
+        return;
     }
+    m_thread->quit();
+    if (!m_thread->wait(15000))
+        m_thread->setParent(nullptr);
+    m_thread = nullptr;
+}
+
+SimulationControlWidget::~SimulationControlWidget()
+{
+    stopWorkerThread();
 }
 
 void SimulationControlWidget::setMolecule(
@@ -1440,13 +1460,7 @@ void SimulationControlWidget::startWithConfig(const SimulationConfig& cfg)
         return;
     }
 
-    // Tear down any prior worker
-    if (m_thread && m_thread->isRunning()) {
-        if (m_worker)
-            m_worker->requestStop();
-        m_thread->quit();
-        m_thread->wait(2000);
-    }
+    stopWorkerThread();   // never leave a running QThread behind
 
     if (m_reactEventTable)
         m_reactEventTable->setRowCount(0);   // fresh event log per run
@@ -1514,13 +1528,8 @@ void SimulationControlWidget::onStepClicked()
     }
     m_stepThrottleTimer.restart();
 
-    // Tear down any prior worker (shouldn't exist if Step is only enabled when idle)
-    if (m_thread && m_thread->isRunning()) {
-        if (m_worker)
-            m_worker->requestStop();
-        m_thread->quit();
-        m_thread->wait(2000);
-    }
+    // Shouldn't exist if Step is only enabled when idle, but the same rule holds.
+    stopWorkerThread();
 
     m_worker = new SimulationWorker;
     emit workerStarted(m_worker);

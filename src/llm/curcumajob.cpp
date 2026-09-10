@@ -75,6 +75,12 @@ public:
             m_driver->requestStop();
     }
 
+    /// The owner is going away and will not be there to receive the result. Called
+    /// only when shutdown could not wait the run out; after this the thread finishes
+    /// its work, writes its last lines to the hub (which outlives everything) and
+    /// emits nothing.
+    void detachFromOwner() { m_ownerGone.store(true); }
+
     QString jobId() const { return m_jobId; }
 
 protected:
@@ -123,7 +129,8 @@ protected:
 
         result.elapsedMs = timer.elapsed();
         CurcumaLogger::set_thread_verbosity(-1);
-        emit m_owner->finished(result);
+        if (!m_ownerGone.load())
+            emit m_owner->finished(result);
     }
 
 private:
@@ -201,6 +208,7 @@ private:
     CurcumaJobRequest m_request;
     QString m_jobId;
     std::atomic<bool> m_stopRequested { false };
+    std::atomic<bool> m_ownerGone { false };
     CurcumaMethod* m_driver = nullptr;   ///< only while a driver is alive
 };
 
@@ -213,10 +221,23 @@ CurcumaJob::CurcumaJob(LogHub* hub, QObject* parent)
 CurcumaJob::~CurcumaJob()
 {
     m_queue.clear();
-    if (m_runner && m_runner->isRunning()) {
-        m_runner->requestStop();
-        m_runner->wait(5000);
-    }
+    if (!m_runner || !m_runner->isRunning())
+        return;
+
+    // The stop request is only looked at between driver steps. Setting up a force
+    // field reaches none for seconds -- long enough that closing the window during
+    // one used to destroy a running QThread, which is a qFatal and came out as
+    // SIGABRT in the middle of curcuma's own output.
+    m_runner->requestStop();
+    if (m_runner->wait(15000))
+        return;
+
+    // Still going. A running QThread must not be destroyed, so it is released from
+    // this parent and left to the process exit: the thread object leaks for the few
+    // seconds the program still exists, which is the better of the two.
+    m_runner->detachFromOwner();
+    m_runner->setParent(nullptr);
+    m_runner = nullptr;
 }
 
 QStringList CurcumaJob::supportedCommands()

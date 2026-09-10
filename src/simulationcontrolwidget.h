@@ -223,6 +223,9 @@ private:
     QGroupBox* createOptGroup();
     QGroupBox* createOutputGroup();
     QGroupBox* createGrabGroup();
+    /// Stop and join the worker thread, without ever leaving a running QThread to
+    /// be destroyed. Claude Generated 2026.
+    void stopWorkerThread();
     void setRunning(bool running);
     void setState(const QString& label, const QString& color);  // Claude Generated 2026 - state pill
     SimulationConfig buildConfig() const;
