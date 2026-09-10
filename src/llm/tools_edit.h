@@ -11,11 +11,28 @@
 // recoverable as a user's.
 #pragma once
 
+#include <QString>
+#include <QVector3D>
+
+#include <functional>
+
 class MoleculeViewer;
 class ToolRegistry;
 
+/// A simulation container, as fill_container hands it to the dock: the volume it
+/// just packed becomes the wall the run is then held in. Claude Generated 2026.
+struct ToolContainer {
+    bool sphere = false;
+    float radius = 0.0f;
+    QVector3D min, max;
+    int potential = 0;   ///< 0 harmonic, 1 logfermi, 2 periodic wrap-around
+};
+
 struct EditToolContext {
     MoleculeViewer* viewer = nullptr;
+    /// Apply a container as the simulation's confinement wall. Supplied by
+    /// MainWindow, which owns the Simulation dock; may be unset.
+    std::function<bool(const ToolContainer&, QString*)> setContainerWall;
 };
 
 /// Register the structure-editing tools. Returns how many.

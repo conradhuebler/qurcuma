@@ -77,6 +77,7 @@ bool setToMove(MoleculeViewer* viewer, const QJsonObject& args, QVector<int>& ou
 int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
 {
     MoleculeViewer* const viewer = context.viewer;
+    const auto setContainerWall = context.setContainerWall;
     if (!viewer)
         return 0;
     int added = 0;
@@ -421,7 +422,11 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
                 "min_distance": { "type": "number", "minimum": 1, "maximum": 10,
                                   "description": "closest approach allowed, in Angstrom (default 2.2)" },
                 "seed":         { "type": "integer", "minimum": 0,
-                                  "description": "0 draws fresh each time; anything else repeats exactly" }
+                                  "description": "0 draws fresh each time; anything else repeats exactly" },
+                "set_wall":     { "type": "boolean",
+                                  "description": "make the packed volume the simulation's container, so a run afterwards is held in it (default false)" },
+                "wall_potential": { "type": "string", "enum": ["harmonic", "logfermi", "pbc"],
+                                  "description": "with set_wall: how the container acts. pbc puts a molecule that leaves back in on the opposite side and does no work on it; the other two push it back. Default pbc" }
               },
               "required": ["molecule", "count"]
             })JSON");
@@ -433,7 +438,7 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
             spec.paramSchema.insert(QStringLiteral("properties"), properties);
         }
 
-        spec.handler = [viewer](const QJsonObject& args) {
+        spec.handler = [viewer, setContainerWall](const QJsonObject& args) {
             const ToolResult blocked = refusedIfNotEditable(viewer);
             if (!blocked.ok)
                 return blocked;
@@ -512,6 +517,32 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
                     QJsonArray { container.max.x(), container.max.y(), container.max.z() });
             }
 
+            // The packed volume becomes the container the run is held in, which is
+            // what makes the box a box rather than a cloud that expands on the
+            // first step.
+            if (args.value(QStringLiteral("set_wall")).toBool()) {
+                const QString potential = args.value(QStringLiteral("wall_potential"))
+                                              .toString(QStringLiteral("pbc"));
+                ToolContainer wall;
+                wall.sphere = container.kind == build::Container::Sphere;
+                wall.radius = container.radius;
+                wall.min = container.min;
+                wall.max = container.max;
+                wall.potential = potential == QLatin1String("pbc") ? 2
+                    : potential == QLatin1String("logfermi")       ? 1
+                                                                   : 0;
+                QString wallError;
+                if (setContainerWall && setContainerWall(wall, &wallError)) {
+                    data.insert(QStringLiteral("wall_set"), true);
+                    data.insert(QStringLiteral("wall_potential"), potential);
+                } else {
+                    data.insert(QStringLiteral("wall_set"), false);
+                    data.insert(QStringLiteral("wall_error"), wallError.isEmpty()
+                            ? QStringLiteral("no simulation dock to set it on")
+                            : wallError);
+                }
+            }
+
             QString note = QStringLiteral("Placed %1 of %2 copies of %3 (%4 atoms, %5 in the "
                                           "scene now).")
                                .arg(result.placed).arg(result.requested).arg(wanted)
@@ -522,8 +553,12 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
                                        "volume or a smaller min_distance takes more.")
                             .arg(minDistance);
             }
-            note += QStringLiteral(" This is a random packing, not an equilibrated liquid: "
-                                   "optimise before reading anything out of it.");
+            if (data.value(QStringLiteral("wall_set")).toBool()) {
+                note += QStringLiteral(" The container is now the simulation's wall, so a run "
+                                       "is held in it.");
+            }
+            note += QStringLiteral(" This is a random packing, not an equilibrated liquid: run it "
+                                   "and watch the energy settle before reading anything out of it.");
             return ToolResult::success(data, note);
         };
         add(spec);

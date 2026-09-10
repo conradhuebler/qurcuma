@@ -52,6 +52,10 @@ public:
         double temperature = 0.0;   ///< K, from the kinetic energy; MD only
         double targetTemperature = 0.0;
         double timeFs = 0.0;        ///< MD only
+        /// Volume of the confinement container in A^3, 0 when no wall is set.
+        /// Carried here so a density can be worked out off the GUI thread.
+        /// Claude Generated 2026.
+        double containerVolume = 0.0;
     };
 
     explicit SimulationControlWidget(QWidget* parent = nullptr);

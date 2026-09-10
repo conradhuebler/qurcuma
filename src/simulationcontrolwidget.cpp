@@ -1702,6 +1702,24 @@ void SimulationControlWidget::publishLiveState()
     m_liveState.method = m_config.method;
     m_liveState.totalSteps = m_config.steps;
     m_liveState.targetTemperature = m_tempSlider ? m_tempSlider->value() : m_config.temperature;
+
+    // The container's volume, so a caller can turn the atom masses into a density
+    // without reaching into the config from another thread. Auto-sized walls
+    // (all bounds zero) have no volume to report -- curcuma picks those at run
+    // time. Claude Generated 2026.
+    m_liveState.containerVolume = 0.0;
+    if (m_config.wallEnabled) {
+        if (m_config.wallType == 1 && m_config.wallRadius > 0.0) {
+            m_liveState.containerVolume =
+                4.0 / 3.0 * M_PI * m_config.wallRadius * m_config.wallRadius * m_config.wallRadius;
+        } else if (m_config.wallType == 2) {
+            const double dx = m_config.wallXmax - m_config.wallXmin;
+            const double dy = m_config.wallYmax - m_config.wallYmin;
+            const double dz = m_config.wallZmax - m_config.wallZmin;
+            if (dx > 0.0 && dy > 0.0 && dz > 0.0)
+                m_liveState.containerVolume = dx * dy * dz;
+        }
+    }
     if (!m_liveState.running) {
         m_liveState.paused = false;
     }

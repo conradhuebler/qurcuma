@@ -9,6 +9,8 @@
 #include "core/toolregistry.h"
 #include "measurements.h"
 #include "moleculebridge.h"
+
+#include <src/core/elements.h>
 #include "simulationcontrolwidget.h"
 #include "simulationframe.h"
 #include "view.h"
@@ -109,6 +111,23 @@ double evaluate(const QString& quantity, const StatusCache& cache,
     if (quantity == QLatin1String("temperature")) {
         unit = QStringLiteral("K");
         return cache.state.temperature;
+    }
+    if (quantity == QLatin1String("density")) {
+        unit = QStringLiteral("g/cm^3");
+        if (cache.state.containerVolume <= 0.0 || cache.atoms.isEmpty()) {
+            ok = false;
+            return 0.0;
+        }
+        // Mass of everything in the box over the container volume. 1 u/A^3 is
+        // 1.66053906660 g/cm^3 (the atomic mass unit in grams, times 10^24 A^3
+        // per cm^3).
+        double mass = 0.0;
+        for (const moldata::Atom& atom : cache.atoms) {
+            const int z = Elements::String2Element(atom.element.toStdString());
+            if (z > 0 && z < int(Elements::AtomicMass.size()))
+                mass += Elements::AtomicMass[z];
+        }
+        return mass / cache.state.containerVolume * 1.66053906660;
     }
     if (quantity == QLatin1String("gyration_radius"))
         return measure::gyrationRadius(positionsOf(setA));
@@ -743,8 +762,8 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
           "properties": {
             "quantity": { "type": "string",
                           "enum": ["min_distance", "centroid_distance", "gyration_radius",
-                                   "rmsd_to_start", "energy", "temperature", "step"],
-                          "description": "what to measure on every frame. step only ever rises, so wait on it with above, never below; to wait for a run to end, use simulation_status with wait_seconds instead" },
+                                   "rmsd_to_start", "energy", "temperature", "step", "density"],
+                          "description": "what to measure on every frame. step only ever rises, so wait on it with above, never below; to wait for a run to end, use simulation_status with wait_seconds instead. density is the mass in the confinement container over its volume, so it needs a wall to be set -- in a fixed container with a fixed number of molecules it does not change during a run, and its use is checking a packing before starting one (liquid water is 1.00 g/cm^3)" },
             "atoms":    { "type": "string",
                           "description": "first selection, e.g. \"F1\"; needed by the geometric quantities" },
             "atoms_b":  { "type": "string",

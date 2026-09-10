@@ -4437,6 +4437,36 @@ void MainWindow::createDockWidgets()
 
         EditToolContext editContext;
         editContext.viewer = m_moleculeView;
+        // Read at call time, not now: the Simulation dock does not exist yet at
+        // registration. Same path the Fill dialog takes. Claude Generated 2026.
+        editContext.setContainerWall = [this](const ToolContainer& wall, QString* error) {
+            if (!m_simulationControlWidget) {
+                if (error)
+                    *error = tr("there is no simulation dock to set a container on");
+                return false;
+            }
+            if (m_simulationControlWidget->isRunning()) {
+                if (error)
+                    *error = tr("a simulation is running; the container is fixed at its start");
+                return false;
+            }
+            SimulationConfig cfg = m_simulationControlWidget->currentConfig();
+            cfg.wallEnabled = true;
+            cfg.wallPotential = wall.potential;
+            if (wall.sphere) {
+                cfg.wallType = 1;
+                cfg.wallRadius = wall.radius;
+            } else {
+                cfg.wallType = 2;
+                cfg.wallXmin = wall.min.x(); cfg.wallXmax = wall.max.x();
+                cfg.wallYmin = wall.min.y(); cfg.wallYmax = wall.max.y();
+                cfg.wallZmin = wall.min.z(); cfg.wallZmax = wall.max.z();
+            }
+            m_simulationControlWidget->applyConfig(cfg);
+            if (error)
+                error->clear();
+            return true;
+        };
         registerEditTools(ToolRegistry::instance(), editContext);
 
         FileToolContext fileContext;
