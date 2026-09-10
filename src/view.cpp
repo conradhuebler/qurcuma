@@ -1587,7 +1587,14 @@ void MoleculeViewer::appendMolecule(const QVector<Atom>& newAtoms, const QVector
     if (newAtoms.isEmpty())
         return;
     if (m_trajectoryAtoms.isEmpty()) {
-        addMolecule(newAtoms, newBonds);   // nothing loaded yet -> behave like a load
+        // Nothing loaded yet, so this IS a load -- and it goes the way a load goes.
+        // setTrajectoryData is the path every file load takes; addMolecule builds
+        // the scene directly with a camera reset, which is a path the application
+        // otherwise avoids on an empty scene (the builder deliberately seeds its
+        // first atom around it). Filling a container into an empty scene was the
+        // one caller that still went that way. Claude Generated 2026.
+        const QVector<Bond> bonds = newBonds.isEmpty() ? detectBonds(newAtoms) : newBonds;
+        setTrajectoryData({ newAtoms }, { bonds });
         return;
     }
     if (!canEditStructure()) {
