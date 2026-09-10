@@ -522,13 +522,32 @@ Parameter-Schema jedes registrierten Werkzeugs stehen im `tools:`-Feld jedes Req
 der wiederkehrende Kostenposten der ganzen Funktion, und er wächst mit jedem neuen Werkzeug.
 Zu klären, bevor der Katalog groß wird:
 
+**Gemessen (10.09.2026, 38 Werkzeuge):** der Katalog ist **24.130 Byte** kompaktes JSON,
+im Schnitt 635 Byte pro Werkzeug, das dickste (`watch_simulation`) 2.488 — ein Zehntel des
+Ganzen. Das geht bei **jedem** Request mit; über einen 50-Runden-Zug ist es der größte
+Einzelposten. `ToolRegistry::catalogueBytes()` liefert die Zahl, und sie steht beim Start im
+Log, damit Wachstum dort sichtbar wird, wo es entsteht.
+
+- ~~**Kontextabhängige Teilmengen.**~~ **Erledigt** (`5a39a1a`): `ToolSpec::available` ist ein
+  Prädikat, das beim Aufbau des Katalogs ausgewertet wird. Ohne geladene Struktur fallen die
+  Mess-, Auswahl-, Bearbeitungs- und Rechenwerkzeuge weg, ohne laufende Simulation die
+  Steuerung. **21 statt 38 Werkzeuge, 14.784 statt 24.130 Byte — ein Drittel weniger.** Der
+  zweite Gewinn ist kein Token-Gewinn: ein Werkzeug, das nur ablehnen kann, kostet sonst auch
+  eine Runde.
 - **Stufen auch für Werkzeuge, nicht nur für Parameter.** Ein kleiner Kern, der immer
-  mitgeht, der Rest über `describe_tools`/`search_tools` auf Nachfrage nachladbar.
-- **Kontextabhängige Teilmengen.** Ohne geladene Struktur braucht es keine Mess- und
-  Auswahlwerkzeuge; im Explore-Modus keine Builder-Werkzeuge. Die Registry kennt Kategorie und
-  Effekt, die Auswahl ist also ableitbar.
+  mitgeht, der Rest über `describe_tools` beschreibbar und über ein generisches `call_tool`
+  aufrufbar. Das ist der nächste Hebel und der **riskanteste**: die Indirektion kostet
+  Modellgüte, und die Protokolle dieser Sitzung zeigen ein Modell, das schon mit einem flachen
+  Katalog Werkzeuge übersieht. Erst messen, was nach der Kontextfilterung übrig ist.
 - **Beschreibungen kurz halten.** Das Schema ist der Kontrakt; die Beschreibung soll ihn nicht
-  in Prosa wiederholen.
+  in Prosa wiederholen. `watch_simulation` war das Gegenbeispiel und ist um 686 Byte gekürzt —
+  behalten wurde nur, was einen Fehler verhindert (`step` steigt nur, `density` braucht eine
+  Wand). Laufende Aufgabe, kein Paket.
+- **Die Kanten gehören in die Ergebnisse, nicht in den Katalog.** Was nach einem Werkzeug
+  kommt, steht am billigsten im Ergebnis des vorigen: `pull_atoms` nennt die Indizes, die
+  `watch_simulation` als Nächstes braucht, `job_status` nennt `wait_seconds`. Zehn Token,
+  bezahlt nur auf dem Pfad, der tatsächlich gegangen wird — statt einer Beziehungsbeschreibung,
+  die jede Runde vollständig mitgeht.
 - **Messen statt schätzen.** Ein ctest, der die Katalogröße in Token gegen ein Budget prüft und
   fehlschlägt, wenn eine Erweiterung darüber hinausschießt. Ohne diesen Test merkt man das
   Wachstum erst an der Rechnung.
