@@ -9,8 +9,6 @@
 #include "core/toolregistry.h"
 #include "measurements.h"
 #include "moleculebridge.h"
-
-#include <src/core/elements.h>
 #include "simulationcontrolwidget.h"
 #include "simulationframe.h"
 #include "view.h"
@@ -118,16 +116,10 @@ double evaluate(const QString& quantity, const StatusCache& cache,
             ok = false;
             return 0.0;
         }
-        // Mass of everything in the box over the container volume. 1 u/A^3 is
-        // 1.66053906660 g/cm^3 (the atomic mass unit in grams, times 10^24 A^3
-        // per cm^3).
-        double mass = 0.0;
-        for (const moldata::Atom& atom : cache.atoms) {
-            const int z = Elements::String2Element(atom.element.toStdString());
-            if (z > 0 && z < int(Elements::AtomicMass.size()))
-                mass += Elements::AtomicMass[z];
-        }
-        return mass / cache.state.containerVolume * 1.66053906660;
+        // curcuma's own Molecule::Density: the masses, the defensive minimum for
+        // coarse-grained particles and the unit conversion all live there, so the
+        // number here and the one SimpleMD reports cannot come apart.
+        return atomsToMolecule(cache.atoms).Density(cache.state.containerVolume);
     }
     if (quantity == QLatin1String("gyration_radius"))
         return measure::gyrationRadius(positionsOf(setA));
