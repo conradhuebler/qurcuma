@@ -57,6 +57,26 @@ void ChatDock::setupUI()
     header->addWidget(m_profileBox);
     layout->addLayout(header);
 
+    // Where the endpoint lives. Editable in place, because "the Ollama server now
+    // runs on the other machine" is one line and should not send anyone to a text
+    // editor. Applied on Enter or on leaving the field, not per keystroke.
+    auto* endpointRow = new QHBoxLayout;
+    endpointRow->addWidget(new QLabel(tr("Endpoint:"), content));
+    m_endpointEdit = new QLineEdit(content);
+    m_endpointEdit->setPlaceholderText(QStringLiteral("http://localhost:11434/v1"));
+    m_endpointEdit->setToolTip(tr("Base URL of the active profile, up to but not including "
+                                  "/chat/completions. Saved back into "
+                                  "~/.config/qurcuma/llm.json."));
+    connect(m_endpointEdit, &QLineEdit::editingFinished, this, [this] {
+        const QString url = m_endpointEdit->text().trimmed();
+        if (!url.isEmpty() && url != m_appliedEndpoint) {
+            m_appliedEndpoint = url;
+            emit endpointChanged(url);
+        }
+    });
+    endpointRow->addWidget(m_endpointEdit, 1);
+    layout->addLayout(endpointRow);
+
     // Which models exist is a property of the endpoint, so it is asked, not
     // guessed. Editable, because a listing can be incomplete or absent.
     auto* modelRow = new QHBoxLayout;
@@ -398,6 +418,22 @@ void ChatDock::setProfiles(const QStringList& names, const QString& active)
     m_profileBox->addItems(names);
     if (!active.isEmpty())
         m_profileBox->setCurrentText(active);
+}
+
+void ChatDock::setEndpoint(const QString& baseUrl)
+{
+    if (!m_endpointEdit)
+        return;
+    // editingFinished fires on focus loss too, so the last applied value is kept
+    // and compared against: filling the field must not look like an edit.
+    m_appliedEndpoint = baseUrl;
+    QSignalBlocker block(m_endpointEdit);
+    m_endpointEdit->setText(baseUrl);
+}
+
+QString ChatDock::endpoint() const
+{
+    return m_endpointEdit ? m_endpointEdit->text().trimmed() : QString();
 }
 
 QString ChatDock::currentProfile() const

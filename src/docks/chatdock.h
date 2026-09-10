@@ -45,6 +45,12 @@ public:
     void setProfiles(const QStringList& names, const QString& active);
     QString currentProfile() const;
 
+    /// The endpoint of the active profile, editable in place. Moving an Ollama
+    /// server to another host is a one-line change and should not need a text
+    /// editor. Claude Generated 2026.
+    void setEndpoint(const QString& baseUrl);
+    QString endpoint() const;
+
     /// Models the endpoint offers; @p current is preselected. The box stays
     /// editable so a model the endpoint does not list can still be typed.
     void setModels(const QStringList& models, const QString& current);
@@ -80,6 +86,8 @@ signals:
     void modelChanged(const QString& model);
     /// The user changed how much may run unattended. Claude Generated 2026.
     void autonomyChanged(ToolAutonomy autonomy);
+    /// The user pointed the active profile at another endpoint.
+    void endpointChanged(const QString& baseUrl);
 
 private:
     void setupUI();
@@ -111,6 +119,8 @@ private:
     QLabel* m_status = nullptr;
     QPushButton* m_copyButton = nullptr;
     QComboBox* m_autonomyBox = nullptr;
+    QLineEdit* m_endpointEdit = nullptr;
+    QString m_appliedEndpoint;   ///< what the field held when it was last applied
     QLabel* m_autonomyNote = nullptr;   ///< visible whenever it is not "ask"
 
     /// Widgets of the turn in progress. Null between turns.

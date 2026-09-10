@@ -8,6 +8,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QObject>
+#include <QSaveFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
@@ -95,6 +97,64 @@ bool LlmConfig::load(const QString& path, QString* error)
         return false;
     }
     return loadFromJson(file.readAll(), error);
+}
+
+bool LlmConfig::updateBaseUrl(const QString& path, const QString& profileName,
+    const QString& baseUrl, QString* error)
+{
+    const auto fail = [error](const QString& message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+
+    const QString trimmed = baseUrl.trimmed();
+    if (trimmed.isEmpty())
+        return fail(QObject::tr("the endpoint may not be empty"));
+    if (!trimmed.startsWith(QLatin1String("http://"))
+        && !trimmed.startsWith(QLatin1String("https://"))) {
+        return fail(QObject::tr("the endpoint has to start with http:// or https://"));
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return fail(QObject::tr("cannot read %1: %2").arg(path, file.errorString()));
+    const QByteArray raw = file.readAll();
+    file.close();
+
+    QJsonParseError parseError {};
+    QJsonDocument document = QJsonDocument::fromJson(raw, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject())
+        return fail(QObject::tr("%1 is not valid JSON: %2").arg(path, parseError.errorString()));
+
+    QJsonObject root = document.object();
+    QJsonArray profiles = root.value(QStringLiteral("profiles")).toArray();
+    bool found = false;
+    for (int i = 0; i < profiles.size(); ++i) {
+        QJsonObject entry = profiles.at(i).toObject();
+        if (entry.value(QStringLiteral("name")).toString() != profileName)
+            continue;
+        entry.insert(QStringLiteral("base_url"), trimmed);
+        profiles.replace(i, entry);
+        found = true;
+        break;
+    }
+    if (!found)
+        return fail(QObject::tr("no profile called \"%1\" in %2").arg(profileName, path));
+    root.insert(QStringLiteral("profiles"), profiles);
+
+    // QSaveFile: a failed write leaves the previous configuration intact rather
+    // than a truncated file that the next start cannot read.
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Text))
+        return fail(QObject::tr("cannot write %1: %2").arg(path, out.errorString()));
+    out.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    if (!out.commit())
+        return fail(QObject::tr("cannot write %1: %2").arg(path, out.errorString()));
+
+    if (error)
+        error->clear();
+    return true;
 }
 
 bool LlmConfig::writeExampleIfMissing(const QString& path, QString* error)

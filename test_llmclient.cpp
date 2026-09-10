@@ -9,6 +9,8 @@
 
 #include "test_stubserver.h"
 
+#include <QTemporaryDir>
+#include <QFile>
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QJsonDocument>
@@ -96,6 +98,64 @@ int main(int argc, char** argv)
             "an incomplete profile is refused and says what is missing");
         check(!config.loadFromJson("not json at all", &error) && error.contains(QStringLiteral("JSON")),
             "a malformed file is refused with a readable reason");
+    }
+
+    // --- pointing a profile at another endpoint ------------------------------
+    //
+    // Editing the endpoint in the dock writes it back into the user's own config
+    // file. What that must NOT do is more important than what it must do: the
+    // explanatory notes stay, the other profiles stay, and above all api_key_env
+    // must not come back out of a round trip through this program as api_key.
+    {
+        QTemporaryDir dir;
+        check(dir.isValid(), "a scratch directory for the config round trip");
+        const QString path = dir.filePath(QStringLiteral("llm.json"));
+        {
+            QFile file(path);
+            check(file.open(QIODevice::WriteOnly), "the scratch config is writable");
+            file.write(R"JSON({
+              "_note": ["keep me"],
+              "active_profile": "local",
+              "profiles": [
+                {"name":"local","base_url":"http://localhost:11434/v1","model":"qwen"},
+                {"name":"hosted","base_url":"https://api.example.com/v1","api_key_env":"QURCUMA_TEST_KEY"}
+              ]
+            })JSON");
+        }
+
+        QString error;
+        check(LlmConfig::updateBaseUrl(path, QStringLiteral("local"),
+                  QStringLiteral("http://otherhost:11434/v1"), &error),
+            QStringLiteral("the endpoint is written back") + (error.isEmpty() ? QString()
+                : QStringLiteral(" [%1]").arg(error)));
+
+        LlmConfig reloaded;
+        check(reloaded.load(path, &error), "and the file still parses");
+        LlmProfile local;
+        check(reloaded.profile(QStringLiteral("local"), local)
+                && local.baseUrl == QLatin1String("http://otherhost:11434/v1"),
+            "the named profile points at the new endpoint");
+        LlmProfile hosted;
+        check(reloaded.profile(QStringLiteral("hosted"), hosted)
+                && hosted.baseUrl == QLatin1String("https://api.example.com/v1")
+                && hosted.apiKeyEnv == QLatin1String("QURCUMA_TEST_KEY"),
+            "the other profile is untouched, api_key_env included");
+
+        QFile written(path);
+        written.open(QIODevice::ReadOnly);
+        const QByteArray text = written.readAll();
+        check(text.contains("keep me"), "the notes in the file survive the write");
+        check(!text.contains("\"api_key\":"),
+            "and no key appears -- a round trip must never turn api_key_env into api_key");
+
+        check(!LlmConfig::updateBaseUrl(path, QStringLiteral("local"),
+                  QStringLiteral("localhost:11434"), &error)
+                && error.contains(QStringLiteral("http")),
+            "an endpoint without a scheme is refused, not written and then failed against");
+        check(!LlmConfig::updateBaseUrl(path, QStringLiteral("nope"),
+                  QStringLiteral("http://x/v1"), &error)
+                && error.contains(QStringLiteral("nope")),
+            "an unknown profile is refused by name");
     }
 
     // --- LlmClient ----------------------------------------------------------

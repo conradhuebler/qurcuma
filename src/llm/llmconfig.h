@@ -63,6 +63,17 @@ public:
     /// nothing if @p path already exists.
     static bool writeExampleIfMissing(const QString& path, QString* error = nullptr);
 
+    /// Point @p profileName at another endpoint and write the file back.
+    ///
+    /// Claude Generated 2026 - Surgical on purpose: the file is re-read, only that
+    /// one profile's "base_url" is replaced, and everything else is written back as
+    /// it was -- the explanatory notes, the other profiles, and above all the
+    /// api_key_env spelling, which must never be turned into a key by a round trip
+    /// through this program. Moving an Ollama server to another host is a one-line
+    /// change and should not need a text editor.
+    static bool updateBaseUrl(const QString& path, const QString& profileName,
+                              const QString& baseUrl, QString* error = nullptr);
+
     QVector<LlmProfile> profiles() const { return m_profiles; }
     QString activeProfileName() const { return m_active; }
     bool profile(const QString& name, LlmProfile& out) const;

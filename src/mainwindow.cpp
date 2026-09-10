@@ -5483,6 +5483,22 @@ void MainWindow::setupAssistant()
     m_chatDock->attachSession(m_llmSession);
     connect(m_chatDock, &ChatDock::profileChanged, this, &MainWindow::applyLlmProfile);
 
+    // Claude Generated 2026 - Point the active profile somewhere else and keep it:
+    // the change goes back into llm.json (only that one key), then the profile is
+    // re-applied, which asks the new endpoint what it serves.
+    connect(m_chatDock, &ChatDock::endpointChanged, this, [this](const QString& baseUrl) {
+        const QString profileName = m_chatDock->currentProfile();
+        QString writeError;
+        if (!LlmConfig::updateBaseUrl(LlmConfig::defaultPath(), profileName, baseUrl,
+                &writeError)) {
+            m_chatDock->setStatus(writeError, true);
+            return;
+        }
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+            tr("endpoint of profile \"%1\" set to %2").arg(profileName, baseUrl));
+        applyLlmProfile(profileName);
+    });
+
     // Claude Generated 2026 - Autonomy: remembered across sessions, because being
     // asked to set it again on every launch is what makes people leave it on the
     // loosest rung. It is never hidden -- the dock says what is armed, and every
@@ -5620,8 +5636,9 @@ void MainWindow::applyLlmProfile(const QString& name)
             tr("%1 is not set in the environment; %2 will refuse the request.")
                 .arg(profile.apiKeyEnv, profile.name), true);
     } else {
-        m_chatDock->setStatus(profile.baseUrl);
+        m_chatDock->setStatus(QString());   // the endpoint has its own field now
     }
+    m_chatDock->setEndpoint(profile.baseUrl);
 
     // Ask the endpoint what it serves. The answer repopulates the model box, which
     // is what makes a profile without a "model" entry usable at all.
