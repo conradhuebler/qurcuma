@@ -64,6 +64,14 @@ struct StatusCache {
     QVector<moldata::Atom> atoms;   ///< live geometry, elements included
     QVector<moldata::Atom> start;   ///< first frame of the current run, for RMSD
     int frameSeen = 0;              ///< bumped on every frame, so a waiter can tell
+
+    /// The run that just ended. "Nothing is running" on its own sent a model
+    /// looking through the log and the working directory for fifteen rounds,
+    /// because a finished run and a run that never started read the same.
+    SimulationControlWidget::LiveState lastRun;
+    QString lastReason;
+    bool lastAborted = false;
+    bool everRan = false;
 };
 
 /// Quantities watch_simulation can wait on. Deliberately the ones a docking run
@@ -278,8 +286,27 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             {
                 QMutexLocker lock(&cache->mutex);
                 cache->state = state;
-                if (!state.running)
+                if (state.running) {
+                    // Kept up to date while it runs, so when it ends the numbers of
+                    // its last frame are still there to report.
+                    cache->lastRun = state;
+                    cache->everRan = true;
+                } else {
                     cache->start.clear();   // the next run gets its own reference
+                }
+            }
+            cache->changed.wakeAll();
+        });
+
+    // Why the last run ended, so "nothing is running" can say whether that is
+    // because one finished, one fell apart, or none was ever started.
+    QObject::connect(control, &SimulationControlWidget::runEnded, control,
+        [cache](const QString& reason, bool aborted) {
+            {
+                QMutexLocker lock(&cache->mutex);
+                cache->lastReason = reason;
+                cache->lastAborted = aborted;
+                cache->everRan = true;
             }
             cache->changed.wakeAll();
         });
@@ -425,11 +452,47 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                 cache->changed.wait(&cache->mutex, qMin<qint64>(left, 500));
             }
             const SimulationControlWidget::LiveState state = cache->state;
+            const SimulationControlWidget::LiveState last = cache->lastRun;
+            const QString lastReason = cache->lastReason;
+            const bool lastAborted = cache->lastAborted;
+            const bool everRan = cache->everRan;
             lock.unlock();
 
-            const QJsonObject data = stateToJson(state);
-            if (!state.running)
-                return ToolResult::success(data, QStringLiteral("Nothing is running."));
+            QJsonObject data = stateToJson(state);
+            if (!state.running) {
+                if (!everRan) {
+                    return ToolResult::success(data,
+                        QStringLiteral("Nothing is running, and nothing has run yet."));
+                }
+                // What it did, not just that it is over. A finished run and a run
+                // that never started used to read the same.
+                QJsonObject finished;
+                finished.insert(QStringLiteral("mode"), last.mode);
+                finished.insert(QStringLiteral("method"), last.method);
+                finished.insert(QStringLiteral("steps_done"), last.step);
+                finished.insert(QStringLiteral("steps_planned"), last.totalSteps);
+                finished.insert(QStringLiteral("energy"), last.energy);
+                finished.insert(QStringLiteral("energy_unit"), QStringLiteral("Eh"));
+                if (last.mode == QLatin1String("md")) {
+                    finished.insert(QStringLiteral("temperature"), last.temperature);
+                    finished.insert(QStringLiteral("time_fs"), last.timeFs);
+                }
+                finished.insert(QStringLiteral("aborted"), lastAborted);
+                if (!lastReason.isEmpty())
+                    finished.insert(QStringLiteral("reason"), lastReason);
+                data.insert(QStringLiteral("last_run"), finished);
+
+                QString note = lastAborted
+                    ? QStringLiteral("Nothing is running. The last run was aborted after %1 "
+                                     "steps: %2").arg(last.step).arg(lastReason)
+                    : QStringLiteral("Nothing is running. The last run finished after %1 of %2 "
+                                     "steps at %3 Eh.")
+                          .arg(last.step).arg(last.totalSteps).arg(last.energy, 0, 'f', 6);
+                if (!lastAborted && !lastReason.isEmpty())
+                    note += QStringLiteral(" %1.").arg(lastReason);
+                note += QStringLiteral(" The geometry it reached is the current structure.");
+                return ToolResult::success(data, note);
+            }
             return ToolResult::success(data,
                 QStringLiteral("%1, step %2 of %3.")
                     .arg(state.paused ? QStringLiteral("Paused") : QStringLiteral("Running"))
@@ -681,7 +744,7 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             "quantity": { "type": "string",
                           "enum": ["min_distance", "centroid_distance", "gyration_radius",
                                    "rmsd_to_start", "energy", "temperature", "step"],
-                          "description": "what to measure on every frame" },
+                          "description": "what to measure on every frame. step only ever rises, so wait on it with above, never below; to wait for a run to end, use simulation_status with wait_seconds instead" },
             "atoms":    { "type": "string",
                           "description": "first selection, e.g. \"F1\"; needed by the geometric quantities" },
             "atoms_b":  { "type": "string",
