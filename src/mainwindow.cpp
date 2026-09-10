@@ -5308,6 +5308,11 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
         connect(m_simulationControlWidget, &SimulationControlWidget::externalForcesCleared,
             worker, &SimulationWorker::clearInjectedForce,
             Qt::QueuedConnection);
+        // Claude Generated 2026 - and the declarative form beside it: these stand in
+        // the run's configuration rather than being re-applied every step.
+        connect(m_simulationControlWidget, &SimulationControlWidget::externalPotentialsRequested,
+            worker, &SimulationWorker::setExternalPotentials,
+            Qt::QueuedConnection);
         connect(m_simulationControlWidget, &SimulationControlWidget::wallTempChanged,
             worker, &SimulationWorker::setWallTemp,
             Qt::QueuedConnection);

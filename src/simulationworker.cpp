@@ -21,6 +21,7 @@ using json = nlohmann::json;
 #include <QCoreApplication>
 #include <QFile>
 #include <QDir>
+#include <QJsonDocument>
 #include <QMutexLocker>
 #include <QThread>
 #include <QTimer>
@@ -305,6 +306,16 @@ void SimulationWorker::clearInjectedForce()
 // Claude Generated 2026 - Live global temperature setpoint. Stored under a mutex; the value is
 // pushed into the running SimpleMD in performMDStep() before the next step (mirrors the sticky
 // mouse-grab force path). SimpleMD::setTargetTemperature() cancels any active global ramp.
+// Claude Generated 2026 - Declarative external potentials. Buffered here and
+// handed to SimpleMD before the next step, the same pattern the thermostat
+// setpoint uses; a refusal from the parser is kept so it can be reported.
+void SimulationWorker::setExternalPotentials(QJsonArray potentials)
+{
+    QMutexLocker lock(&m_potentialMutex);
+    m_pendingPotentials = std::move(potentials);
+    m_pendingPotentialsValid = true;
+}
+
 void SimulationWorker::setTargetTemperature(double temperature)
 {
     QMutexLocker lock(&m_tempMutex);
@@ -747,6 +758,22 @@ void SimulationWorker::performMDStep()
         }
     }
 
+    // Claude Generated 2026 - Live external potentials.
+    {
+        QMutexLocker lock(&m_potentialMutex);
+        if (m_pendingPotentialsValid) {
+            const QByteArray raw = QJsonDocument(m_pendingPotentials).toJson(QJsonDocument::Compact);
+            std::string error;
+            if (!m_md->setExternalPotentials(json::parse(raw.toStdString()), &error)) {
+                m_potentialError = QString::fromStdString(error);
+                emit errorOccurred(tr("external potential refused: %1").arg(m_potentialError));
+            } else {
+                m_potentialError.clear();
+            }
+            m_pendingPotentialsValid = false;
+        }
+    }
+
     // Apply live wall parameter changes (slider drag during the run). Claude Generated 2026.
     {
         QMutexLocker lock(&m_wallParamMutex);
@@ -778,6 +805,10 @@ void SimulationWorker::performMDStep()
         collectLiveNci(*mutableFrame);
     if (m_reactLive)
         collectReactiveTopology(*mutableFrame);
+    // Claude Generated 2026 - what the configured pulls have done so far. A scalar,
+    // so asking every frame costs nothing.
+    if (m_md)
+        mutableFrame->externalWork = m_md->externalWork();
 
     emit frameReady(frame);
 

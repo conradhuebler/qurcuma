@@ -11,6 +11,7 @@
 #include <Eigen/Dense>
 #include <QAtomicInt>
 #include <QElapsedTimer>
+#include <QJsonArray>
 #include <QMutex>
 #include <QObject>
 #include <QString>
@@ -235,6 +236,14 @@ public slots:
      *  the queued cross-thread connection needs no metatype registration. */
     void injectForces(QVector<int> atoms, QVector<QVector3D> forces, double alpha, int maxShells);
 
+    /** @brief Replace the run's configured external potentials.
+     *
+     *  Claude Generated 2026 - The declarative counterpart to injectForces(). The
+     *  list is curcuma's `external_potentials` shape and reaches SimpleMD before
+     *  the next step, so a pull stands in the run's own configuration and the run
+     *  can be reproduced from it. An empty list clears them. Thread-safe. */
+    void setExternalPotentials(QJsonArray potentials);
+
     /** @brief Drop the sticky injected force (mouse release / stop grab). After
      *  this the next step/iteration applies no external bias. */
     void clearInjectedForce();
@@ -319,6 +328,13 @@ private:
     int m_lastTopologyVersion = -1;
     std::vector<FrameBond> m_lastFfBonds;
     std::unique_ptr<SimpleMD> m_md;
+
+    // Claude Generated 2026 - configured external potentials, buffered like the
+    // thermostat setpoint and pushed into SimpleMD before the next step.
+    QMutex m_potentialMutex;
+    QJsonArray m_pendingPotentials;
+    bool m_pendingPotentialsValid = false;
+    QString m_potentialError;   ///< what SimpleMD said if the last set was refused
     QTimer* m_mdTimer = nullptr;    // parent = this, auto-cleaned
 
     // Performance-analysis accumulators for MD (timer-driven, so counters must persist)

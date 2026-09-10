@@ -36,6 +36,9 @@ struct SimulationFrame {
     std::vector<QVector3D> positions;  // One entry per atom, same order as initial molecule
     double energy = 0.0;                // Potential energy [Hartree]
     double ekin = 0.0;                  // Kinetic energy [Hartree] (0 for geometry optimisation)
+    /// Work the configured external potentials have done so far [Hartree]. 0 when
+    /// none are set. Claude Generated 2026.
+    double externalWork = 0.0;
     int step = 0;                       // Current MD step / optimisation iteration
     double temperature = 0.0;           // Instantaneous temperature [K] (MD only; 0 for opt). Claude Generated 2026
     double targetTemperature = 0.0;     // Thermostat setpoint [K] (MD only; tracks the ramp). Claude Generated 2026

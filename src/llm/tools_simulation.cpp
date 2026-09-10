@@ -16,6 +16,7 @@
 #include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QMap>
 #include <QMutex>
 #include <QWaitCondition>
 
@@ -109,6 +110,10 @@ double evaluate(const QString& quantity, const StatusCache& cache,
     if (quantity == QLatin1String("temperature")) {
         unit = QStringLiteral("K");
         return cache.state.temperature;
+    }
+    if (quantity == QLatin1String("external_work")) {
+        unit = QStringLiteral("Eh");
+        return cache.state.externalWork;
     }
     if (quantity == QLatin1String("density")) {
         unit = QStringLiteral("g/cm^3");
@@ -224,6 +229,12 @@ QJsonObject stateToJson(const SimulationControlWidget::LiveState& state)
         o.insert(QStringLiteral("temperature"), state.temperature);
         o.insert(QStringLiteral("target_temperature"), state.targetTemperature);
         o.insert(QStringLiteral("time_fs"), state.timeFs);
+    }
+    if (state.externalWork != 0.0) {
+        // What the configured pulls have put into the system. This is the number a
+        // Jarzynski or Crooks estimate is built from, not the energy.
+        o.insert(QStringLiteral("external_work"), state.externalWork);
+        o.insert(QStringLiteral("external_work_unit"), QStringLiteral("Eh"));
     }
     return o;
 }
@@ -615,7 +626,9 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
     // this is a bias on a running calculation, not a displacement: the structure
     // answers with its own forces and what comes out is still a trajectory.
     {
-        auto pulls = std::make_shared<QHash<int, QVector3D>>();
+        // Keyed by label so a second call replaces the same potential rather than
+        // stacking another copy of it.
+        auto pulls = std::make_shared<QMap<QString, QJsonObject>>();
 
         ToolSpec spec;
         spec.name = QStringLiteral("pull_atoms");
@@ -623,26 +636,24 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
         spec.description = QStringLiteral(
             "Pull on atoms of the running simulation. The force is added to the gradient of "
             "every following step and stays until clear_forces, so the structure answers with "
-            "its own forces instead of being teleported. Call it again with add=true to pull "
-            "on another set in another direction at the same time.");
+            "its own forces instead of being teleported. It stands in the run's own "
+            "configuration, so the run can be reproduced from it, and the work it does is "
+            "accumulated. Call it again with add=true to pull on another set at the same time.");
         spec.effect = ToolEffect::Compute;
         spec.affinity = ToolAffinity::Gui;
         spec.paramSchema = schema(R"JSON({
           "type": "object",
           "properties": {
-            "atoms":        { "type": "string",
-                              "description": "selection grammar, e.g. \"F2\" for the second fragment" },
-            "atom_indices": { "type": "array", "description": "explicit 0-based indices" },
-            "force":        { "type": "array",
-                              "description": "[fx, fy, fz] in Eh/Bohr, applied to EACH atom of the selection, so a 27-atom fragment feels 27 times this in total" },
-            "add":          { "type": "boolean",
-                              "description": "keep the pulls already set (default false: replace them)" },
-            "alpha":        { "type": "number", "minimum": 0, "maximum": 1,
-                              "description": "how much of the force reaches the next bonded shell (default 0.4)" },
-            "max_shells":   { "type": "integer", "minimum": 0, "maximum": 10,
-                              "description": "how many bonded shells the force spreads through; default 3 for a single atom, 0 for a set (spreading a whole fragment's pulls would multiply them)" }
+            "atoms":  { "type": "string",
+                        "description": "selection grammar, e.g. \"F2\" for the second fragment. Re-resolved by the engine on the live geometry" },
+            "force":  { "type": "array",
+                        "description": "[fx, fy, fz] in Eh/Angstrom, applied to EACH atom of the selection, so a 27-atom fragment feels 27 times this in total" },
+            "label":  { "type": "string",
+                        "description": "name it, so a later call with the same label replaces this pull instead of adding another" },
+            "add":    { "type": "boolean",
+                        "description": "keep the potentials already set (default false: replace them)" }
           },
-          "required": ["force"]
+          "required": ["atoms", "force"]
         })JSON");
 
         spec.handler = [control, viewer, pulls](const QJsonObject& args) {
@@ -666,53 +677,147 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                 return ToolResult::failure(error);
             }
 
+            const QString expression = args.value(QStringLiteral("atoms")).toString();
+            if (expression.isEmpty()) {
+                return ToolResult::failure(QStringLiteral(
+                    "a configured pull is named by a selection: pass atoms, e.g. \"F2\""));
+            }
+
+            // A declarative potential, not an injection: it stands in the run's own
+            // configuration, so the run can be reproduced from it, and curcuma
+            // accumulates the work it does. curcuma resolves the selection itself
+            // against the live geometry.
+            QJsonObject entry;
+            entry.insert(QStringLiteral("kind"), QStringLiteral("constant_force"));
+            entry.insert(QStringLiteral("atoms"), expression);
+            entry.insert(QStringLiteral("label"),
+                args.value(QStringLiteral("label")).toString(
+                    QStringLiteral("pull on %1").arg(expression)));
+            const double length = force.length();
+            entry.insert(QStringLiteral("direction"), QJsonArray {
+                force.x() / length, force.y() / length, force.z() / length });
+            entry.insert(QStringLiteral("magnitude"), length);
+
             if (!args.value(QStringLiteral("add")).toBool())
                 pulls->clear();
-            for (int index : wanted)
-                pulls->insert(index, force);
+            pulls->insert(entry.value(QStringLiteral("label")).toString(), entry);
 
-            QVector<int> indices;
-            QVector<QVector3D> forces;
-            indices.reserve(pulls->size());
-            forces.reserve(pulls->size());
-            for (auto it = pulls->constBegin(); it != pulls->constEnd(); ++it) {
-                indices.append(it.key());
-                forces.append(it.value());
-            }
-            const double alpha = args.contains(QStringLiteral("alpha"))
-                ? args.value(QStringLiteral("alpha")).toDouble() : 0.4;
-            // Spreading through the bond graph is what makes a single-atom mouse grab
-            // move a molecule instead of tearing one atom off. Applied to a whole
-            // fragment it does the opposite: every atom's pull also leaks onto its
-            // neighbours, which are being pulled themselves, so a 27-atom selection
-            // ends up with several times the force asked for. Default it off unless
-            // exactly one atom was named.
-            const int defaultShells = indices.size() == 1 ? 3 : 0;
-            const int shells = args.contains(QStringLiteral("max_shells"))
-                ? args.value(QStringLiteral("max_shells")).toInt() : defaultShells;
-            control->requestExternalForces(indices, forces, alpha, shells);
-
-            QJsonArray pulled;
-            for (int index : indices)
-                pulled.append(index);
+            QJsonArray list;
+            for (auto it = pulls->constBegin(); it != pulls->constEnd(); ++it)
+                list.append(it.value());
+            control->requestExternalPotentials(list);
 
             QJsonObject data;
-            data.insert(QStringLiteral("pulled_now"), wanted.size());
-            data.insert(QStringLiteral("pulled_total"), indices.size());
-            data.insert(QStringLiteral("force"), forceArray);
-            data.insert(QStringLiteral("max_shells"), shells);
-            // The indices, so the same set can be followed afterwards: fragment
-            // numbering is geometric and moves when the structure does, but an index
-            // list does not.
-            data.insert(QStringLiteral("atom_indices"), pulled);
+            data.insert(QStringLiteral("kind"), QStringLiteral("constant_force"));
+            data.insert(QStringLiteral("atoms"), expression);
+            data.insert(QStringLiteral("atom_count"), wanted.size());
+            data.insert(QStringLiteral("magnitude"), length);
+            data.insert(QStringLiteral("active_potentials"), list.size());
             return ToolResult::success(data,
-                QStringLiteral("Pulling on %1 atom(s) in total; it acts from the next step until "
-                               "clear_forces. Follow it with watch_simulation -- pass these "
-                               "atom_indices rather than \"F2\", because pulling the parts "
-                               "apart is exactly what renumbers the fragments.")
-                    .arg(indices.size()));
+                QStringLiteral("Pulling on %1 (%2 atoms) with %3 Eh/A per atom; %4 potential(s) "
+                               "active. It acts from the next step until clear_forces, and the "
+                               "work it does is accumulated -- simulation_status reports it.")
+                    .arg(expression).arg(wanted.size()).arg(length).arg(list.size()));
         };
         add(spec);
+
+        // --- restrain_atoms -------------------------------------------------
+        //
+        // One tool for both harmonic forms rather than two, because every tool is
+        // paid for in the catalogue on every turn.
+        ToolSpec restrain;
+        restrain.name = QStringLiteral("restrain_atoms");
+        restrain.category = QStringLiteral("simulation");
+        restrain.description = QStringLiteral(
+            "Hold part of the running structure with a harmonic restraint, instead of pushing "
+            "it with a constant force. \"point\" ties a selection's centroid to a place -- that "
+            "is how a guest is held in a cavity while the rest relaxes around it. \"distance\" "
+            "ties two selections' centroids to a separation, which draws them together or keeps "
+            "them apart. Both stay until clear_forces.");
+        restrain.effect = ToolEffect::Compute;
+        restrain.affinity = ToolAffinity::Gui;
+        restrain.paramSchema = schema(R"JSON({
+          "type": "object",
+          "properties": {
+            "kind":     { "type": "string", "enum": ["point", "distance"],
+                          "description": "restrain the centroid to a point, or two centroids to a distance" },
+            "atoms":    { "type": "string", "description": "selection grammar, for example F2" },
+            "atoms_b":  { "type": "string", "description": "second selection, for kind=distance" },
+            "target":   { "type": "array", "description": "[x, y, z] in Angstrom, for kind=point" },
+            "distance": { "type": "number", "minimum": 0, "maximum": 1000,
+                          "description": "the separation to hold, in Angstrom, for kind=distance" },
+            "k":        { "type": "number", "minimum": 0, "maximum": 1000,
+                          "description": "force constant in Eh/Angstrom^2 (default 1)" },
+            "label":    { "type": "string",
+                          "description": "name it, so a later call with the same label replaces this restraint" },
+            "add":      { "type": "boolean",
+                          "description": "keep the potentials already set (default true here: a restraint usually joins a pull rather than replacing it)" }
+          },
+          "required": ["kind", "atoms"]
+        })JSON");
+
+        restrain.handler = [control, pulls](const QJsonObject& args) {
+            if (!control->isRunning()) {
+                return ToolResult::failure(QStringLiteral(
+                    "nothing is running: a restraint acts on a calculation in progress. Start "
+                    "one with run_simulation."));
+            }
+            const QString kind = args.value(QStringLiteral("kind")).toString();
+            const QString expression = args.value(QStringLiteral("atoms")).toString();
+            if (expression.isEmpty())
+                return ToolResult::failure(QStringLiteral("pass atoms, e.g. \"F2\""));
+
+            QJsonObject entry;
+            entry.insert(QStringLiteral("atoms"), expression);
+            entry.insert(QStringLiteral("k"), args.value(QStringLiteral("k")).toDouble(1.0));
+
+            QString what;
+            if (kind == QLatin1String("point")) {
+                const QJsonArray target = args.value(QStringLiteral("target")).toArray();
+                if (target.size() != 3)
+                    return ToolResult::failure(QStringLiteral("kind=point needs target as [x, y, z]"));
+                entry.insert(QStringLiteral("kind"), QStringLiteral("centroid_harmonic"));
+                entry.insert(QStringLiteral("target"), target);
+                what = QStringLiteral("%1 held at (%2, %3, %4)").arg(expression)
+                           .arg(target.at(0).toDouble()).arg(target.at(1).toDouble())
+                           .arg(target.at(2).toDouble());
+            } else {
+                const QString other = args.value(QStringLiteral("atoms_b")).toString();
+                if (other.isEmpty())
+                    return ToolResult::failure(QStringLiteral("kind=distance needs atoms_b"));
+                if (!args.contains(QStringLiteral("distance")))
+                    return ToolResult::failure(QStringLiteral("kind=distance needs distance"));
+                entry.insert(QStringLiteral("kind"), QStringLiteral("distance_harmonic"));
+                entry.insert(QStringLiteral("atoms_b"), other);
+                entry.insert(QStringLiteral("r0"), args.value(QStringLiteral("distance")).toDouble());
+                what = QStringLiteral("%1 and %2 held at %3 A").arg(expression, other)
+                           .arg(args.value(QStringLiteral("distance")).toDouble());
+            }
+            const QString label = args.value(QStringLiteral("label"))
+                                      .toString(QStringLiteral("restrain %1").arg(expression));
+            entry.insert(QStringLiteral("label"), label);
+
+            if (args.contains(QStringLiteral("add"))
+                && !args.value(QStringLiteral("add")).toBool()) {
+                pulls->clear();
+            }
+            pulls->insert(label, entry);
+
+            QJsonArray list;
+            for (auto it = pulls->constBegin(); it != pulls->constEnd(); ++it)
+                list.append(it.value());
+            control->requestExternalPotentials(list);
+
+            QJsonObject data;
+            data.insert(QStringLiteral("kind"), entry.value(QStringLiteral("kind")));
+            data.insert(QStringLiteral("label"), label);
+            data.insert(QStringLiteral("active_potentials"), list.size());
+            return ToolResult::success(data,
+                QStringLiteral("%1 with k = %2 Eh/A^2; %3 potential(s) active. It acts from the "
+                               "next step until clear_forces.")
+                    .arg(what).arg(entry.value(QStringLiteral("k")).toDouble()).arg(list.size()));
+        };
+        add(restrain);
 
         ToolSpec clear;
         clear.name = QStringLiteral("clear_forces");
@@ -725,10 +830,11 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
         clear.handler = [control, pulls](const QJsonObject&) {
             const int had = pulls->size();
             pulls->clear();
-            control->clearExternalForces();
+            control->requestExternalPotentials(QJsonArray());
+            control->clearExternalForces();   // and any transient injection from the mouse
             return ToolResult::success({}, had == 0
                     ? QStringLiteral("There was nothing to clear.")
-                    : QStringLiteral("Dropped the pulls on %1 atom(s).").arg(had));
+                    : QStringLiteral("Dropped %1 potential(s).").arg(had));
         };
         add(clear);
     }
@@ -754,7 +860,7 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
           "properties": {
             "quantity": { "type": "string",
                           "enum": ["min_distance", "centroid_distance", "gyration_radius",
-                                   "rmsd_to_start", "energy", "temperature", "step", "density"],
+                                   "rmsd_to_start", "energy", "temperature", "step", "density", "external_work"],
                           "description": "what to measure on every frame. step only ever rises, so wait on it with above, never below; to wait for a run to end, use simulation_status with wait_seconds instead. density is the mass in the confinement container over its volume, so it needs a wall to be set -- in a fixed container with a fixed number of molecules it does not change during a run, and its use is checking a packing before starting one (liquid water is 1.00 g/cm^3)" },
             "atoms":    { "type": "string",
                           "description": "first selection, e.g. \"F1\"; needed by the geometric quantities" },

@@ -17,6 +17,7 @@
 #include <QSpinBox>
 #include <QThread>
 #include <QToolButton>
+#include <QJsonArray>
 #include <QWidget>
 
 class QTableWidget;
@@ -56,6 +57,8 @@ public:
         /// Carried here so a density can be worked out off the GUI thread.
         /// Claude Generated 2026.
         double containerVolume = 0.0;
+        /// Work the configured external potentials have done [Eh]. Claude Generated 2026.
+        double externalWork = 0.0;
     };
 
     explicit SimulationControlWidget(QWidget* parent = nullptr);
@@ -96,6 +99,11 @@ public:
     void requestExternalForces(const QVector<int>& atoms, const QVector<QVector3D>& forces,
                                double alpha, int maxShells);
     void clearExternalForces();
+
+    /// Replace the run's configured external potentials, in curcuma's
+    /// `external_potentials` shape. Unlike the force injection above this stands in
+    /// the run's own configuration. Claude Generated 2026.
+    void requestExternalPotentials(const QJsonArray& potentials);
 
     /** @brief Feed the current molecule + bond graph to the worker before start. */
     void setMolecule(const QVector<MoleculeViewer::Atom>& atoms,
@@ -160,6 +168,8 @@ signals:
     void externalForcesRequested(QVector<int> atoms, QVector<QVector3D> forces,
                                  double alpha, int maxShells);
     void externalForcesCleared();
+    /// Forwarded to the worker in wireSimulationWorker(). Claude Generated 2026.
+    void externalPotentialsRequested(QJsonArray potentials);
 
     /** @brief Emitted when the wall_temp slider moves — live during a run. */
     void wallTempChanged(double T);

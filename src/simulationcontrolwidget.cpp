@@ -1646,6 +1646,11 @@ void SimulationControlWidget::clearExternalForces()
     emit externalForcesCleared();
 }
 
+void SimulationControlWidget::requestExternalPotentials(const QJsonArray& potentials)
+{
+    emit externalPotentialsRequested(potentials);
+}
+
 QStringList SimulationControlWidget::methodValues() const { return comboValues(m_methodCombo); }
 QStringList SimulationControlWidget::optimizerValues() const { return comboValues(m_optimizerCombo); }
 QStringList SimulationControlWidget::thermostatValues() const { return comboValues(m_thermostatCombo); }
@@ -1765,6 +1770,7 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
     m_liveState.energy = frame->energy;
     m_liveState.kineticEnergy = frame->ekin;
     m_liveState.timeFs = frame->step * m_config.timestep;
+    m_liveState.externalWork = frame->externalWork;
 
     if (m_config.mode == SimulationConfig::Mode::MolecularDynamics) {
         const double kB_Eh = 3.1668114e-6;
