@@ -9,6 +9,7 @@
 #include "core/toolregistry.h"
 #include "llmclient.h"
 
+#include <QElapsedTimer>
 #include <QJsonDocument>
 
 namespace {
@@ -116,6 +117,7 @@ void LlmSession::ask(const QString& userMessage)
     m_messages.append(message(QStringLiteral("user"), userMessage));
 
     m_iteration = 0;
+    m_freeRounds = 0;
     m_finalRound = false;
     if (m_dispatcher)
         m_dispatcher->clearInterrupt();
@@ -184,7 +186,14 @@ void LlmSession::onClientFinished(const QJsonObject& assistantMessage)
         return;
     }
 
-    if (m_iteration >= m_maxIterations) {
+    // A round that only waited does not count. Watching a simulation is a dozen
+    // calls that each hand back a number and cost nothing but time, and charging
+    // them against the budget meant a run was cut off for being patient.
+    // The ceiling below still holds, so a loop that only ever reads still ends.
+    const int workRounds = m_iteration - m_freeRounds;
+    const bool exhausted = workRounds >= m_maxIterations
+        || m_iteration >= m_maxIterations * 3;
+    if (exhausted) {
         // Not a dead end. The results gathered so far are in the history, and the
         // model is asked once more with no tools, so the turn ends with the answer
         // they support instead of with the work discarded.
@@ -194,9 +203,10 @@ void LlmSession::onClientFinished(const QJsonObject& assistantMessage)
         // the next request invalid.
         declineRemainingCalls(toolCalls,
             tr("the round budget for this turn is used up; no further tool will run"));
-        const QString reason = tr("%1 rounds of tool calls used. Answer now from the results "
+        const QString reason = tr("%1 rounds of tool calls used (%2 of them spent only "
+                                  "waiting, which does not count). Answer now from the results "
                                   "already gathered; no further tools will run.")
-                                   .arg(m_maxIterations);
+                                   .arg(m_iteration).arg(m_freeRounds);
         m_messages.append(message(QStringLiteral("system"), reason));
         note(LogLevel::Warning, reason);
         m_finalRound = true;
@@ -204,7 +214,11 @@ void LlmSession::onClientFinished(const QJsonObject& assistantMessage)
         return;
     }
 
+    m_roundDidWork = false;
+    m_roundWaitedMs = 0;
     runToolCalls(toolCalls);
+    if (!m_roundDidWork && m_roundWaitedMs >= m_waitRoundThresholdMs)
+        ++m_freeRounds;
     if (m_busy)
         sendRound();
 }
@@ -288,9 +302,15 @@ void LlmSession::runToolCalls(const QJsonArray& toolCalls)
         }
 
         emit toolStarted(name, args);
+        QElapsedTimer clock;
+        clock.start();
         const ToolResult result = m_dispatcher
             ? m_dispatcher->dispatch(name, args)
             : ToolResult::failure(tr("no dispatcher"));
+        if (spec.effect == ToolEffect::Read)
+            m_roundWaitedMs += clock.elapsed();
+        else
+            m_roundDidWork = true;   // anything that is not a read is real work
         emit toolFinished(name, result);
 
         if (!result.ok) {

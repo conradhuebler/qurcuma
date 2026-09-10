@@ -51,6 +51,10 @@ public:
     /// more without any tools, so the turn ends with an answer built from what it
     /// already gathered instead of with the work thrown away.
     void setMaxIterations(int iterations);
+
+    /// A round that did nothing but wait counts as free above this duration.
+    /// Exposed so a test does not have to sleep for seconds. Claude Generated 2026.
+    void setWaitRoundThresholdMs(int ms) { m_waitRoundThresholdMs = qMax(0, ms); }
     int maxIterations() const { return m_maxIterations; }
 
     /// Largest tool result, in characters, that goes into the conversation. Beyond
@@ -112,6 +116,15 @@ private:
     // from the end costs all of it.
     int m_maxIterations = 50;
     int m_iteration = 0;
+    /// Rounds that only waited. The budget exists to stop a loop that will not
+    /// converge, and a model waiting out a simulation is the opposite of that --
+    /// counting those rounds punished exactly the behaviour the waiting tools were
+    /// built to encourage. They are free, up to the hard ceiling below.
+    int m_freeRounds = 0;
+    int m_waitRoundThresholdMs = 2000;
+    /// Set while a round's tool calls run: did any of them do more than read?
+    bool m_roundDidWork = false;
+    qint64 m_roundWaitedMs = 0;
     /// Set for the one round that runs without tools, to force a closing answer.
     bool m_finalRound = false;
     bool m_visionCapable = false;

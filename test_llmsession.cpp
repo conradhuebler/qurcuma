@@ -351,6 +351,55 @@ int main(int argc, char** argv)
         check(!error.isEmpty(), "an endpoint failure surfaces as failed(), not as an empty answer");
     }
 
+    // --- waiting is not what the budget is there to stop ---------------------
+    //
+    // Watching a simulation is a dozen calls that each hand back a number and cost
+    // nothing but time. Charging them against the round budget cut a run off for
+    // being patient, which is precisely the behaviour the waiting tools exist to
+    // encourage. A round that only read, and took real time doing it, is free.
+    {
+        ToolSpec spec;
+        spec.name = QStringLiteral("slow_read");
+        spec.description = QStringLiteral("Read something, slowly");
+        spec.category = QStringLiteral("test");
+        spec.effect = ToolEffect::Read;
+        spec.paramSchema = obj(R"({"type":"object"})");
+        spec.handler = [](const QJsonObject&) {
+            QThread::msleep(5);
+            return ToolResult::success(QJsonObject { { "waited", true } });
+        };
+        registry.add(spec);
+
+        session.reset();
+        session.setMaxIterations(3);
+        session.setWaitRoundThresholdMs(1);
+        server.requests.clear();
+        for (int i = 0; i < 6; ++i)
+            server.enqueue(callResponse("slow_read", "{}"));
+        server.enqueue(textResponse("done after waiting"));
+        runTurn(session, QStringLiteral("watch it"), answer, error);
+
+        check(server.requests.size() == 7,
+            QStringLiteral("six waiting rounds do not exhaust a budget of three (%1 requests)")
+                .arg(server.requests.size()));
+        check(answer == QLatin1String("done after waiting"),
+            "and the turn ends on its own answer, not on the budget");
+    }
+    {
+        // The ceiling still holds, or a loop that only ever reads would never end.
+        session.reset();
+        session.setMaxIterations(2);
+        session.setWaitRoundThresholdMs(1);
+        server.requests.clear();
+        for (int i = 0; i < 12; ++i)
+            server.enqueue(callResponse("slow_read", "{}"));
+        runTurn(session, QStringLiteral("read for ever"), answer, error);
+        check(server.requests.size() == 2 * 3 + 1,
+            QStringLiteral("free rounds stop at three times the budget (%1 requests)")
+                .arg(server.requests.size()));
+        session.setWaitRoundThresholdMs(2000);
+    }
+
     // --- the agent loop must not be the thread that has to wake it ----------
     //
     // job_status and watch_simulation wait for something the GUI thread produces:
