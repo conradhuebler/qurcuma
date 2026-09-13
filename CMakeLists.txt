@@ -224,6 +224,7 @@ set(SOURCES
     src/docks/imagegallerydock.cpp  # Claude Generated 2026 - batch border-trim gallery
     src/docks/chartdock.cpp  # Claude Generated 2026 - live charts dock
     src/docks/ncidock.cpp  # Claude Generated 2026 - non-covalent interaction dock
+    src/docks/celldock.cpp  # Claude Generated 2026 - cif unit cell + repeats dock
     src/nciwidget.cpp  # Claude Generated 2026 - non-covalent interaction contact table
     src/ncianalysisworker.cpp  # Claude Generated 2026 - off-thread NCI analysis (GFN-FF/GFN2)
     src/imagecrop.cpp  # Claude Generated 2026 - image border-trim analysis (metadata-preserving)

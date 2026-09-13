@@ -17,6 +17,7 @@
 #include "chatdock.h"  // Claude Generated 2026
 #endif
 #include "ncidock.h"
+#include "celldock.h"
 
 #include <QDockWidget>
 #include <QMainWindow>
@@ -111,6 +112,11 @@ ChatDock* DockManager::chatDockImpl() const
 #else
     return nullptr;  // built without USE_LLM
 #endif
+}
+
+CellDock* DockManager::cellDockImpl() const
+{
+    return qobject_cast<CellDock*>(m_cellDock);
 }
 
 NciDock* DockManager::nciDockImpl() const
@@ -293,6 +299,7 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
     m_projectDock = new ProjectDock(settings, m_mainWindow);
     m_imageGalleryDock = new ImageGalleryDock(m_mainWindow);
     m_nciDock = new NciDock(m_mainWindow);
+    m_cellDock = new CellDock(m_mainWindow);
     m_chartDock = new ChartDock(m_mainWindow);
 #ifdef USE_LLM
     // Claude Generated 2026 - The assistant. Hidden by default like the chart and
@@ -339,6 +346,15 @@ void DockManager::placeDocks()
         if (m_displayDock)
             m_mainWindow->tabifyDockWidget(m_displayDock, m_nciDock);
         m_nciDock->hide();
+    }
+
+    // The unit-cell dock joins the same right-hand group and starts hidden; it
+    // shows itself when a cif is loaded. Claude Generated 2026.
+    if (m_cellDock) {
+        m_mainWindow->addDockWidget(DockConfig::CellDockArea, m_cellDock);
+        if (m_displayDock)
+            m_mainWindow->tabifyDockWidget(m_displayDock, m_cellDock);
+        m_cellDock->hide();
     }
 
     // The charts join the bottom area next to the output log and start hidden:

@@ -7,6 +7,8 @@
 #include <QSGRendererInterface>
 #include <QSurfaceFormat>
 #include <QTimer>
+
+#include <clocale>
 #if QT_CONFIG(vulkan) && __has_include(<vulkan/vulkan.h>)
 #include <QVulkanInstance>
 #endif
@@ -33,6 +35,13 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
     QCoreApplication::setApplicationVersion(QStringLiteral(QURCUMA_VERSION));
+
+    // Claude Generated 2026 - QApplication adopts the system locale into the C
+    // runtime on Unix, and curcuma parses and prints numbers through it (std::stod,
+    // strtod, std::to_string). Under de_DE "0.5957" then reads as 0: a CIF came in
+    // with every coordinate truncated, Cl on top of Na. Qt's own advice is exactly
+    // this call; QLocale reads the environment, so the GUI keeps its formatting.
+    std::setlocale(LC_NUMERIC, "C");
 
     // Claude Generated 2026 - Mirror qDebug/qWarning/qCritical into the LogHub so the
     // Output dock shows them instead of only the terminal. Installed after

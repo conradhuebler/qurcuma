@@ -4,6 +4,12 @@
 - VTF format supports periodic boundary conditions
 - XYZ format reads atomic coordinates and optional velocities
 - Both formats handle large files efficiently
+- ✅ **CIF content/disorder/repeats** — `CellDock` (see `docks/CLAUDE.md`); built while reading, `MoleculeFileLoader::load(path, CifOptions)` over curcuma's `ReadCifData` + `BuildCif`, because viewer atoms carry no cell and no disorder labels. Default: asymmetric unit, major disorder group
+- ✅ **Cell in the framing** — `SceneController::recomputeBounds` includes the shown (super)cell's corners; `setUnitCell` re-frames (it is called right after a load)
+- ✅ **Thermal ellipsoids** — `MoleculeFileLoader::Result::ellipsoids` (per atom, from curcuma's Cartesian U), `SceneController::setAtomEllipsoids` / `setEllipsoidDisplay(on, scale)`: `AtomInstancing::Item` draws a non-uniformly scaled, rotated sphere; `MoleculeViewer::setEllipsoidDisplay(on, p)` solves P(χ²₃ ≤ c²) = p for c. Used only while the ellipsoid count matches the atom count; drawn in every rendering mode (`atomsVisible` true while active), bonds capped at 0.07 Å meanwhile
+- ✅ **Unit cell wireframe** — `SceneController::setUnitCell(origin, a, b, c, na, nb, nc)`: parallelepiped of the lattice vectors (triclinic-safe), a/b/c edges red/green/blue, grey rest, thinner supercell outline when repeated; `cellInstancing` model under `moleculeRoot`, copied into image exports. Origin = the centring shift of the load (first atom before/after)
+- ✅ **One format list** — `MoleculeFileLoader::isSupported()` (xyz/vtf/pdb/mol2/cif) decides what the file browser, lesson import and RMSD overlay open; cif is read by curcuma (`ReadCif`, symmetry expanded)
+- `main.cpp` forces `LC_NUMERIC=C` after `QApplication`: curcuma parses with `std::stod`, which under de_DE reads `0.5` as 0
 - ✅ **VTF coarse-grained beads** — the `atom` record is parsed **keyword-based** (radius/name/type/element in any order), not by fixed columns. Element = explicit `element`, else `name` if it's a real symbol (`elem::isElementSymbol`), else empty. Beads keep their own `radius` + `type` on `Atom` (both threaded into `AtomDatum`); the renderer sizes by `radius` (fallback element vdW) and colours "By Type". Replaced the old hard-coded `ppo1→C`/`dmaema→N`/else→C fake-element table that rendered every non-polymer VTF as carbon.
 
 ## 3D Viewer (Qt Quick 3D / Vulkan)

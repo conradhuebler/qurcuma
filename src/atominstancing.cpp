@@ -41,6 +41,11 @@ void AtomInstancing::rebuild()
     for (int i = 0; i < m_count; ++i) {
         const Item& it = m_items[i];
         const QColor color = (i == m_highlight) ? m_highlightColor : it.color;
+        if (it.ellipsoid) {
+            entry[i] = calculateTableEntryFromQuaternion(it.position,
+                it.semiAxes / kSphereBaseRadius, it.rotation, color);
+            continue;
+        }
         const float s = it.scale / kSphereBaseRadius;
         entry[i] = calculateTableEntry(it.position,
             QVector3D(s, s, s), QVector3D(0, 0, 0), color);

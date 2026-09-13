@@ -1,5 +1,6 @@
 #pragma once
 
+#include "moleculefileloader.h"  // Claude Generated 2026 - CifOptions member
 #include "core/tool.h"  // Claude Generated 2026 - ToolAutonomy
 #include "docks/dockconfig.h"  // Claude Generated 2026 - Dock system restructuring
 #include "settings.h"
@@ -53,6 +54,7 @@ class QActionGroup;  // Claude Generated 2026 - NCI source radio group
 class DisplayPanel;  // Claude Generated 2026 - docked viewer display options (replaces the modal dialog)
 class CommandPalette;  // Claude Generated 2026 - P3 Ctrl+K command palette
 class RMSDWidget;  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
+class CellDock;    // Claude Generated 2026 - cell info + repeats of a loaded cif
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
 class DockManager;          // Claude Generated 2026 - owns all docks and layout presets
@@ -301,7 +303,8 @@ private:
                           std::function<void()> actionCallback = nullptr);
 
     // Claude Generated - SFTP: Load molecule file (local or remote)
-    void loadMoleculeFile(const QString& filePath);
+    // by value: callers pass members the load resets; @p cifOptions forces how a cif is built
+    void loadMoleculeFile(QString filePath, const MoleculeFileLoader::CifOptions* cifOptions = nullptr);
 
     // Claude Generated 2026 - WP T4: the OER-lesson feature (open/save/add/apply +
     // Files|Lesson browse mode + metadata/detail editors) lives in LessonController.
@@ -462,6 +465,12 @@ private:
     QToolButton* m_filesModeBtn = nullptr;
     QToolButton* m_lessonModeBtn = nullptr;
     bool m_centerOnLoad = true;  // shift COM to origin after loading (from VisualizationSettings)
+    // Claude Generated 2026 - the loaded cif, its bar, and the repeats it is read with.
+    CellDock* m_cellDock = nullptr;
+    QString m_cifPath;
+    MoleculeFileLoader::CifOptions m_cifOptions;  // how the shown cif is built; reset for a new file
+    int m_cifAtomCount = 0;   // atoms the cif arrived with; a different count means the scene moved on
+    void setupCellDock();
     QAction* m_saveAction = nullptr;
     QAction* m_saveAsAction = nullptr;
     bool saveStructure(const QString& path = QString());

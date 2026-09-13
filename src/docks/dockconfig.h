@@ -37,6 +37,7 @@ inline const QString SimulationDockObjectName = QStringLiteral("SimulationDock")
 inline const QString OutputViewDockObjectName = QStringLiteral("OutputViewDock");
 inline const QString ImageGalleryDockObjectName = QStringLiteral("ImageGalleryDock");
 inline const QString NciDockObjectName = QStringLiteral("NciDock");
+inline const QString CellDockObjectName = QStringLiteral("CellDock");  // Claude Generated 2026
 inline const QString ChartDockObjectName = QStringLiteral("ChartDock");
 inline const QString ChatDockObjectName = QStringLiteral("ChatDock");  // Claude Generated 2026
 
@@ -47,6 +48,7 @@ inline const Qt::DockWidgetArea SimulationDockArea = Qt::RightDockWidgetArea;
 inline const Qt::DockWidgetArea OutputViewDockArea = Qt::BottomDockWidgetArea;
 inline const Qt::DockWidgetArea ImageGalleryDockArea = Qt::BottomDockWidgetArea;
 inline const Qt::DockWidgetArea NciDockArea = Qt::RightDockWidgetArea;
+inline const Qt::DockWidgetArea CellDockArea = Qt::RightDockWidgetArea;  // Claude Generated 2026
 inline const Qt::DockWidgetArea ChartDockArea = Qt::BottomDockWidgetArea;
 inline const Qt::DockWidgetArea ChatDockArea = Qt::RightDockWidgetArea;  // Claude Generated 2026
 
@@ -57,6 +59,7 @@ inline const QString SimulationDockTitle = QStringLiteral("Simulation");
 inline const QString OutputDockTitle = QStringLiteral("Output");
 inline const QString ImageGalleryDockTitle = QStringLiteral("Images");
 inline const QString NciDockTitle = QStringLiteral("Interactions");
+inline const QString CellDockTitle = QStringLiteral("Unit Cell");  // Claude Generated 2026
 inline const QString ChartDockTitle = QStringLiteral("Charts");
 inline const QString ChatDockTitle = QStringLiteral("Assistant");  // Claude Generated 2026
 

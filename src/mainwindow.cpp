@@ -91,6 +91,7 @@
 #include "lessoncontroller.h"  // Claude Generated 2026 - WP T4 lesson feature controller
 #include "frequencydialog.h"
 #include "displaypanel.h"
+#include "docks/celldock.h"  // Claude Generated 2026 - cif unit cell + repeats
 #include "widgets/commandpalette.h"
 #include "docks/chartdock.h"  // Claude Generated 2026 - live MD temperature/energy charts
 
@@ -233,6 +234,7 @@ void MainWindow::setupUI()
     m_centerOnLoad = vizSettings.centerOnLoad;
     m_nciLiveMd = vizSettings.nciLiveMd;
     setCentralWidget(m_moleculeView);
+
 
     // Claude Generated 2026 - Dock refactor: set dock options and tab positions
     // BEFORE creating/placing docks so tabify/split calls inherit the right config.
@@ -419,8 +421,12 @@ void MainWindow::setupContextMenu()
                     [this, filePath]() { m_lessonController->addFile(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
-            } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive))
+            } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive)
+                       || filePath.endsWith(".cif", Qt::CaseInsensitive))
             {
+                // Claude Generated 2026 - cif shares the vtf menu: both open through
+                // loadMoleculeFile, and the overlay/merge/lesson actions all read
+                // through MoleculeFileLoader.
                 QMenu contextMenu(this);
                 
                 // Dateiname zur Information anzeigen
@@ -1068,6 +1074,7 @@ void MainWindow::createMenus()
     addDockToggle(m_simulationDock,       tr("&Simulation"));
     addDockToggle(m_outputViewDock,       tr("&Output"));
     addDockToggle(m_nciDock,              tr("&Interactions"));
+    addDockToggle(m_cellDock,             tr("&Unit Cell"));
     addDockToggle(m_chartDock,            tr("&Charts"));
 #ifdef USE_LLM
     // Claude Generated 2026 - The assistant starts hidden, so without this entry
@@ -1462,10 +1469,11 @@ void MainWindow::setupConnections()
             QString filePath = filePathFromContentIndex(index);
             QString suffix = QFileInfo(filePath).suffix().toLower();
             QString basename = QFileInfo(filePath).baseName();
-            if (suffix == "xyz" || suffix == "vtf") {
+            if (MoleculeFileLoader::isSupported(filePath)) {
                 // Claude Generated 2026 - Route molecule files through the
                 // central loadMoleculeFile() which handles snapshots, simulation
-                // dock sync, save-path tracking, and modified-state flags.
+                // dock sync, save-path tracking, and modified-state flags. Every
+                // format the loader reads, not a list of its own (cif was missing).
                 loadMoleculeFile(filePath);
             }
             else if (suffix == "log" || suffix == "out" || suffix == "txt") {
@@ -4034,7 +4042,11 @@ void MainWindow::restoreWorkspaceState(const Settings::Workspace& ws)
 }
 
 // Claude Generated - SFTP: Load molecule file from local or remote path
-void MainWindow::loadMoleculeFile(const QString& filePath)
+// Claude Generated 2026 - filePath by value, not by reference: callers pass
+// members (m_cifPath, m_currentMoleculeFilePath) that the load itself resets
+// through the moleculeUpdated handlers, and a reference then went empty halfway
+// through -- the Unit Cell dock could switch once and never again.
+void MainWindow::loadMoleculeFile(const QString filePath, const MoleculeFileLoader::CifOptions* cifOptions)
 {
     if (filePath.isEmpty() || !QFile::exists(filePath)) {
         qWarning() << "File does not exist:" << filePath;
@@ -4080,15 +4092,19 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     // the working directory to the file's parent directory.
     bool fileLoaded = false;
 
-    if (suffix == "pdb" || suffix == "mol2") {
-        // PDB/MOL2 open-in-viewer is not wired yet. The loader can parse them
-        // (used by merge + remote load), but the full-file open path stays as-is.
-        statusBar()->showMessage(tr("PDB/MOL2 support coming soon"), 2000);
-    }
-    else {
-        // Claude Generated 2026 - xyz/vtf load through the shared MoleculeFileLoader.
-        // The two formerly identical per-format blocks are now one.
-        const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath);
+    {
+        // Claude Generated 2026 - Every format through the shared MoleculeFileLoader
+        // (xyz/vtf/pdb/mol2/cif). pdb and mol2 used to stop here with "coming soon"
+        // although the loader has read them for a while.
+        // Claude Generated 2026 - A cif opened anew starts from the defaults
+        // (asymmetric unit, major disorder group, 1x1x1); only re-reading the cif
+        // on show -- the Unit Cell dock asking -- keeps the choices made for it.
+        // Options handed in (open_structure) win over both.
+        if (cifOptions)
+            m_cifOptions = *cifOptions;
+        else if (filePath != m_cifPath)
+            m_cifOptions = MoleculeFileLoader::CifOptions();
+        const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath, m_cifOptions);
         if (!r.supported) {
             statusBar()->showMessage(tr("Unsupported file format: %1").arg(suffix), 2000);
         } else if (r.ok) {
@@ -4120,9 +4136,50 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
             captureInitialSnapshot(filePath, m_moleculeView->getCurrentFrameAtoms(),
                 m_moleculeView->getCurrentFrameBonds());
             fileLoaded = true;
+
+            // Claude Generated 2026 - A cif fills the Unit Cell dock; anything else
+            // empties it. Set after the scene is filled: filling it emits
+            // moleculeUpdated, which clears the dock for a count change.
+            // Claude Generated 2026 - thermal ellipsoids of a cif; nothing else has any.
+            m_moleculeView->setAtomEllipsoids(r.ellipsoids);
+            if (r.cif.present) {
+                m_cifPath = filePath;
+                const QVector<MoleculeViewer::Atom> shown = m_moleculeView->getCurrentFrameAtoms();
+                m_cifAtomCount = shown.size();
+                // The cell's origin is the origin of the file's frame. Centring on
+                // load moved every atom by the same vector; the cell moves with it,
+                // read off the first atom before and after.
+                if (r.cif.hasCell && !shown.isEmpty() && !r.frames.first().isEmpty()) {
+                    const QVector3D shift = shown.first().position - r.frames.first().first().position;
+                    // The cell is drawn for the asymmetric unit too: it is where
+                    // those atoms sit. Repeats only exist for the unit cell.
+                    m_moleculeView->setUnitCell(shift, r.cif.latticeA, r.cif.latticeB,
+                        r.cif.latticeC, r.cif.na, r.cif.nb, r.cif.nc);
+                } else {
+                    m_moleculeView->clearUnitCell();
+                }
+                if (m_cellDock) {
+                    m_cellDock->setCif(QFileInfo(filePath).fileName(), r.cif);
+                    // Brought forward when it was closed; left alone when the user
+                    // is on another tab of the group and it is already open.
+                    if (!m_cellDock->isVisible()) {
+                        m_cellDock->show();
+                        m_cellDock->raise();
+                    }
+                }
+            } else {
+                m_cifPath.clear();
+                m_moleculeView->clearUnitCell();
+                if (m_cellDock)
+                    m_cellDock->clearCif();
+            }
         } else {
             m_moleculeView->clearScenePublic();
-            qWarning() << "Failed to parse file:" << filePath;
+            qWarning() << "Failed to parse file:" << filePath << r.error;
+            statusBar()->showMessage(r.error.isEmpty()
+                    ? tr("Could not read %1").arg(QFileInfo(filePath).fileName())
+                    : tr("Could not read %1: %2").arg(QFileInfo(filePath).fileName(), r.error),
+                5000);
         }
     }
 
@@ -4576,6 +4633,9 @@ void MainWindow::createDockWidgets()
     m_nciDock = m_dockManager->nciDockImpl();
     setupNciAnalysis();
 
+    m_cellDock = m_dockManager->cellDockImpl();
+    setupCellDock();
+
     // Viewer-bar "Photo" button → dialog-free quick export into the working folder.
     if (m_moleculeView)
         connect(m_moleculeView, &MoleculeViewer::quickExportRequested,
@@ -4785,6 +4845,12 @@ void MainWindow::createDockWidgets()
                 const QVector<MoleculeViewer::Bond>& bonds) {
                 if (m_simulationControlWidget)
                     m_simulationControlWidget->setMolecule(atoms, bonds);
+                // Claude Generated 2026 - "Modified" means unsaved work. A file
+                // being read (m_structSyncing is held for the whole load) and an
+                // emptied scene are neither; counting them made every later load
+                // and New Scene ask about changes nobody had made.
+                if (m_structSyncing || atoms.isEmpty())
+                    return;
                 m_structureModified = true;
                 if (m_simulationControlWidget)
                     m_simulationControlWidget->setStructureModified(true);
@@ -5445,6 +5511,64 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
 
 // Claude Generated (Apr 2026): Entry point for command-line file argument loading.
 // Called via QTimer::singleShot(200) from main.cpp so Qt3D is fully initialized.
+// Claude Generated 2026 - The Unit Cell dock: cell, contents, disorder group and
+// repeats of the loaded cif. All of it is applied while the file is read (the
+// viewer's atoms carry no cell), so every change reads the file again. The
+// choices belong to this file; the next cif starts from the defaults.
+void MainWindow::setupCellDock()
+{
+    if (!m_cellDock)
+        return;
+
+    // Whether the cell is drawn is a display preference, kept across sessions.
+    const bool showCell = QSettings().value(QStringLiteral("structure/showCell"), true).toBool();
+    m_cellDock->setCellShown(showCell);
+    m_moleculeView->setUnitCellShown(showCell);
+    connect(m_cellDock, &CellDock::cellShownChanged, this, [this](bool shown) {
+        m_moleculeView->setUnitCellShown(shown);
+        QSettings().setValue(QStringLiteral("structure/showCell"), shown);
+    });
+
+    // Thermal ellipsoids: a display preference like the cell, kept across sessions.
+    const bool showEllipsoids = QSettings().value(QStringLiteral("structure/ellipsoids"), false).toBool();
+    const int probability = QSettings().value(QStringLiteral("structure/ellipsoidProbability"), 50).toInt();
+    m_cellDock->setEllipsoidSettings(showEllipsoids, probability);
+    m_moleculeView->setEllipsoidDisplay(showEllipsoids, probability / 100.0);
+    connect(m_cellDock, &CellDock::ellipsoidsChanged, this, [this](bool shown, int percent) {
+        m_moleculeView->setEllipsoidDisplay(shown, percent / 100.0);
+        QSettings().setValue(QStringLiteral("structure/ellipsoids"), shown);
+        QSettings().setValue(QStringLiteral("structure/ellipsoidProbability"), percent);
+    });
+
+    connect(m_cellDock, &CellDock::optionsRequested, this,
+        [this](const MoleculeFileLoader::CifOptions& options) {
+            if (m_cifPath.isEmpty())
+                return;
+            if (m_moleculeView->simulationActive()) {
+                statusBar()->showMessage(tr("Stop the simulation before rebuilding the crystal"), 4000);
+                return;
+            }
+            m_cifOptions = options;
+            loadMoleculeFile(m_cifPath);
+        });
+
+    // Once the scene is no longer the cif as read -- emptied (New Scene,
+    // clear_scene), replaced by a lesson structure or a snapshot, atoms added or
+    // deleted -- the dock lets go of the file: Apply would otherwise read the old
+    // file back over whatever is there now. The atom count is the cheap,
+    // sufficient tell; moving atoms keeps it. Emitted before loadMoleculeFile sets
+    // the new count, so a fresh cif load passes through here and is then shown.
+    connect(m_moleculeView, &MoleculeViewer::moleculeUpdated, this,
+        [this](const QVector<MoleculeViewer::Atom>& atoms, const QVector<MoleculeViewer::Bond>&) {
+            if (!m_cifPath.isEmpty() && atoms.size() != m_cifAtomCount) {
+                m_cifPath.clear();
+                m_cellDock->clearCif();
+                m_moleculeView->clearUnitCell();
+                m_moleculeView->setAtomEllipsoids({});
+            }
+        });
+}
+
 void MainWindow::loadFileFromArg(const QString& path)
 {
     if (path.isEmpty()) return;

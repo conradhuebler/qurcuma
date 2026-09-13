@@ -16,6 +16,7 @@
 // them; conversion for analysis goes through moleculebridge.h instead.
 #pragma once
 
+#include <QQuaternion>
 #include <QString>
 #include <QVector3D>
 
@@ -36,6 +37,16 @@ struct Bond {
     int atom1;
     int atom2;
     int bondOrder;
+};
+
+/// Claude Generated 2026 - A thermal (displacement) ellipsoid: the principal RMS
+/// displacements sqrt(eigenvalues of U_cart), in Angstrom, along the axes that
+/// @a rotation turns the local x, y, z onto. Scaled by the probability factor
+/// when drawn (1.538 for 50 %).
+struct Ellipsoid {
+    bool valid = false;
+    QVector3D rmsAxes;
+    QQuaternion rotation;
 };
 
 }  // namespace moldata

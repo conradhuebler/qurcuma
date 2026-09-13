@@ -183,6 +183,19 @@ Item {
                 }
             }
 
+            // Claude Generated 2026 - Unit cell of a loaded cif: the parallelepiped
+            // of the lattice vectors, a/b/c edges red/green/blue, under moleculeRoot
+            // so it turns with the crystal. Unlit and opaque.
+            Model {
+                source: "#Cylinder"
+                visible: controller.cellVisible
+                instancing: controller.cellInstancing
+                materials: PrincipledMaterial {
+                    baseColor: "white"
+                    lighting: PrincipledMaterial.NoLighting
+                }
+            }
+
             // Iso-potential gradient shells (optional; enabled via Display panel).
             // 3 inside shells (blue→teal) + 3 outside shells (yellow→red)
             // at force-contour distances from the wall boundary.

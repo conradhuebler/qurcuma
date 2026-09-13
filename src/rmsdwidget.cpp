@@ -10,10 +10,7 @@
 #include "rmsdwidget.h"
 
 #include "moleculebridge.h"
-#include "mol2parser.h"
-#include "pdbparser.h"
-#include "vtfparser.h"
-#include "xyzparser.h"
+#include "moleculefileloader.h"
 
 #include <src/capabilities/rmsd.h>
 #include <src/capabilities/rmsd/rmsd_functions.h>
@@ -735,7 +732,7 @@ void RMSDWidget::onUseCurrentAsReference()
 void RMSDWidget::onAddStructure()
 {
     const QString path = QFileDialog::getOpenFileName(this, tr("Add Structure"),
-        QString(), tr("Molecular structures (*.xyz *.pdb *.mol2 *.vtf)"));
+        QString(), tr("Molecular structures (*.xyz *.pdb *.mol2 *.vtf *.cif)"));
     if (path.isEmpty())
         return;
     addStructureFromFile(path);
@@ -755,36 +752,15 @@ void RMSDWidget::onRealignAll()
 bool RMSDWidget::loadStructureFile(const QString& path,
     QVector<MoleculeViewer::Atom>& atoms, QVector<MoleculeViewer::Bond>& bonds)
 {
+    // Claude Generated 2026 - First frame through the shared loader rather than a
+    // parser ladder of its own, which had no cif.
     atoms.clear();
     bonds.clear();
-    const QString suffix = QFileInfo(path).suffix().toLower();
-
-    if (suffix == QLatin1String("xyz")) {
-        XYZParser parser;
-        XYZParser::XYZFrame frame;
-        if (!parser.parseFile(path, frame))
-            return false;
-        XYZParser::convertToMoleculeViewer(frame, atoms, bonds);
-    } else if (suffix == QLatin1String("pdb")) {
-        PDBParser parser;
-        PDBParser::PDBFrame frame;
-        if (!parser.parseFile(path, frame))
-            return false;
-        PDBParser::convertToMoleculeViewer(frame, atoms, bonds, parser.getBonds());
-    } else if (suffix == QLatin1String("mol2")) {
-        MOL2Parser parser;
-        MOL2Parser::MOL2Molecule mol;
-        if (!parser.parseFile(path, mol))
-            return false;
-        MOL2Parser::convertToMoleculeViewer(mol, atoms, bonds);
-    } else if (suffix == QLatin1String("vtf")) {
-        VTFParser parser;
-        VTFParser::VTFFrame frame;
-        if (!parser.parseFile(path, frame))
-            return false;
-        VTFParser::convertToMoleculeViewer(frame, atoms, bonds);
-    } else {
+    const MoleculeFileLoader::Result r = MoleculeFileLoader::load(path);
+    if (!r.ok)
         return false;
-    }
+    atoms = r.frames.first();
+    if (!r.frameBonds.isEmpty())
+        bonds = r.frameBonds.first();
     return !atoms.isEmpty();
 }
