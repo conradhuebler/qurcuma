@@ -35,6 +35,12 @@
 #include <QString>
 #include <QStringList>
 #include <QTabWidget>
+// Claude Generated 2026 - invokeOnLlmThread() below calls m_llmThread->isRunning()
+// inside a template body. GCC/Clang only need the complete type at instantiation
+// (two-phase lookup) and were happy with the forward declaration further down;
+// MSVC checks it eagerly while parsing the template and fails with "use of
+// undefined type 'QThread'" even though nothing instantiates it in this TU.
+#include <QThread>
 #include <QTextEdit>
 #include <QToolBar>
 #include <QToolButton>
