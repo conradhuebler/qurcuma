@@ -297,6 +297,8 @@ private:
     // --- Optimization parameters ---
     QDoubleSpinBox* m_convergenceSpin = nullptr;
     QDoubleSpinBox* m_energyConvergenceSpin = nullptr;   // Claude Generated 2026
+    QComboBox* m_freezeCombo = nullptr;       // Claude Generated 2026 - atoms held during Opt
+    QLineEdit* m_freezeEdit = nullptr;
     QCheckBox* m_optKeepParamsCheck = nullptr;  // Claude Generated 2026 - keep FF params across interactive Opt restarts
 
     // --- MD/Opt specific groups (shown/hidden based on mode) ---

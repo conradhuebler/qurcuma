@@ -304,6 +304,19 @@ SimulationConfig configFromArgs(const SimulationConfig& base, const QJsonObject&
     if (args.value(QStringLiteral("rattle_angles")).isBool())
         cfg.rattle13 = args.value(QStringLiteral("rattle_angles")).toBool();
     takeDouble("hydrogen_mass", cfg.hmass);
+    // Held atoms (opt). The keywords map onto the dock's modes; anything else is
+    // a selection. Claude Generated 2026.
+    const QString hold = args.value(QStringLiteral("hold_atoms")).toString().trimmed();
+    if (!hold.isEmpty()) {
+        if (hold == QLatin1String("none") || hold == QLatin1String("heavy")
+            || hold == QLatin1String("hydrogens")) {
+            cfg.freezeMode = hold;
+            cfg.freezeSelection.clear();
+        } else {
+            cfg.freezeMode = QStringLiteral("selection");
+            cfg.freezeSelection = hold;
+        }
+    }
     takeString("topology", cfg.topologyMode);
     takeString("gpu", cfg.gpu);
     return cfg;
@@ -411,6 +424,8 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                              "description": "opt only: gradient norm below which it is converged, in Eh/Bohr (default 5e-4). Much tighter is below what the methods resolve, and the run then goes to its iteration ceiling with the energy long flat" },
             "energy_convergence": { "type": "number", "minimum": 1e-4, "maximum": 10,
                              "description": "opt only: energy change between iterations below which it is converged, in kJ/mol (default 0.1)" },
+            "hold_atoms":  { "type": "string",
+                             "description": "opt only: atoms that keep their position. 'heavy' holds every non-hydrogen atom and relaxes only the hydrogens -- the usual way to prepare an X-ray structure (its heavy atoms are well determined, its X-H bonds systematically short) before comparing energies; 'hydrogens' holds the H; 'none' (default); anything else is a ONE-based selection like '1:20,F2'" },
             "keep_alive":  { "type": "boolean",
                              "description": "opt only: keep restarting the optimiser instead of stopping when it converges. Needed only to pull on atoms against it; it never ends by itself, so stop_simulation is the only way out (default false)" },
             "rattle":      { "type": "string", "enum": ["off", "all", "h_only"],
@@ -468,8 +483,11 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                 if (effective.method == QLatin1String("gfnff"))
                     data.insert(QStringLiteral("topology"), effective.topologyMode);
             }
-            if (!md)
+            if (!md) {
                 data.insert(QStringLiteral("keep_alive"), !cfg.optSingleShot);
+                data.insert(QStringLiteral("hold_atoms"), effective.freezeMode == QLatin1String("selection")
+                        ? effective.freezeSelection : effective.freezeMode);
+            }
             QString note = md
                 ? QStringLiteral("MD started: %1 steps of %2 fs at %3 K with %4. Ask "
                                  "simulation_status with wait_seconds.")

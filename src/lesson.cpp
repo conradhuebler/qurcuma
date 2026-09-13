@@ -60,6 +60,8 @@ QJsonObject simConfigToJson(const SimulationConfig& cfg)
     o["convergence"] = cfg.convergence;
     o["energy_convergence"] = cfg.energyConvergence;
     o["optKeepParameters"] = cfg.optKeepParameters;
+    o["freezeMode"] = cfg.freezeMode;
+    o["freezeSelection"] = cfg.freezeSelection;
     o["writeTrajectory"] = cfg.writeTrajectory;
     o["fpsLimit"] = cfg.fpsLimit;
     o["performanceAnalysis"] = cfg.performanceAnalysis;
@@ -143,6 +145,8 @@ SimulationConfig simConfigFromJson(const QJsonObject& o)
     // current default rather than a zero. Claude Generated 2026.
     cfg.energyConvergence = o.value("energy_convergence").toDouble(cfg.energyConvergence);
     cfg.optKeepParameters = o.value("optKeepParameters").toBool(cfg.optKeepParameters);
+    cfg.freezeMode = o.value("freezeMode").toString(cfg.freezeMode);
+    cfg.freezeSelection = o.value("freezeSelection").toString(cfg.freezeSelection);
     cfg.writeTrajectory = o.value("writeTrajectory").toBool(cfg.writeTrajectory);
     cfg.fpsLimit = o.value("fpsLimit").toInt(cfg.fpsLimit);
     cfg.performanceAnalysis = o.value("performanceAnalysis").toBool(cfg.performanceAnalysis);

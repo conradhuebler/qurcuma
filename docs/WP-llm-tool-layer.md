@@ -438,9 +438,9 @@ darf, aber nicht messen kann, ob es getroffen hat, rät. Die Schleife lautet
    muss es eine öffentliche, snapshot-fähige Entsprechung geben. Rotation gibt es noch gar nicht.
 2. ~~**Laden und Zusammenführen als Werkzeuge.**~~ **`merge_structure`** und
    **`save_structure`** stehen (`3646ac0`), beide ohne `QMessageBox` und ohne `mainwindow.h`.
-   Offen bleibt bewusst das *Ersetzen* der ganzen Szene: `MainWindow` hält Trajektorie,
-   Framezahl und Fensterzustand, und ein Werkzeug, das die Geometrie darunter austauscht,
-   ließe alle drei stehen. Das erste Laden bleibt Sache des Bedieners.
+   Das *Ersetzen* der ganzen Szene macht seit September 2026 **`open_structure`** — nicht
+   über den Viewer, sondern über einen Rückruf in `MainWindow::loadMoleculeFile`, damit
+   Trajektorie, Framezahl, Unit-Cell-Dock, Zellgitter und Speicherpfad mitziehen.
 3. **Die Kavität finden.** Nichts davon existiert bisher — weder in qurcuma noch als
    curcuma-Fähigkeit. Für den Anfang reicht wahrscheinlich Billigeres als echte Kavitätssuche:
    Schwerpunkt und Trägheitsachsen des Rezeptors, plus `render_view` aus mehreren Richtungen,
@@ -516,6 +516,12 @@ dazu, die im Plan keine eigene Nummer hatten:
 | `fill_container` `keep_container` | in den bestehenden Container packen, statt die Box jedes Mal neu um alles Vorhandene zu legen (die Dichte stieg so nie); die Antwort nennt Volumen und Dichte der aktuellen Szene | — |
 | `run_single_point` **mit Auswahl** | Wechselwirkungsenergie als drei Aufrufe (ganz, `F1`, `F2`); `severedBondCount()` meldet geschnittene Bindungen | `25fd722` |
 | `merge_structure`, `save_structure` | zweites Molekül dazuladen, Struktur oder Auswahl als xyz schreiben | `3646ac0` |
+| `merge_structure` `cif_content`, `disorder_group` | CIF als Zelle (Vorgabe) oder asymmetrische Einheit, eine Disorder-Gruppe (Vorgabe: höchste Besetzung) oder alle; Antwort nennt Lagen, Operationen, Atome/Zelle, Gruppen | — |
+| `describe_cif` | liest eine CIF, ohne die Szene anzufassen: Raumgruppe, Z, Z′, Summen-/Moiety-Formel, Zelle, Lagen, ADP-Zahlen, Disorder-Gruppen mit Assemblies und Besetzung, je Gruppe die Atomzahl von asym. Einheit und Zelle samt Formel, `formula_check` gegen `_chemical_formula_sum`; die Notiz beschreibt den Konformationsvergleich | — |
+| `open_structure` | ersetzt die Szene durch eine Datei (über `MainWindow`, siehe oben); bei CIF `cif_content`, `disorder_group`, `complete_molecules` | — |
+| `merge_structure`/`open_structure` `complete_molecules` | an den Zellflächen zerschnittene Moleküle wieder zusammensetzen (wie Mercury) | — |
+| `run_single_point` `cif_path` (+ `cif_content`, `disorder_group`, `complete_molecules`) | Energie einer bestimmten Konformation direkt aus der CIF, die Szene bleibt; zwei Aufrufe und eine Differenz vergleichen die Disorder-Gruppen. Die Beschreibung warnt vor den kurzen Reiter-H-Bindungen der Röntgenstruktur | — |
+| `run_simulation` `hold_atoms` | `heavy` / `hydrogens` / Auswahlausdruck hält Atome fest (Gradient 0 über `OptimizerDriver::setConstraints`; ANCOpt projiziert die gehaltenen Freiheitsgrade aus der Modell-Hesse-Matrix) — H-Positionen einer Röntgenstruktur relaxieren, ohne das Gerüst zu bewegen | — |
 
 ### TODO — effizientes Tooling (offen, spannt über alle Phasen)
 
@@ -529,6 +535,9 @@ im Schnitt 635 Byte pro Werkzeug, das dickste (`watch_simulation`) 2.488 — ein
 Ganzen. Das geht bei **jedem** Request mit; über einen 50-Runden-Zug ist es der größte
 Einzelposten. `ToolRegistry::catalogueBytes()` liefert die Zahl, und sie steht beim Start im
 Log, damit Wachstum dort sichtbar wird, wo es entsteht.
+**Nachgemessen (11.09.2026, 41 Werkzeuge): 29.631 Byte.** Die CIF-Werkzeuge kosten
+`describe_cif` 599, `open_structure` 1.103; das dickste ist jetzt `run_simulation` mit 3.354
+(RATTLE, Topologie, GPU, `hold_atoms`), dann `run_single_point` mit 2.368.
 
 - ~~**Kontextabhängige Teilmengen.**~~ **Erledigt** (`5a39a1a`): `ToolSpec::available` ist ein
   Prädikat, das beim Aufbau des Katalogs ausgewertet wird. Ohne geladene Struktur fallen die

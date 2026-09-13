@@ -762,6 +762,27 @@ QGroupBox* SimulationControlWidget::createOptGroup()
                                            "optimisation is converged."));
     optForm->addRow(tr("Energy tol [kJ/mol]:"), m_energyConvergenceSpin);
 
+    // Claude Generated 2026 - Atoms held in place. "Heavy atoms" relaxes only the
+    // hydrogens: the usual way to bring an X-ray structure to a method's minimum
+    // without moving what the diffraction determined (X-H bonds from X-ray are
+    // systematically short).
+    m_freezeCombo = new QComboBox(this);
+    m_freezeCombo->addItem(tr("None"), QStringLiteral("none"));
+    m_freezeCombo->addItem(tr("Heavy atoms (relax H only)"), QStringLiteral("heavy"));
+    m_freezeCombo->addItem(tr("Hydrogens"), QStringLiteral("hydrogens"));
+    m_freezeCombo->addItem(tr("Selection"), QStringLiteral("selection"));
+    m_freezeCombo->setToolTip(tr("Atoms that keep their position during the optimisation"));
+    optForm->addRow(tr("Hold atoms:"), m_freezeCombo);
+    m_freezeEdit = new QLineEdit(this);
+    m_freezeEdit->setPlaceholderText(tr("e.g. 1:20,F2 (one-based)"));
+    m_freezeEdit->setToolTip(tr("Atoms to hold, in curcuma's selection grammar: 1:20 is the first "
+                                "twenty atoms, F2 the second fragment"));
+    m_freezeEdit->setEnabled(false);
+    optForm->addRow(QString(), m_freezeEdit);
+    connect(m_freezeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+        m_freezeEdit->setEnabled(m_freezeCombo->currentData().toString() == QLatin1String("selection"));
+    });
+
     // Claude Generated 2026 - Opt-in: keep the force-field parameters/topology
     // fixed while interactively dragging atoms during a geometry optimization.
     // When on (default), keep-alive restarts reuse the existing FF and only move
@@ -1089,6 +1110,8 @@ void SimulationControlWidget::setupConnections()
     connect(m_convergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_energyConvergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_optKeepParamsCheck, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_freezeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_freezeEdit, &QLineEdit::editingFinished, this, notifyConfig);
     connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_rattle12Check, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rattle13Check, &QCheckBox::toggled, this, notifyConfig);
@@ -1216,6 +1239,8 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.convergence = m_convergenceSpin->value();
     cfg.energyConvergence = m_energyConvergenceSpin->value();
     cfg.optKeepParameters = m_optKeepParamsCheck->isChecked();
+    cfg.freezeMode = m_freezeCombo->currentData().toString();
+    cfg.freezeSelection = m_freezeEdit->text().trimmed();
     cfg.rattleMode    = m_rattleCombo->currentData().toInt();
     cfg.rattle12      = m_rattle12Check->isChecked();
     cfg.rattle13      = m_rattle13Check->isChecked();
@@ -1320,7 +1345,8 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
         m_modeCombo, m_methodCombo, m_optimizerCombo, m_tempSlider, m_timestepSpin,
         m_stepsSpin, m_fpsLimitSpin, m_hmassSpin, m_thermostatCombo, m_couplingSpin,
         m_andersenProbSpin, m_noseChainSpin, m_gpuCombo, m_writeTrjCheck, m_perfCheck,
-        m_convergenceSpin, m_energyConvergenceSpin, m_optKeepParamsCheck, m_rattleCombo, m_rattle12Check,
+        m_convergenceSpin, m_energyConvergenceSpin, m_optKeepParamsCheck, m_freezeCombo, m_freezeEdit,
+        m_rattleCombo, m_rattle12Check,
         m_rattle13Check, m_rattleTol12Spin, m_rattleTol13Spin, m_rattleMaxIterSpin,
         m_topologyModeCombo, m_reactFormSpin, m_reactBreakSpin, m_reactCheckEverySpin,
         m_reactRefractorySpin, m_reactValenceCapCheck, m_reactExchangeSpin,
@@ -1353,6 +1379,9 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     m_convergenceSpin->setValue(cfg.convergence);
     m_energyConvergenceSpin->setValue(cfg.energyConvergence);
     m_optKeepParamsCheck->setChecked(cfg.optKeepParameters);
+    selectData(m_freezeCombo, cfg.freezeMode);
+    m_freezeEdit->setText(cfg.freezeSelection);
+    m_freezeEdit->setEnabled(cfg.freezeMode == QLatin1String("selection"));
     selectData(m_rattleCombo, cfg.rattleMode);
     m_rattle12Check->setChecked(cfg.rattle12);
     m_rattle13Check->setChecked(cfg.rattle13);

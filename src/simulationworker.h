@@ -64,6 +64,14 @@ struct SimulationConfig {
     // Claude Generated 2026 - Builder "Relax": run ONE bounded Optimize() and
     // finish, instead of the interactive keep-alive loop that restarts forever.
     bool optSingleShot = false;
+    // Claude Generated 2026 - Atoms held in place during an optimisation. "heavy"
+    // keeps every non-hydrogen atom and relaxes the hydrogens -- the standard for an
+    // X-ray structure, whose heavy atoms are well determined and whose X-H bonds
+    // are systematically short; "hydrogens" is the reverse; "selection" takes
+    // freezeSelection in curcuma's one-based grammar ("1:20,F2"). Passed to the
+    // OptimizerDriver as per-atom constraints (0 = fixed).
+    QString freezeMode = "none";      // none | heavy | hydrogens | selection
+    QString freezeSelection;
     bool writeTrajectory = false; // Also write .trj.xyz file to disk
     int fpsLimit = 30;            // Simulation speed in steps/sec (0 = unlimited)
     bool performanceAnalysis = false; // Per-frame timing stats every N steps

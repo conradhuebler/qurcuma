@@ -4490,6 +4490,7 @@ void MainWindow::createDockWidgets()
         computeContext.viewer = m_moleculeView;
         computeContext.job = m_curcumaJob;
         computeContext.dispatcher = m_toolDispatcher;
+        computeContext.workingDirectory = [this] { return m_workingDirectory; };
         registerComputeTools(ToolRegistry::instance(), computeContext);
 
         EditToolContext editContext;
@@ -4565,6 +4566,31 @@ void MainWindow::createDockWidgets()
         FileToolContext fileContext;
         fileContext.viewer = m_moleculeView;
         fileContext.workingDirectory = [this] { return m_workingDirectory; };
+        // Claude Generated 2026 - open_structure goes through the same load as a
+        // click in the file browser, so everything that follows a load follows it.
+        fileContext.openStructure = [this](const QString& path,
+                                        const MoleculeFileLoader::CifOptions& cif, QString* error) {
+            if (m_moleculeView->simulationActive()) {
+                if (error)
+                    *error = tr("not while a simulation is running: stop it first");
+                return false;
+            }
+            if (!QFileInfo::exists(path)) {
+                if (error)
+                    *error = tr("no such file: %1").arg(path);
+                return false;
+            }
+            loadMoleculeFile(path, &cif);
+            // loadMoleculeFile reports failure only in the status bar; a successful
+            // load is the one that made this file the current structure.
+            if (m_currentMoleculeFilePath != path || m_moleculeView->getCurrentFrameAtoms().isEmpty()) {
+                if (error)
+                    *error = tr("%1 could not be read, or the load was cancelled").arg(path);
+                return false;
+            }
+            return true;
+        };
+        fileContext.shownCif = [this] { return m_cifPath; };
         registerFileTools(ToolRegistry::instance(), fileContext);
 
         // The catalogue size is the recurring cost of the whole feature: it goes

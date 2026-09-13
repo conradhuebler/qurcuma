@@ -19,6 +19,9 @@ struct ComputeToolContext {
     CurcumaJob* job = nullptr;
     /// Consulted while waiting, so Stop reaches a wait that may last minutes.
     ToolDispatcher* dispatcher = nullptr;
+    /// Where a relative cif_path is resolved; supplied by MainWindow, may be empty.
+    /// Claude Generated 2026.
+    std::function<QString()> workingDirectory;
 };
 
 /// Register run_single_point, job_status and describe_job. Returns how many.
