@@ -18,6 +18,7 @@
 #include <QVector>
 #include <QVector3D>
 
+#include <cmath>
 #include <limits>
 #include <memory>
 
@@ -131,6 +132,23 @@ struct SimulationConfig {
     int    wallPotential = 0;
     /// Convenience for the potential-shell drawing, which only applies to 0/1.
     bool   wallHasPotential() const { return wallPotential != 2; }
+    /// Container volume in A^3, or 0 when there is no wall or it is auto-sized
+    /// (all bounds zero -- curcuma picks those at run time). Claude Generated 2026.
+    double containerVolume() const
+    {
+        if (!wallEnabled)
+            return 0.0;
+        if (wallType == 1 && wallRadius > 0.0)
+            return 4.0 / 3.0 * M_PI * wallRadius * wallRadius * wallRadius;
+        if (wallType == 2) {
+            const double dx = wallXmax - wallXmin;
+            const double dy = wallYmax - wallYmin;
+            const double dz = wallZmax - wallZmin;
+            if (dx > 0.0 && dy > 0.0 && dz > 0.0)
+                return dx * dy * dz;
+        }
+        return 0.0;
+    }
     double wallXmin = 0.0, wallXmax = 0.0; // Å, rectangular bounds (curcuma auto-sizes when 0/0)
     double wallYmin = 0.0, wallYmax = 0.0;
     double wallZmin = 0.0, wallZmax = 0.0;

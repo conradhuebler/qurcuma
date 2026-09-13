@@ -124,6 +124,13 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             data.insert(QStringLiteral("formula"), empiricalFormula(atoms));
             data.insert(QStringLiteral("frame_count"), viewer->getFrameCount());
             data.insert(QStringLiteral("current_frame"), viewer->getCurrentFrame());
+            data.insert(QStringLiteral("selected_count"), viewer->getSelectedAtoms().size());
+            data.insert(QStringLiteral("simulation_running"), viewer->simulationActive());
+            data.insert(QStringLiteral("structure_editable"), viewer->canEditStructure());
+            // An empty scene (after clear_scene) has no extent; atoms.first() below
+            // would read past the end. Claude Generated 2026.
+            if (atoms.isEmpty())
+                return ToolResult::success(data, QStringLiteral("The scene is empty."));
             // Centre and extent, so nobody has to page through every atom to find
             // out how big the thing is or where to put a box around it.
             QVector3D lower = atoms.first().position;
@@ -146,12 +153,6 @@ int registerViewTools(ToolRegistry& registry, const ViewToolContext& context)
             data.insert(QStringLiteral("bounds_min"), triple(lower));
             data.insert(QStringLiteral("bounds_max"), triple(upper));
             data.insert(QStringLiteral("extent"), triple(upper - lower));
-
-            data.insert(QStringLiteral("selected_count"), viewer->getSelectedAtoms().size());
-            data.insert(QStringLiteral("simulation_running"), viewer->simulationActive());
-            data.insert(QStringLiteral("structure_editable"), viewer->canEditStructure());
-            if (atoms.isEmpty())
-                return ToolResult::success(data, QStringLiteral("No structure is loaded."));
             return ToolResult::success(data);
         };
         add(spec);

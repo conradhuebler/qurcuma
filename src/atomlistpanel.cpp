@@ -6,6 +6,9 @@
 #include <QClipboard>
 #include <QApplication>
 #include <QDebug>
+#include <QItemSelection>
+
+#include <algorithm>
 
 // ==================== AtomTableModel ====================
 
@@ -223,14 +226,27 @@ void AtomListPanel::setSelectedAtoms(const QVector<int>& indices)
     if (m_updatingSelection) return;
 
     m_updatingSelection = true;
-    m_tableView->selectionModel()->clearSelection();
 
-    for (int idx : indices) {
-        if (idx >= 0 && idx < m_model->rowCount()) {
-            QModelIndex modelIndex = m_model->index(idx, 0);
-            m_tableView->selectionModel()->select(modelIndex, QItemSelectionModel::Select | QItemSelectionModel::Rows);
-        }
+    // One select() over contiguous row ranges instead of one call per row: each
+    // call diffs against the whole current selection, which made selecting a
+    // few thousand atoms quadratic. Claude Generated 2026.
+    QVector<int> rows;
+    rows.reserve(indices.size());
+    for (int idx : indices)
+        if (idx >= 0 && idx < m_model->rowCount())
+            rows.append(idx);
+    std::sort(rows.begin(), rows.end());
+    rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+    QItemSelection selection;
+    for (int i = 0; i < rows.size();) {
+        int j = i;
+        while (j + 1 < rows.size() && rows[j + 1] == rows[j] + 1)
+            ++j;
+        selection.select(m_model->index(rows[i], 0), m_model->index(rows[j], 0));
+        i = j + 1;
     }
+    m_tableView->selectionModel()->select(selection,
+        QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
 
     // Scroll to first selected atom if any
     if (!indices.isEmpty()) {

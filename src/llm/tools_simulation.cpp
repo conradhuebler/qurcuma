@@ -18,6 +18,7 @@
 #include <QJsonDocument>
 #include <QMap>
 #include <QMutex>
+#include <QThread>
 #include <QWaitCondition>
 
 #include <algorithm>
@@ -240,9 +241,10 @@ QJsonObject stateToJson(const SimulationControlWidget::LiveState& state)
 }
 
 /// The config a run starts from: the dock's current settings with whatever the
-/// model named written over them. Only the fields it can also see in
-/// simulation_status are exposed; the rest of SimulationConfig stays where the
-/// operator set it.
+/// model named written over them. Exposed are the run parameters plus the MD
+/// integration settings (RATTLE, hydrogen mass, GFN-FF topology, GPU), which
+/// run_simulation reports back; walls, ramps and metadynamics stay where the
+/// operator set them.
 SimulationConfig configFromArgs(const SimulationConfig& base, const QJsonObject& args)
 {
     SimulationConfig cfg = base;
@@ -288,6 +290,22 @@ SimulationConfig configFromArgs(const SimulationConfig& base, const QJsonObject&
     takeDouble("timestep", cfg.timestep);
     takeDouble("convergence", cfg.convergence);
     takeDouble("energy_convergence", cfg.energyConvergence);
+
+    // MD integration settings from the dock's RATTLE / hydrogen-mass / topology /
+    // GPU controls. The rattle names map onto the combo's data values 0/1/2.
+    // Claude Generated 2026.
+    const QString rattle = args.value(QStringLiteral("rattle")).toString();
+    if (rattle == QLatin1String("off"))
+        cfg.rattleMode = 0;
+    else if (rattle == QLatin1String("all"))
+        cfg.rattleMode = 1;
+    else if (rattle == QLatin1String("h_only"))
+        cfg.rattleMode = 2;
+    if (args.value(QStringLiteral("rattle_angles")).isBool())
+        cfg.rattle13 = args.value(QStringLiteral("rattle_angles")).toBool();
+    takeDouble("hydrogen_mass", cfg.hmass);
+    takeString("topology", cfg.topologyMode);
+    takeString("gpu", cfg.gpu);
     return cfg;
 }
 
@@ -394,16 +412,36 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             "energy_convergence": { "type": "number", "minimum": 1e-4, "maximum": 10,
                              "description": "opt only: energy change between iterations below which it is converged, in kJ/mol (default 0.1)" },
             "keep_alive":  { "type": "boolean",
-                             "description": "opt only: keep restarting the optimiser instead of stopping when it converges. Needed only to pull on atoms against it; it never ends by itself, so stop_simulation is the only way out (default false)" }
+                             "description": "opt only: keep restarting the optimiser instead of stopping when it converges. Needed only to pull on atoms against it; it never ends by itself, so stop_simulation is the only way out (default false)" },
+            "rattle":      { "type": "string", "enum": ["off", "all", "h_only"],
+                             "description": "md only: RATTLE bond-length constraints. 'h_only' freezes only X-H bonds (the fastest vibrations), 'all' every bond; either allows a larger timestep (about 2 fs instead of 0.5-1). Not combinable with topology 'react'" },
+            "rattle_angles": { "type": "boolean",
+                             "description": "md only, with rattle: also constrain 1-3 distances, i.e. freeze bond angles" },
+            "hydrogen_mass": { "type": "number", "minimum": 1, "maximum": 5,
+                             "description": "md only: hydrogen mass in amu (1 = physical). 2-3 slows the X-H vibrations so a larger timestep stays stable; dynamics are no longer physical in time" },
+            "topology":    { "type": "string",
+                             "description": "md with gfnff only: 'auto' rebuilds the force-field topology when needed, 'constant' keeps the initial one, 'react' lets bonds form and break" },
+            "gpu":         { "type": "string",
+                             "description": "compute backend; only backends that actually load on this machine are listed" }
           },
           "required": ["mode"]
         })JSON");
         restrictTo(spec.paramSchema, "method", control->methodValues());
         restrictTo(spec.paramSchema, "thermostat", control->thermostatValues());
         restrictTo(spec.paramSchema, "optimizer", control->optimizerValues());
+        restrictTo(spec.paramSchema, "topology", control->topologyValues());
+        restrictTo(spec.paramSchema, "gpu", control->gpuValues());
 
         spec.handler = [control](const QJsonObject& args) {
             const SimulationConfig cfg = configFromArgs(control->currentConfig(), args);
+            // The dock drops RATTLE silently for a reactive GFN-FF run (curcuma refuses
+            // the combination), so say so instead of starting something else.
+            if (cfg.mode == SimulationConfig::Mode::MolecularDynamics && cfg.rattleMode != 0
+                && cfg.method == QLatin1String("gfnff") && cfg.topologyMode == QLatin1String("react")) {
+                return ToolResult::failure(QStringLiteral(
+                    "rattle cannot be combined with topology 'react': constrained bonds cannot "
+                    "break. Set rattle 'off' or choose topology 'auto'/'constant'."));
+            }
             QString error;
             if (!control->startRun(cfg, &error))
                 return ToolResult::failure(error);
@@ -414,9 +452,21 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             data.insert(QStringLiteral("mode"), md ? QStringLiteral("md") : QStringLiteral("opt"));
             data.insert(QStringLiteral("method"), cfg.method);
             data.insert(QStringLiteral("steps"), cfg.steps);
+            // Read back from the dock, so the model sees what it runs with -- including
+            // what it did not name and what the dock kept standing.
+            const SimulationConfig effective = control->currentConfig();
+            static const char* const rattleNames[] = { "off", "all", "h_only" };
+            data.insert(QStringLiteral("gpu"), effective.gpu);
             if (md) {
                 data.insert(QStringLiteral("temperature"), cfg.temperature);
                 data.insert(QStringLiteral("timestep_fs"), cfg.timestep);
+                data.insert(QStringLiteral("rattle"),
+                    QLatin1String(rattleNames[qBound(0, effective.rattleMode, 2)]));
+                if (effective.rattleMode != 0)
+                    data.insert(QStringLiteral("rattle_angles"), effective.rattle13);
+                data.insert(QStringLiteral("hydrogen_mass"), effective.hmass);
+                if (effective.method == QLatin1String("gfnff"))
+                    data.insert(QStringLiteral("topology"), effective.topologyMode);
             }
             if (!md)
                 data.insert(QStringLiteral("keep_alive"), !cfg.optSingleShot);
@@ -874,7 +924,7 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
             "quantity": { "type": "string",
                           "enum": ["min_distance", "centroid_distance", "gyration_radius",
                                    "rmsd_to_start", "energy", "temperature", "step", "density", "external_work"],
-                          "description": "step only rises, so wait on it with above. density needs a wall and is constant in a fixed box (liquid water is 1.00 g/cm^3). To wait for a run to end use simulation_status" },
+                          "description": "step only rises, so wait on it with above. density needs a wall and is constant in a fixed box (liquid water is 1.00 g/cm^3). With nothing running every quantity is measured on the current scene and container. To wait for a run to end use simulation_status" },
             "atoms":    { "type": "string", "description": "selection, e.g. F1; the geometric quantities need it" },
             "atoms_b":  { "type": "string", "description": "second selection, for the two-set quantities" },
             "atom_indices":   { "type": "array",
@@ -892,8 +942,36 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
           "required": ["quantity"]
         })JSON");
 
-        spec.handler = [cache, dispatcher](const QJsonObject& args) {
+        spec.handler = [cache, dispatcher, control, viewer](const QJsonObject& args) {
             const QString quantity = args.value(QStringLiteral("quantity")).toString();
+
+            // With nothing running, measure the scene as it is now, not the last
+            // frame of the last run: after an edit (a fill, a delete) those differ,
+            // and the density went on reporting the old box. Scene and dock are GUI
+            // objects, so they are read over there, before the cache lock is taken
+            // -- the GUI thread takes that lock for every frame. Claude Generated 2026.
+            bool idle = false;
+            {
+                QMutexLocker lock(&cache->mutex);
+                idle = !cache->state.running;
+            }
+            if (idle && viewer) {
+                QVector<moldata::Atom> scene;
+                double volume = 0.0;
+                const auto grab = [&scene, &volume, control, viewer] {
+                    scene = viewer->getCurrentFrameAtoms();
+                    volume = control->currentConfig().containerVolume();
+                };
+                if (QThread::currentThread() == control->thread())
+                    grab();
+                else
+                    QMetaObject::invokeMethod(control, grab, Qt::BlockingQueuedConnection);
+                QMutexLocker lock(&cache->mutex);
+                if (!cache->state.running) {   // a run may have started meanwhile
+                    cache->atoms = scene;
+                    cache->state.containerVolume = volume;
+                }
+            }
             const bool hasBelow = args.contains(QStringLiteral("below"));
             const bool hasAbove = args.contains(QStringLiteral("above"));
             const double below = args.value(QStringLiteral("below")).toDouble();
@@ -923,7 +1001,7 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
                 if (cache->atoms.isEmpty()) {
                     if (!cache->state.running)
                         return ToolResult::failure(QStringLiteral(
-                            "nothing is running, and no frame has arrived to measure"));
+                            "nothing is running and the scene is empty: nothing to measure"));
                     // Running but no frame yet: a run needs a moment to produce its
                     // first one, and returning "cannot measure" here would have the
                     // caller abandon the run it just started.
@@ -962,6 +1040,11 @@ int registerSimulationTools(ToolRegistry& registry, const SimulationToolContext&
 
                     bool ok = false;
                     value = evaluate(quantity, *cache, setA, setB, unit, ok);
+                    if (!ok && quantity == QLatin1String("density")) {
+                        return ToolResult::failure(QStringLiteral(
+                            "density needs a container with an explicit size, and none is set: "
+                            "fill_container with set_wall, or the Confinement Walls group"));
+                    }
                     if (!ok) {
                         return ToolResult::failure(QStringLiteral(
                             "\"%1\" cannot be measured with what was given -- the geometric "

@@ -4467,6 +4467,42 @@ void MainWindow::createDockWidgets()
                 error->clear();
             return true;
         };
+        // fill_container packs into this when asked to keep the container's size;
+        // clear_scene switches it off. Claude Generated 2026.
+        editContext.containerWall = [this](ToolContainer* wall) {
+            if (!m_simulationControlWidget || !wall)
+                return false;
+            const SimulationConfig cfg = m_simulationControlWidget->currentConfig();
+            if (!cfg.wallEnabled)
+                return false;
+            wall->potential = cfg.wallPotential;
+            if (cfg.wallType == 1 && cfg.wallRadius > 0.0) {
+                wall->sphere = true;
+                wall->radius = float(cfg.wallRadius);
+                return true;
+            }
+            if (cfg.wallType == 2 && cfg.wallXmax > cfg.wallXmin && cfg.wallYmax > cfg.wallYmin
+                && cfg.wallZmax > cfg.wallZmin) {
+                wall->sphere = false;
+                wall->min = QVector3D(float(cfg.wallXmin), float(cfg.wallYmin), float(cfg.wallZmin));
+                wall->max = QVector3D(float(cfg.wallXmax), float(cfg.wallYmax), float(cfg.wallZmax));
+                return true;
+            }
+            return false;   // auto-sized: no volume until curcuma picks one
+        };
+        editContext.clearContainerWall = [this](QString* error) {
+            if (!m_simulationControlWidget)
+                return true;   // no dock, so no wall either
+            if (m_simulationControlWidget->isRunning()) {
+                if (error)
+                    *error = tr("a simulation is running; the container is fixed at its start");
+                return false;
+            }
+            SimulationConfig cfg = m_simulationControlWidget->currentConfig();
+            cfg.wallEnabled = false;
+            m_simulationControlWidget->applyConfig(cfg);
+            return true;
+        };
         registerEditTools(ToolRegistry::instance(), editContext);
 
         FileToolContext fileContext;

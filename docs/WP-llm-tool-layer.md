@@ -395,7 +395,7 @@ mit genau den Parametern stehen, die das Modell angefragt hat.
 
 | Werkzeug | Wirkung |
 |---|---|
-| `run_simulation` | MD oder Optimierung starten (`mode`, `method`, `steps`, `temperature`, `timestep`, `thermostat`, `optimizer`, `convergence`) |
+| `run_simulation` | MD oder Optimierung starten (`mode`, `method`, `steps`, `temperature`, `timestep`, `thermostat`, `optimizer`, `convergence`, `rattle`, `rattle_angles`, `hydrogen_mass`, `topology`, `gpu`) |
 | `simulation_status` | Schritt, Energie, Temperatur; mit `wait_seconds` wartet es auf das Laufende statt zu pollen |
 | `pause_simulation` / `resume_simulation` | idempotent, anders als der Knopf, der umschaltet |
 | `stop_simulation` / `step_simulation` | beenden bzw. genau einen Schritt |
@@ -512,6 +512,8 @@ dazu, die im Plan keine eigene Nummer hatten:
 | Werkzeug | Wofür | Commit |
 |---|---|---|
 | `add_atoms`, `add_fragment`, `add_hydrogens`, `delete_atoms`, `list_fragments` | Struktur ändern; alle `Mutate`, alle über den Snapshot-Stapel rücknehmbar | `b17935b` |
+| `clear_scene`; `delete_atoms` auch per Auswahlausdruck (`selection`) | Szene samt Container-Wand in einem Aufruf leeren (über `MoleculeViewer::newScene()`, ohne Dialog und Build-Modus); vorher löschte das Modell per Indexliste 50 von ~3400 Atomen und meldete die Szene als leer | — |
+| `fill_container` `keep_container` | in den bestehenden Container packen, statt die Box jedes Mal neu um alles Vorhandene zu legen (die Dichte stieg so nie); die Antwort nennt Volumen und Dichte der aktuellen Szene | — |
 | `run_single_point` **mit Auswahl** | Wechselwirkungsenergie als drei Aufrufe (ganz, `F1`, `F2`); `severedBondCount()` meldet geschnittene Bindungen | `25fd722` |
 | `merge_structure`, `save_structure` | zweites Molekül dazuladen, Struktur oder Auswahl als xyz schreiben | `3646ac0` |
 

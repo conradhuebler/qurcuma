@@ -6,6 +6,8 @@
 
 #include "widgets/temperatureslider.h"
 
+#include <src/core/energy_calculators/gpu_plugin.h>
+
 #include <QComboBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -431,15 +433,19 @@ QGroupBox* SimulationControlWidget::createPotentialGroup()
 
     m_gpuCombo = new QComboBox(this);
     m_gpuCombo->addItem(tr("CPU (none)"), "none");
-#if defined(USE_CUDA)
-    m_gpuCombo->addItem(tr("CUDA"), "cuda");
-#endif
-#if defined(USE_ROCM)
-    m_gpuCombo->addItem(tr("ROCm"), "rocm");
-#endif
-#if defined(USE_VULKAN)
-    m_gpuCombo->addItem(tr("Vulkan"), "vulkan");
-#endif
+    // Claude Generated 2026 - GPU backends are runtime-loaded curcuma plugins
+    // (libcurcuma_<backend>.so next to the executable); USE_CUDA/USE_ROCM/USE_VULKAN
+    // are no longer visible outside the plugin targets. List what can actually be
+    // loaded. available() dlopens the plugin (silent on failure, result cached).
+    for (const std::string& backend : gpu_plugin::knownBackends()) {
+        if (!gpu_plugin::available(backend))
+            continue;
+        const QString name = backend == "cuda" ? tr("CUDA")
+            : backend == "rocm"                ? tr("ROCm")
+            : backend == "vulkan"              ? tr("Vulkan")
+                                               : QString::fromStdString(backend);
+        m_gpuCombo->addItem(name, QString::fromStdString(backend));
+    }
     m_gpuCombo->addItem(tr("Auto"), "auto");
     m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
     potentialForm->addRow(tr("GPU:"), m_gpuCombo);
@@ -1654,6 +1660,8 @@ void SimulationControlWidget::requestExternalPotentials(const QJsonArray& potent
 QStringList SimulationControlWidget::methodValues() const { return comboValues(m_methodCombo); }
 QStringList SimulationControlWidget::optimizerValues() const { return comboValues(m_optimizerCombo); }
 QStringList SimulationControlWidget::thermostatValues() const { return comboValues(m_thermostatCombo); }
+QStringList SimulationControlWidget::gpuValues() const { return comboValues(m_gpuCombo); }
+QStringList SimulationControlWidget::topologyValues() const { return comboValues(m_topologyModeCombo); }
 
 void SimulationControlWidget::setLiveTemperature(double kelvin)
 {
@@ -1712,19 +1720,7 @@ void SimulationControlWidget::publishLiveState()
     // without reaching into the config from another thread. Auto-sized walls
     // (all bounds zero) have no volume to report -- curcuma picks those at run
     // time. Claude Generated 2026.
-    m_liveState.containerVolume = 0.0;
-    if (m_config.wallEnabled) {
-        if (m_config.wallType == 1 && m_config.wallRadius > 0.0) {
-            m_liveState.containerVolume =
-                4.0 / 3.0 * M_PI * m_config.wallRadius * m_config.wallRadius * m_config.wallRadius;
-        } else if (m_config.wallType == 2) {
-            const double dx = m_config.wallXmax - m_config.wallXmin;
-            const double dy = m_config.wallYmax - m_config.wallYmin;
-            const double dz = m_config.wallZmax - m_config.wallZmin;
-            if (dx > 0.0 && dy > 0.0 && dz > 0.0)
-                m_liveState.containerVolume = dx * dy * dz;
-        }
-    }
+    m_liveState.containerVolume = m_config.containerVolume();
     if (!m_liveState.running) {
         m_liveState.paused = false;
     }

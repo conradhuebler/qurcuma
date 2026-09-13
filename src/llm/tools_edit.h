@@ -33,6 +33,11 @@ struct EditToolContext {
     /// Apply a container as the simulation's confinement wall. Supplied by
     /// MainWindow, which owns the Simulation dock; may be unset.
     std::function<bool(const ToolContainer&, QString*)> setContainerWall;
+    /// The wall currently set in the dock, if it has an explicit size (an
+    /// auto-sized wall has none until curcuma picks it at run time). May be unset.
+    std::function<bool(ToolContainer*)> containerWall;
+    /// Switch the wall off. May be unset.
+    std::function<bool(QString*)> clearContainerWall;
 };
 
 /// Register the structure-editing tools. Returns how many.

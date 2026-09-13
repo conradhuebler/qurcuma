@@ -430,6 +430,12 @@ curcuma_cap   # Claude Generated - Curcuma capabilities (MD, Opt)
 $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>  # Claude Generated - OpenMP for curcuma
 )
 
+# Claude Generated 2026 - curcuma's GPU backends are dlopen plugins
+# (libcurcuma_<backend>.so) whose core symbols (NativeXtbMethod, GFNFF,
+# CurcumaLogger, ...) resolve against the host executable. curcuma adds
+# -rdynamic only for its own binary, so export them from qurcuma as well.
+set_target_properties(qurcuma PROPERTIES ENABLE_EXPORTS ON)
+
 # Include directories — curcuma deps fetched by curcuma's FetchContent into external/
 target_include_directories(qurcuma PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src

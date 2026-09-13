@@ -90,6 +90,8 @@ public:
     QStringList methodValues() const;
     QStringList optimizerValues() const;
     QStringList thermostatValues() const;
+    QStringList gpuValues() const;        ///< only backends whose plugin loads
+    QStringList topologyValues() const;   ///< GFN-FF topology modes
 
     /// Pull on atoms while the run continues: @p forces[i] (Eh/Bohr, model space)
     /// acts on @p atoms[i], each spread through the bond graph with exponential

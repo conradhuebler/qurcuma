@@ -52,7 +52,7 @@
 - Opt grab needs all three: (1) sticky force (above); (2) `runOptimization` pumps `QCoreApplication::processEvents()` in the step callback so queued `injectForce`/`clearInjectedForce` reach the worker (its event loop is blocked in synchronous `Optimize()`; the dispatcher exists — MD's `QTimer` fires — so the pump delivers; MD never blocks so it needs no pump); (3) curcuma applies the bias at each optimizer's own gradient eval (LBFGSpp objective, native `LBFGS::getEnergyGradient`, ANCOpt) — the old base-loop bias was inert
 - Reset restores snapshot index 0, which is captured automatically when a molecule is loaded
 - Snapshots tab provides manual take/restore/delete history plus an auto-snapshot stride in Simulation tab (every N steps/iterations, 0 = off)
-- GPU dropdown shows only compiled backends (CUDA/ROCm/Vulkan via `USE_*` CMake options); curcuma `feature/vulkan_rocm` branch
+- GPU dropdown lists backends whose curcuma plugin (`libcurcuma_<backend>.so` next to the executable) loads, probed via `gpu_plugin::available()` — `USE_CUDA` etc. are no longer visible outside the plugin targets; the plugin resolves core symbols against qurcuma, hence `ENABLE_EXPORTS ON` (= `-rdynamic`) on the target
 - CLI `qurcuma <file> -md|-opt` loads the file and auto-starts the interactive simulation from bash
 - Release/AVX-512 start crash fixed: `CMakeLists.txt` matches curcuma's `-march=native` on the qurcuma target so both share Eigen's `EIGEN_MAX_ALIGN_BYTES` (mismatch caused `double free` in `moleculeToFrame`)
 
