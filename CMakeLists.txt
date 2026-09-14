@@ -369,6 +369,8 @@ add_library(qurcuma_script STATIC
     src/script/scriptbuiltins.cpp
     src/script/scriptbuiltins.h
     src/script/scriptbridge.h
+    src/script/tools_script.cpp
+    src/script/tools_script.h
 )
 target_link_libraries(qurcuma_script PUBLIC qurcuma_core Qt6::Qml)
 target_include_directories(qurcuma_script PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -710,6 +712,17 @@ Threads::Threads
 )
 add_test(NAME scriptinterpreter COMMAND test_scriptinterpreter)
 set_tests_properties(scriptinterpreter PROPERTIES LABELS qurcuma)
+
+# Script tool test - Claude Generated 2026
+# Threads because the dispatcher check starts a script and interrupts it, which is the
+# path the assistant's Stop button takes.
+add_executable(test_scripttool test_scripttool.cpp)
+target_link_libraries(test_scripttool PRIVATE
+qurcuma_script
+Threads::Threads
+)
+add_test(NAME scripttool COMMAND test_scripttool)
+set_tests_properties(scripttool PROPERTIES LABELS qurcuma)
 
 # LLM client/config test - Claude Generated 2026
 # Talks to a QTcpServer stub inside the test process. ctest never touches a network.

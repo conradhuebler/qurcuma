@@ -1,8 +1,8 @@
 # WP — Skript-Interpreter: rechnen lassen statt selbst rechnen
 
-> **Status (14.09.2026):** Entschieden und begonnen. S0 bis S2 sind umgesetzt (in einem
-> Commit, weil S1 ohne die Tabelle nichts zu rechnen hätte), S3 bis S7 sind geplant.
-> Branch `feature/llm-tools`.
+> **Status (14.09.2026):** S0 bis S4 sind umgesetzt (S0 bis S2 in einem Commit, weil S1
+> ohne die Tabelle nichts zu rechnen hätte), S5 bis S7 sind geplant. Offen aus S4: die
+> Bedienerprüfung an einem laufenden Endpunkt. Branch `feature/llm-tools`.
 > **Zweck:** Das Modell soll Zahlen, die es bereits hat, nicht im Kopf verrechnen, sondern
 > qurcuma rechnen lassen: Differenzen, Verhältnisse, Einheitenwechsel, Mittelwert,
 > Streuung, Steigung. SupraFit hat dafür seine Skript-Engine (`ScriptingEngine` mit den
@@ -92,8 +92,8 @@ werden seine Mitglieder die benannten Ergebnisse (`({dE: e1 - e2, kJ: ha_to_kjmo
 | **S0** | Dieses Dokument | liest sich als Entscheidungsrecord | **erledigt** |
 | **S1** | `scriptinterpreter.{h,cpp}`, `scriptbuiltins.{h,cpp}` (nur `print`/`sum`/`mean`), `scriptbridge.h`, `test_scriptinterpreter`, CMake | `test_scriptinterpreter` grün (45 Prüfungen): Ergebniskontrakt, Vorrang, Listen und Objekte, `print`, Bindungen, jede Fehlerform mit Stelle, Determinismus, Deadline bei 301 ms, Stop aus zweitem Thread, Kappungen, Brücke mit und ohne Host | **erledigt** |
 | **S2** | `scriptbuiltins.cpp`: Statistik (`sum`, `min`, `max`, `mean`, `sd` als Stichprobe, `sem`, `median`, `len`), Regression (`slope`, `intercept`, `r2`), Einheiten (`ha_to_kjmol`, `kjmol_to_ha`, `ha_to_ev`, `ev_to_ha`, `ha_to_kcal`, `kcal_to_ha`, `bohr_to_ang`, `ang_to_bohr`, `cm_to_kjmol`), Winkel (`radians`, `degrees`), Konstanten (`kB`, `NA`, `h`, `c`, `R`); die Umrechnungen aus den definierenden Konstanten **abgeleitet** statt als Zitat | Jeder Faktor gegen eine Handrechnung gepinnt (Hartree→kJ/mol 2625.4996394798254, eV 27.211386245988, kcal/mol 627.5094740631, Bohr 0.529177210903, cm⁻¹ 0.011962657), jede Umrechnung hebt ihre Umkehrung auf, `sd` als n−1 gegen ein von Hand gerechnetes Beispiel | **erledigt** |
-| **S3** | `tools_script.{h,cpp}`: das Werkzeug `calculate` (Kategorie `compute`, Effekt `Read`, Affinität `Any`, immer verfügbar), Schema `source` + `data`, Ergebnisförmung, Anbindung an `ToolDispatcher::isInterrupted()`; Registrierung in `MainWindow::createDockWidgets`; `test_scripttool` | Schema vom Validator akzeptiert, `data` typgeprüft, Katalogkosten ≤ 1500 Byte, gesetzter Interrupt lässt den Lauf ablehnen, kein Host im Modellpfad | offen |
-| **S4** | Absatz im Systemprompt (`MainWindow::applySystemPrompt`), Changelog-Zeile | Bedienerprüfung am laufenden Endpunkt: eine Rechenfrage ohne Stichwort führt zu einem `calculate`-Aufruf | offen |
+| **S3** | `tools_script.{h,cpp}`: das Werkzeug `calculate` (Kategorie `compute`, Effekt `Read`, Affinität `Any`, immer verfügbar), Schema `source` + `data`, Ergebnisförmung, Anbindung an `ToolDispatcher::isInterrupted()`; Registrierung in `MainWindow::createDockWidgets`; `test_scripttool` | `test_scripttool` grün (24 Prüfungen): Schema akzeptiert, `data` typgeprüft und benannt, Ergebnisförmung, **Katalogkosten 1296 Byte** gegen die Grenze 1500, Interrupt beendet `while (true) {}` nach **21 ms**, kein Host im Modellpfad | **erledigt** |
+| **S4** | Absatz im Systemprompt (`MainWindow::applySystemPrompt`), Changelog-Zeile | Absatz und Changelog stehen. **Offen:** Bedienerprüfung am laufenden Endpunkt, ob eine Rechenfrage ohne Stichwort zu einem `calculate`-Aufruf führt | **Code erledigt, Prüfung offen** |
 | **S5** | `src/docks/scriptdock.{h,cpp}`: Editor, Run, Stop, Ausgabe, Beispiele, Persistenz; `DockConfig::ScriptDock`; **nicht** `USE_LLM`-gated; Lauf auf Arbeitsthread; hier bekommt der Interpreter die Brücke, mit Sammelbestätigung und Freigabepolitik je Aufruf | Bedienerprüfung: Beispiel starten, `while (true) {}` mit Stop abbrechen (Fenster friert nie ein), Text nach Neustart noch da | offen |
 | **S6** | Makro-Aufzeichnung: Signal `callRecorded` am `ToolDispatcher` plus Herkunft, Aufzeichnung als JS-Zeilen mit `tool(...)` in den Dock-Editor | Bedienerprüfung: aufzeichnen, abspielen, gleiche Wirkung; Aufrufe des Assistenten landen standardmäßig nicht darin | offen |
 | **S7** | Dasselbe dem Modell geben: `run_script` (`Compute`, asynchron über `script_status`), Werkzeugname als String-Literal erzwungen, je Aufruf durch die Freigabepolitik | Umgehungstest: Freigabe verweigert → Zähler unverändert; Freigabe erteilt → Zähler steigt genau um die Zahl der Aufrufstellen | offen |
@@ -103,6 +103,11 @@ werden seine Mitglieder die benannten Ergebnisse (`({dE: e1 - e2, kJ: ha_to_kjmo
 - **Deadline und Stop nennen keine Zeile.** Gemessen: der Interrupt liefert nur
   `Error: Interrupted`. Der Fehlertext sagt deshalb, dass der Lauf zu lange dauerte und dass
   die Schleife enden muss, aber nicht, wo sie steht.
+- **Ein werfendes Builtin meldet seine eigene Zeile.** Gemessen: `tool(...)` ohne Brücke
+  ergab „line 57", also eine Zeile im Builtin-Programm, für ein einzeiliges Skript. Der
+  Stack enthält aber auch den Frame des Skripts, und der gewinnt jetzt: dieselbe Meldung
+  lautet „line 1: this script is a calculation only". Dasselbe gilt für jede
+  Builtin-Beschwerde (`mean()` ohne Argument).
 - **Der Quelltext geht in den Verlauf.** Ein 300-Byte-Skript steht in jeder folgenden Runde
   erneut im Request. Das ist der eigentliche Byte-Posten dieser Funktion, weit über dem
   Katalogeintrag, und das Argument dafür, Skripte kurz zu halten.

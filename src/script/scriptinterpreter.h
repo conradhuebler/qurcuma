@@ -101,7 +101,14 @@ public:
     void requestStop() { m_stop.store(true); }
     bool isStopRequested() const { return m_stop.load(); }
 
+    /// A caller's own reason to stop, asked while the script runs: the tool dispatcher
+    /// has an interrupt flag of its own, and this is how it reaches the engine. The
+    /// poll is called from the watching thread, so it has to be thread-safe (the
+    /// dispatcher's flag is).
+    void setStopPoll(std::function<bool()> poll) { m_stopPoll = std::move(poll); }
+
 private:
     ScriptLimits m_limits;
     std::atomic<bool> m_stop { false };
+    std::function<bool()> m_stopPoll;
 };

@@ -8,6 +8,7 @@
 - Ergebnis-Kontrakt: der **Wert des letzten Ausdrucks** ist das Ergebnis; ein Objekt liefert benannte Mitglieder. `print(...)` füllt die Ausgabeliste.
 
 ## Entscheidungen, die nicht neu verhandelt werden müssen
+- ✅ **Das Werkzeug heißt `calculate`** (`tools_script.cpp`): Effekt `Read` (es rechnet auf Zahlen, die es bekommt), Affinität `Any`, **immer verfügbar** — ein Taschenrechner muss ohne geladene Struktur arbeiten. Katalogkosten gemessen **1296 Byte**; `test_scripttool` hält die Grenze 1500.
 - ✅ **Qt 6.11 hat kein `QJSEngine::newFunction`** (weder Header noch Doku). Builtins stehen deshalb in JavaScript, `print` wird als Array nach dem Lauf zurückgelesen, die Werkzeug-Brücke ist ein QObject mit `Q_INVOKABLE`.
 - ✅ **Kein Host im Modellpfad** — der Interpreter kann Werkzeuge aufrufen, wenn der Aufrufer eine `ScriptHost`-Brücke übergibt. Das Werkzeug des Assistenten wird ohne sie gebaut; die Trennung ist strukturell.
 - ✅ **Deadline und Stop nennen keine Zeile** — gemessen: der Interrupt liefert nur `Error: Interrupted`, ohne `lineNumber`, Stack oder Frames. Bei einem Skriptfehler gibt es beides.

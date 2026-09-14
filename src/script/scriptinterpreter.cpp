@@ -97,31 +97,50 @@ QString positionText(const ScriptError& error)
     return QStringLiteral("line %1, column %2").arg(error.line).arg(error.column);
 }
 
-/// Where the engine says the failure is. The error object carries the line; the column
-/// comes from the stack frames, whose entries read "function:line:column:file".
+/// Whether a stack frame belongs to the script the caller wrote rather than to a
+/// program the interpreter ran first (the builtin table). File names arrive
+/// URL-encoded, hence the two spellings.
+bool frameInScript(const QString& entry)
+{
+    return entry.contains(QLatin1String("<script>")) || entry.contains(QLatin1String("%3Cscript%3E"));
+}
+
+bool failureInScript(const QJSValue& value)
+{
+    const QString file = value.property(QStringLiteral("fileName")).toString();
+    if (file.isEmpty())
+        return true;  // no file named: the engine's own complaint, about the script
+    return file == QLatin1String("<script>") || file.contains(QLatin1String("%3Cscript%3E"));
+}
+
+/// Where the engine says the failure is. The frames read
+/// "function:line:column:file" and the error object carries a line and a file name.
 ///
-/// Claude Generated 2026 - Measured (14.09.2026): a syntax error reports a real column,
-/// a runtime error reports -1 there, and the error object itself carries no column at
-/// all. So a column is taken only when the engine actually has one, and the search
-/// prefers the frame that belongs to the reported line rather than the outermost.
+/// Claude Generated 2026 - Measured (14.09.2026), and it decided this code: a builtin
+/// that throws reports its own line inside the builtin table, which is meaningless to
+/// the script's author (a one-line script got "line 57"). The caller's line is in the
+/// frame that belongs to the script, so that frame wins and the builtin's own position
+/// is dropped. A syntax error reports a real column, a runtime error -1, so a column is
+/// taken only when the engine actually has one.
 void applyPosition(ScriptError& error, const QJSValue& value, const QStringList& frames)
 {
-    error.line = value.property(QStringLiteral("lineNumber")).toInt();
-
     static const QRegularExpression frame(QStringLiteral(":(-?\\d+):(-?\\d+):"));
+
     for (const QString& entry : frames) {
+        if (!frameInScript(entry))
+            continue;
         const auto match = frame.match(entry);
         if (!match.hasMatch())
             continue;
-        const int frameLine = match.captured(1).toInt();
-        if (error.line != 0 && frameLine != error.line)
-            continue;
-        error.line = frameLine;
-        const int frameColumn = match.captured(2).toInt();
-        if (frameColumn > 0)
-            error.column = frameColumn;
+        error.line = match.captured(1).toInt();
+        const int column = match.captured(2).toInt();
+        if (column > 0)
+            error.column = column;
         return;
     }
+
+    if (failureInScript(value))
+        error.line = value.property(QStringLiteral("lineNumber")).toInt();
 }
 
 QString errorText(const QJSValue& value)
@@ -232,7 +251,7 @@ ScriptResult ScriptInterpreter::run(const QString& source, const QVariantMap& bi
             if (wake.wait_for(lock, std::chrono::milliseconds(kWatchSliceMs),
                     [&] { return finished; }))
                 return;
-            if (m_stop.load()) {
+            if (m_stop.load() || (m_stopPoll && m_stopPoll())) {
                 stopHit.store(true);
                 raw->setInterrupted(true);
                 return;

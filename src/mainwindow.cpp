@@ -75,6 +75,7 @@
 #include "core/tooldispatcher.h"  // Claude Generated 2026 - tool layer
 #include "core/toolregistry.h"
 #include "core/tools_core.h"
+#include "script/tools_script.h"
 #include "llm/tools_view.h"
 #include "llm/tools_palette.h"
 #include "llm/curcumajob.h"
@@ -4420,6 +4421,13 @@ void MainWindow::createDockWidgets()
         // last minutes has to be escapable from the Stop button.
         m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), &LogHub::instance(), this);
         registerCoreTools(ToolRegistry::instance(), LogHub::instance());
+
+        // Claude Generated 2026 - The calculator. Registered without a script host, so
+        // a script that arrives from a model computes and does nothing else; the
+        // dispatcher is here only so the Stop button ends a runaway loop.
+        ScriptToolContext scriptContext;
+        scriptContext.dispatcher = m_toolDispatcher;
+        registerScriptTools(ToolRegistry::instance(), scriptContext);
         ViewToolContext toolContext;
         toolContext.viewer = m_moleculeView;
         toolContext.workingDirectory = [this] { return m_workingDirectory; };
@@ -5750,7 +5758,14 @@ void MainWindow::applySystemPrompt()
         "instead of reasoning about what the answer might be. In particular, do not try to "
         "recall a compound from its formula and do not work through candidate names: you "
         "cannot confirm one, and a list of guesses is worse than saying what the structure "
-        "shows and what would settle it.\n");
+        "shows and what would settle it.\n"
+        // Claude Generated 2026 - The script interpreter is the other half of this: a
+        // number that comes out of other numbers is computed rather than guessed at.
+        "Do not work numbers out yourself. When a number comes out of other numbers, write the "
+        "expression and run it with calculate: a difference, a ratio, a unit conversion, a mean, "
+        "a spread, a line through measured points. Report the value it returns instead of a "
+        "figure you reached yourself. Put the values into the script, or pass several of them as "
+        "the data list.\n");
 
     // The Thinking selector asks the endpoint for less; a model whose endpoint
     // ignores the field only hears it here.

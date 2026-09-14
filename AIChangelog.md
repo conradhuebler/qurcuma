@@ -1,5 +1,14 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Das Werkzeug `calculate` und die Prompt-Zeile
+
+- **`calculate`** (`src/script/tools_script.cpp`, registriert in `MainWindow::createDockWidgets`): das Modell übergibt ein kurzes JavaScript und bekommt das Ergebnis des letzten Ausdrucks zurück, benannte Ergebnisse über ein Objekt, `print(...)` als beschriftete Zeile. Effekt `Read` (es rechnet auf Zahlen, die es bekommt), Affinität `Any`, **immer verfügbar** — ein Taschenrechner muss ohne geladene Struktur arbeiten. Katalogkosten gemessen **1296 Byte** gegen die Grenze 1500 in `test_scripttool`.
+- **Kein Host im Modellpfad**: `calculate` wird ohne `ScriptHost` registriert, also kann ein Skript aus dem Assistenten keine Werkzeuge aufrufen. `test_scripttool` nagelt das fest („line 1: this script is a calculation only"), denn ein Interpreter mit Brücke wäre ein Weg um die Freigabepolitik herum.
+- **Der Stop-Knopf erreicht ein laufendes Skript**: `ScriptInterpreter::setStopPoll` fragt die Abbruchflagge des `ToolDispatcher` im Wächter-Thread ab. Gemessen: `while (true) {}` endet nach **21 ms** statt nach der 5-s-Deadline.
+- **Prompt-Zeile** in `MainWindow::applySystemPrompt`: Zahlen nicht selbst ausrechnen, sondern `calculate` aufrufen und den zurückgegebenen Wert berichten. Ohne diesen Satz wird ein neu hinzugekommenes Werkzeug erfahrungsgemäß nicht gefunden.
+- **Zwei Fehler, die das Messen zutage brachte**: ein von einem Builtin geworfener Fehler meldete die Zeile *im Builtin-Programm* („line 57" für ein einzeiliges Skript); jetzt gewinnt der Stack-Frame des Skripts. Und `throw "boom"` setzt **kein** `isError()` — ohne die Stack-Frames wäre ein geworfener Wert als normales Ergebnis durchgegangen.
+- **Umgebungsbefund**: `external/curcuma/CMakeLists.txt:465` schreibt curcumas `version.h` mit dem **qurcuma**-Commit-Hash. Ein Configure nach einem neuen Commit erneuert ihn, und weil ihn viele curcuma-Quellen einbinden, baut danach ganz curcuma neu (gemessen 106 Objekte, rund zehn Minuten in `debug`).
+
 ## September 2026 - Skript-Interpreter: rechnen lassen statt selbst rechnen
 
 - **`src/script/`** (neues Ziel `qurcuma_script`, `qurcuma_core` + `Qt6::Qml`, headless): ein kurzes JavaScript, das qurcuma ausführt, damit Zahlen hier gerechnet werden statt im Kopf des Modells — Differenzen, Verhältnisse, Einheiten, Mittelwert, Streuung, Steigung. Ergebnis ist der Wert des letzten Ausdrucks, ein Objekt liefert benannte Mitglieder; `print(...)` füllt die Ausgabeliste. Grenzen: 5 s, 64 Werte je Liste, 32 Ausgabezeilen, 2000 Zeichen für den Wert. Nicht in `qurcuma_core`, weil `libQt6Qml` Network/ICU/libproxy/systemd mitzieht (mit `ldd` gemessen); nicht hinter `USE_LLM`, weil Rechnen keine Endpunkt-Frage ist.
