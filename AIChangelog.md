@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Skript-Dock: dasselbe Rechnen für den Bediener
+
+- **`src/docks/scriptdock.{h,cpp}`** (DockConfig `ScriptDock`, unten neben dem Output, anfangs versteckt, **nicht** `USE_LLM`-gated): Editor, Run (Strg+Return), Stop, vier Beispiele (Energiedifferenz in kJ/mol, Mittelwert und Streuung, Gerade durch Messpunkte, Zugriff auf die geladene Struktur über ein Werkzeug), Ausgabebereich, Editorinhalt unter `script/editor` gespeichert. Der Lauf läuft auf einem eigenen Thread, Stop greift über `setStopPoll` in die laufende Engine.
+- **Mit Brücke, aber nicht ohne Politik**: das Dock gibt dem Interpreter eine Werkzeug-Brücke (der Bediener hat Run gedrückt), und jeder Aufruf geht durch `ToolDispatcher` **und** `MainWindow::approveToolCall`. Dafür ist die Politik aus dem `USE_LLM`-Block herausgezogen worden (samt `m_autonomy` und `m_toolsAllowedForSession`), sonst wäre sie im `USE_LLM=OFF`-Build nicht vorhanden — der Assistent und das Skript-Dock werden jetzt von einer Leiter benotet und teilen sich die Freigaben der Sitzung.
+- **Vorschau vor dem Lauf** (`script::namedToolsIn`, getestet): nennt ein Skript Werkzeuge, die mehr als Lesen und Anzeigen tun, listet das Dock sie vorher mit ihrem Effekt auf. Nur ein vollständiges String-Literal zählt; bei `tool("mea" + "sure", {})` wird nichts gelistet, weil der erste Bruchteil der falsche Name wäre.
+- **`scriptRan`** spiegelt jede Ausführung in die Statusleiste, damit ein Lauf auch dann auffällt, wenn das Dock hinter einem anderen Reiter liegt.
+
 ## September 2026 - Das Werkzeug `calculate` und die Prompt-Zeile
 
 - **`calculate`** (`src/script/tools_script.cpp`, registriert in `MainWindow::createDockWidgets`): das Modell übergibt ein kurzes JavaScript und bekommt das Ergebnis des letzten Ausdrucks zurück, benannte Ergebnisse über ein Objekt, `print(...)` als beschriftete Zeile. Effekt `Read` (es rechnet auf Zahlen, die es bekommt), Affinität `Any`, **immer verfügbar** — ein Taschenrechner muss ohne geladene Struktur arbeiten. Katalogkosten gemessen **1296 Byte** gegen die Grenze 1500 in `test_scripttool`.

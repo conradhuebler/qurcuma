@@ -218,6 +218,7 @@ set(SOURCES
     src/docks/projectdock.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/imagegallerydock.cpp  # Claude Generated 2026 - batch border-trim gallery
     src/docks/chartdock.cpp  # Claude Generated 2026 - live charts dock
+    src/docks/scriptdock.cpp  # Claude Generated 2026 - script editor + run (not USE_LLM-gated)
     src/docks/ncidock.cpp  # Claude Generated 2026 - non-covalent interaction dock
     src/nciwidget.cpp  # Claude Generated 2026 - non-covalent interaction contact table
     src/ncianalysisworker.cpp  # Claude Generated 2026 - off-thread NCI analysis (GFN-FF/GFN2)
@@ -369,6 +370,8 @@ add_library(qurcuma_script STATIC
     src/script/scriptbuiltins.cpp
     src/script/scriptbuiltins.h
     src/script/scriptbridge.h
+    src/script/scriptsyntax.cpp
+    src/script/scriptsyntax.h
     src/script/tools_script.cpp
     src/script/tools_script.h
 )

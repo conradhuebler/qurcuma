@@ -242,10 +242,13 @@ private:
     /// not a slot: the Edit-menu Copy calls it before falling back to the
     /// structure. Claude Generated 2026.
     bool copySelectedTextFromFocusWidget();
-#ifdef USE_LLM
-    /// How much the assistant may do unasked; set in the Assistant dock, kept in
-    /// QSettings, consulted by approveToolCall(). Claude Generated 2026.
+
+    /// How much may be done unasked. Claude Generated 2026 - outside the USE_LLM
+    /// block, because the script dock is graded by the same policy; without an
+    /// Assistant dock it stays Ask, which is the level that asks about everything
+    /// beyond reading and display.
     ToolAutonomy m_autonomy = ToolAutonomy::Ask;
+#ifdef USE_LLM
     /// How much the model should think, as chosen in the dock. Sent to the endpoint
     /// as a request field AND put in the system prompt, because an endpoint that
     /// does not know the field would otherwise ignore the setting entirely.
@@ -283,9 +286,11 @@ private:
     /// Apply the named endpoint profile to the client, reading its key from the
     /// environment. Reports what is missing rather than failing silently.
     void applyLlmProfile(const QString& name);
-    /// Ask before a tool that calculates, writes or mutates. Claude Generated 2026.
-    bool approveToolCall(const ToolSpec& spec, const QJsonObject& args);
 #endif                  // Claude Generated 2026 - P3 Ctrl+K palette
+
+    /// Ask before a tool that calculates, writes or mutates. Claude Generated 2026 -
+    /// outside the USE_LLM block because the script dock is graded by the same ladder.
+    bool approveToolCall(const ToolSpec& spec, const QJsonObject& args);
     void createMenus();
     void seedRMSDReference();  // Claude Generated 2026 - re-seed RMSD reference from viewer
     void setupProjectViewContextMenu();
@@ -385,6 +390,9 @@ private:
     CalculationRunner* m_calculationRunner = nullptr;
     ToolDispatcher* m_toolDispatcher = nullptr;  // Claude Generated 2026 - runs tools on the right thread
     CurcumaJob* m_curcumaJob = nullptr;          // Claude Generated 2026 - one calculation at a time
+    /// Tools the operator allowed for the rest of this session, shared by the
+    /// assistant and the script dock. Claude Generated 2026.
+    QSet<QString> m_toolsAllowedForSession;
 #ifdef USE_LLM
     // Claude Generated 2026 - The assistant. The session owns the conversation and
     // the approval policy; the dock is only a view onto it.
@@ -395,7 +403,6 @@ private:
     /// besides freezing the window, it would block delivery of the very signals it
     /// is waiting for. Claude Generated 2026.
     QThread* m_llmThread = nullptr;
-    QSet<QString> m_toolsAllowedForSession;  ///< "allow for this session", per tool
 #endif
 
     // Claude Generated 2026 - Docked viewer display options (replaces the modal dialog)

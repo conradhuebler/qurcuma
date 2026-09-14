@@ -39,6 +39,7 @@ inline const QString ImageGalleryDockObjectName = QStringLiteral("ImageGalleryDo
 inline const QString NciDockObjectName = QStringLiteral("NciDock");
 inline const QString ChartDockObjectName = QStringLiteral("ChartDock");
 inline const QString ChatDockObjectName = QStringLiteral("ChatDock");  // Claude Generated 2026
+inline const QString ScriptDockObjectName = QStringLiteral("ScriptDock");  // Claude Generated 2026
 
 // Default dock areas. Kept here so every wrapper class can declare its own.
 inline const Qt::DockWidgetArea ProjectDockArea = Qt::LeftDockWidgetArea;
@@ -49,6 +50,8 @@ inline const Qt::DockWidgetArea ImageGalleryDockArea = Qt::BottomDockWidgetArea;
 inline const Qt::DockWidgetArea NciDockArea = Qt::RightDockWidgetArea;
 inline const Qt::DockWidgetArea ChartDockArea = Qt::BottomDockWidgetArea;
 inline const Qt::DockWidgetArea ChatDockArea = Qt::RightDockWidgetArea;  // Claude Generated 2026
+// Bottom next to the output log: a script and its output are read together.
+inline const Qt::DockWidgetArea ScriptDockArea = Qt::BottomDockWidgetArea;  // Claude Generated 2026
 
 // Tab labels / dock titles.
 inline const QString ProjectDockTitle = QStringLiteral("Project");
@@ -59,6 +62,7 @@ inline const QString ImageGalleryDockTitle = QStringLiteral("Images");
 inline const QString NciDockTitle = QStringLiteral("Interactions");
 inline const QString ChartDockTitle = QStringLiteral("Charts");
 inline const QString ChatDockTitle = QStringLiteral("Assistant");  // Claude Generated 2026
+inline const QString ScriptDockTitle = QStringLiteral("Script");  // Claude Generated 2026
 
 // Persisted UI-state QSettings keys. Kept next to the enums/objectNames they
 // encode so the window geometry, dock layout and app-mode keys live in one place

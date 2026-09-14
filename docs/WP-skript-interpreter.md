@@ -94,11 +94,23 @@ werden seine Mitglieder die benannten Ergebnisse (`({dE: e1 - e2, kJ: ha_to_kjmo
 | **S2** | `scriptbuiltins.cpp`: Statistik (`sum`, `min`, `max`, `mean`, `sd` als Stichprobe, `sem`, `median`, `len`), Regression (`slope`, `intercept`, `r2`), Einheiten (`ha_to_kjmol`, `kjmol_to_ha`, `ha_to_ev`, `ev_to_ha`, `ha_to_kcal`, `kcal_to_ha`, `bohr_to_ang`, `ang_to_bohr`, `cm_to_kjmol`), Winkel (`radians`, `degrees`), Konstanten (`kB`, `NA`, `h`, `c`, `R`); die Umrechnungen aus den definierenden Konstanten **abgeleitet** statt als Zitat | Jeder Faktor gegen eine Handrechnung gepinnt (Hartree→kJ/mol 2625.4996394798254, eV 27.211386245988, kcal/mol 627.5094740631, Bohr 0.529177210903, cm⁻¹ 0.011962657), jede Umrechnung hebt ihre Umkehrung auf, `sd` als n−1 gegen ein von Hand gerechnetes Beispiel | **erledigt** |
 | **S3** | `tools_script.{h,cpp}`: das Werkzeug `calculate` (Kategorie `compute`, Effekt `Read`, Affinität `Any`, immer verfügbar), Schema `source` + `data`, Ergebnisförmung, Anbindung an `ToolDispatcher::isInterrupted()`; Registrierung in `MainWindow::createDockWidgets`; `test_scripttool` | `test_scripttool` grün (24 Prüfungen): Schema akzeptiert, `data` typgeprüft und benannt, Ergebnisförmung, **Katalogkosten 1296 Byte** gegen die Grenze 1500, Interrupt beendet `while (true) {}` nach **21 ms**, kein Host im Modellpfad | **erledigt** |
 | **S4** | Absatz im Systemprompt (`MainWindow::applySystemPrompt`), Changelog-Zeile | Absatz und Changelog stehen. **Offen:** Bedienerprüfung am laufenden Endpunkt, ob eine Rechenfrage ohne Stichwort zu einem `calculate`-Aufruf führt | **Code erledigt, Prüfung offen** |
-| **S5** | `src/docks/scriptdock.{h,cpp}`: Editor, Run, Stop, Ausgabe, Beispiele, Persistenz; `DockConfig::ScriptDock`; **nicht** `USE_LLM`-gated; Lauf auf Arbeitsthread; hier bekommt der Interpreter die Brücke, mit Sammelbestätigung und Freigabepolitik je Aufruf | Bedienerprüfung: Beispiel starten, `while (true) {}` mit Stop abbrechen (Fenster friert nie ein), Text nach Neustart noch da | offen |
+| **S5** | `src/docks/scriptdock.{h,cpp}`: Editor, Run (Strg+Return), Stop, Ausgabe, vier Beispiele, Editorinhalt unter `script/editor`; `DockConfig::ScriptDock`; **nicht** `USE_LLM`-gated; Lauf auf eigenem Thread; hier bekommt der Interpreter die Brücke, mit Vorschau der genannten Werkzeuge und der Freigabepolitik je Aufruf | Code steht, baut, App startet offscreen ohne Warnung; `test_scripttool` prüft die Namensvorschau. **Offen:** Bedienerprüfung (Beispiel starten, `while (true) {}` mit Stop abbrechen, Text nach Neustart noch da) | **Code erledigt, Prüfung offen** |
 | **S6** | Makro-Aufzeichnung: Signal `callRecorded` am `ToolDispatcher` plus Herkunft, Aufzeichnung als JS-Zeilen mit `tool(...)` in den Dock-Editor | Bedienerprüfung: aufzeichnen, abspielen, gleiche Wirkung; Aufrufe des Assistenten landen standardmäßig nicht darin | offen |
 | **S7** | Dasselbe dem Modell geben: `run_script` (`Compute`, asynchron über `script_status`), Werkzeugname als String-Literal erzwungen, je Aufruf durch die Freigabepolitik | Umgehungstest: Freigabe verweigert → Zähler unverändert; Freigabe erteilt → Zähler steigt genau um die Zahl der Aufrufstellen | offen |
 
-## 6. Grenzen, die benannt bleiben müssen
+## 6. Was S5 an anderer Stelle mitgenommen hat
+
+- **`MainWindow::approveToolCall` steht außerhalb des `USE_LLM`-Blocks** (`mainwindow.cpp`,
+  Deklaration in `mainwindow.h`), ebenso `m_autonomy` und `m_toolsAllowedForSession`. Die
+  Politik gehört nicht dem Assistenten: das Skript-Dock wird von derselben Leiter benotet und
+  teilt sich die Freigaben der Sitzung, damit ein Skript nicht der weichere Weg ist. Ohne
+  Assistant-Dock bleibt `m_autonomy` auf `Ask`.
+- **Ein Name, der zur Laufzeit zusammengesetzt wird, erscheint nicht in der Vorschau**
+  (`script::namedToolsIn`). Der erste Versuch listete bei `tool("mea" + "sure", {})` den
+  Bruchteil `"mea"` auf; das Literal muss jetzt das ganze erste Argument sein. Eine Vorschau,
+  die den falschen Werkzeugnamen nennt, ist schlechter als eine, die schweigt.
+
+## 7. Grenzen, die benannt bleiben müssen
 
 - **Deadline und Stop nennen keine Zeile.** Gemessen: der Interrupt liefert nur
   `Error: Interrupted`. Der Fehlertext sagt deshalb, dass der Lauf zu lange dauerte und dass

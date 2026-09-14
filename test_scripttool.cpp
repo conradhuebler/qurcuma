@@ -8,6 +8,7 @@
 #include "core/loghub.h"
 #include "core/tooldispatcher.h"
 #include "core/toolregistry.h"
+#include "script/scriptsyntax.h"
 #include "script/tools_script.h"
 
 #include <QCoreApplication>
@@ -128,6 +129,22 @@ int main(int argc, char** argv)
         const ToolValidation unknown = registry.validate(QStringLiteral("calculate"),
             args(R"j({"source": "1", "script": "2"})j"));
         check(!unknown.ok, "and an invented parameter is refused rather than ignored");
+    }
+
+    // --- what the dock can show before a script runs ---------------------------
+    // Only a literal name can be previewed; it is what the operator is shown, not what
+    // enforces anything, so a duplicate or a mention in a comment costs a line at most.
+    {
+        const QStringList names = script::namedToolsIn(
+            QStringLiteral("var a = tool(\"measure\", {});\nvar b = tool('select_atoms', {});\ntool(\"measure\", {});\na"));
+        check(names.size() == 2 && names.first() == QStringLiteral("measure")
+                && names.last() == QStringLiteral("select_atoms"),
+            QStringLiteral("the literal tool names are read in order, once each: %1")
+                .arg(names.join(QStringLiteral(", "))));
+        check(script::namedToolsIn(QStringLiteral("1 + 1")).isEmpty(),
+            "a script that calls nothing names nothing");
+        check(script::namedToolsIn(QStringLiteral("tool(\"mea\" + \"sure\", {})")).isEmpty(),
+            "a name built at run time cannot be previewed, so it is not listed");
     }
 
     // --- the calculator is not a way around the policy -------------------------

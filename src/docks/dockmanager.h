@@ -22,6 +22,7 @@ class ImageGalleryDock;
 class NciDock;
 class ChartDock;
 class ChatDock;  // Claude Generated 2026
+class ScriptDock;  // Claude Generated 2026
 class Settings;
 class QDockWidget;
 class QMainWindow;
@@ -47,6 +48,8 @@ public:
     ChartDock* chartDockImpl() const;
     /// Claude Generated 2026 - the assistant dock (null when built without USE_LLM).
     ChatDock* chatDockImpl() const;
+    /// Claude Generated 2026 - the script dock (always present, USE_LLM or not).
+    ScriptDock* scriptDockImpl() const;
 
     // Accessors (return nullptr until the corresponding dock has been created).
     QDockWidget* projectDock() const;
@@ -106,6 +109,7 @@ private:
     QDockWidget* m_nciDock = nullptr;
     QDockWidget* m_chartDock = nullptr;
     QDockWidget* m_chatDock = nullptr;  // Claude Generated 2026
+    ScriptDock* m_scriptDock = nullptr;  // Claude Generated 2026
 
     QTabWidget* m_simulationTabs = nullptr;
 

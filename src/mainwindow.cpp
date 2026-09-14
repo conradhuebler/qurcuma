@@ -102,6 +102,7 @@
 #endif
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "docks/dockmanager.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/scriptdock.h"  // Claude Generated 2026 - script interpreter with a tool bridge
 #include "docks/simulationdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/displaydock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/outputdock.h"  // Claude Generated 2026 - Dock system restructuring
@@ -1075,6 +1076,9 @@ void MainWindow::createMenus()
     // there would be no way to open it at all.
     addDockToggle(m_dockManager ? m_dockManager->chatDockImpl() : nullptr, tr("&Assistant"));
 #endif
+    // Claude Generated 2026 - The script dock starts hidden like the assistant, and
+    // this entry is the only way to open it (the interpreter is not USE_LLM-gated).
+    addDockToggle(m_dockManager ? m_dockManager->scriptDockImpl() : nullptr, tr("&Script"));
 
     viewMenu->addSeparator();
 
@@ -4428,6 +4432,31 @@ void MainWindow::createDockWidgets()
         ScriptToolContext scriptContext;
         scriptContext.dispatcher = m_toolDispatcher;
         registerScriptTools(ToolRegistry::instance(), scriptContext);
+
+        // The dock runs the same interpreter with the opposite setting: it has a tool
+        // bridge, because the operator pressing Run is the permission, and every call
+        // is put through the dispatcher and the policy the assistant uses.
+        if (m_dockManager && m_dockManager->scriptDockImpl()) {
+            ScriptDock* scriptDock = m_dockManager->scriptDockImpl();
+            scriptDock->setToolLayer(&ToolRegistry::instance(), m_toolDispatcher);
+            scriptDock->setApprovalPolicy([this](const ToolSpec& spec, const QJsonObject& args) {
+                if (QThread::currentThread() == thread())
+                    return approveToolCall(spec, args);
+                bool approved = false;
+                QMetaObject::invokeMethod(this, [this, &spec, &args, &approved] {
+                    approved = approveToolCall(spec, args);
+                }, Qt::BlockingQueuedConnection);
+                return approved;
+            });
+            // What ran and how it ended, in the status bar: a script's output is in
+            // its own pane, but the dock may be behind another tab while it runs.
+            connect(scriptDock, &ScriptDock::scriptRan, this,
+                [this](const QString&, bool ok, const QString& summary) {
+                    statusBar()->showMessage(ok ? tr("Script finished: %1").arg(summary.left(120))
+                                                : tr("Script failed: %1").arg(summary.left(120)),
+                        5000);
+                });
+        }
         ViewToolContext toolContext;
         toolContext.viewer = m_moleculeView;
         toolContext.workingDirectory = [this] { return m_workingDirectory; };
@@ -5796,12 +5825,15 @@ void MainWindow::applySystemPrompt()
 
     invokeOnLlmThread([this, prompt] { m_llmSession->setSystemPrompt(prompt); });
 }
+#endif  // USE_LLM
 
+// Claude Generated 2026 - The approval policy, deliberately outside the USE_LLM block:
+// the assistant and the script dock are graded by the same ladder and share the
+// per-session grants, so a script the operator starts is not the softer path. One
+// switch over the effect classes, and needsApprovalAt() is the only place that grades
+// them, so the label in the dock and this decision cannot disagree.
 bool MainWindow::approveToolCall(const ToolSpec& spec, const QJsonObject& args)
 {
-    // Claude Generated 2026 - The autonomy level first: it is the operator's one
-    // switch over the effect classes, and needsApprovalAt() is the only place that
-    // grades them, so the dock's label and this decision cannot disagree.
     if (!needsApprovalAt(spec.effect, m_autonomy))
         return true;
     if (m_toolsAllowedForSession.contains(spec.name))
@@ -5814,7 +5846,7 @@ bool MainWindow::approveToolCall(const ToolSpec& spec, const QJsonObject& args)
     QMessageBox box(this);
     box.setIcon(QMessageBox::Question);
     box.setWindowTitle(tr("Run %1?").arg(spec.name));
-    box.setText(tr("The assistant wants to run <b>%1</b> (%2).")
+    box.setText(tr("The script wants to run <b>%1</b> (%2).")
                     .arg(spec.name, toolEffectName(spec.effect)));
     box.setInformativeText(spec.description);
     box.setDetailedText(arguments);
@@ -5831,4 +5863,3 @@ bool MainWindow::approveToolCall(const ToolSpec& spec, const QJsonObject& args)
     Q_UNUSED(deny)
     return box.clickedButton() == once;
 }
-#endif  // USE_LLM

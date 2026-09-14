@@ -13,6 +13,7 @@
 #include "displaydock.h"
 #include "imagegallerydock.h"
 #include "chartdock.h"
+#include "scriptdock.h"  // Claude Generated 2026 - not USE_LLM-gated: a script is a calculation
 #ifdef USE_LLM
 #include "chatdock.h"  // Claude Generated 2026
 #endif
@@ -111,6 +112,11 @@ ChatDock* DockManager::chatDockImpl() const
 #else
     return nullptr;  // built without USE_LLM
 #endif
+}
+
+ScriptDock* DockManager::scriptDockImpl() const
+{
+    return m_scriptDock;
 }
 
 NciDock* DockManager::nciDockImpl() const
@@ -294,6 +300,10 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
     m_imageGalleryDock = new ImageGalleryDock(m_mainWindow);
     m_nciDock = new NciDock(m_mainWindow);
     m_chartDock = new ChartDock(m_mainWindow);
+    // Claude Generated 2026 - The script dock is not USE_LLM-gated: it is a place to
+    // compute, and it is registered with the tool layer later (MainWindow creates the
+    // dispatcher after the docks).
+    m_scriptDock = new ScriptDock(m_mainWindow);
 #ifdef USE_LLM
     // Claude Generated 2026 - The assistant. Hidden by default like the chart and
     // NCI docks; it is opened from View > Dock Panels when wanted.
@@ -358,6 +368,16 @@ void DockManager::placeDocks()
         m_chatDock->hide();
     }
 #endif
+
+    // The script dock joins the bottom area next to the output log and starts hidden:
+    // a script and its output belong together, and an idle editor would only take
+    // space. View > Dock Panels brings it up. Claude Generated 2026.
+    if (m_scriptDock) {
+        m_mainWindow->addDockWidget(DockConfig::ScriptDockArea, m_scriptDock);
+        if (m_outputViewDock)
+            m_mainWindow->tabifyDockWidget(m_outputViewDock, m_scriptDock);
+        m_scriptDock->hide();
+    }
 
     // The image-gallery dock shares the bottom area (tabified with Output) and
     // stays hidden until the first image is exported (ImageGalleryDock shows
