@@ -150,6 +150,56 @@ int main(int argc, char** argv)
         check(sawFailure, "a failed call is recorded at Warning, not silently");
     }
 
+    // --- what a recorder needs ------------------------------------------------
+    // The script dock's macro recorder hangs on these two: a call has to be announced
+    // with its arguments, and it has to say who made it, or a recording would capture
+    // the assistant's own calls. Claude Generated 2026.
+    {
+        QString emittedName;
+        QJsonObject emittedArgs;
+        bool emittedOk = false;
+        QString emittedOrigin = QStringLiteral("(none)");
+        int emitted = 0;
+        QObject::connect(&dispatcher, &ToolDispatcher::callRecorded, &dispatcher,
+            [&](const QString& name, const QJsonObject& a, bool ok, qint64, const QString& origin) {
+                ++emitted;
+                emittedName = name;
+                emittedArgs = a;
+                emittedOk = ok;
+                emittedOrigin = origin;
+            });
+
+        ToolDispatcher::setCallOrigin(QStringLiteral("assistant"));
+        check(ToolDispatcher::callOrigin() == QStringLiteral("assistant"),
+            "a thread can say who is calling");
+        dispatcher.dispatch(QStringLiteral("any_tool"),
+            QJsonDocument::fromJson(QByteArrayLiteral("{\"value\": 7}")).object());
+        check(emitted == 1 && emittedName == QStringLiteral("any_tool"),
+            "a dispatch announces the call to whoever is watching");
+        check(emittedArgs.value(QStringLiteral("value")).toInt() == 7,
+            "with the arguments it was given");
+        // any_tool's schema allows no parameters, so an invented one is refused before
+        // the handler runs; the refusal is announced like any other outcome.
+        check(!emittedOk, "and its outcome, a refused call included");
+        check(emittedOrigin == QStringLiteral("assistant"),
+            QStringLiteral("carrying the caller's origin: %1").arg(emittedOrigin));
+
+        ToolDispatcher::setCallOrigin(QString());
+        dispatcher.dispatch(QStringLiteral("any_tool"), QJsonObject {});
+        check(emitted == 2 && emittedOk && emittedOrigin.isEmpty(),
+            "a call that runs says so and carries no origin for the operator's own use");
+
+        LogQuery q;
+        q.source = QStringLiteral("tool");
+        q.limit = LogHub::kMaxQueryLimit;
+        bool sawOrigin = false;
+        for (const LogRecord& r : hub.query(q)) {
+            if (r.text.contains(QStringLiteral("[assistant]")))
+                sawOrigin = true;
+        }
+        check(sawOrigin, "the audit line says a model made the call");
+    }
+
     std::printf("%s (%d failed)\n", g_failed.load() ? "FAIL" : "PASS", g_failed.load());
     return g_failed.load() ? 1 : 0;
 }

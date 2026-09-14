@@ -1,8 +1,9 @@
 # WP — Skript-Interpreter: rechnen lassen statt selbst rechnen
 
-> **Status (14.09.2026):** S0 bis S4 sind umgesetzt (S0 bis S2 in einem Commit, weil S1
-> ohne die Tabelle nichts zu rechnen hätte), S5 bis S7 sind geplant. Offen aus S4: die
-> Bedienerprüfung an einem laufenden Endpunkt. Branch `feature/llm-tools`.
+> **Status (14.09.2026):** S0 bis S6 sind umgesetzt (S0 bis S2 in einem Commit, weil S1
+> ohne die Tabelle nichts zu rechnen hätte). S7 bleibt eine eigene Entscheidung und ist
+> nicht gebaut. Offen sind die Bedienerprüfungen: die Rechenfrage am laufenden Endpunkt
+> (S4), Dock und Aufzeichnung von Hand (S5, S6). Branch `feature/llm-tools`.
 > **Zweck:** Das Modell soll Zahlen, die es bereits hat, nicht im Kopf verrechnen, sondern
 > qurcuma rechnen lassen: Differenzen, Verhältnisse, Einheitenwechsel, Mittelwert,
 > Streuung, Steigung. SupraFit hat dafür seine Skript-Engine (`ScriptingEngine` mit den
@@ -95,7 +96,7 @@ werden seine Mitglieder die benannten Ergebnisse (`({dE: e1 - e2, kJ: ha_to_kjmo
 | **S3** | `tools_script.{h,cpp}`: das Werkzeug `calculate` (Kategorie `compute`, Effekt `Read`, Affinität `Any`, immer verfügbar), Schema `source` + `data`, Ergebnisförmung, Anbindung an `ToolDispatcher::isInterrupted()`; Registrierung in `MainWindow::createDockWidgets`; `test_scripttool` | `test_scripttool` grün (24 Prüfungen): Schema akzeptiert, `data` typgeprüft und benannt, Ergebnisförmung, **Katalogkosten 1296 Byte** gegen die Grenze 1500, Interrupt beendet `while (true) {}` nach **21 ms**, kein Host im Modellpfad | **erledigt** |
 | **S4** | Absatz im Systemprompt (`MainWindow::applySystemPrompt`), Changelog-Zeile | Absatz und Changelog stehen. **Offen:** Bedienerprüfung am laufenden Endpunkt, ob eine Rechenfrage ohne Stichwort zu einem `calculate`-Aufruf führt | **Code erledigt, Prüfung offen** |
 | **S5** | `src/docks/scriptdock.{h,cpp}`: Editor, Run (Strg+Return), Stop, Ausgabe, vier Beispiele, Editorinhalt unter `script/editor`; `DockConfig::ScriptDock`; **nicht** `USE_LLM`-gated; Lauf auf eigenem Thread; hier bekommt der Interpreter die Brücke, mit Vorschau der genannten Werkzeuge und der Freigabepolitik je Aufruf | Code steht, baut, App startet offscreen ohne Warnung; `test_scripttool` prüft die Namensvorschau. **Offen:** Bedienerprüfung (Beispiel starten, `while (true) {}` mit Stop abbrechen, Text nach Neustart noch da) | **Code erledigt, Prüfung offen** |
-| **S6** | Makro-Aufzeichnung: Signal `callRecorded` am `ToolDispatcher` plus Herkunft, Aufzeichnung als JS-Zeilen mit `tool(...)` in den Dock-Editor | Bedienerprüfung: aufzeichnen, abspielen, gleiche Wirkung; Aufrufe des Assistenten landen standardmäßig nicht darin | offen |
+| **S6** | Makro-Aufzeichnung: Signal `callRecorded` am `ToolDispatcher` plus Herkunft (`callOrigin`/`setCallOrigin`, thread-lokal und **mit dem Signal übertragen**, weil eine queued Zustellung auf einem anderen Thread läuft), Record-Knopf im Dock, Aufzeichnung als JS-Zeilen mit `tool(...)` in den Editor | `test_tooldispatcher` prüft Signal, Argumente, Ausgang und Herkunft samt Audit-Zeile. **Offen:** Bedienerprüfung (aufzeichnen, abspielen, gleiche Wirkung) | **Code erledigt, Prüfung offen** |
 | **S7** | Dasselbe dem Modell geben: `run_script` (`Compute`, asynchron über `script_status`), Werkzeugname als String-Literal erzwungen, je Aufruf durch die Freigabepolitik | Umgehungstest: Freigabe verweigert → Zähler unverändert; Freigabe erteilt → Zähler steigt genau um die Zahl der Aufrufstellen | offen |
 
 ## 6. Was S5 an anderer Stelle mitgenommen hat

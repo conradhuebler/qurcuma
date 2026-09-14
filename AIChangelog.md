@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Makro-Aufzeichnung: Werkzeugaufrufe werden zum Skript
+
+- **`ToolDispatcher::callRecorded`** (neues Signal, nach jedem Aufruf samt Ausgang) und **`callOrigin`/`setCallOrigin`** (thread-lokal): die Herkunft reist **mit dem Signal**, weil eine queued Zustellung auf einem anderen Thread läuft und ein Nachlesen dort die Herkunft des Empfängers wäre. Die Audit-Zeile trägt sie als `[assistant]` bzw. `[script]`.
+- **Record-Knopf im Skript-Dock**: was der Bediener selbst über Palette oder Menüs an Werkzeugen startet, wird zu `var rN = tool("name", {...});` und landet beim Anhalten im Editor. Aufrufe des Assistenten (Herkunft `assistant`) und die Wiedergabe eines Skripts selbst (`script`) bleiben draußen, sonst zeichnete eine Aufzeichnung ihre eigene Wiedergabe auf.
+- `test_tooldispatcher` prüft Signal, Argumente, beide Ausgänge und die Herkunft, dazu die Herkunft in der Audit-Zeile.
+- **Grenze, die bleibt**: aufgezeichnet wird nur, was durch den Dispatcher läuft. Menü-Aktionen ohne Werkzeug (Datei öffnen, Layout wechseln) erscheinen in einem Makro nicht.
+
 ## September 2026 - Skript-Dock: dasselbe Rechnen für den Bediener
 
 - **`src/docks/scriptdock.{h,cpp}`** (DockConfig `ScriptDock`, unten neben dem Output, anfangs versteckt, **nicht** `USE_LLM`-gated): Editor, Run (Strg+Return), Stop, vier Beispiele (Energiedifferenz in kJ/mol, Mittelwert und Streuung, Gerade durch Messpunkte, Zugriff auf die geladene Struktur über ein Werkzeug), Ausgabebereich, Editorinhalt unter `script/editor` gespeichert. Der Lauf läuft auf einem eigenen Thread, Stop greift über `setStopPoll` in die laufende Engine.

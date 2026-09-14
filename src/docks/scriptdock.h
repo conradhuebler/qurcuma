@@ -47,6 +47,9 @@ public:
     QString source() const;
     void setSource(const QString& source);
     bool isRunning() const { return m_running; }
+    /// What the recorder has collected so far, as script lines.
+    QString recorded() const { return m_recorded.join(QLatin1Char('\n')) + (m_recorded.isEmpty() ? QString() : QStringLiteral("\n")); }
+    bool isRecording() const;
 
 signals:
     /// One line per run for the audit trail: what ran and how it ended.
@@ -55,6 +58,10 @@ signals:
 private slots:
     void run();
     void stop();
+    void toggleRecording(bool on);
+    /// One dispatched call, if it is the operator's own and a recording is running.
+    void noteCall(const QString& name, const QJsonObject& args, bool ok, qint64 elapsedMs,
+        const QString& origin);
 
 private:
     void appendLine(const QString& line);
@@ -72,7 +79,9 @@ private:
     QPlainTextEdit* m_output = nullptr;
     QPushButton* m_runButton = nullptr;
     QPushButton* m_stopButton = nullptr;
+    QPushButton* m_recordButton = nullptr;
     QTimer* m_saveTimer = nullptr;
+    QStringList m_recorded;  ///< the calls the recorder has collected
 
     /// The run in progress. Held by shared_ptr because the Stop button reaches it from
     /// the GUI thread while the script's own thread is inside it.

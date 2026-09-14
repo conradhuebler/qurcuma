@@ -329,9 +329,14 @@ void LlmSession::runToolCalls(const QJsonArray& toolCalls)
         emit toolStarted(name, args);
         QElapsedTimer clock;
         clock.start();
+        // Say who is calling, so the script dock's recorder leaves the model's own use
+        // out of a macro it is recording. Claude Generated 2026.
+        if (m_dispatcher)
+            ToolDispatcher::setCallOrigin(QStringLiteral("assistant"));
         const ToolResult result = m_dispatcher
             ? m_dispatcher->dispatch(name, args)
             : ToolResult::failure(tr("no dispatcher"));
+        ToolDispatcher::setCallOrigin(QString());
         if (spec.effect == ToolEffect::Read)
             m_roundWaitedMs += clock.elapsed();
         else

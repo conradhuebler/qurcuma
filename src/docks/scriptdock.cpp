@@ -111,9 +111,15 @@ ScriptDock::ScriptDock(QWidget* parent)
     examples->setMenu(examplesMenu);
     examples->setToolTip(tr("Put a worked example into the editor"));
 
+    m_recordButton = new QPushButton(tr("Record"), content);
+    m_recordButton->setCheckable(true);
+    m_recordButton->setToolTip(tr("Turn the tool calls you make into script lines, then find them "
+                                  "in the editor when you stop"));
+
     controls->addWidget(m_runButton);
     controls->addWidget(m_stopButton);
     controls->addWidget(examples);
+    controls->addWidget(m_recordButton);
     controls->addStretch(1);
     auto* hint = new QLabel(tr("JavaScript; the value of the last expression is the result"), content);
     hint->setEnabled(false);
@@ -148,6 +154,7 @@ ScriptDock::ScriptDock(QWidget* parent)
     connect(runAction, &QAction::triggered, this, &ScriptDock::run);
     connect(m_runButton, &QPushButton::clicked, this, &ScriptDock::run);
     connect(m_stopButton, &QPushButton::clicked, this, &ScriptDock::stop);
+    connect(m_recordButton, &QPushButton::toggled, this, &ScriptDock::toggleRecording);
 
     m_saveTimer = new QTimer(this);
     m_saveTimer->setSingleShot(true);
@@ -175,6 +182,59 @@ void ScriptDock::setToolLayer(ToolRegistry* registry, ToolDispatcher* dispatcher
 {
     m_registry = registry;
     m_dispatcher = dispatcher;
+    if (m_dispatcher)
+        connect(m_dispatcher, &ToolDispatcher::callRecorded, this, &ScriptDock::noteCall);
+}
+
+bool ScriptDock::isRecording() const
+{
+    return m_recordButton->isChecked();
+}
+
+void ScriptDock::toggleRecording(bool on)
+{
+    if (on) {
+        m_recorded.clear();
+        m_recordButton->setText(tr("Stop recording"));
+        appendLine(tr("recording: tools you run yourself become script lines; the assistant's "
+                      "own calls and this dock's runs are left out"));
+        return;
+    }
+
+    m_recordButton->setText(tr("Record"));
+    if (m_recorded.isEmpty()) {
+        appendLine(tr("nothing was recorded"));
+        return;
+    }
+
+    QString text = m_editor->toPlainText();
+    if (!text.isEmpty() && !text.endsWith(QLatin1Char('\n')))
+        text += QLatin1Char('\n');
+    text += QStringLiteral("\n// recorded from the tool calls you made\n") + recorded();
+    m_editor->setPlainText(text);
+    appendLine(tr("recorded %n call(s) into the editor", "", m_recorded.size()));
+}
+
+void ScriptDock::noteCall(const QString& name, const QJsonObject& args, bool ok, qint64 elapsedMs,
+    const QString& origin)
+{
+    Q_UNUSED(elapsedMs)
+    if (!m_recordButton->isChecked())
+        return;
+    // A macro is what the operator did, so the assistant's calls (origin "assistant")
+    // and this dock's own runs (origin "script") stay out of it.
+    if (!origin.isEmpty())
+        return;
+
+    m_recorded.append(QStringLiteral("var r%1 = tool(\"%2\", %3);")
+                          .arg(m_recorded.size() + 1)
+                          .arg(name,
+                              args.isEmpty()
+                                  ? QStringLiteral("{}")
+                                  : QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact))));
+    if (!ok)
+        m_recorded.append(QStringLiteral("// the line above failed when it was recorded"));
+    appendLine(QStringLiteral("  recorded %1").arg(name));
 }
 
 void ScriptDock::setApprovalPolicy(std::function<bool(const ToolSpec&, const QJsonObject&)> policy)
@@ -309,7 +369,11 @@ void ScriptDock::run()
                 return QVariantMap { { QStringLiteral("error"), refused } };
             }
 
+            // Say who is calling: a recording must not capture the replay of an earlier
+            // recording.
+            ToolDispatcher::setCallOrigin(QStringLiteral("script"));
             const ToolResult result = dispatcher->dispatch(name, json);
+            ToolDispatcher::setCallOrigin(QString());
             QVariantMap out = result.data.toVariantMap();
             if (!result.ok)
                 out.insert(QStringLiteral("error"), result.error);

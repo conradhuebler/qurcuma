@@ -56,6 +56,23 @@ public:
     /// How many calls this dispatcher has run (audit/diagnostics).
     quint64 callCount() const { return m_callCount; }
 
+    /// Who is making the calls on this thread: "assistant", "script", or nothing for
+    /// the operator's own use through the palette and the menus. Thread-local, so the
+    /// agent loop and the GUI thread cannot overwrite each other's answer, and read
+    /// back by a recorder that wants the operator's calls rather than a model's.
+    /// Claude Generated 2026.
+    static QString callOrigin();
+    static void setCallOrigin(const QString& origin);
+
+signals:
+    /// After every call, whatever its outcome. The script dock's recorder is the first
+    /// consumer: it turns the operator's tool use into a script that can be replayed.
+    /// @p origin travels with the signal rather than being read back by the receiver,
+    /// because the origin is thread-local and a queued delivery runs on another thread.
+    /// Claude Generated 2026.
+    void callRecorded(const QString& name, const QJsonObject& args, bool ok, qint64 elapsedMs,
+        const QString& origin);
+
 private:
     void record(const ToolSpec& spec, const QJsonObject& args, const ToolResult& result,
                 qint64 elapsedMs, bool marshalled);

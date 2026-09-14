@@ -15,6 +15,11 @@
 
 namespace {
 
+/// Who is making the calls on this thread. Thread-local on purpose: the assistant's
+/// agent loop and the GUI thread dispatch independently, and neither may overwrite the
+/// other's answer. Claude Generated 2026.
+thread_local QString t_origin;
+
 /// Shared state of one marshalled call.
 ///
 /// Held by shared_ptr because the waiting side may give up while the posted lambda
@@ -119,6 +124,12 @@ void ToolDispatcher::record(const ToolSpec& spec, const QJsonObject& args,
                             const ToolResult& result, qint64 elapsedMs, bool marshalled)
 {
     ++m_callCount;
+
+    // Consumers that watch what runs. The script dock's recorder is the first: it turns
+    // the operator's own tool use into a script that can be replayed. Emitted whether or
+    // not there is a log hub, because a recorder does not need one.
+    emit callRecorded(spec.name, args, result.ok, elapsedMs, callOrigin());
+
     if (!m_hub)
         return;
 
@@ -129,10 +140,22 @@ void ToolDispatcher::record(const ToolSpec& spec, const QJsonObject& args,
         ? QStringLiteral("ok")
         : QStringLiteral("error: %1").arg(result.error);
     const QString where = marshalled ? QStringLiteral(" [gui]") : QString();
+    const QString origin = callOrigin();
+    const QString by = origin.isEmpty() ? QString() : QStringLiteral(" [%1]").arg(origin);
 
     m_hub->append(QStringLiteral("tool"),
         result.ok ? LogLevel::Info : LogLevel::Warning,
-        QStringLiteral("%1 (%2)%3 args=%4 -> %5 in %6 ms")
-            .arg(spec.name, toolEffectName(spec.effect), where, shortArgs(args), outcome)
+        QStringLiteral("%1 (%2)%3%4 args=%5 -> %6 in %7 ms")
+            .arg(spec.name, toolEffectName(spec.effect), where, by, shortArgs(args), outcome)
             .arg(elapsedMs));
+}
+
+QString ToolDispatcher::callOrigin()
+{
+    return t_origin;
+}
+
+void ToolDispatcher::setCallOrigin(const QString& origin)
+{
+    t_origin = origin;
 }
