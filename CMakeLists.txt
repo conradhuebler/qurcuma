@@ -350,6 +350,29 @@ if(USE_LLM)
     target_include_directories(qurcuma_llm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 endif()
 
+# --- qurcuma_script: the script interpreter ----------------------------------
+# Claude Generated 2026 - SupraFit's scripting engine, in qurcuma's shape: a short
+# JavaScript calculation run by the application, so that numbers are computed here
+# instead of in a model's head. The engine is QJSEngine, which arrives with Qt6Qml
+# (already in the build for the 3D viewer), hence no new package.
+#
+# Deliberately NOT in qurcuma_core: that target's verified property is "links only
+# Qt6::Core and Qt6::Gui", and libQt6Qml pulls Qt6Network, ICU, libproxy and libsystemd
+# along with it (measured with ldd on this machine, 14.09.2026). Deliberately not
+# USE_LLM-gated either: a script is a calculation, not a way to reach an endpoint, so
+# a -DUSE_LLM=OFF build still gets the whole feature.
+#
+# Headless: Qt6::Widgets and Quick3D stay out, so ctest drives it without a display.
+add_library(qurcuma_script STATIC
+    src/script/scriptinterpreter.cpp
+    src/script/scriptinterpreter.h
+    src/script/scriptbuiltins.cpp
+    src/script/scriptbuiltins.h
+    src/script/scriptbridge.h
+)
+target_link_libraries(qurcuma_script PUBLIC qurcuma_core Qt6::Qml)
+target_include_directories(qurcuma_script PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 add_executable(qurcuma
     ${SOURCES}
     ${HEADERS}
@@ -410,6 +433,7 @@ find_package(OpenMP)
 target_link_libraries(qurcuma PRIVATE
 qurcuma_core  # Claude Generated 2026 - tool registry + log hub
 $<$<BOOL:${USE_LLM}>:qurcuma_llm>  # Claude Generated 2026 - endpoint client
+qurcuma_script  # Claude Generated 2026 - script interpreter (QJSEngine)
 Qt6::Core
 Qt6::Gui
 Qt6::GuiPrivate
@@ -675,6 +699,17 @@ qurcuma_core
 )
 add_test(NAME toolscore COMMAND test_toolscore)
 set_tests_properties(toolscore PROPERTIES LABELS qurcuma)
+
+# Script interpreter test - Claude Generated 2026
+# Threads because stopping a runaway script is done from a second thread, which is
+# the whole point of the check.
+add_executable(test_scriptinterpreter test_scriptinterpreter.cpp)
+target_link_libraries(test_scriptinterpreter PRIVATE
+qurcuma_script
+Threads::Threads
+)
+add_test(NAME scriptinterpreter COMMAND test_scriptinterpreter)
+set_tests_properties(scriptinterpreter PROPERTIES LABELS qurcuma)
 
 # LLM client/config test - Claude Generated 2026
 # Talks to a QTcpServer stub inside the test process. ctest never touches a network.
