@@ -38,6 +38,7 @@ Charts
 Qml
 Quick
 Quick3D
+QuickWidgets  # Claude Generated 2026 - QQuickWidget viewport (no native-window stacking over docks)
 REQUIRED
 )
 
@@ -317,6 +318,7 @@ Qt6::Charts
 Qt6::Qml
 Qt6::Quick
 Qt6::Quick3D
+Qt6::QuickWidgets
 cutechart
 $<$<BOOL:${USE_SFTP}>:${LIBSSH_LIBRARIES}>
 curcuma_core  # Claude Generated - Curcuma simulation backend

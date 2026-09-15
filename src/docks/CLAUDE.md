@@ -23,6 +23,7 @@
 - MainWindow only adds status-bar messages and menu/shortcut dispatch.
 - Bound to Ctrl+Alt+1..4; Teaching is used by the Lesson / interactive-demo workflow.
 - View ▸ Dock Panels uses each dock's `QDockWidget::toggleViewAction()`, which is Qt's safe path for tabified groups.
+- Presets/app mode set visibility **per dock** (`setDockVisible`, hides before shows, then `raise()` the preset's front tab). Never toggle via `tabifiedDockWidgets()`: Display/Simulation/Interactions share one tab bar, so a group toggle hid Display with Simulation and surfaced the hidden-by-default Interactions/Images docks.
 
 ## ProjectDock File Browser Filter
 - `DirectoryFilterProxyModel` sits between `QFileSystemModel` and `QListView`; combines live name search with extension subset filtering.
@@ -33,13 +34,17 @@
 - `ViewPresetWidget` lives below the `DisplayPanel`; manages reproducible camera + display presets (one preset = camera + display together).
 - Presets are stored under `viewPresets/` in `QSettings` and survive restarts; the list starts empty.
 - `ViewPreset` (`src/viewpreset.h`) holds camera (`rootRotation`, `pan`, `fieldOfView`, `cameraDistance`, `zoomFactor`, `zoomMode`) + display state. `ZoomMode::Absolute` applies the stored distance verbatim; `ZoomMode::Relative` reconstructs distance = `zoomFactor * sceneExtent` so the molecule keeps its on-screen size across different structures.
-- `MoleculeViewer::currentViewPreset(ZoomMode)` captures; `applyViewPreset()` restores via the atomic `SceneController::setCameraTransform` + `m_quickView->update()`, then emits `viewPresetApplied()` so `DisplayPanel::syncFromViewer()` re-syncs its controls (no dock raise).
+- `MoleculeViewer::currentViewPreset(ZoomMode)` captures; `applyViewPreset()` restores via the atomic `SceneController::setCameraTransform` + `m_quickWindow->update()`, then emits `viewPresetApplied()` so `DisplayPanel::syncFromViewer()` re-syncs its controls (no dock raise).
 - Quick buttons `Front`/`Top`/`Side` call `MoleculeViewer::setCameraOrientation()` — only rotation, zoom and display stay.
 
 ## Explore / Compute Mode
 - `MainWindow::setAppMode` updates mode buttons, persists to `ui/appMode`, and toggles the calculation toolbar.
 - Dock visibility and reflow are delegated to `DockManager::setAppMode`.
-- Tab-bar stability: `DockManager` never toggles a single dock inside a tabified group; it uses `QMainWindow::tabifiedDockWidgets()` and changes visibility for the whole group at once.
+- Explore hides Simulation + Output and raises Display; Compute shows all four layout docks and raises Simulation. Interactions/Images are left as they are.
+
+## Viewer Embedding (why docks stopped overlapping)
+- `MoleculeViewer` embeds the 3D scene as a `QQuickWidget` (`src/view.cpp`, `setupViewer`). The former `QQuickView` + `createWindowContainer()` was a **native window**, which Qt stacks above all sibling widgets: it painted over dock panels/tab bars during resizes, animations and on Wayland, and swallowed the clicks meant for them.
+- `QURCUMA_NATIVE_VIEWPORT=1` restores the native route for A/B comparison (threaded render loop, `frameSwapped`).
 
 ## Migration State
 - Phase 4 complete: `ProjectDock` extracted from `MainWindow`; all docks now live under `DockManager`.

@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Dock-Widgets: Überlagerung und verschluckte Klicks
+
+- **3D-Viewer als `QQuickWidget`** (`src/view.cpp`, `setupViewer`): der bisherige `QQuickView` im `createWindowContainer()` war ein natives Fenster, das Qt über alle Geschwister-Widgets stapelt — es überdeckte Dock-Panels/Tab-Leisten beim Resize, bei Dock-Animationen und unter Wayland und nahm die Mausklicks entgegen, die den Docks galten. `QQuickWidget` rendert per `QQuickRenderControl` in eine Textur und wird wie ein normales Widget komponiert (Render-Loop auf dem GUI-Thread, Screenshot über `grabFramebuffer()`). Escape-Hatch `QURCUMA_NATIVE_VIEWPORT=1` für die alte Route; CMake-Komponente `QuickWidgets`.
+- **DockManager: Sichtbarkeit pro Dock statt pro Tab-Gruppe** (`src/docks/dockmanager.cpp`): `tabifiedDockWidgets()`-Gruppen-Toggling versteckte im Explore-Modus und in den Presets Visualization/Editing das Display-Dock mit dem Simulation-Dock (gleiche Tab-Gruppe) und holte die standardmäßig verborgenen Docks Interactions/Images bei jedem Preset-/Moduswechsel in die Tab-Leiste. Jetzt: erst verstecken, dann zeigen, dann das Preset-Frontdock `raise()`; Interactions/Images bleiben unangetastet.
+
 ## August 2026 - Reaktives GFN-FF: Topologiemodus "react"
 
 - **Topologie-Combo erweitert** (`src/simulationcontrolwidget.cpp`): dritter Eintrag "Reactive (bonds form and break)" (userData `react`) neben Default (adaptive, `auto`) und Constant; Tooltip beschreibt den Modus sachlich (Bindungen werden während der MD neu erkannt, Bonded-Terme bei Änderung neu aufgebaut, NVT-only). Der String fließt unverändert über `SimulationConfig::topologyMode` und `buildMdController` an curcuma; Lesson-Roundtrip generisch, keine weiteren Änderungen nötig.

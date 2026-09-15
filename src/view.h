@@ -3,7 +3,7 @@
 #define MOLECULEVIEWER_H
 
 // Claude Generated 2026 - Renderer migration: MoleculeViewer is now backed by Qt
-// Quick 3D (Vulkan RHI) via an embedded QQuickView + SceneController, replacing the
+// Quick 3D (Vulkan RHI) via an embedded QQuickWidget + SceneController, replacing the
 // former Qt3D implementation. The PUBLIC API (Atom/Bond, setters/getters, signals,
 // slots) is preserved verbatim so MainWindow and all consumers are unaffected.
 #include <QWidget>
@@ -32,7 +32,8 @@ class SceneController;  // Claude Generated 2026 - Qt Quick 3D scene view-model
 class QMenu;
 class QToolButton;
 class Settings;  // Claude Generated 2026 - operator metadata + view presets for export
-class QQuickView;
+class QQuickWidget;
+class QQuickWindow;
 
 class MoleculeViewer : public QWidget
 {
@@ -654,7 +655,7 @@ private slots:
     void onAnimationTick();  // Claude Generated - Timer callback for animation
 
 private:
-    void setupViewer();         // Build the QQuickView + SceneController + container
+    void setupViewer();         // Build the QQuickWidget (or native view) + SceneController
     void setupControlPanel();   // Claude Generated - Integrated control panel (top bar)
     QFrame* createSeparator();  // Helper to create vertical separator in panel
 
@@ -700,9 +701,17 @@ private:
     void applyModelRotation(float horizDeg, float vertDeg, float rollDeg = 0.0f);
     void handleMousePan(const QPoint& currentPos);
     void handleMouseZoom(int delta);
+    void setViewportCursor(Qt::CursorShape shape);  // Claude Generated 2026
+    void unloadQmlScene();                          // Claude Generated 2026
 
     // --- Qt Quick 3D backing ---
-    QQuickView* m_quickView = nullptr;
+    // Claude Generated 2026 - m_quickWindow is the QQuickWindow that receives the
+    // input events (QQuickWidget's offscreen window, or the native QQuickView when
+    // QURCUMA_NATIVE_VIEWPORT=1); m_container is the widget in the layout (the
+    // QQuickWidget itself, or the window container). m_quickWidget is null on the
+    // native route.
+    QQuickWindow* m_quickWindow = nullptr;
+    QQuickWidget* m_quickWidget = nullptr;
     QWidget* m_container = nullptr;
     SceneController* m_scene = nullptr;
     QWidget* m_controlPanel = nullptr;

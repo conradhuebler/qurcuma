@@ -19,6 +19,8 @@
 #include <QSettings>
 #include <QTabWidget>
 
+#include <utility>
+
 DockManager::DockManager(QMainWindow* mainWindow, QObject* parent)
     : QObject(parent)
     , m_mainWindow(mainWindow)
@@ -44,29 +46,49 @@ bool DockManager::dockVisible(QDockWidget* dock) const
     return dock && dock->isVisible();
 }
 
-// Return every QDockWidget that is tabified with the given dock, including the
-// dock itself. Used to keep Qt's shared tab bar stable: tab group members must
-// always be toggled together, never individually.
-static QList<QDockWidget*> tabGroup(QMainWindow* mainWindow, QDockWidget* dock)
+// Claude Generated 2026 - Show or hide ONE dock, exactly like its
+// QDockWidget::toggleViewAction() does. Tab partners are left alone: QMainWindow
+// rebuilds the shared tab bar by itself when a member appears or disappears.
+//
+// The previous helper toggled the whole tabified group (tabifiedDockWidgets()).
+// With Display, Simulation and Interactions sharing one tab bar on the right
+// (and Output + Images at the bottom) that was wrong in both directions:
+// hiding Simulation for Explore mode / the Visualization preset also hid
+// Display, and showing Display pulled the hidden-by-default Interactions and
+// Images docks into the tab bar. The "tab-bar collapse" it was meant to avoid
+// was the native 3D window (createWindowContainer) painting over the freshly
+// rebuilt tab bar; the viewer is a QQuickWidget now, so plain per-dock
+// visibility is the correct, drift-free path.
+static void setDockVisible(QDockWidget* dock, bool visible)
 {
-    QList<QDockWidget*> group;
-    if (!dock)
-        return group;
-    group.append(dock);
-    if (mainWindow)
-        group.append(mainWindow->tabifiedDockWidgets(dock));
-    return group;
+    // isHidden() is the explicit flag (isVisible() is false for every dock while
+    // the main window itself is not shown yet).
+    if (dock && dock->isHidden() == visible)
+        dock->setVisible(visible);
 }
 
-// Set visibility of a dock and all of its tab partners at once. This prevents
-// the Qt tab-bar collapse bug when one member of a tabified group is hidden
-// while the others stay visible.
-static void setDockGroupVisible(QMainWindow* mainWindow, QDockWidget* dock, bool visible)
+// Apply a visibility set to the four "layout" docks (hides first, then shows,
+// so a tab bar never briefly holds only docks that are about to disappear) and
+// bring one right-hand dock to the front of its tab group. The Interactions and
+// Images docks are never touched here: they show themselves on demand.
+static void applyDockVisibility(QDockWidget* project, bool showProject,
+    QDockWidget* display, bool showDisplay,
+    QDockWidget* simulation, bool showSimulation,
+    QDockWidget* output, bool showOutput,
+    QDockWidget* raiseDock)
 {
-    if (!dock)
-        return;
-    for (QDockWidget* member : tabGroup(mainWindow, dock))
-        member->setVisible(visible);
+    const std::pair<QDockWidget*, bool> docks[] = {
+        { project, showProject }, { display, showDisplay },
+        { simulation, showSimulation }, { output, showOutput }
+    };
+    for (const auto& [dock, show] : docks)
+        if (!show)
+            setDockVisible(dock, false);
+    for (const auto& [dock, show] : docks)
+        if (show)
+            setDockVisible(dock, true);
+    if (raiseDock && !raiseDock->isHidden())
+        raiseDock->raise();
 }
 
 OutputDock* DockManager::outputDockImpl() const
@@ -101,24 +123,25 @@ NciDock* DockManager::nciDockImpl() const
 
 namespace {
 // Claude Generated 2026 - Data-driven layout presets. Each preset is a set of
-// dock-group visibility flags plus optional resize fractions; the five previous
+// per-dock visibility flags plus optional resize fractions; the five previous
 // near-identical applyXxxLayout() methods collapsed into this table + the single
 // applyPreset() below. Row order matches DockConfig::LayoutPreset.
 struct PresetSpec {
-    bool project;      // dock-group visibility
+    bool project;      // dock visibility
     bool display;
     bool simulation;
     bool output;
+    bool raiseSimulation;  // front tab on the right: Simulation (true) or Display
     double projectW;   // horizontal resize as fraction of window width (0 = skip)
     double displayW;
     double outputH;    // vertical resize as fraction of window height (0 = skip)
 };
 const PresetSpec kPresetSpecs[] = {
-    /* Visualization */ { true,  true,  false, false, 0.18, 0.22, 0.00 },
-    /* Editing       */ { true,  true,  false, false, 0.22, 0.32, 0.00 },
-    /* Calculation   */ { true,  false, true,  true,  0.00, 0.00, 0.35 },
-    /* Analysis      */ { true,  true,  true,  true,  0.22, 0.28, 0.22 },
-    /* Teaching      */ { true,  true,  true,  true,  0.18, 0.26, 0.25 },
+    /* Visualization */ { true,  true,  false, false, false, 0.18, 0.22, 0.00 },
+    /* Editing       */ { true,  true,  false, false, false, 0.22, 0.32, 0.00 },
+    /* Calculation   */ { true,  false, true,  true,  true,  0.00, 0.00, 0.35 },
+    /* Analysis      */ { true,  true,  true,  true,  false, 0.22, 0.28, 0.22 },
+    /* Teaching      */ { true,  true,  true,  true,  true,  0.18, 0.26, 0.25 },
 };
 }  // namespace
 
@@ -139,10 +162,9 @@ void DockManager::applyPreset(DockConfig::LayoutPreset preset)
     }
 
     const PresetSpec& s = kPresetSpecs[key];
-    setDockGroupVisible(m_mainWindow, m_projectDock, s.project);
-    setDockGroupVisible(m_mainWindow, m_displayDock, s.display);
-    setDockGroupVisible(m_mainWindow, m_simulationDock, s.simulation);
-    setDockGroupVisible(m_mainWindow, m_outputViewDock, s.output);
+    applyDockVisibility(m_projectDock, s.project, m_displayDock, s.display,
+        m_simulationDock, s.simulation, m_outputViewDock, s.output,
+        s.raiseSimulation ? m_simulationDock : m_displayDock);
 
     // Preset-specific content selection (which tab/segment to show).
     switch (preset) {
@@ -183,16 +205,11 @@ void DockManager::setAppMode(DockConfig::AppMode mode, bool reflow)
 
     const bool explore = (mode == DockConfig::AppMode::Explore);
 
-    // Phase 6 fix, extended: tabified dock groups must be toggled together,
-    // otherwise Qt's shared tab bar can collapse when one member is hidden.
-    setDockGroupVisible(m_mainWindow, m_projectDock, true);
-    setDockGroupVisible(m_mainWindow, m_displayDock, true);
-    setDockGroupVisible(m_mainWindow, m_simulationDock, !explore);
-    setDockGroupVisible(m_mainWindow, m_outputViewDock, !explore);
-    if (explore && m_displayDock)
-        m_displayDock->raise();
-    if (!explore && m_simulationDock)
-        m_simulationDock->raise();
+    // Explore: Project + Display, viewer focus. Compute: everything, with the
+    // Simulation tab in front. Per-dock visibility (see setDockVisible).
+    applyDockVisibility(m_projectDock, true, m_displayDock, true,
+        m_simulationDock, !explore, m_outputViewDock, !explore,
+        explore ? m_displayDock : m_simulationDock);
 
     if (reflow) {
         if (explore) {
@@ -259,8 +276,7 @@ void DockManager::toggleLeftPanel()
 {
     if (!m_projectDock)
         return;
-    const bool show = !m_projectDock->isVisible();
-    setDockGroupVisible(m_mainWindow, m_projectDock, show);
+    setDockVisible(m_projectDock, !m_projectDock->isVisible());
 }
 
 void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)

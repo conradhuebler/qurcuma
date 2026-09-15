@@ -2,7 +2,7 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
 // The public API matches the former Qt3D MoleculeViewer exactly; internally the
-// scene is an embedded QQuickView (src/qml/viewer3d.qml) driven by SceneController.
+// scene is a QQuickWidget (src/qml/viewer3d.qml) driven by SceneController.
 // Mouse/picking/grab are handled in C++ (eventFilter) and applied to the controller.
 // Claude Generated 2026.
 #include "view.h"
@@ -50,6 +50,7 @@
 // Offscreen high-resolution image export (QQuickRenderControl + QRhi).
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQuickGraphicsConfiguration>
 #include <QQuickItem>
 #include <QQuickRenderControl>
 #include <QQuickRenderTarget>
@@ -63,6 +64,7 @@
 #include <QSet>
 #include <QQmlContext>
 #include <QQuickView>
+#include <QQuickWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWheelEvent>
@@ -95,24 +97,71 @@ MoleculeViewer::~MoleculeViewer()
     // controller.<prop> binding in viewer3d.qml logs a harmless "Cannot read
     // property ... of null" TypeError on exit. Unloading the QML root here drops
     // those bindings first.
-    if (m_quickView)
-        m_quickView->setSource(QUrl());
+    unloadQmlScene();
+}
+
+// Claude Generated 2026 - Drop the QML root (both embedding routes) so the
+// "controller" bindings are gone before SceneController is destroyed.
+void MoleculeViewer::unloadQmlScene()
+{
+    if (m_quickWidget)
+        m_quickWidget->setSource(QUrl());
+    else if (auto* view = qobject_cast<QQuickView*>(m_quickWindow))
+        view->setSource(QUrl());
+}
+
+// Claude Generated 2026 - Cursor for the 3D viewport. The widget carries the
+// cursor in both routes; the native QQuickView additionally needs it on the
+// QWindow (QQuickWidget's offscreen window has no platform cursor to set).
+void MoleculeViewer::setViewportCursor(Qt::CursorShape shape)
+{
+    if (m_container)
+        m_container->setCursor(shape);
+    if (!m_quickWidget && m_quickWindow)
+        m_quickWindow->setCursor(shape);
 }
 
 void MoleculeViewer::setupViewer()
 {
     m_scene = new SceneController(this);
 
-    m_quickView = new QQuickView();
-    m_quickView->setResizeMode(QQuickView::SizeRootObjectToView);
-    m_quickView->rootContext()->setContextProperty(QStringLiteral("controller"), m_scene);
-    m_quickView->setSource(QUrl(QStringLiteral("qrc:/qml/src/qml/viewer3d.qml")));
-    if (m_quickView->status() == QQuickView::Error) {
-        for (const QQmlError& e : m_quickView->errors())
-            qWarning() << "viewer3d.qml:" << e.toString();
+    // Claude Generated 2026 - Embedding route. The 3D scene is a QQuickWidget: a
+    // real QWidget that renders through QQuickRenderControl into a texture and is
+    // composited like any other widget. The former QQuickView +
+    // createWindowContainer() route embeds a NATIVE window, and Qt stacks native
+    // windows above every sibling widget. That is what made dock widgets
+    // "overlap" the viewer and swallowed clicks: while a dock resizes/animates,
+    // while the tab bar of a tabified group rebuilds, or on Wayland in general,
+    // the native window covered the dock panels and took the mouse events meant
+    // for them (see the QWidget::createWindowContainer stacking-order note).
+    //
+    // QURCUMA_NATIVE_VIEWPORT=1 restores the native route (threaded render loop,
+    // frameSwapped) for A/B comparison on a GPU where QQuickWidget misbehaves.
+    const QUrl sceneUrl(QStringLiteral("qrc:/qml/src/qml/viewer3d.qml"));
+    if (qEnvironmentVariableIntValue("QURCUMA_NATIVE_VIEWPORT") == 1) {
+        auto* view = new QQuickView();
+        view->setResizeMode(QQuickView::SizeRootObjectToView);
+        view->rootContext()->setContextProperty(QStringLiteral("controller"), m_scene);
+        view->setSource(sceneUrl);
+        if (view->status() == QQuickView::Error) {
+            for (const QQmlError& e : view->errors())
+                qWarning() << "viewer3d.qml:" << e.toString();
+        }
+        m_quickWindow = view;
+        m_container = QWidget::createWindowContainer(view, this);
+        qInfo("qurcuma: native window-container viewport (QURCUMA_NATIVE_VIEWPORT=1)");
+    } else {
+        m_quickWidget = new QQuickWidget(this);
+        m_quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+        m_quickWidget->rootContext()->setContextProperty(QStringLiteral("controller"), m_scene);
+        m_quickWidget->setSource(sceneUrl);
+        if (m_quickWidget->status() == QQuickWidget::Error) {
+            for (const QQmlError& e : m_quickWidget->errors())
+                qWarning() << "viewer3d.qml:" << e.toString();
+        }
+        m_quickWindow = m_quickWidget->quickWindow();
+        m_container = m_quickWidget;
     }
-
-    m_container = QWidget::createWindowContainer(m_quickView, this);
     m_container->setMouseTracking(true);
     m_container->setFocusPolicy(Qt::StrongFocus);
 
@@ -126,8 +175,10 @@ void MoleculeViewer::setupViewer()
 
     applyAppearanceToController();
 
-    // Mouse events arrive on the QQuickView (a QWindow), like the former Qt3DWindow.
-    m_quickView->installEventFilter(this);
+    // Mouse/wheel/key events arrive on the QQuickWindow: directly for the native
+    // route, and re-sent by QQuickWidget to its offscreen window for the widget
+    // route (QCoreApplication::sendEvent runs the event filters either way).
+    m_quickWindow->installEventFilter(this);
 }
 
 void MoleculeViewer::applyAppearanceToController()
@@ -155,7 +206,7 @@ void MoleculeViewer::applyAppearanceToController()
 // ---------------------------------------------------------------------------
 bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
 {
-    if (watched == m_quickView) {
+    if (watched == m_quickWindow) {
         switch (event->type()) {
         case QEvent::MouseButtonPress: {
             auto* me = static_cast<QMouseEvent*>(event);
@@ -179,8 +230,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                         m_moveSnapshotTaken = false;  // snapshot lazily on first drag
                         m_moveRefLocal = selectionCentroidLocal();
                         m_dragAnchorGlobal = me->globalPosition().toPoint();  // cursor-lock pin
-                        if (m_quickView) m_quickView->setCursor(Qt::ClosedHandCursor);
-                        if (m_container) m_container->setCursor(Qt::ClosedHandCursor);
+                        setViewportCursor(Qt::ClosedHandCursor);
                     } else if (append) {
                         // Ctrl/Shift + drag on empty space = rubber-band (box) select.
                         m_rubberBanding = true;
@@ -219,8 +269,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     int picked = pickAtomAtScreenPos(m_lastMousePos);
                     if (picked >= 0) {
                         m_grabbedAtom = picked;
-                        if (m_quickView) m_quickView->setCursor(Qt::ClosedHandCursor);
-                        if (m_container) m_container->setCursor(Qt::ClosedHandCursor);
+                        setViewportCursor(Qt::ClosedHandCursor);
                     }
                 }
                 return true;
@@ -251,14 +300,13 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
             if (me->button() == Qt::LeftButton) {
                 m_leftMousePressed = false;
                 if (editMode() && !m_simulationActive) {
-                    if (m_quickView) m_quickView->setCursor(Qt::ArrowCursor);
-                    if (m_container) m_container->setCursor(Qt::ArrowCursor);
+                    setViewportCursor(Qt::ArrowCursor);
                     if (m_rubberBanding) {
                         m_rubberBanding = false;
                         if (m_scene) {
                             const QRectF r = QRectF(m_rubberStart, me->position().toPoint()).normalized();
-                            const float w = m_quickView ? m_quickView->width() : 1.0f;
-                            const float h = m_quickView ? m_quickView->height() : 1.0f;
+                            const float w = m_container ? m_container->width() : 1.0f;
+                            const float h = m_container ? m_container->height() : 1.0f;
                             const QVector<int> hits = m_scene->atomsInScreenRect(r, w, h);
                             if (!hits.isEmpty())
                                 selectAtoms(hits, /*append=*/true);  // box-select adds
@@ -350,8 +398,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     emit atomGrabReleased();
                     if (m_scene) m_scene->setForceArrows({}); // clear arrows on release
                     Qt::CursorShape shape = m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor;
-                    if (m_quickView) m_quickView->setCursor(shape);
-                    if (m_container) m_container->setCursor(shape);
+                    setViewportCursor(shape);
                 } else if (!m_leftDragged) {
                     // A click (no drag): select / measure / bond-edit by mode.
                     const int picked = pickAtomAtScreenPos(me->position().toPoint());
@@ -443,8 +490,8 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 }
                 const bool depth = me->modifiers() & Qt::ShiftModifier;
                 if (m_scene) {
-                    const float w = m_quickView ? m_quickView->width() : 1.0f;
-                    const float h = m_quickView ? m_quickView->height() : 1.0f;
+                    const float w = m_container ? m_container->width() : 1.0f;
+                    const float h = m_container ? m_container->height() : 1.0f;
                     const QVector3D delta = depth
                         ? m_scene->screenDragToModelDelta(0, 0, d.y(), m_moveRefLocal, w, h)
                         : m_scene->screenDragToModelDelta(d.x(), d.y(), 0, m_moveRefLocal, w, h);
@@ -478,7 +525,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 // commits atom position and bond exactly as shown.
                 if ((pos - m_leftPressPos).manhattanLength() > kBuildDragThresholdPx)
                     m_leftDragged = true;
-                if (m_leftDragged && m_scene && m_quickView
+                if (m_leftDragged && m_scene && m_container
                     && m_currentFrame < m_trajectoryAtoms.size()
                     && m_buildDragFrom < m_trajectoryAtoms[m_currentFrame].size()) {
                     QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
@@ -491,11 +538,11 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                         const QPoint d = pos - m_lastMousePos;
                         atoms[m_buildDragFrom].position += m_scene->screenDragToModelDelta(
                             0, 0, d.y(), atoms[m_buildDragFrom].position,
-                            m_quickView->width(), m_quickView->height());
+                            m_container->width(), m_container->height());
                     } else {
                         atoms[m_buildDragFrom].position = m_scene->screenToModelPoint(
                             pos.x(), pos.y(), atoms[m_buildDragFrom].position,
-                            m_quickView->width(), m_quickView->height());
+                            m_container->width(), m_container->height());
                     }
                     // Sticky preview target (same reasoning as the carry preview:
                     // near-equidistant candidates must not flip per mouse move).
@@ -596,8 +643,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 const Qt::CursorShape shape = (hov >= 0)
                     ? Qt::PointingHandCursor
                     : (m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor);
-                if (m_quickView) m_quickView->setCursor(shape);
-                if (m_container) m_container->setCursor(shape);
+                setViewportCursor(shape);
             }
             break;
         }
@@ -674,8 +720,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 m_scene->setHoverAtom(-1); // drop hover highlight when leaving the view
             if (m_grabbedAtom < 0) {
                 Qt::CursorShape shape = m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor;
-                if (m_quickView) m_quickView->setCursor(shape);
-                if (m_container) m_container->setCursor(shape);
+                setViewportCursor(shape);
             }
             break;
         }
@@ -767,18 +812,18 @@ void MoleculeViewer::handleMouseZoom(int delta)
 
 int MoleculeViewer::pickAtomAtScreenPos(const QPoint& screenPos, int excludeIndex) const
 {
-    if (!m_scene || !m_quickView)
+    if (!m_scene || !m_container)
         return -1;
     return m_scene->pickAtom(screenPos.x(), screenPos.y(),
-        m_quickView->width(), m_quickView->height(), excludeIndex);
+        m_container->width(), m_container->height(), excludeIndex);
 }
 
 QVector3D MoleculeViewer::computeGrabForce(const QPoint& mousePos, int atomIndex) const
 {
-    if (!m_scene || !m_quickView)
+    if (!m_scene || !m_container)
         return QVector3D();
     return m_scene->computeGrabForce(mousePos.x(), mousePos.y(), atomIndex,
-        m_quickView->width(), m_quickView->height(), m_grabStrength);
+        m_container->width(), m_container->height(), m_grabStrength);
 }
 
 QVector3D MoleculeViewer::modelToWorld(const QVector3D& localPos) const
@@ -2178,8 +2223,7 @@ void MoleculeViewer::setSimulationActive(bool on)
     m_grabbedAtom = -1;
     if (m_scene) m_scene->setForceArrows({});
     Qt::CursorShape shape = on ? Qt::SizeAllCursor : Qt::ArrowCursor;
-    if (m_quickView) m_quickView->setCursor(shape);
-    if (m_container) m_container->setCursor(shape);
+    setViewportCursor(shape);
 }
 
 void MoleculeViewer::setPickingActive(bool /*active*/)
@@ -2560,9 +2604,9 @@ void MoleculeViewer::placeAtomAtScreen(const QPoint& pos)
     if (haveAtoms)
         depthRef = m_selectedAtoms.isEmpty() ? m_moleculeCenter : selectionCentroidLocal();
     QVector3D p = depthRef;
-    if (m_scene && m_quickView)
+    if (m_scene && m_container)
         p = m_scene->screenToModelPoint(pos.x(), pos.y(), depthRef,
-            m_quickView->width(), m_quickView->height());
+            m_container->width(), m_container->height());
     addAtomAt(p, m_buildElement);
 }
 
@@ -3025,7 +3069,7 @@ void MoleculeViewer::startFragmentCarry(const build::Fragment& fragment)
 // the bond its attach atom would form with the nearest unbonded neighbour.
 void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
 {
-    if (!m_carryActive || !m_scene || !m_quickView
+    if (!m_carryActive || !m_scene || !m_container
         || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size()
         || m_carryOffsets.size() != m_carryAtoms.size())
         return;
@@ -3038,7 +3082,7 @@ void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
     }
     centroidNow /= float(m_carryAtoms.size());
     const QVector3D cursorPt = m_scene->screenToModelPoint(pos.x(), pos.y(), centroidNow,
-        m_quickView->width(), m_quickView->height());
+        m_container->width(), m_container->height());
 
     // Free-follow pose: library orientation with the centroid under the cursor.
     QVector3D centroidOffset;
@@ -3800,8 +3844,8 @@ void MoleculeViewer::applyViewPreset(const ViewPreset& preset, bool applyCamera,
             m_scene->setCameraTransform(preset.rootRotation, preset.pan, distance);
         else
             m_scene->resetView(); // no usable zoom -> frame molecule cleanly
-        if (m_quickView)
-            m_quickView->update();
+        if (m_quickWindow)
+            m_quickWindow->update();
     }
 
     if (!applyDisplay) {
@@ -3922,17 +3966,19 @@ void MoleculeViewer::setCameraOrientation(const QQuaternion& rotation)
     // orientation instead of snapping back to the previous one.
     m_modelRotation = rotation.normalized();
     m_scene->setRootRotationOnly(rotation);
-    if (m_quickView)
-        m_quickView->update();
+    if (m_quickWindow)
+        m_quickWindow->update();
 }
 
 void MoleculeViewer::saveScreenshot(const QString& filename, int scaleFactor)
 {
-    if (!m_quickView) {
+    if (!m_quickWindow) {
         qWarning() << "Cannot save screenshot: view not initialized";
         return;
     }
-    QImage shot = m_quickView->grabWindow();
+    // QQuickWidget renders through a render control: grab its framebuffer. The
+    // native route is a real window and grabs itself.
+    QImage shot = m_quickWidget ? m_quickWidget->grabFramebuffer() : m_quickWindow->grabWindow();
     if (scaleFactor > 1)
         shot = shot.scaled(shot.size() * scaleFactor, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     if (!shot.save(filename))
@@ -3983,10 +4029,32 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
     QQuickWindow quickWindow(&renderControl);
     quickWindow.setColor(transparent ? QColor(Qt::transparent) : ctrl.backgroundColor());
 #if QT_CONFIG(vulkan) && __has_include(<vulkan/vulkan.h>)
-    // Vulkan needs a QVulkanInstance; reuse the live view's so we don't create a second.
-    if (QQuickWindow::graphicsApi() == QSGRendererInterface::Vulkan && m_quickView
-        && m_quickView->vulkanInstance())
-        quickWindow.setVulkanInstance(m_quickView->vulkanInstance());
+    // Vulkan needs a QVulkanInstance. Prefer the live view's (native route) or the
+    // top-level window's (QQuickWidget shares the widget backing-store RHI); only
+    // create our own when neither carries one. Claude Generated 2026.
+    if (QQuickWindow::graphicsApi() == QSGRendererInterface::Vulkan) {
+        QVulkanInstance* inst = m_quickWindow ? m_quickWindow->vulkanInstance() : nullptr;
+        if (!inst && window() && window()->windowHandle())
+            inst = window()->windowHandle()->vulkanInstance();
+        if (!inst) {
+            // Kept alive for the process (a QVulkanInstance must outlive every
+            // QQuickWindow that used it; destroying it at exit after QApplication
+            // is gone is not safe either).
+            static QVulkanInstance* s_exportInstance = nullptr;
+            if (!s_exportInstance) {
+                s_exportInstance = new QVulkanInstance;
+                s_exportInstance->setExtensions(QQuickGraphicsConfiguration::preferredInstanceExtensions());
+                if (!s_exportInstance->create()) {
+                    qWarning() << "exportImage: QVulkanInstance::create() failed";
+                    delete s_exportInstance;
+                    s_exportInstance = nullptr;
+                }
+            }
+            inst = s_exportInstance;
+        }
+        if (inst)
+            quickWindow.setVulkanInstance(inst);
+    }
 #endif
 
     QQmlEngine engine;
