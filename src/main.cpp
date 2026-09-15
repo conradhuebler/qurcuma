@@ -3,6 +3,7 @@
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QDir>
+#include <QGuiApplication>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QSurfaceFormat>
@@ -32,6 +33,21 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
     QCoreApplication::setApplicationVersion(QStringLiteral(QURCUMA_VERSION));
+
+    // Claude Generated 2026 - Qt's built-in QDockWidget float/redock drag hit-testing
+    // needs absolute screen coordinates to tell whether the floating title bar is over
+    // a dock area of the main window; native Wayland does not expose those to clients
+    // by design, so a floated dock can no longer be dragged back in (confirmed on this
+    // project's own Wayland session: undocking works, docking back does not;
+    // QT_QPA_PLATFORM=xcb/XWayland fixes it immediately). There is no code-side fix, so
+    // hint at the workaround once instead of silently forcing xcb, which could keep the
+    // app from starting on a compositor without XWayland.
+    if (QGuiApplication::platformName() == QStringLiteral("wayland")) {
+        qInfo("qurcuma: running under native Wayland - re-docking a floating dock panel "
+              "may not work (Qt's dock drag needs absolute screen coordinates, which "
+              "Wayland does not expose to clients). Run with QT_QPA_PLATFORM=xcb if you "
+              "need to rearrange docks.");
+    }
 
     // Claude Generated 2026 - Renderer migration: prefer the Vulkan RHI backend for
     // Qt Quick 3D. Vulkan is cross-vendor (NVIDIA proprietary, AMD/RADV, Intel ANV),

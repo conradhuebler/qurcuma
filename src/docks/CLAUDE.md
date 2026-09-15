@@ -46,6 +46,10 @@
 - `MoleculeViewer` embeds the 3D scene as a `QQuickWidget` (`src/view.cpp`, `setupViewer`). The former `QQuickView` + `createWindowContainer()` was a **native window**, which Qt stacks above all sibling widgets: it painted over dock panels/tab bars during resizes, animations and on Wayland, and swallowed the clicks meant for them.
 - `QURCUMA_NATIVE_VIEWPORT=1` restores the native route for A/B comparison (threaded render loop, `frameSwapped`).
 
+## Known Limitations (Wayland)
+- **Re-docking a floated dock does not work under native Wayland.** Confirmed 2026-09: undocking is fine, dragging the floating title bar back over the main window never shows a drop indicator and never re-docks; `QT_QPA_PLATFORM=xcb` (XWayland) fixes it immediately. Cause: Qt's built-in float/redock hit-testing needs absolute screen coordinates to tell whether the floating window is over a dock area, and native Wayland does not expose those to clients. No code-side fix; `main.cpp` prints a startup hint (`QGuiApplication::platformName() == "wayland"`) instead of silently forcing `xcb`, which could keep the app from starting on a compositor without XWayland.
+- Same root cause as the existing Wayland `QCursor::setPos` no-op noted under Cursor Lock (`src/CLAUDE.md`): absolute-position APIs are unavailable to Wayland clients by design.
+
 ## Migration State
 - Phase 4 complete: `ProjectDock` extracted from `MainWindow`; all docks now live under `DockManager`.
 - Phase 5 complete: preset logic and app-mode dock handling moved to `DockManager`; `MainWindow` enums replaced by `DockConfig` enums.

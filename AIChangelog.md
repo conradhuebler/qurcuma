@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Wayland: abgedockte Panels lassen sich nicht zurückdocken
+
+- **Kein Code-Fehler, Wayland-Plattformgrenze**: Qts eingebautes Andock-Hit-Testing für ein bereits schwebendes `QDockWidget` braucht beim Ziehen absolute Bildschirmkoordinaten, um zu erkennen, dass die Titelleiste über einem Dock-Bereich des Hauptfensters ist. Natives Wayland gibt Clients diese Koordinaten grundsätzlich nicht heraus. Bestätigt auf der eigenen Wayland-Session des Projekts: Abdocken funktioniert, Zurückdocken nicht; `QT_QPA_PLATFORM=xcb` (XWayland) behebt es sofort. Derselbe Mechanismus wie die bereits dokumentierte Wayland-Einschränkung bei `QCursor::setPos` (Cursor-Lock).
+- **Kein automatischer Plattform-Zwang**: `main.cpp` erzwingt `xcb` nicht selbsttätig — das würde den Start auf einem Compositor ohne XWayland verhindern. Stattdessen ein einmaliger `qInfo()`-Hinweis beim Start, wenn `QGuiApplication::platformName() == "wayland"`.
+
 ## September 2026 - Dock-Widgets: Überlagerung und verschluckte Klicks
 
 - **3D-Viewer als `QQuickWidget`** (`src/view.cpp`, `setupViewer`): der bisherige `QQuickView` im `createWindowContainer()` war ein natives Fenster, das Qt über alle Geschwister-Widgets stapelt — es überdeckte Dock-Panels/Tab-Leisten beim Resize, bei Dock-Animationen und unter Wayland und nahm die Mausklicks entgegen, die den Docks galten. `QQuickWidget` rendert per `QQuickRenderControl` in eine Textur und wird wie ein normales Widget komponiert (Render-Loop auf dem GUI-Thread, Screenshot über `grabFramebuffer()`). Escape-Hatch `QURCUMA_NATIVE_VIEWPORT=1` für die alte Route; CMake-Komponente `QuickWidgets`.
