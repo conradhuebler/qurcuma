@@ -18,6 +18,7 @@ Technical documentation for core systems:
 - **[Rendering Pipeline](./architecture/rendering-pipeline.md)** - CustomFrameGraph, multi-pass rendering, SSAO, Bloom, HDR tone mapping
 - **[Performance Optimization](./architecture/performance-optimization.md)** - GPU instancing, frustum culling, LOD system, async file loading
 - **[File Parsers](./architecture/file-parsers.md)** - VTF, XYZ, PDB, MOL2 format parsing and integration
+- **[Performance Roadmap (WP)](./WP-performance.md)** - measured plan: bond detection/NCI off the GUI thread, position-only instancing path, frame coalescing, adaptive GPU quality; why a render thread is parked
 
 ---
 
