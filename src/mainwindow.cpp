@@ -1002,6 +1002,19 @@ void MainWindow::createMenus()
         }
     });
 
+    // Claude Generated 2026 - Menu path back in for a floated dock, independent of
+    // dragging it: native Wayland cannot drag a floating dock back onto the main
+    // window (Qt's redock hit-test needs absolute screen coordinates Wayland does
+    // not expose; see src/docks/CLAUDE.md "Known Limitations (Wayland)"). This
+    // calls QMainWindow::addDockWidget() directly, so it works on every platform.
+    QAction *redockAction = viewMenu->addAction(QIcon::fromTheme("view-restore"), tr("Re-dock &Floating Panels"));
+    connect(redockAction, &QAction::triggered, this, [this]() {
+        if (m_dockManager) {
+            m_dockManager->redockFloating();
+            statusBar()->showMessage(tr("Floating panels re-docked"), 2000);
+        }
+    });
+
     // Claude Generated 2026 - Display menu: frequent viewer toggles reachable in
     // one click (and via the Ctrl+K palette, which harvests menu-bar actions).
     // The same QActions feed the viewport context menu and the NCI bar dropdown,
@@ -4953,8 +4966,16 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
         // stale cache instead of the previous run's final coordinates.
         m_moleculeView->resetSimDirty();
 
+        // Claude Generated 2026 - P0/P3 (docs/WP-performance.md): mirror the
+        // worker's own "Performance" checkbox onto the viewer's GUI-side timing,
+        // and route frames through the coalescing entry point instead of the
+        // heavy path directly, so a GUI-bound burst drops stale frames instead of
+        // working through a growing backlog.
+        m_moleculeView->setPerformanceAnalysis(
+            m_simulationConfig.performanceAnalysis, m_simulationConfig.performanceInterval);
+
         connect(worker, &SimulationWorker::frameReady,
-            m_moleculeView, &MoleculeViewer::updateSimulationFrame,
+            m_moleculeView, &MoleculeViewer::onWorkerFrameReady,
             Qt::QueuedConnection);
         // Claude Generated 2026 - Phase 6: viewer drag → worker force injection.
         // QueuedConnection marshals the force matrix to the worker thread safely.

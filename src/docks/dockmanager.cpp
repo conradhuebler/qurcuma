@@ -279,6 +279,31 @@ void DockManager::toggleLeftPanel()
     setDockVisible(m_projectDock, !m_projectDock->isVisible());
 }
 
+void DockManager::redockFloating()
+{
+    if (!m_mainWindow)
+        return;
+
+    // addDockWidget() docks (and un-floats) in one call; it is a plain API call
+    // that computes nothing from the cursor or window positions, so it works
+    // regardless of platform. Order matters: Display must be re-docked before
+    // Simulation/Interactions try to tabify onto it.
+    auto redock = [this](QDockWidget* dock, Qt::DockWidgetArea area, QDockWidget* tabWith) {
+        if (!dock || !dock->isFloating())
+            return;
+        m_mainWindow->addDockWidget(area, dock);
+        if (tabWith)
+            m_mainWindow->tabifyDockWidget(tabWith, dock);
+    };
+
+    redock(m_projectDock, DockConfig::ProjectDockArea, nullptr);
+    redock(m_displayDock, DockConfig::DisplayDockArea, nullptr);
+    redock(m_simulationDock, DockConfig::SimulationDockArea, m_displayDock);
+    redock(m_nciDock, DockConfig::NciDockArea, m_displayDock);
+    redock(m_outputViewDock, DockConfig::OutputViewDockArea, nullptr);
+    redock(m_imageGalleryDock, DockConfig::ImageGalleryDockArea, m_outputViewDock);
+}
+
 void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
 {
     if (!m_mainWindow || m_outputViewDock)

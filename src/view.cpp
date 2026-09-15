@@ -1882,12 +1882,49 @@ bool bondSetEqual(const QVector<MoleculeViewer::Bond>& a, const QVector<Molecule
 }
 }  // namespace
 
+// Claude Generated 2026 - P3 frame coalescing (docs/WP-performance.md). See the
+// declaration in view.h for why: this is the worker connection target now, not
+// updateSimulationFrame directly.
+void MoleculeViewer::onWorkerFrameReady(SimulationFramePtr frame)
+{
+    m_pendingFrame = frame;
+    if (m_frameUpdateScheduled)
+        return;  // a pass is already queued; it will pick up whatever is latest
+    m_frameUpdateScheduled = true;
+    QMetaObject::invokeMethod(this, [this]() {
+        m_frameUpdateScheduled = false;
+        SimulationFramePtr toProcess = m_pendingFrame;
+        m_pendingFrame.reset();
+        if (toProcess)
+            updateSimulationFrame(toProcess);
+    }, Qt::QueuedConnection);
+}
+
+// Claude Generated 2026 - P0 GUI-side timing (docs/WP-performance.md). Wired from
+// the same "Performance" checkbox the worker's own step-timing summary uses.
+void MoleculeViewer::setPerformanceAnalysis(bool enabled, int interval)
+{
+    m_perfAnalysis = enabled;
+    m_perfInterval = qMax(1, interval);
+    m_perfFrameCount = 0;
+    m_perfBondTotalUs = m_perfBondMaxUs = 0;
+    m_perfRebuildTotalUs = m_perfRebuildMaxUs = 0;
+    if (enabled)
+        m_perfWindowTimer.start();
+}
+
 void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
 {
     if (!frame)
         return;
     const auto& positions = frame->positions;
     const int n = static_cast<int>(positions.size());
+
+    // Claude Generated 2026 - P0 timing; only started when enabled (checking the
+    // flag costs less than an unconditional QElapsedTimer::start()).
+    QElapsedTimer perfFrameClock;
+    if (m_perfAnalysis)
+        perfFrameClock.start();
 
     // Claude Generated 2026 - Live interaction overlay: while the GFN-FF source is
     // selected the contacts come from the running force field itself, so what is
@@ -1930,8 +1967,14 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
     // rebuild keeps the camera/bounds fixed so a reaction event does not jolt the view.
     // Claude Generated 2026.
     bool topologyChanged = false;
+    qint64 bondDetectUs = 0;  // Claude Generated 2026 - P0 timing
     if (m_dynamicBonds && !m_trajectoryBonds.isEmpty()) {
+        QElapsedTimer bondClock;
+        if (m_perfAnalysis)
+            bondClock.start();
         QVector<Bond> newBonds = detectBondsHysteresis(refAtoms, m_trajectoryBonds[0]);
+        if (m_perfAnalysis)
+            bondDetectUs = bondClock.nsecsElapsed() / 1000;
         if (!bondSetEqual(newBonds, m_trajectoryBonds[0])) {
             m_trajectoryBonds[0] = newBonds;
             topologyChanged = true;
@@ -1961,6 +2004,36 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
         QVector3D modelLocalForce = computeGrabForce(m_lastMousePos, m_grabbedAtom);
         emit atomForceRequested(m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
         updateForceVectors();
+    }
+
+    // Claude Generated 2026 - P0 GUI-side timing summary (docs/WP-performance.md).
+    // "rebuild" = everything else in this function: scene sync (positions, bond
+    // instancing, NCI, walls) minus the bond-detection time already carved out
+    // above. Same reporting cadence/style as SimulationWorker's own step-time
+    // summary, so both can be read side by side in the console.
+    if (m_perfAnalysis) {
+        const qint64 totalUs = perfFrameClock.nsecsElapsed() / 1000;
+        const qint64 rebuildUs = qMax<qint64>(0, totalUs - bondDetectUs);
+        m_perfBondTotalUs += bondDetectUs;
+        m_perfBondMaxUs = qMax(m_perfBondMaxUs, bondDetectUs);
+        m_perfRebuildTotalUs += rebuildUs;
+        m_perfRebuildMaxUs = qMax(m_perfRebuildMaxUs, rebuildUs);
+        ++m_perfFrameCount;
+        if (m_perfFrameCount >= m_perfInterval) {
+            const qint64 avgBondUs = m_perfBondTotalUs / m_perfFrameCount;
+            const qint64 avgRebuildUs = m_perfRebuildTotalUs / m_perfFrameCount;
+            const double guiFps = 1000.0 * m_perfFrameCount
+                / std::max<qint64>(1, m_perfWindowTimer.elapsed());
+            qDebug() << "=== GUI Performance [last" << m_perfFrameCount << "frames] ==="
+                     << "atoms:" << n
+                     << "bonds_avg:" << avgBondUs << "us max:" << m_perfBondMaxUs << "us"
+                     << "rebuild_avg:" << avgRebuildUs << "us max:" << m_perfRebuildMaxUs << "us"
+                     << "gui_fps:" << guiFps;
+            m_perfFrameCount = 0;
+            m_perfBondTotalUs = m_perfBondMaxUs = 0;
+            m_perfRebuildTotalUs = m_perfRebuildMaxUs = 0;
+            m_perfWindowTimer.restart();
+        }
     }
 }
 

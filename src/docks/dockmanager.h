@@ -81,6 +81,13 @@ public slots:
     // Toggle the left panel group (Project + Navigation).
     void toggleLeftPanel();
 
+    // Claude Generated 2026 - Re-dock every currently floating panel to its default
+    // area via QMainWindow::addDockWidget(), a pure API call independent of screen
+    // coordinates. Works around native Wayland, where Qt's built-in drag-to-redock
+    // needs absolute screen coordinates it doesn't get (src/docks/CLAUDE.md, "Known
+    // Limitations (Wayland)"). No-op for docks that are already docked.
+    void redockFloating();
+
 signals:
     void appModeChanged(DockConfig::AppMode mode);
     void presetApplied(DockConfig::LayoutPreset preset);

@@ -152,6 +152,17 @@ public:
 
     void resetSimDirty() { m_moleculeDirty = false; }
 
+    /**
+     * @brief Claude Generated 2026 - P0 GUI-side timing (docs/WP-performance.md).
+     * Mirrors SimulationWorker's existing "Performance" checkbox/interval (which
+     * only times the physics step on the worker thread): reports the two GUI-side
+     * costs per live frame - bond re-detection and the rest of the scene rebuild
+     * (SceneController::updatePositions/rebuildGeometry, NCI, walls) - as a qDebug
+     * summary every @p interval frames, same style as the worker's own summary.
+     * Wired from the same "Performance" checkbox in MainWindow::wireSimulationWorker.
+     */
+    void setPerformanceAnalysis(bool enabled, int interval);
+
     // Claude Generated - Visual settings setters
     void setRenderingMode(RenderingMode mode);
     RenderingMode getRenderingMode() const { return m_renderingMode; }
@@ -407,6 +418,17 @@ public slots:
      * reactions is reflected by the drawn bonds.
      */
     void updateSimulationFrame(SimulationFramePtr frame);
+
+    /**
+     * @brief Claude Generated 2026 - P3 frame coalescing (docs/WP-performance.md).
+     * Entry point for SimulationWorker::frameReady instead of updateSimulationFrame
+     * directly: the worker can post frames faster than the GUI can process them
+     * (rendering happens on the GUI thread since the QQuickWidget viewer switch), so
+     * queuing every frame works through a growing backlog one by one. This stores
+     * only the latest frame and schedules exactly one processing pass at a time;
+     * frames superseded before that pass runs are dropped, never rendered stale.
+     */
+    void onWorkerFrameReady(SimulationFramePtr frame);
 
     /** @brief Enable/disable per-frame bond re-detection during live MD/Opt (default on).
      *  Claude Generated 2026 - shows bond breaking/formation in reactions. */
@@ -884,6 +906,20 @@ private:
 
     bool m_moleculeDirty = false;
     bool m_dynamicBonds = true;  // Claude Generated 2026 - re-detect bonds each live frame (reactions)
+
+    // Claude Generated 2026 - P3 frame coalescing state (see onWorkerFrameReady).
+    SimulationFramePtr m_pendingFrame;
+    bool m_frameUpdateScheduled = false;
+
+    // Claude Generated 2026 - P0 GUI-side timing state (see setPerformanceAnalysis).
+    bool m_perfAnalysis = false;
+    int m_perfInterval = 100;
+    int m_perfFrameCount = 0;
+    qint64 m_perfBondTotalUs = 0;
+    qint64 m_perfBondMaxUs = 0;
+    qint64 m_perfRebuildTotalUs = 0;
+    qint64 m_perfRebuildMaxUs = 0;
+    QElapsedTimer m_perfWindowTimer;
 
     // Claude Generated 2026 - Non-covalent interaction overlay state.
     int m_nciSource = 0;               // 0=off, 1=geometry, 2=gfnff, 3=population

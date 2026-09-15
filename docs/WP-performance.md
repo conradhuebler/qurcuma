@@ -40,6 +40,8 @@ die liegen unabhängig von der Einbettung auf dem GUI-Thread.
 
 ## 2. WP P0 — Messen (Voraussetzung für alles Weitere)
 
+**Status: ADDED (grob), Baseline-Tabelle steht noch aus.** `MoleculeViewer::setPerformanceAnalysis` (`src/view.cpp`) misst pro Live-Frame zwei Buckets — Bindungserkennung und "Rest" (Szenen-Sync inkl. `rebuildGeometry`/NCI/Wände) — und gibt alle `performanceInterval` Frames eine `qDebug`-Zeile aus (Avg/Max in µs + GUI-FPS), im selben Stil wie `SimulationWorker`s vorhandene Step-Zeit-Zusammenfassung. Wird von derselben "Performance"-Checkbox im Simulation-Dock aktiviert (`MainWindow::wireSimulationWorker`), keine neue UI. Die feinere Aufschlüsselung (einzeln `rebuildGeometry` vs. `setItems`/`setSegments` vs. `refreshNciOverlay`), der `QSG_RENDER_TIMING`-Vergleich und die Baseline-Tabelle selbst sind noch offen — siehe unten.
+
 **Ziel:** Eine Baseline-Tabelle je Schritt aus Abschnitt 1, für drei Testfälle.
 
 - Testfälle festlegen: klein (~100 Atome, z. B. `conf_28.xyz`), mittel (~1k), groß (~10k, synthetisch oder Polymer-VTF). Jeweils MD mit GFN-FF, 1000 Steps.
@@ -82,12 +84,13 @@ die liegen unabhängig von der Einbettung auf dem GUI-Thread.
 
 ## 5. WP P3 — Frame-Koaleszenz (Latest-wins)
 
+**Status: ADDED.** Umgesetzt einfacher als unten geplant: kein 60-Hz-`QTimer`, sondern ein Debounce über `QMetaObject::invokeMethod(..., Qt::QueuedConnection)`. `SimulationWorker::frameReady` verbindet jetzt auf `MoleculeViewer::onWorkerFrameReady` (`src/view.cpp`) statt direkt auf `updateSimulationFrame`: der Slot legt den Frame in `m_pendingFrame` ab und plant genau **eine** Verarbeitung, solange keine bereits ansteht (`m_frameUpdateScheduled`); jeder weitere Frame währenddessen überschreibt nur `m_pendingFrame` und wird sonst verworfen. Läuft die geplante Verarbeitung, nimmt sie den zu dem Zeitpunkt jüngsten Frame. Kein Timer, der im Leerlauf tickt; Charts/Atom-Tabelle bekommen wie bisher jeden Frame über `moleculeUpdated`/`frameReady`, da nur der Anschluss des Viewers umgeleitet wurde, nicht das Signal selbst.
+
 **Ziel:** Der GUI-Thread zeichnet mit Bildschirmrate, nicht mit Step-Rate; Frames stauen sich nie in der Queue.
 
 - Heute emittiert der Worker pro Step `frameReady` (QueuedConnection). Ist der GUI-Thread langsamer als der Step, wächst die Event-Queue und die Anzeige hinkt nach; Eingaben (Grab, Temperatur-Slider) werden träge.
-- Lösung: ein Mailbox-Puffer (`std::atomic`/Mutex + `SimulationFramePtr latest`) im Viewer; der Worker legt ab, der Viewer holt beim nächsten Tick eines 60-Hz-`QTimer` bzw. über `QQuickWindow::beforeSynchronizing` den jüngsten Frame. Snapshots/Charts/Kalorimetrie erhalten weiterhin jeden Frame (getrennter Kanal, keine Zeichenlast).
 - Live-Charts (`SimulationChartWidget::appendFrame`) und Atom-Tabelle prüfen: `moleculeUpdated` ist bereits auf einmal pro Lauf gedrosselt, `appendFrame` auf ~8 Hz für die Achsen; die Punktaufnahme pro Frame bleibt O(1).
-- **Definition of Done:** Bei künstlich verlangsamtem GUI (z. B. 10k Atome + SSAO) bleibt die Eingabe reaktiv, die Queue-Länge bleibt 1; Charts zeigen weiterhin alle Steps.
+- **Definition of Done:** Bei künstlich verlangsamtem GUI (z. B. 10k Atome + SSAO) bleibt die Eingabe reaktiv, die Queue-Länge bleibt 1; Charts zeigen weiterhin alle Steps. **Noch nicht empirisch verifiziert** — braucht denselben Test wie P0.
 
 **Aufwand:** klein–mittel (1–2 Tage). **Risiko:** gering.
 

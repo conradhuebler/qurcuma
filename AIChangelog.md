@@ -1,5 +1,11 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Performance-Roadmap P0/P3: GUI-Timing + Frame-Koaleszenz; Redock-Menü
+
+- **P0 GUI-Timing** (`MoleculeViewer::setPerformanceAnalysis`, `src/view.cpp`): misst pro Live-Frame Bindungserkennung und Rest-Rebuild getrennt, `qDebug`-Summary alle `performanceInterval` Frames (Avg/Max µs + GUI-FPS) — dieselbe „Performance"-Checkbox im Simulation-Dock, die bisher nur die Worker-Step-Zeit zeigte.
+- **P3 Frame-Koaleszenz** (`MoleculeViewer::onWorkerFrameReady`): `SimulationWorker::frameReady` läuft jetzt über einen Debounce (`QMetaObject::invokeMethod(..., Qt::QueuedConnection)`) statt direkt auf `updateSimulationFrame` — bei einem GUI-gebundenen Burst wird immer nur der jüngste Frame verarbeitet, ältere werden verworfen statt nacheinander abgearbeitet zu werden. Kein Timer, keine Änderung an Charts/Atom-Tabelle (bekommen weiterhin jeden Frame).
+- **Redock-Menü** (View ▸ „Re-dock Floating Panels", `DockManager::redockFloating`): docked jedes schwebende Panel über `QMainWindow::addDockWidget()` an seine Vorgabeposition zurück — umgeht die Wayland-Einschränkung beim Zurückziehen per Drag, da der Aufruf keine Bildschirmkoordinaten braucht.
+
 ## September 2026 - Wayland: abgedockte Panels lassen sich nicht zurückdocken
 
 - **Kein Code-Fehler, Wayland-Plattformgrenze**: Qts eingebautes Andock-Hit-Testing für ein bereits schwebendes `QDockWidget` braucht beim Ziehen absolute Bildschirmkoordinaten, um zu erkennen, dass die Titelleiste über einem Dock-Bereich des Hauptfensters ist. Natives Wayland gibt Clients diese Koordinaten grundsätzlich nicht heraus. Bestätigt auf der eigenen Wayland-Session des Projekts: Abdocken funktioniert, Zurückdocken nicht; `QT_QPA_PLATFORM=xcb` (XWayland) behebt es sofort. Derselbe Mechanismus wie die bereits dokumentierte Wayland-Einschränkung bei `QCursor::setPos` (Cursor-Lock).
