@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - RMSD-Overlay: Referenz behält ihre Farbe (auch als Primärstruktur)
+
+- **`SceneController::setPrimaryTint`** (`src/scenecontroller.{h,cpp}`): die Primärstruktur konnte bisher keinen Farb-Tint tragen, sie rendert immer über das globale Farbschema — deshalb sah es nach einem Referenzwechsel so aus, als würde die neue Referenz „grau" statt in ihrer vorherigen Overlay-Farbe erscheinen. `schemeColorFor()` wendet jetzt bei gesetztem Tint dasselbe `shiftOverlayColor` an, das auch Overlays einfärbt, auf dieselbe Basisfarbe — eine Struktur zeigt also dieselbe Farbe, ob sie gerade Referenz oder Overlay ist.
+- **`MoleculeViewer::setOverlayWorkspace`/`setPrimaryTint`** und **`RMSDWidget::overlayWorkspaceChanged`/`referenceTintChanged`** um den Referenz-Tint erweitert; Farb-Swatch in der Tabelle jetzt auch für die Referenzzeile aktiv und klickbar (vorher deaktiviert mit „uses the global colour scheme").
+
 ## September 2026 - RMSD-Overlay: Referenz ohne Farbe zeigte falsche Farbe nach Wechsel
 
 - **Fix** (`src/rmsdwidget.cpp`, `addStructure`/`setReferenceStructure`): eine Struktur, die als *erste* ins RMSD-Workspace kommt oder über „Use current view as reference" neu angelegt wird, ist von Anfang an Referenz und bekam nie einen `tint` zugewiesen (`s.tint` blieb default-konstruiertes, ungültiges `QColor()`). Solange sie Referenz blieb, fiel das nicht auf — die Referenz rendert ohnehin über das globale Farbschema. Sobald aber eine andere Struktur zur Referenz wurde, tauchte genau diese als Overlay auf und zeigte die nie gesetzte Farbe: wirkte wie ein Farbwechsel beim Referenzwechsel, war aber eine fehlende Zuweisung. Jede Struktur bekommt jetzt beim Anlegen sofort eine Farbe aus derselben Palette wie jedes andere Overlay; geändert wird sie danach nur noch über den Farb-Dialog, nie automatisch durch einen Referenzwechsel.

@@ -1670,8 +1670,8 @@ void MoleculeViewer::appendMolecule(const QVector<Atom>& newAtoms, const QVector
 }
 
 void MoleculeViewer::setOverlayWorkspace(const QVector<Atom>& refAtoms,
-    const QVector<Bond>& refBonds, bool refVisible, const QVector<OverlaySpec>& overlays,
-    bool resetView)
+    const QVector<Bond>& refBonds, bool refVisible, const QColor& refTint,
+    const QVector<OverlaySpec>& overlays, bool resetView)
 {
     if (!m_scene)
         return;
@@ -1688,6 +1688,7 @@ void MoleculeViewer::setOverlayWorkspace(const QVector<Atom>& refAtoms,
         clearOverlays();
     }
     setPrimaryVisible(refVisible);
+    setPrimaryTint(refTint);
     for (const OverlaySpec& o : overlays) {
         const int idx = addOverlay(o.atoms, o.tint, o.sizeScale);
         if (idx >= 0 && !o.visible)
@@ -1735,6 +1736,12 @@ void MoleculeViewer::setPrimaryVisible(bool visible)
 {
     if (m_scene)
         m_scene->setPrimaryVisible(visible);
+}
+
+void MoleculeViewer::setPrimaryTint(const QColor& tint)
+{
+    if (m_scene)
+        m_scene->setPrimaryTint(tint);
 }
 
 void MoleculeViewer::clearOverlays()

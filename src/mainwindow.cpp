@@ -4379,10 +4379,11 @@ void MainWindow::createDockWidgets()
             connect(m_rmsdWidget, &RMSDWidget::overlayWorkspaceChanged, this,
                 [this](const QVector<MoleculeViewer::Atom>& refAtoms,
                     const QVector<MoleculeViewer::Bond>& refBonds, bool refVisible,
-                    const QVector<MoleculeViewer::OverlaySpec>& overlays, bool resetView) {
+                    const QColor& refTint, const QVector<MoleculeViewer::OverlaySpec>& overlays,
+                    bool resetView) {
                     if (m_moleculeView)
                         m_moleculeView->setOverlayWorkspace(refAtoms, refBonds, refVisible,
-                            overlays, resetView);
+                            refTint, overlays, resetView);
                 });
             connect(m_rmsdWidget, &RMSDWidget::overlayTintChanged, this,
                 [this](int i, const QColor& c) {
@@ -4403,6 +4404,11 @@ void MainWindow::createDockWidgets()
                 [this](bool v) {
                     if (m_moleculeView)
                         m_moleculeView->setPrimaryVisible(v);
+                });
+            connect(m_rmsdWidget, &RMSDWidget::referenceTintChanged, this,
+                [this](const QColor& c) {
+                    if (m_moleculeView)
+                        m_moleculeView->setPrimaryTint(c);
                 });
             // Direct feedback when a structure is aligned + added to the workspace.
             connect(m_rmsdWidget, &RMSDWidget::structureAligned, this,

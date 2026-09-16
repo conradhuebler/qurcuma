@@ -266,6 +266,12 @@ public:
     void setColorScheme(int scheme);
     void setMonochromeColor(const QColor& c);
     void setPrimaryVisible(bool on);   // hide/show the primary (reference) structure
+    /** @brief Claude Generated 2026 - Tint the primary (reference) structure the same
+     *  way an RMSD overlay is tinted (same colour family, element identity kept). An
+     *  invalid QColor() (the default) means "no tint": the primary renders via the
+     *  plain colour scheme, as before this existed. Used by the RMSD workspace so a
+     *  structure keeps the colour it had as an overlay once it becomes the reference. */
+    void setPrimaryTint(const QColor& tint);
     void setHighQualityAA(bool on);          // SSAA VeryHigh (image export)
     void setTransparentBackground(bool on);  // transparent clear (image export)
     /// Deep-copy the render state from @p src (geometry, overlays, appearance, effects,
@@ -506,6 +512,7 @@ private:
     bool m_atomsVisible = true;
     bool m_bondsVisible = true;
     bool m_primaryVisible = true;   // primary (reference) structure shown? (RMSD workspace)
+    QColor m_primaryTint;           // invalid = no tint (RMSD workspace, see setPrimaryTint)
     bool m_highQualityAA = false;        // SSAA VeryHigh (export) vs MSAA High (interactive)
     bool m_transparentBackground = false; // transparent clear colour (export/compositing)
 

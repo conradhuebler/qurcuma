@@ -5,8 +5,11 @@
 // Align" tab). A QTableWidget of structures: one is the reference (radio button,
 // drawn as the primary molecule), the others are aligned to it and drawn as tinted
 // overlays. Per structure the table shows the plain + permutation RMSD and offers a
-// colour tint, a size and a visibility toggle, plus removal. Backed by curcuma's
-// RMSDDriver; decoupled from the viewer via signals (MainWindow drives it).
+// colour, a size and a visibility toggle, plus removal. Every structure keeps the same
+// colour whichever role it plays (assigned once from the shared palette when it is
+// created, editable via its swatch, otherwise fixed - a reference switch never changes
+// any structure's colour). Backed by curcuma's RMSDDriver; decoupled from the viewer via
+// signals (MainWindow drives it).
 #include "rmsdwidget.h"
 
 #include "moleculebridge.h"
@@ -55,7 +58,7 @@ enum Column {
     ColName,       // structure name (reference marked)
     ColRmsd,       // plain RMSD (before reorder)
     ColRmsdPerm,   // permutation RMSD (after reorder)
-    ColColor,      // colour-tint swatch (overlays only)
+    ColColor,      // colour swatch (reference + overlays, Claude Generated 2026)
     ColSize,       // size spinbox (overlays only)
     ColRemove,     // remove button
     ColCount
@@ -311,17 +314,14 @@ void RMSDWidget::rebuildTable()
         r2->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         m_table->setItem(row, ColRmsdPerm, r2);
 
-        // Colour-tint swatch (overlays only)
+        // Claude Generated 2026 - Colour swatch, same for the reference and every
+        // overlay: each structure keeps its own tint regardless of which role it
+        // currently plays (see setPrimaryTint()/schemeColorFor() on the scene side).
         auto* swatch = new QPushButton;
         swatch->setFixedSize(34, 18);
-        if (s.isReference) {
-            swatch->setEnabled(false);
-            swatch->setToolTip(tr("The reference uses the global colour scheme."));
-        } else {
-            swatch->setToolTip(tr("Colour tint for this overlay"));
-            setSwatchColor(swatch, s.tint);
-            connect(swatch, &QPushButton::clicked, this, [this, id] { onColorClicked(id); });
-        }
+        swatch->setToolTip(tr("Colour for this structure"));
+        setSwatchColor(swatch, s.tint);
+        connect(swatch, &QPushButton::clicked, this, [this, id] { onColorClicked(id); });
         m_table->setCellWidget(row, ColColor, centerCell(swatch));
 
         // Size spinbox (overlays only)
@@ -610,7 +610,7 @@ void RMSDWidget::removeStructure(int index)
     if (m_structures.isEmpty()) {
         rebuildTable();
         updateButtons();
-        emit overlayWorkspaceChanged({}, {}, true, {}, /*resetView=*/false);  // clear overlays
+        emit overlayWorkspaceChanged({}, {}, true, {}, {}, /*resetView=*/false);  // clear overlays
         return;
     }
     if (wasReference) {
@@ -635,14 +635,14 @@ void RMSDWidget::clearWorkspace()
     m_structures.clear();
     rebuildTable();
     updateButtons();
-    emit overlayWorkspaceChanged({}, {}, true, {}, /*resetView=*/false);  // clear overlays, keep primary
+    emit overlayWorkspaceChanged({}, {}, true, {}, {}, /*resetView=*/false);  // clear overlays, keep primary
 }
 
 void RMSDWidget::pushWorkspace(bool referenceChanged)
 {
     const int refIdx = referenceIndex();
     if (refIdx < 0) {
-        emit overlayWorkspaceChanged({}, {}, true, {}, referenceChanged);
+        emit overlayWorkspaceChanged({}, {}, true, {}, {}, referenceChanged);
         return;
     }
     const Structure& ref = m_structures[refIdx];
@@ -658,7 +658,7 @@ void RMSDWidget::pushWorkspace(bool referenceChanged)
         spec.visible = s.visible;
         overlays.append(spec);
     }
-    emit overlayWorkspaceChanged(ref.original, ref.bonds, ref.visible, overlays, referenceChanged);
+    emit overlayWorkspaceChanged(ref.original, ref.bonds, ref.visible, ref.tint, overlays, referenceChanged);
 }
 
 // ---- per-row edits ----
@@ -676,7 +676,13 @@ void RMSDWidget::onColorClicked(int id)
         if (auto* btn = cell->findChild<QPushButton*>())
             setSwatchColor(btn, c);
     }
-    emit overlayTintChanged(overlayIndexOf(i), c);
+    // Claude Generated 2026 - The reference isn't in the overlay list pushWorkspace()
+    // builds (overlayIndexOf() only counts non-reference rows), so it needs its own
+    // signal rather than a (wrong) overlay index.
+    if (m_structures[i].isReference)
+        emit referenceTintChanged(c);
+    else
+        emit overlayTintChanged(overlayIndexOf(i), c);
 }
 
 void RMSDWidget::onSizeChanged(int id, double value)

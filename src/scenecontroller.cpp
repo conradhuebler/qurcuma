@@ -21,12 +21,15 @@ constexpr float kSphereBaseRadius = 50.0f; // #Sphere base radius
 constexpr float kCylBaseHalfHeight = 50.0f; // #Cylinder half height (100 tall)
 constexpr float kCylBaseRadius = 50.0f; // #Cylinder base radius
 
-/// Apply a per-structure colour @p tint to a base scheme colour for an overlay atom.
-/// The whole structure reads in the tint's colour family while element identity stays
-/// visible: achromatic atoms (carbon grey, hydrogen white) adopt the tint hue directly;
-/// chromatic atoms (O/N/...) rotate part-way toward the tint hue so they stay distinct.
-/// The base brightness is preserved (so O stays darker than C) and only slightly dimmed
-/// so the overlay reads as the secondary set. Claude Generated 2026.
+/// Apply a per-structure colour @p tint to a base scheme colour. The whole structure
+/// reads in the tint's colour family while element identity stays visible: achromatic
+/// atoms (carbon grey, hydrogen white) adopt the tint hue directly; chromatic atoms
+/// (O/N/...) rotate part-way toward the tint hue so they stay distinct. The base
+/// brightness is preserved (so O stays darker than C) and only slightly dimmed. Used
+/// for RMSD overlay atoms (rebuildOverlays()) AND, via SceneController::schemeColorFor(),
+/// for the primary/reference once it carries a tint of its own - the point being that a
+/// structure keeps the same colour whether it currently plays the reference or an
+/// overlay role. Claude Generated 2026.
 QColor shiftOverlayColor(const QColor& base, const QColor& tint)
 {
     int hb, sb, vb, ab;
@@ -1115,7 +1118,14 @@ QColor SceneController::schemeColorFor(int atomIndex) const
 {
     if (atomIndex < 0 || atomIndex >= m_atoms.size())
         return QColor();
-    return applyFragmentTint(schemeColor(m_atoms[atomIndex]), atomIndex);
+    QColor c = applyFragmentTint(schemeColor(m_atoms[atomIndex]), atomIndex);
+    // Claude Generated 2026 - RMSD workspace: once a structure is the reference it is
+    // the primary, not one of the addOverlayStructure() entries rebuildOverlays() colours
+    // via shiftOverlayColor() directly — so the SAME function is applied here, on the
+    // same base colour, to give it back the identical colour it showed as an overlay.
+    if (m_primaryTint.isValid())
+        c = shiftOverlayColor(c, m_primaryTint);
+    return c;
 }
 
 QColor SceneController::schemeColor(const AtomDatum& a) const
@@ -1277,6 +1287,14 @@ void SceneController::setPrimaryVisible(bool on)
     rebuildGeometry();
 }
 
+void SceneController::setPrimaryTint(const QColor& tint)
+{
+    if (m_primaryTint == tint)
+        return;
+    m_primaryTint = tint;
+    rebuildGeometry();  // schemeColorFor() feeds both atom and bond colours
+}
+
 void SceneController::setHighQualityAA(bool on)
 {
     if (m_highQualityAA == on)
@@ -1314,6 +1332,7 @@ void SceneController::cloneStateFrom(const SceneController* src)
     m_atomsVisible = src->m_atomsVisible;
     m_bondsVisible = src->m_bondsVisible;
     m_primaryVisible = src->m_primaryVisible;
+    m_primaryTint = src->m_primaryTint;
 
     // Effects
     m_ssao = src->m_ssao;
