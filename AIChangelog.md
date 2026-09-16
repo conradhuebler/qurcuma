@@ -1,5 +1,9 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - RMSD-Overlay: Referenz ohne Farbe zeigte falsche Farbe nach Wechsel
+
+- **Fix** (`src/rmsdwidget.cpp`, `addStructure`/`setReferenceStructure`): eine Struktur, die als *erste* ins RMSD-Workspace kommt oder über „Use current view as reference" neu angelegt wird, ist von Anfang an Referenz und bekam nie einen `tint` zugewiesen (`s.tint` blieb default-konstruiertes, ungültiges `QColor()`). Solange sie Referenz blieb, fiel das nicht auf — die Referenz rendert ohnehin über das globale Farbschema. Sobald aber eine andere Struktur zur Referenz wurde, tauchte genau diese als Overlay auf und zeigte die nie gesetzte Farbe: wirkte wie ein Farbwechsel beim Referenzwechsel, war aber eine fehlende Zuweisung. Jede Struktur bekommt jetzt beim Anlegen sofort eine Farbe aus derselben Palette wie jedes andere Overlay; geändert wird sie danach nur noch über den Farb-Dialog, nie automatisch durch einen Referenzwechsel.
+
 ## September 2026 - Performance-Roadmap P0/P3: GUI-Timing + Frame-Koaleszenz; Redock-Menü
 
 - **P0 GUI-Timing** (`MoleculeViewer::setPerformanceAnalysis`, `src/view.cpp`): misst pro Live-Frame Bindungserkennung und Rest-Rebuild getrennt, `qDebug`-Summary alle `performanceInterval` Frames (Avg/Max µs + GUI-FPS) — dieselbe „Performance"-Checkbox im Simulation-Dock, die bisher nur die Worker-Step-Zeit zeigte.

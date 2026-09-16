@@ -500,6 +500,14 @@ bool RMSDWidget::addStructure(const QVector<MoleculeViewer::Atom>& atoms,
     if (referenceIndex() < 0) {
         // First structure becomes the reference.
         s.isReference = true;
+        // Claude Generated 2026 - Assign a real tint here too, even though the active
+        // reference renders via the global colour scheme and never shows it: switching
+        // the reference later demotes this structure to an overlay, and a
+        // default-constructed QColor() rendered as an undefined/wrong colour instead of
+        // "no tint set yet". Every structure now gets its stable tint at creation, from
+        // the same sequential palette as any other overlay, and it changes only via the
+        // colour-dialog edit from then on.
+        s.tint = nextDefaultTint();
         m_structures.append(s);
         rebuildTable();
         updateButtons();
@@ -569,6 +577,8 @@ void RMSDWidget::setReferenceStructure(const QVector<MoleculeViewer::Atom>& atom
         s.aligned = atoms;
         s.isReference = true;
         s.visible = true;
+        s.tint = nextDefaultTint();  // Claude Generated 2026 - same fix as
+                                      // addStructure()'s first-structure branch.
         m_structures.append(s);
     }
     realignAll();
