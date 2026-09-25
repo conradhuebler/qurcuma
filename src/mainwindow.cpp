@@ -1106,6 +1106,50 @@ void MainWindow::createMenus()
             [this, checkByData](int mode) { checkByData(m_labelModeGroup, mode); });
     }
 
+    // Claude Generated 2026 - Hydrogen display quick toggle (visual only; skeletal-formula
+    // convention for "Polar"). H cycles the modes; in Build mode H stays the element key,
+    // because the builder's key filter accepts the ShortcutOverride first (eventFilter).
+    QMenu* hydrogenMenu = displayMenu->addMenu(tr("H&ydrogens"));
+    QAction* cycleHydrogensAction = hydrogenMenu->addAction(tr("Cycle Hydrogen Display"));
+    cycleHydrogensAction->setShortcut(Qt::Key_H);
+    cycleHydrogensAction->setToolTip(tr("All hydrogens, then polar hydrogens only (C-H hidden), "
+                                        "then none. Display only; the structure keeps its H."));
+    connect(cycleHydrogensAction, &QAction::triggered, this, [this]() {
+        if (!m_moleculeView)
+            return;
+        m_moleculeView->cycleHydrogenDisplay();
+        switch (m_moleculeView->getHydrogenDisplay()) {
+        case MoleculeViewer::HydrogenDisplay::All:
+            statusBar()->showMessage(tr("Hydrogens: all shown"), 2000); break;
+        case MoleculeViewer::HydrogenDisplay::Polar:
+            statusBar()->showMessage(tr("Hydrogens: polar only (C-H hidden)"), 2000); break;
+        case MoleculeViewer::HydrogenDisplay::None:
+            statusBar()->showMessage(tr("Hydrogens: hidden"), 2000); break;
+        }
+    });
+    hydrogenMenu->addSeparator();
+    m_hydrogenDisplayGroup = new QActionGroup(this);
+    const QVector<QPair<int, QString>> hydrogenModes = {
+        { int(MoleculeViewer::HydrogenDisplay::All), tr("All Hydrogens") },
+        { int(MoleculeViewer::HydrogenDisplay::Polar), tr("Polar Hydrogens Only (hide C-H)") },
+        { int(MoleculeViewer::HydrogenDisplay::None), tr("No Hydrogens") },
+    };
+    const int currentHydrogens = m_moleculeView ? int(m_moleculeView->getHydrogenDisplay()) : 0;
+    for (const auto& h : hydrogenModes) {
+        QAction* a = hydrogenMenu->addAction(h.second);
+        a->setCheckable(true);
+        a->setData(h.first);
+        a->setChecked(h.first == currentHydrogens);  // restored at startup (setupUI)
+        m_hydrogenDisplayGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, mode = h.first]() {
+            if (m_moleculeView)
+                m_moleculeView->setHydrogenDisplay(static_cast<MoleculeViewer::HydrogenDisplay>(mode));
+        });
+    }
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::hydrogenDisplayChanged, this,
+            [this, checkByData](int mode) { checkByData(m_hydrogenDisplayGroup, mode); });
+
     displayMenu->addSeparator();
 
     m_nciToggleAction = displayMenu->addAction(QIcon::fromTheme("draw-connector"), tr("&NCI Overlay"));
@@ -1132,6 +1176,27 @@ void MainWindow::createMenus()
         connect(a, &QAction::triggered, this,
                 [this, source = src.first]() { setNciSourceFromUi(source); });
     }
+
+    // Claude Generated 2026 - Hydrogen-bond quick toggle, the most used contact kind.
+    // Switching it on also shows the overlay, so the key always has a visible effect.
+    m_hbondToggleAction = displayMenu->addAction(tr("Hydrogen &Bonds"));
+    m_hbondToggleAction->setCheckable(true);
+    m_hbondToggleAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_N));
+    m_hbondToggleAction->setToolTip(tr("Show or hide hydrogen bonds in the NCI overlay "
+                                       "(switches the overlay on if it is off)."));
+    m_hbondToggleAction->setChecked(m_moleculeView && m_moleculeView->getNciOptions().hydrogenBonds);
+    connect(m_hbondToggleAction, &QAction::triggered, this, [this](bool on) {
+        if (!m_moleculeView)
+            return;
+        nci::Options o = m_moleculeView->getNciOptions();
+        o.hydrogenBonds = on;
+        m_moleculeView->setNciOptions(o);
+        if (on && m_moleculeView->getNciSource() == 0)
+            toggleNciOverlay();
+    });
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::nciOptionsChanged, this,
+            [this](const nci::Options& o) { m_hbondToggleAction->setChecked(o.hydrogenBonds); });
 
     QAction* nciOptionsAction = displayMenu->addAction(tr("NCI Op&tions…"));
     nciOptionsAction->setToolTip(tr("Open the Display panel at the Interactions (NCI) section "

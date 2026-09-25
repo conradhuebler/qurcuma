@@ -156,6 +156,53 @@ int main(int argc, char* argv[])
     // guest + six now-unbonded carbons + the lone argon
     check(scene.fragments().size() == 8, "removing the ring bonds frees six single carbons");
 
+    // Claude Generated 2026 - Hydrogen display (All / Polar / None), the skeletal-formula
+    // rule behind SceneController::computeHydrogenMask. Methanol, H2, a lone H and an
+    // H bonded to both a carbon and the oxygen.
+    std::cout << std::endl << "Hydrogen display" << std::endl;
+    QVector<SceneController::AtomDatum> h;
+    QVector<SceneController::BondDatum> hb;
+    h.append(atom("C", 0.0f));   // 0
+    h.append(atom("O", 1.0f));   // 1
+    h.append(atom("H", 2.0f));   // 2  C-H
+    h.append(atom("H", 3.0f));   // 3  C-H
+    h.append(atom("H", 4.0f));   // 4  C-H
+    h.append(atom("H", 5.0f));   // 5  O-H
+    h.append(atom("H", 6.0f));   // 6  H2
+    h.append(atom("H", 7.0f));   // 7  H2
+    h.append(atom("H", 8.0f));   // 8  unbonded
+    h.append(atom("H", 9.0f));   // 9  bonded to C and O
+    hb = { { 0, 1, 1 }, { 0, 2, 1 }, { 0, 3, 1 }, { 0, 4, 1 }, { 1, 5, 1 }, { 6, 7, 1 },
+           { 9, 0, 1 }, { 9, 1, 1 } };
+
+    const auto all = SceneController::computeHydrogenMask(h, hb, SceneController::AllHydrogens);
+    check(all.hiddenCount == 0, "All hides nothing");
+
+    const auto polar = SceneController::computeHydrogenMask(h, hb, SceneController::PolarHydrogens);
+    check(polar.hiddenCount == 3 && polar.hidden[2] && polar.hidden[3] && polar.hidden[4],
+        "Polar hides exactly the three C-H");
+    check(!polar.hidden[5], "Polar keeps the O-H");
+    check(!polar.hidden[6] && !polar.hidden[7], "Polar keeps H2 (no carbon partner)");
+    check(!polar.hidden[8], "Polar keeps an unbonded H");
+    check(!polar.hidden[9], "Polar keeps an H with one non-carbon partner");
+    check(!polar.hidden[0] && !polar.hidden[1], "heavy atoms are never hidden");
+
+    const auto none = SceneController::computeHydrogenMask(h, hb, SceneController::NoHydrogens);
+    check(none.hiddenCount == 8, "None hides every H");
+    check(none.parent[5] == 1, "a hidden O-H remembers its oxygen (NCI line start)");
+    check(none.parent[8] == -1, "an unbonded hidden H has no parent");
+
+    SceneController hScene;
+    hScene.setStructure(h, hb, /*keepView=*/true);
+    check(!hScene.isAtomHidden(2), "the scene starts with all hydrogens shown");
+    hScene.setHydrogenDisplay(SceneController::PolarHydrogens);
+    check(hScene.isAtomHidden(2) && !hScene.isAtomHidden(5) && hScene.hiddenAtomCount() == 3,
+        "the scene applies the Polar rule");
+    QVector<SceneController::BondDatum> brokenCH = hb;
+    brokenCH.removeAt(1);  // break C-H {0, 2}
+    hScene.updateBonds(brokenCH);
+    check(!hScene.isAtomHidden(2), "a bond change re-evaluates the mask (freed H shows)");
+
     std::cout << std::endl;
     if (g_failures == 0) {
         std::cout << "All checks passed." << std::endl;

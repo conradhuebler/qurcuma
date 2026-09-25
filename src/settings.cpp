@@ -390,6 +390,7 @@ void writeVizSettings(QSettings& s, const QString& prefix, const Settings::Visua
     s.setValue(prefix + "fragmentTintStrength", v.fragmentTintStrength);
     s.setValue(prefix + "fragmentScale", v.fragmentScale);
     s.setValue(prefix + "buildDockPreview", v.buildDockPreview);
+    s.setValue(prefix + "hydrogenDisplay", v.hydrogenDisplay);
 }
 
 Settings::VisualizationSettings readVizSettings(const QSettings& s, const QString& prefix)
@@ -432,6 +433,7 @@ Settings::VisualizationSettings readVizSettings(const QSettings& s, const QStrin
     v.fragmentTintStrength = s.value(prefix + "fragmentTintStrength", v.fragmentTintStrength).toFloat();
     v.fragmentScale = s.value(prefix + "fragmentScale", v.fragmentScale).toFloat();
     v.buildDockPreview = s.value(prefix + "buildDockPreview", v.buildDockPreview).toBool();
+    v.hydrogenDisplay = s.value(prefix + "hydrogenDisplay", v.hydrogenDisplay).toInt();
     return v;
 }
 }  // namespace

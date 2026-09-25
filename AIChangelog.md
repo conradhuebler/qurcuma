@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 1: Schnellschalter H-Anzeige und H-Brücken
+
+- **H-Anzeige** (Display ▸ Hydrogens, Taste `H` schaltet durch): All / Polar (wie in Strukturformeln: H nur an C wird ausgeblendet) / None. Nur Anzeige; verborgene Atome werden nicht gezeichnet, beschriftet oder gepickt, NCI-Linien setzen am gebundenen Atom an. Im Build-Modus immer alle H. Regel in `SceneController::computeHydrogenMask`, geprüft in `test_fragments`.
+- **Hydrogen Bonds** (Display-Menü, `Shift+N`): schaltet H-Brücken im NCI-Overlay; beim Einschalten geht das Overlay mit an. Panel-Checkbox und Menü spiegeln sich über `nciOptionsChanged`.
+- **Presets setzen keine Schnellschalter mehr** (`MoleculeViewer::applyDisplayPreset`): Laden eines View- oder Display-Presets schaltete bisher das NCI-Overlay aus, weil Presets diese Felder mit Defaults trugen (View-Presets speichern sie gar nicht).
+- RMSD-MTD „Conv. threshold“ als „(legacy)“ gekennzeichnet: curcumas Standardschema `strided` ignoriert `rmsd_econv`.
+
 ## September 2026 - UX-Etappe 0: Fehler und Stubs
 
 - **Ctrl+Shift+S** war doppelt belegt (Save As und Save Workspace) und löste deshalb keins von beiden aus; Save Workspace hat jetzt kein Kürzel.

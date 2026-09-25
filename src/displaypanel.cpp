@@ -46,6 +46,11 @@ DisplayPanel::DisplayPanel(MoleculeViewer* viewer, Settings* settings, QWidget* 
     if (m_viewer)
         connect(m_viewer, &MoleculeViewer::viewPresetApplied,
                 this, [this]() { syncFromViewer(); });
+    // Claude Generated 2026 - NCI options also change from the Display menu (the
+    // hydrogen-bond quick toggle); the checkboxes follow read-only.
+    if (m_viewer)
+        connect(m_viewer, &MoleculeViewer::nciOptionsChanged,
+                this, [this]() { if (!m_applyingNciOptions) syncFromViewer(); });
 }
 
 namespace {
@@ -1132,7 +1137,10 @@ void DisplayPanel::applyNciOptions()
     if (m_nciDispersionCheck) o.dispersion = m_nciDispersionCheck->isChecked();
     if (m_nciHbDistanceSpin) o.hbMaxDistance = float(m_nciHbDistanceSpin->value());
     if (m_nciHbAngleSpin) o.hbMinAngle = float(m_nciHbAngleSpin->value());
+    // Our own change: no re-sync, it would reformat a spin box while the user types.
+    m_applyingNciOptions = true;
     m_viewer->setNciOptions(o);
+    m_applyingNciOptions = false;
 }
 
 void DisplayPanel::createPresetsGroup(QVBoxLayout* mainLayout)
@@ -1405,7 +1413,7 @@ void DisplayPanel::onLoadPreset(int index)
     auto presets = m_settings->getVisualizationPresets();
     if (index >= presets.size())
         return;
-    m_viewer->applyDisplaySettings(presets[index].settings);
+    m_viewer->applyDisplayPreset(presets[index].settings);
     syncFromViewer();
 }
 

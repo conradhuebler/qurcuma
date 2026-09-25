@@ -341,6 +341,26 @@ public:
     QVariantList atomLabels() const { return m_atomLabels; }
     void setLabelMode(int mode);          // MoleculeViewer::AtomLabel as int
     void setLabelSelectionOnly(bool on);
+
+    // Claude Generated 2026 - Hydrogen display, visual only (the structure keeps its H).
+    // Modes: 0 = All, 1 = Polar, 2 = None. Polar follows the skeletal-formula convention
+    // of organic chemistry: an H bonded only to carbon is hidden, an H on N, O, S or any
+    // other non-carbon atom stays. Hidden atoms are not drawn, labelled or pickable,
+    // their bonds are skipped, and an NCI line ending on a hidden H starts at the atom
+    // that H is bonded to.
+    enum HydrogenDisplay { AllHydrogens = 0, PolarHydrogens = 1, NoHydrogens = 2 };
+    struct HydrogenMask {
+        QVector<bool> hidden;   // per atom
+        QVector<int> parent;    // per hidden H: first bonded atom, -1 if it has none
+        int hiddenCount = 0;
+    };
+    /// The rule itself, a pure function of elements and bonds (tested in test_fragments).
+    static HydrogenMask computeHydrogenMask(const QVector<AtomDatum>& atoms,
+        const QVector<BondDatum>& bonds, int mode);
+    void setHydrogenDisplay(int mode);
+    int hydrogenDisplay() const { return m_hydrogenDisplay; }
+    bool isAtomHidden(int index) const;
+    int hiddenAtomCount() const;
     // Claude Generated 2026 - Structure editing: atoms that currently clash with a
     // moved/placed selection. Drawn RED (priority above the magenta selection) so the
     // user sees what to push apart. Empty = no clashes.
@@ -474,6 +494,12 @@ private:
     bool m_labelSelectionOnly = false;
     QVariantList m_atomLabels;
     void rebuildLabels();
+    // Claude Generated 2026 - Hydrogen display state; the mask is rebuilt lazily after
+    // every structure or bond change (same invalidation points as the fragments).
+    int m_hydrogenDisplay = AllHydrogens;
+    mutable HydrogenMask m_hydrogenMask;
+    mutable bool m_hydrogenMaskDirty = true;
+    void ensureHydrogenMask() const;
     // Claude Generated 2026 - Fragment (connected component) state. Recomputed
     // lazily because every structure and bond change invalidates it.
     mutable QVector<int> m_fragmentOf;          // atom index -> fragment index

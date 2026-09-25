@@ -109,6 +109,7 @@ private:
     void refreshSelectedFragment();
     /// Collect the NCI widgets into nci::Options and push them to the viewer.
     void applyNciOptions();
+    bool m_applyingNciOptions = false;  // Claude Generated 2026 - see applyNciOptions()
     void createPresetsGroup(QVBoxLayout* layout);
 
     // Style

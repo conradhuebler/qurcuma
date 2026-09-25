@@ -495,6 +495,8 @@ private:
     QActionGroup* m_renderStyleGroup = nullptr;
     QActionGroup* m_colorSchemeGroup = nullptr;
     QActionGroup* m_labelModeGroup = nullptr;
+    QActionGroup* m_hydrogenDisplayGroup = nullptr;  // Claude Generated 2026 - All/Polar/None
+    QAction* m_hbondToggleAction = nullptr;          // Claude Generated 2026 - Shift+N
     QAction* m_fitViewAction = nullptr;
     QMenu* m_displayMenu = nullptr;         // reused as the viewport context menu
     /// Esc: cancel a running calculation, else clear selection/measurement.

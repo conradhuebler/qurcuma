@@ -216,10 +216,12 @@ QGroupBox* SimulationControlWidget::createRmsdMtdGroup()
     m_rmsdMtdEconvSpin->setDecimals(0);
     m_rmsdMtdEconvSpin->setSingleStep(1e7);
     m_rmsdMtdEconvSpin->setValue(1e8);
+    // Claude Generated 2026 - curcuma's default deposition scheme (rmsd_mtd_scheme=strided)
+    // ignores rmsd_econv and warns when it is set; only the legacy scheme reads it.
     m_rmsdMtdEconvSpin->setToolTip(tr("Bias-deposition convergence threshold (rmsd_econv). "
-        "Gates when a region is considered biased enough to stop depositing hills; "
-        "passed to curcuma via setEnergyConv()."));
-    rmsdForm->addRow(tr("Conv. threshold:"), m_rmsdMtdEconvSpin);
+        "Only curcuma's legacy RMSD-MTD scheme reads it; the default strided scheme "
+        "ignores it and sets the hill spacing through rmsd_mtd_r_dep instead."));
+    rmsdForm->addRow(tr("Conv. threshold (legacy):"), m_rmsdMtdEconvSpin);
 
     m_rmsdMtdWtmtdCheck = new QCheckBox(tr("Well-tempered reporting"), this);
     m_rmsdMtdWtmtdCheck->setToolTip(tr("Switch on well-tempered reporting. Only then "

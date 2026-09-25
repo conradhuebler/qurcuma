@@ -199,6 +199,7 @@ void MoleculeViewer::applyAppearanceToController()
     m_scene->setFogDistance(m_fogDistance);
     for (int i = 0; i < 4; ++i)
         m_scene->setCornerLight(i, m_cornerLightEnabled[i]);
+    pushHydrogenDisplayToScene();
 }
 
 // ---------------------------------------------------------------------------
@@ -935,6 +936,7 @@ void MoleculeViewer::setNciOptions(const nci::Options& options)
 {
     m_nciOptions = options;
     refreshNciOverlay();
+    emit nciOptionsChanged(m_nciOptions);
 }
 
 void MoleculeViewer::setNciLabelsVisible(bool on)
@@ -2179,6 +2181,32 @@ void MoleculeViewer::setLabelSelectionOnly(bool on)
         m_scene->setLabelSelectionOnly(on);
 }
 
+// Claude Generated 2026 - Hydrogen display quick toggle (All / Polar / None).
+void MoleculeViewer::setHydrogenDisplay(HydrogenDisplay mode)
+{
+    if (m_hydrogenDisplay == mode)
+        return;
+    m_hydrogenDisplay = mode;
+    pushHydrogenDisplayToScene();
+    emit hydrogenDisplayChanged(static_cast<int>(mode));
+}
+
+void MoleculeViewer::cycleHydrogenDisplay()
+{
+    setHydrogenDisplay(static_cast<HydrogenDisplay>((static_cast<int>(m_hydrogenDisplay) + 1) % 3));
+}
+
+// Build mode shows every H regardless of the chosen mode: the builder places, bonds and
+// deletes hydrogens, and a hidden atom cannot be picked.
+void MoleculeViewer::pushHydrogenDisplayToScene()
+{
+    if (!m_scene)
+        return;
+    const HydrogenDisplay effective =
+        (m_mode == InteractionMode::Build) ? HydrogenDisplay::All : m_hydrogenDisplay;
+    m_scene->setHydrogenDisplay(static_cast<int>(effective));
+}
+
 void MoleculeViewer::setBackgroundColor(const QColor& color)
 {
     m_backgroundColor = color;
@@ -2459,6 +2487,8 @@ void MoleculeViewer::setInteractionMode(InteractionMode mode)
     default:
         break;
     }
+
+    pushHydrogenDisplayToScene();  // entering/leaving Build switches the H override
 
     if (wasEdit != (m_mode == InteractionMode::Edit))
         emit editModeChanged(m_mode == InteractionMode::Edit);
@@ -3939,9 +3969,33 @@ void MoleculeViewer::applyViewPreset(const ViewPreset& preset, bool applyCamera,
     setBackgroundColor(preset.backgroundColor);
     for (int i = 0; i < 4; ++i)
         setCornerLightEnabled(i, preset.cornerLightEnabled[i]);
-    applyDisplaySettings(preset, /*allowComputedNciSource=*/true);
+    applyDisplayPreset(preset);
 
     emit viewPresetApplied(); // DisplayPanel re-syncs its controls (no dock raise)
+}
+
+void MoleculeViewer::applyDisplayPreset(const DisplaySettings& preset)
+{
+    DisplaySettings s = preset;
+    const DisplaySettings live = currentDisplaySettings();
+    s.nciSource = live.nciSource;
+    s.nciHydrogenBonds = live.nciHydrogenBonds;
+    s.nciHalogenBonds = live.nciHalogenBonds;
+    s.nciPiStacking = live.nciPiStacking;
+    s.nciCloseContacts = live.nciCloseContacts;
+    s.nciElectrostatics = live.nciElectrostatics;
+    s.nciDispersion = live.nciDispersion;
+    s.nciHbDistance = live.nciHbDistance;
+    s.nciHbAngle = live.nciHbAngle;
+    s.nciLabels = live.nciLabels;
+    s.nciLiveMd = live.nciLiveMd;
+    s.hydrogenDisplay = live.hydrogenDisplay;
+    s.fragmentTint = live.fragmentTint;
+    s.fragmentTintStrength = live.fragmentTintStrength;
+    s.fragmentScale = live.fragmentScale;
+    s.buildDockPreview = live.buildDockPreview;
+    // The live source may be a computed one (GFN-FF/GFN2); it is unchanged, so allow it.
+    applyDisplaySettings(s, /*allowComputedNciSource=*/true);
 }
 
 // Claude Generated 2026 - The viewer's complete live display state. Single source
@@ -3984,6 +4038,7 @@ DisplaySettings MoleculeViewer::currentDisplaySettings() const
     s.fragmentTintStrength = m_fragmentTintStrength;
     s.fragmentScale = m_fragmentScale;
     s.buildDockPreview = m_dockPreviewEnabled;
+    s.hydrogenDisplay = static_cast<int>(m_hydrogenDisplay);
     return s;
 }
 
@@ -4027,6 +4082,8 @@ void MoleculeViewer::applyDisplaySettings(const DisplaySettings& s, bool allowCo
     setFragmentTint(s.fragmentTint, s.fragmentTintStrength);
     setFragmentScale(s.fragmentScale);
     m_dockPreviewEnabled = s.buildDockPreview;
+    if (s.hydrogenDisplay >= 0 && s.hydrogenDisplay <= 2)
+        setHydrogenDisplay(static_cast<HydrogenDisplay>(s.hydrogenDisplay));
     setNciLabelsVisible(s.nciLabels);
     m_nciLiveMd = s.nciLiveMd;
     // Calculated sources (>= 2) only make sense when analysis results follow.
@@ -4038,6 +4095,7 @@ void MoleculeViewer::applyDisplaySettings(const DisplaySettings& s, bool allowCo
 
     emit renderingModeChanged(m_renderingMode);
     emit colorSchemeChanged(m_colorScheme);
+    emit nciOptionsChanged(m_nciOptions);  // m_nciOptions was set directly above
 }
 
 void MoleculeViewer::setCameraOrientation(const QQuaternion& rotation)
