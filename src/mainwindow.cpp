@@ -205,10 +205,20 @@ void MainWindow::setupUI()
 
     // Claude Generated 2026 - Dock refactor: set dock options and tab positions
     // BEFORE creating/placing docks so tabify/split calls inherit the right config.
-    setDockOptions(QMainWindow::AllowTabbedDocks |
-                   QMainWindow::AnimatedDocks |
-                   QMainWindow::AllowNestedDocks |
-                   QMainWindow::GroupedDragging);
+    QMainWindow::DockOptions dockOptions = QMainWindow::AllowTabbedDocks |
+                                           QMainWindow::AnimatedDocks |
+                                           QMainWindow::AllowNestedDocks;
+    // Claude Generated 2026 - GroupedDragging (drag a whole tab group; floating tab groups)
+    // stays off under Wayland. Re-docking a floating tab group crashes inside Qt 6.11:
+    // QMainWindowLayout::animationFinished() moves the group's docks into a new sub-layout
+    // and calls reparentWidgets() on it; after that call the sub-layout pointer reads back
+    // as nullptr (the relayout it triggers has modified the item), and Qt then calls
+    // setTabBarShape() on it. Floating tab groups are also found by window geometry, which
+    // Wayland does not report, so they could not be formed reliably there anyway. Qt creates
+    // the group windows only with this option (and when restoring a saved layout with one).
+    if (!QGuiApplication::platformName().startsWith(QLatin1String("wayland"), Qt::CaseInsensitive))
+        dockOptions |= QMainWindow::GroupedDragging;
+    setDockOptions(dockOptions);
 
     setTabPosition(Qt::LeftDockWidgetArea, QTabWidget::North);
     setTabPosition(Qt::RightDockWidgetArea, QTabWidget::North);
@@ -1003,10 +1013,9 @@ void MainWindow::createMenus()
     });
 
     // Claude Generated 2026 - Menu path back in for a floated dock, independent of
-    // dragging it: native Wayland cannot drag a floating dock back onto the main
-    // window (Qt's redock hit-test needs absolute screen coordinates Wayland does
-    // not expose; see src/docks/CLAUDE.md "Known Limitations (Wayland)"). This
-    // calls QMainWindow::addDockWidget() directly, so it works on every platform.
+    // dragging it (a fallback, e.g. on a Wayland compositor without
+    // xdg_toplevel_drag_v1; see src/docks/CLAUDE.md "Wayland"). This calls
+    // QMainWindow::addDockWidget() directly, so it works on every platform.
     QAction *redockAction = viewMenu->addAction(QIcon::fromTheme("view-restore"), tr("Re-dock &Floating Panels"));
     connect(redockAction, &QAction::triggered, this, [this]() {
         if (m_dockManager) {
@@ -4606,12 +4615,99 @@ static bool isTextInputFocused()
         || qobject_cast<QComboBox*>(w);
 }
 
+// Claude Generated 2026 - Wayland dock re-docking. Under Wayland Qt drags a dock panel as a
+// platform drag-and-drop (QMainWindowLayout::performPlatformWidgetDrag; the compositor moves
+// the window along via xdg_toplevel_drag_v1) and places the drop gap from the DragMove
+// events that reach QMainWindow::event(). Qt delivers drag events only to the innermost
+// widget under the cursor that accepts drops and never propagates them further, so the 3D
+// viewer's QQuickWidget (acceptDrops by default, accepts every DragEnter) and the line/text
+// edits inside the docks swallow them: no drop indicator, no re-dock. This redirects them to
+// the main window. The MIME type is set by Qt for dock drags only; file drops don't carry it.
+// On xcb Qt tracks the dock drag with mouse events instead, so nothing here fires.
+bool MainWindow::forwardDockDragEvent(QObject* obj, QEvent* event)
+{
+    static const QString dockDragMime = QStringLiteral("application/x-qt-mainwindowdrag-window");
+
+    const QEvent::Type type = event->type();
+    if (type != QEvent::DragEnter && type != QEvent::DragMove && type != QEvent::Drop
+        && type != QEvent::DragLeave)
+        return false;
+
+    auto* w = qobject_cast<QWidget*>(obj);
+    if (!w || w->window() != this)
+        return false;
+
+    if (type == QEvent::DragLeave) {
+        if (w == this) {  // handled by QMainWindow::event itself
+            m_dockDragActive = false;
+            return false;
+        }
+        if (!m_dockDragActive)
+            return false;
+        // Crossing from one widget to the next, Qt sends Leave(old), Enter(new) and Move in
+        // one go. Forwarding the Leave at once would close and reopen the gap on every
+        // crossing (QMainWindowLayout::hover -> restore), a visible flicker with
+        // AnimatedDocks. Deferred, it only takes effect when no Enter/Move followed, i.e.
+        // the cursor really left the window, so a drop over the desktop can't dock into a
+        // stale gap. The queued call runs inside QDrag::exec()'s nested event loop.
+        m_dockDragLeavePending = true;
+        QMetaObject::invokeMethod(this, [this]() {
+            if (!m_dockDragLeavePending)
+                return;
+            m_dockDragLeavePending = false;
+            m_dockDragActive = false;
+            QDragLeaveEvent leave;
+            QMainWindow::event(&leave);  // not sendEvent(), see below
+        }, Qt::QueuedConnection);
+        return true;
+    }
+
+    auto* drop = static_cast<QDropEvent*>(event);
+    if (!drop->mimeData() || !drop->mimeData()->hasFormat(dockDragMime)) {
+        m_dockDragActive = false;  // some other drag (e.g. files): leave it alone
+        return false;
+    }
+
+    m_dockDragLeavePending = false;
+    m_dockDragActive = (type != QEvent::Drop);
+    if (w == this)
+        return false;  // QMainWindow::event handles it
+
+    // Call QMainWindow::event() directly instead of sendEvent(this, ...): QApplication::notify
+    // delivers DragMove/Drop/DragLeave to QDragManager's current target (the child that took
+    // the DragEnter), whatever receiver is passed, so a sendEvent would come straight back to
+    // this child and recurse until the stack overflows.
+    const QPointF pos = w->mapTo(this, drop->position());
+    auto forward = [this, drop](QDropEvent& fwd) {
+        QMainWindow::event(&fwd);
+        drop->setDropAction(fwd.dropAction());
+        drop->setAccepted(fwd.isAccepted());
+    };
+    if (type == QEvent::DragEnter) {
+        QDragEnterEvent fwd(pos.toPoint(), drop->possibleActions(), drop->mimeData(),
+                            drop->buttons(), drop->modifiers());
+        forward(fwd);
+    } else if (type == QEvent::DragMove) {
+        QDragMoveEvent fwd(pos.toPoint(), drop->possibleActions(), drop->mimeData(),
+                           drop->buttons(), drop->modifiers());
+        forward(fwd);
+    } else {
+        QDropEvent fwd(pos, drop->possibleActions(), drop->mimeData(), drop->buttons(),
+                       drop->modifiers());
+        forward(fwd);
+    }
+    return true;
+}
+
 // Claude Generated 2026 - Application-level key filter: WASD = pitch/yaw, QE = roll
 // rotate the 3D scene from anywhere (the file browser used to eat the arrow keys), and
 // Shift+WASDQE nudges the selection in Edit mode. Skipped while a text widget has focus
 // and when Ctrl/Alt/Meta are held (so Ctrl+A etc. keep working).
 bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 {
+    if (forwardDockDragEvent(obj, event))
+        return true;
+
     // Claude Generated 2026 - Drag molecule files from the browser onto the Lesson
     // toggle to add them to the lesson (this filter is installed on qApp, so it sees
     // the button's drag events once the button has setAcceptDrops(true)).

@@ -539,4 +539,12 @@ protected:
     // viewer's Edit mode, so the keys stay free everywhere else; also skipped while a
     // text-entry widget has focus or Ctrl/Alt/Meta is held. Installed on qApp.
     bool eventFilter(QObject* obj, QEvent* event) override;
+
+private:
+    // Claude Generated 2026 - Wayland dock re-docking: redirects the drag events of a
+    // dock-panel drag from any child widget to this QMainWindow, whose event() places the
+    // drop gap (see the definition). Returns true when the event was consumed.
+    bool forwardDockDragEvent(QObject* obj, QEvent* event);
+    bool m_dockDragActive = false;        // a dock drag is currently over this window
+    bool m_dockDragLeavePending = false;  // a child's DragLeave awaits forwarding
 };

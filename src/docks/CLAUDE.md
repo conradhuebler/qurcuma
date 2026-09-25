@@ -46,10 +46,13 @@
 - `MoleculeViewer` embeds the 3D scene as a `QQuickWidget` (`src/view.cpp`, `setupViewer`). The former `QQuickView` + `createWindowContainer()` was a **native window**, which Qt stacks above all sibling widgets: it painted over dock panels/tab bars during resizes, animations and on Wayland, and swallowed the clicks meant for them.
 - `QURCUMA_NATIVE_VIEWPORT=1` restores the native route for A/B comparison (threaded render loop, `frameSwapped`).
 
-## Known Limitations (Wayland)
-- **Dragging a floated dock back does not work under native Wayland.** Confirmed 2026-09: undocking is fine, dragging the floating title bar back over the main window never shows a drop indicator and never re-docks; `QT_QPA_PLATFORM=xcb` (XWayland) fixes it immediately. Cause: Qt's built-in float/redock hit-testing needs absolute screen coordinates to tell whether the floating window is over a dock area, and native Wayland does not expose those to clients. `main.cpp` prints a startup hint (`QGuiApplication::platformName() == "wayland"`) instead of silently forcing `xcb`, which could keep the app from starting on a compositor without XWayland.
-- **Workaround: View ▸ "Re-dock Floating Panels"** (`DockManager::redockFloating`) — calls `QMainWindow::addDockWidget()` directly on every floating dock, re-tabifying it where it belongs (Simulation/Interactions onto Display, Images onto Output). That call computes nothing from screen or cursor position, so it works on every platform, including native Wayland; a no-op for docks that are already docked.
-- Same root cause as the existing Wayland `QCursor::setPos` no-op noted under Cursor Lock (`src/CLAUDE.md`): absolute-position APIs are unavailable to Wayland clients by design.
+## Wayland
+- ✅ **Drag-to-redock works under native Wayland** (tested on KWin): Qt 6.11 drags a dock as platform drag-and-drop (window attached via `xdg_toplevel_drag_v1`) and places the drop gap from the DragMove events that reach `QMainWindow::event()`.
+- Qt delivers drag events only to the innermost `acceptDrops` widget (viewer `QQuickWidget`, line/text edits), so `MainWindow::forwardDockDragEvent` (qApp filter) redirects dock drags (MIME `application/x-qt-mainwindowdrag-window`) to the main window.
+- It calls `QMainWindow::event()` directly: `sendEvent()` would recurse, because `QApplication::notify` routes DragMove/Drop/DragLeave to the widget that took the DragEnter.
+- **`GroupedDragging` is off under Wayland**: re-docking a floating tab group crashes inside Qt 6.11 (`QMainWindowLayout::animationFinished` calls `setTabBarShape()` on a sub-layout pointer that reads back as nullptr after `reparentWidgets()`). A saved layout can still restore such a group via `restoreState()`.
+- Fallback: View ▸ "Re-dock Floating Panels" (`DockManager::redockFloating`, plain `addDockWidget()`), e.g. for compositors without `xdg_toplevel_drag_v1`; skips docks inside a floating tab group.
+- `QCursor::setPos` stays a no-op on Wayland (Cursor Lock, `src/CLAUDE.md`): clients get no absolute positions.
 
 ## Migration State
 - Phase 4 complete: `ProjectDock` extracted from `MainWindow`; all docks now live under `DockManager`.

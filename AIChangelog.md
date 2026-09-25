@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Wayland: Panels per Drag zurückdocken
+
+- **Ursache der fehlenden Andock-Markierung**: Qt 6.11 zieht Docks unter Wayland per Plattform-Drag-and-Drop (`xdg_toplevel_drag_v1`) und setzt die Lücke aus DragMove-Events am `QMainWindow`. Diese Events schluckte das innerste Widget mit `acceptDrops` (Viewer-`QQuickWidget`, Text- und Eingabefelder).
+- **`MainWindow::forwardDockDragEvent`** (qApp-Filter): leitet Dock-Drags (MIME `application/x-qt-mainwindowdrag-window`) an `QMainWindow::event()` weiter; DragLeave wird verzögert, damit die Lücke beim Überqueren von Widgets nicht flackert.
+- **`GroupedDragging` unter Wayland aus**: das Andocken einer schwebenden Tab-Gruppe stürzte in Qt 6.11 ab (`QMainWindowLayout::animationFinished` → `setTabBarShape()` auf einem Nullzeiger).
+- Startup-Hinweis in `main.cpp` entfernt; „Re-dock Floating Panels" bleibt als Rückfallweg.
+
 ## September 2026 - RMSD-Overlay: Referenz behält ihre Farbe (auch als Primärstruktur)
 
 - **`SceneController::setPrimaryTint`** (`src/scenecontroller.{h,cpp}`): die Primärstruktur konnte bisher keinen Farb-Tint tragen, sie rendert immer über das globale Farbschema — deshalb sah es nach einem Referenzwechsel so aus, als würde die neue Referenz „grau" statt in ihrer vorherigen Overlay-Farbe erscheinen. `schemeColorFor()` wendet jetzt bei gesetztem Tint dasselbe `shiftOverlayColor` an, das auch Overlays einfärbt, auf dieselbe Basisfarbe — eine Struktur zeigt also dieselbe Farbe, ob sie gerade Referenz oder Overlay ist.
@@ -15,7 +22,9 @@
 - **P3 Frame-Koaleszenz** (`MoleculeViewer::onWorkerFrameReady`): `SimulationWorker::frameReady` läuft jetzt über einen Debounce (`QMetaObject::invokeMethod(..., Qt::QueuedConnection)`) statt direkt auf `updateSimulationFrame` — bei einem GUI-gebundenen Burst wird immer nur der jüngste Frame verarbeitet, ältere werden verworfen statt nacheinander abgearbeitet zu werden. Kein Timer, keine Änderung an Charts/Atom-Tabelle (bekommen weiterhin jeden Frame).
 - **Redock-Menü** (View ▸ „Re-dock Floating Panels", `DockManager::redockFloating`): docked jedes schwebende Panel über `QMainWindow::addDockWidget()` an seine Vorgabeposition zurück — umgeht die Wayland-Einschränkung beim Zurückziehen per Drag, da der Aufruf keine Bildschirmkoordinaten braucht.
 
-## September 2026 - Wayland: abgedockte Panels lassen sich nicht zurückdocken
+## September 2026 - Wayland: abgedockte Panels lassen sich nicht zurückdocken (überholt)
+
+- **Überholt** durch „Wayland: Panels per Drag zurückdocken" (oben): die Ursache war nicht fehlende Bildschirmkoordinaten, und es gibt eine Lösung im Code.
 
 - **Kein Code-Fehler, Wayland-Plattformgrenze**: Qts eingebautes Andock-Hit-Testing für ein bereits schwebendes `QDockWidget` braucht beim Ziehen absolute Bildschirmkoordinaten, um zu erkennen, dass die Titelleiste über einem Dock-Bereich des Hauptfensters ist. Natives Wayland gibt Clients diese Koordinaten grundsätzlich nicht heraus. Bestätigt auf der eigenen Wayland-Session des Projekts: Abdocken funktioniert, Zurückdocken nicht; `QT_QPA_PLATFORM=xcb` (XWayland) behebt es sofort. Derselbe Mechanismus wie die bereits dokumentierte Wayland-Einschränkung bei `QCursor::setPos` (Cursor-Lock).
 - **Kein automatischer Plattform-Zwang**: `main.cpp` erzwingt `xcb` nicht selbsttätig — das würde den Start auf einem Compositor ohne XWayland verhindern. Stattdessen ein einmaliger `qInfo()`-Hinweis beim Start, wenn `QGuiApplication::platformName() == "wayland"`.

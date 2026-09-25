@@ -83,9 +83,9 @@ public slots:
 
     // Claude Generated 2026 - Re-dock every currently floating panel to its default
     // area via QMainWindow::addDockWidget(), a pure API call independent of screen
-    // coordinates. Works around native Wayland, where Qt's built-in drag-to-redock
-    // needs absolute screen coordinates it doesn't get (src/docks/CLAUDE.md, "Known
-    // Limitations (Wayland)"). No-op for docks that are already docked.
+    // coordinates and of drag-and-drop, so it works on every platform. A fallback to
+    // dragging a panel back (src/docks/CLAUDE.md, "Wayland"). Skips docks inside a
+    // floating tab group (isFloating() is false for those). No-op for docked docks.
     void redockFloating();
 
 signals:
