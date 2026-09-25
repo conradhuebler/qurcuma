@@ -22,6 +22,8 @@
 #include "simulationframe.h"  // Claude Generated - Zero-copy simulation payload
 #include "viewpreset.h"  // Claude Generated 2026 - reproducible camera/display presets
 #include "imagemetadata.h"  // Claude Generated 2026 - export image provenance
+#include "displaysettings.h"  // Claude Generated 2026 - no longer via viewpreset.h
+#include "look.h"  // Claude Generated 2026 - Looks (UX stage 3)
 #include "ncitypes.h"  // Claude Generated 2026 - non-covalent interaction results
 
 class SelectionManager;  // Forward declaration
@@ -476,7 +478,10 @@ public slots:
 
     // Claude Generated 2026 - Reproducible view presets (camera + display).
     ViewPreset currentViewPreset(ZoomMode zoomMode = ZoomMode::Absolute) const;
-    void applyViewPreset(const ViewPreset& preset, bool applyCamera = true, bool applyDisplay = true);
+    void applyViewPreset(const ViewPreset& preset);  // camera only (UX stage 3)
+    /// Claude Generated 2026 - Looks (look.h): the appearance only, never a quick toggle.
+    Look currentLook() const;
+    void applyLook(const Look& look);
     /** The viewer's complete live display state. The viewer is the single source
      *  of truth for these fields; UI panels sync FROM this, never the other way.
      *  Claude Generated 2026. */
@@ -486,12 +491,6 @@ public slots:
      *  only with allowComputedNciSource = true (view presets); otherwise the
      *  overlay falls back to off. Claude Generated 2026. */
     void applyDisplaySettings(const DisplaySettings& s, bool allowComputedNciSource = false);
-    /// Claude Generated 2026 - Apply a preset without touching what is not part of a look:
-    /// NCI (source, contact kinds, thresholds, labels, live MD), the hydrogen display,
-    /// fragment tinting and the builder preview keep their live values. Presets used to
-    /// carry defaults for these (a view preset does not even store them), so loading one
-    /// switched the NCI overlay off.
-    void applyDisplayPreset(const DisplaySettings& preset);
     /// Set only the camera rotation (Quick orientation buttons).
     void setCameraOrientation(const QQuaternion& rotation);
 
@@ -539,6 +538,8 @@ signals:
     void hydrogenDisplayChanged(int mode);
     /// Claude Generated 2026 - The set of hidden molecule kinds changed.
     void hiddenMoleculeKindsChanged();
+    /// Claude Generated 2026 - A look was applied (DisplayPanel re-syncs).
+    void lookApplied(const QString& name);
     /// Claude Generated 2026 - NCI detection options changed (panel, menu or a
     /// display-settings apply), so every UI mirror follows.
     void nciOptionsChanged(const nci::Options& options);

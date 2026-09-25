@@ -3967,18 +3967,13 @@ ViewPreset MoleculeViewer::currentViewPreset(ZoomMode zoomMode) const
         p.zoomFactor = p.cameraDistance / extent;
     }
 
-    static_cast<DisplaySettings&>(p) = currentDisplaySettings();
-    p.fogDistance = m_fogDistance;
-    p.backgroundColor = m_backgroundColor;
-    for (int i = 0; i < 4; ++i)
-        p.cornerLightEnabled[i] = m_cornerLightEnabled[i];
-
     return p;
 }
 
-void MoleculeViewer::applyViewPreset(const ViewPreset& preset, bool applyCamera, bool applyDisplay)
+// Claude Generated 2026 - A view is camera only (UX stage 3); the look is separate.
+void MoleculeViewer::applyViewPreset(const ViewPreset& preset)
 {
-    if (applyCamera && m_scene) {
+    if (m_scene) {
         float distance = preset.cameraDistance;
         if (preset.zoomMode == ZoomMode::Relative) {
             const float extent = qMax(m_scene->sceneExtent(), 1e-3f);
@@ -3994,43 +3989,59 @@ void MoleculeViewer::applyViewPreset(const ViewPreset& preset, bool applyCamera,
         if (m_quickWindow)
             m_quickWindow->update();
     }
-
-    if (!applyDisplay) {
-        emit viewPresetApplied();
-        return;
-    }
-
-    setFogDistance(preset.fogDistance);
-    setBackgroundColor(preset.backgroundColor);
-    for (int i = 0; i < 4; ++i)
-        setCornerLightEnabled(i, preset.cornerLightEnabled[i]);
-    applyDisplayPreset(preset);
-
-    emit viewPresetApplied(); // DisplayPanel re-syncs its controls (no dock raise)
+    emit viewPresetApplied();
 }
 
-void MoleculeViewer::applyDisplayPreset(const DisplaySettings& preset)
+// Claude Generated 2026 - The current appearance as a Look (look.h).
+Look MoleculeViewer::currentLook() const
 {
-    DisplaySettings s = preset;
-    const DisplaySettings live = currentDisplaySettings();
-    s.nciSource = live.nciSource;
-    s.nciHydrogenBonds = live.nciHydrogenBonds;
-    s.nciHalogenBonds = live.nciHalogenBonds;
-    s.nciPiStacking = live.nciPiStacking;
-    s.nciCloseContacts = live.nciCloseContacts;
-    s.nciElectrostatics = live.nciElectrostatics;
-    s.nciDispersion = live.nciDispersion;
-    s.nciHbDistance = live.nciHbDistance;
-    s.nciHbAngle = live.nciHbAngle;
-    s.nciLabels = live.nciLabels;
-    s.nciLiveMd = live.nciLiveMd;
-    s.hydrogenDisplay = live.hydrogenDisplay;
-    s.fragmentTint = live.fragmentTint;
-    s.fragmentTintStrength = live.fragmentTintStrength;
-    s.fragmentScale = live.fragmentScale;
-    s.buildDockPreview = live.buildDockPreview;
-    // The live source may be a computed one (GFN-FF/GFN2); it is unchanged, so allow it.
-    applyDisplaySettings(s, /*allowComputedNciSource=*/true);
+    Look l;
+    l.colorScheme = static_cast<int>(m_colorScheme);
+    l.atomTransparency = m_atomTransparency;
+    l.atomShininess = m_atomShininess;
+    l.fogEnabled = m_fogEnabled;
+    l.fogIntensity = m_fogIntensity;
+    l.fogDistance = m_fogDistance;
+    l.ssaoEnabled = m_ssaoEnabled;
+    l.ssaoIntensity = m_ssaoIntensity;
+    l.ssaoRadius = m_ssaoRadius;
+    l.ssaoBias = m_ssaoBias;
+    l.bloomEnabled = m_bloomEnabled;
+    l.bloomThreshold = m_bloomThreshold;
+    l.bloomIntensity = m_bloomIntensity;
+    l.hdrEnabled = m_hdrEnabled;
+    l.exposure = m_exposure;
+    for (int i = 0; i < 4; ++i)
+        l.cornerLights[i] = m_cornerLightEnabled[i];
+    l.background = m_backgroundColor;
+    return l;
+}
+
+// Claude Generated 2026 - Apply a look. Only the look's own fields are set, so the
+// quick toggles (NCI, hydrogen display, hidden molecules, labels, render style) and
+// everything structure-specific keep their live values by construction.
+void MoleculeViewer::applyLook(const Look& look)
+{
+    setColorScheme(static_cast<ColorScheme>(look.colorScheme));
+    setAtomTransparency(look.atomTransparency);
+    setAtomShininess(look.atomShininess);
+    setFogEnabled(look.fogEnabled);
+    setFogIntensity(look.fogIntensity);
+    setFogDistance(look.fogDistance);
+    setSSAOEnabled(look.ssaoEnabled);
+    setSSAOIntensity(look.ssaoIntensity);
+    setSSAORadius(look.ssaoRadius);
+    setSSAOBias(look.ssaoBias);
+    setBloomEnabled(look.bloomEnabled);
+    setBloomThreshold(look.bloomThreshold);
+    setBloomIntensity(look.bloomIntensity);
+    setHDREnabled(look.hdrEnabled);
+    setExposure(look.exposure);
+    for (int i = 0; i < 4; ++i)
+        setCornerLightEnabled(i, look.cornerLights[i]);
+    setBackgroundColor(look.background);
+    applyAppearanceToController();
+    emit lookApplied(look.name);
 }
 
 // Claude Generated 2026 - The viewer's complete live display state. Single source
@@ -4074,6 +4085,10 @@ DisplaySettings MoleculeViewer::currentDisplaySettings() const
     s.fragmentScale = m_fragmentScale;
     s.buildDockPreview = m_dockPreviewEnabled;
     s.hydrogenDisplay = static_cast<int>(m_hydrogenDisplay);
+    s.fogDistance = m_fogDistance;
+    s.backgroundColor = m_backgroundColor;
+    for (int i = 0; i < 4; ++i)
+        s.cornerLightEnabled[i] = m_cornerLightEnabled[i];
     return s;
 }
 
@@ -4119,6 +4134,11 @@ void MoleculeViewer::applyDisplaySettings(const DisplaySettings& s, bool allowCo
     m_dockPreviewEnabled = s.buildDockPreview;
     if (s.hydrogenDisplay >= 0 && s.hydrogenDisplay <= 2)
         setHydrogenDisplay(static_cast<HydrogenDisplay>(s.hydrogenDisplay));
+    setFogDistance(s.fogDistance);
+    if (s.backgroundColor.isValid())
+        setBackgroundColor(s.backgroundColor);
+    for (int i = 0; i < 4; ++i)
+        setCornerLightEnabled(i, s.cornerLightEnabled[i]);
     setNciLabelsVisible(s.nciLabels);
     m_nciLiveMd = s.nciLiveMd;
     // Calculated sources (>= 2) only make sense when analysis results follow.
@@ -4360,6 +4380,8 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
 
         if (!metadata.viewPresetName.isEmpty())
             result.setText(QStringLiteral("ViewPreset"), metadata.viewPresetName);
+        if (!metadata.lookName.isEmpty())
+            result.setText(QStringLiteral("Look"), metadata.lookName);
     }
 
     return result.save(path);
@@ -4401,14 +4423,27 @@ void MoleculeViewer::exportImageDialog(const QString& startDir, Settings* settin
                               "authorship as PNG text chunks. JPEG/TIFF get no metadata (Qt6 cannot write EXIF)."));
     form->addRow(QString(), embedCheck);
 
+    // Claude Generated 2026 - Camera view and look are chosen separately (UX stage 3);
+    // the names of both are stored in the image metadata.
     auto* presetCombo = new QComboBox(&dlg);
-    presetCombo->addItem(tr("(none)"), QString());
+    presetCombo->addItem(tr("(current)"), QString());
     if (settings) {
         for (const ViewPreset& p : settings->viewPresets())
             presetCombo->addItem(p.name, p.name);
     }
-    presetCombo->setToolTip(tr("Apply a view preset before exporting; its name is stored in the image metadata."));
-    form->addRow(tr("View preset:"), presetCombo);
+    presetCombo->setToolTip(tr("Apply a saved camera view before exporting."));
+    form->addRow(tr("View:"), presetCombo);
+
+    QVector<Look> exportLooks = looks::builtIn();
+    if (settings)
+        exportLooks += settings->userLooks();
+    auto* lookCombo = new QComboBox(&dlg);
+    lookCombo->addItem(tr("(current)"), -1);
+    for (int i = 0; i < exportLooks.size(); ++i)
+        lookCombo->addItem(exportLooks[i].name, i);
+    lookCombo->setToolTip(tr("Apply a look (colours, lighting, effects, background) before "
+                             "exporting. It stays applied afterwards."));
+    form->addRow(tr("Look:"), lookCombo);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dlg);
     form->addRow(buttons);
@@ -4418,27 +4453,35 @@ void MoleculeViewer::exportImageDialog(const QString& startDir, Settings* settin
         return;
 
     const int bg = bgCombo->currentData().toInt();
-    // Apply an optional view preset before rendering so the figure matches it.
+    // Apply an optional camera view and look before rendering so the figure matches them.
     QString presetName;
     if (settings) {
         const QString sel = presetCombo->currentData().toString();
         if (!sel.isEmpty()) {
             for (const ViewPreset& p : settings->viewPresets()) {
                 if (p.name == sel) {
-                    applyViewPreset(p, true, true);
+                    applyViewPreset(p);
                     presetName = sel;
                     break;
                 }
             }
         }
     }
+    QString lookName;
+    const int lookIndex = lookCombo->currentData().toInt();
+    if (lookIndex >= 0 && lookIndex < exportLooks.size()) {
+        applyLook(exportLooks[lookIndex]);
+        lookName = exportLooks[lookIndex].name;
+    }
 
     // Build the metadata to embed.
     ImageMetadata meta;
-    if (embedCheck->isChecked())
+    if (embedCheck->isChecked()) {
         meta = buildImageMetadata(settings, presetName);
-    else
+        meta.lookName = lookName;  // Claude Generated 2026
+    } else {
         meta.embed = false;
+    }
 
     const QString filter = (bg == 2)
         ? tr("PNG Image (*.png)")  // alpha needs PNG

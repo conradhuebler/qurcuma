@@ -30,12 +30,12 @@
 - Embedded compact bar above the content list: search field + `Extensions` popup menu with all suffixes in the current directory + clear button; session-only (resets on restart).
 - `MainWindow` resolves view indices back to source indices via `filePathFromContentIndex()`; Lesson/SFTP modes bypass the proxy.
 
-## DisplayDock View Presets
-- `ViewPresetWidget` lives below the `DisplayPanel`; manages reproducible camera + display presets (one preset = camera + display together).
-- Presets are stored under `viewPresets/` in `QSettings` and survive restarts; the list starts empty.
-- `ViewPreset` (`src/viewpreset.h`) holds camera (`rootRotation`, `pan`, `fieldOfView`, `cameraDistance`, `zoomFactor`, `zoomMode`) + display state. `ZoomMode::Absolute` applies the stored distance verbatim; `ZoomMode::Relative` reconstructs distance = `zoomFactor * sceneExtent` so the molecule keeps its on-screen size across different structures.
+## DisplayDock Views (camera)
+- `ViewPresetWidget` lives below the `DisplayPanel`; manages reproducible **camera views** only (UX stage 3; the appearance is a Look, see `src/CLAUDE.md`).
+- Views are stored under `viewPresets/` in `QSettings` and survive restarts; the list starts empty.
+- `ViewPreset` (`src/viewpreset.h`) holds camera only (`rootRotation`, `pan`, `fieldOfView`, `cameraDistance`, `zoomFactor`, `zoomMode`). `ZoomMode::Absolute` applies the stored distance verbatim; `ZoomMode::Relative` reconstructs distance = `zoomFactor * sceneExtent` so the molecule keeps its on-screen size across different structures.
 - `MoleculeViewer::currentViewPreset(ZoomMode)` captures; `applyViewPreset()` restores via the atomic `SceneController::setCameraTransform` + `m_quickWindow->update()`, then emits `viewPresetApplied()` so `DisplayPanel::syncFromViewer()` re-syncs its controls (no dock raise).
-- Quick buttons `Front`/`Top`/`Side` call `MoleculeViewer::setCameraOrientation()` — only rotation, zoom and display stay.
+- Quick buttons `Front`/`Top`/`Side` call `MoleculeViewer::setCameraOrientation()` (rotation only; zoom stays).
 
 ## Explore / Compute Mode
 - `MainWindow::setAppMode` updates mode buttons, persists to `ui/appMode`, and toggles the calculation toolbar.

@@ -1,5 +1,14 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 3: ein Look-System, Views nur Kamera, letzte Sitzung
+
+- **Looks** (`src/look.h`): Farbschema, Material, Fog, SSAO, Bloom, HDR/Belichtung, Eckenlichter, Hintergrund und sonst nichts. `MoleculeViewer::applyLook` setzt nur diese Felder; ein Look kann also keinen Schnellschalter umstellen. Eingebaut: Default, Publication, Presentation, Flat (Teaching); eigene Looks speichern/löschen im Look-Menü (Leiste, Display ▸ Look, Kontextmenü, Palette).
+- **Ersetzt** die Display-Presets (Quick/Custom), „Include display settings“ bei den View-Presets und Save/Load Defaults. Alte Display-Presets einmalig verworfen (`dropLegacyDisplayPresetsOnce`, Operator-Entscheidung, keine Migration).
+- **Views** (`ViewPreset`) tragen nur noch die Kamera; `applyViewPreset` setzt keine Anzeige mehr.
+- **Letzte Sitzung**: die Anzeige wird beim Beenden gespeichert (`MainWindow::closeEvent`) und beim Start wiederhergestellt, jetzt inklusive Hintergrund, Eckenlichtern und Fog-Distanz. Im Panel bleibt nur „Reset to Factory Settings“.
+- **Export-Dialog**: View (Kamera) und Look getrennt wählbar; beide Namen stehen in den PNG-Metadaten (`ViewPreset`, `Look`).
+- `applyDisplayPreset` aus Etappe 1 entfernt (ohne Aufrufer, durch `applyLook` überflüssig).
+
 ## September 2026 - UX-Etappe 2b: Moleküle sortenweise ausblenden
 
 - **Display ▸ Hide Molecules** (auch Leisten-Button neben H und Kontextmenü): listet die Molekülsorten der geladenen Struktur nach Summenformel mit Anzahl (z. B. „H2O ×120“), jede einzeln ausblendbar, dazu „Show All“. Nur Anzeige; verborgene Moleküle werden nicht gezeichnet, beschriftet oder gepickt, NCI-Kontakte zu ihnen entfallen.

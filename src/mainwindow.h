@@ -502,6 +502,8 @@ private:
     QMenu* m_lookMenu = nullptr;
     QMenu* m_moleculeKindsMenu = nullptr;             // Claude Generated 2026 - filled on aboutToShow
     void populateMoleculeKindsMenu();
+    QMenu* m_colorSchemeMenu = nullptr;               // Claude Generated 2026 - also inside the Look menu
+    void populateLookMenu();                          // Claude Generated 2026 - filled on aboutToShow
     QAction* m_fitViewAction = nullptr;
     QMenu* m_displayMenu = nullptr;         // reused as the viewport context menu
     /// Esc: cancel a running calculation, else clear selection/measurement.

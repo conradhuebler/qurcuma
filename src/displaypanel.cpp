@@ -36,16 +36,16 @@ DisplayPanel::DisplayPanel(MoleculeViewer* viewer, Settings* settings, QWidget* 
     , m_settings(settings)
 {
     setupUI();
-    if (m_settings)
-        m_settings->initializeDefaultPresets();
     syncFromViewer();
-    refreshPresetList();
 
     // Claude Generated 2026 - re-sync controls after a view preset is applied
     // (camera+display) without the dock being raised.
     if (m_viewer)
         connect(m_viewer, &MoleculeViewer::viewPresetApplied,
                 this, [this]() { syncFromViewer(); });
+    // Claude Generated 2026 - Looks (Look menu) change the appearance from outside.
+    if (m_viewer)
+        connect(m_viewer, &MoleculeViewer::lookApplied, this, [this]() { syncFromViewer(); });
     // Claude Generated 2026 - NCI options also change from the Display menu (the
     // hydrogen-bond quick toggle); the checkboxes follow read-only.
     if (m_viewer)
@@ -131,30 +131,22 @@ void DisplayPanel::setupUI()
         [this](QVBoxLayout* l) { createLightingGroup(l); }, false);
     addSection(QStringLiteral("tools"), tr("Tools"),
         [this](QVBoxLayout* l) { createToolsGroup(l); }, false);
-    addSection(QStringLiteral("presets"), tr("Presets"),
-        [this](QVBoxLayout* l) { createPresetsGroup(l); }, false);
 
     col->addStretch();
     scroll->setWidget(content);
     m_scroll = scroll;
     root->addWidget(scroll, 1);
 
-    // Footer: live changes apply instantly; these manage defaults.
+    // Claude Generated 2026 - Footer: only the factory reset. Changes apply live and the
+    // last session is restored at startup (saved on exit); looks live in the Look menu.
     auto* footer = new QHBoxLayout;
     footer->setContentsMargins(4, 4, 4, 4);
-    auto* resetBtn = new QPushButton(tr("Reset"), this);
-    resetBtn->setToolTip(tr("Reset all display options to the built-in defaults"));
+    auto* resetBtn = new QPushButton(tr("Reset to Factory Settings"), this);
+    resetBtn->setToolTip(tr("Reset every display option, including NCI and the hydrogen "
+                            "display, to the built-in defaults"));
     connect(resetBtn, &QPushButton::clicked, this, &DisplayPanel::onResetDefaults);
-    auto* loadBtn = new QPushButton(tr("Load Defaults"), this);
-    loadBtn->setToolTip(tr("Apply the display options saved with \"Save as Default\""));
-    connect(loadBtn, &QPushButton::clicked, this, &DisplayPanel::onLoadDefaults);
-    auto* saveBtn = new QPushButton(tr("Save as Default"), this);
-    saveBtn->setToolTip(tr("Remember the current display options for future launches"));
-    connect(saveBtn, &QPushButton::clicked, this, &DisplayPanel::onSaveAsDefault);
-    footer->addWidget(resetBtn);
-    footer->addWidget(loadBtn);
     footer->addStretch();
-    footer->addWidget(saveBtn);
+    footer->addWidget(resetBtn);
     root->addLayout(footer);
 }
 
@@ -1143,37 +1135,6 @@ void DisplayPanel::applyNciOptions()
     m_applyingNciOptions = false;
 }
 
-void DisplayPanel::createPresetsGroup(QVBoxLayout* mainLayout)
-{
-    QGroupBox* quick = new QGroupBox(tr("Quick Presets"), this);
-    QHBoxLayout* ql = new QHBoxLayout(quick);
-    for (const char* name : { "Publication", "Analysis", "Presentation" }) {
-        QString n = QString::fromLatin1(name);
-        QPushButton* b = new QPushButton(tr(name), this);
-        connect(b, &QPushButton::clicked, this, [this, n]() { loadQuickPreset(n); });
-        ql->addWidget(b);
-    }
-    mainLayout->addWidget(quick);
-
-    QGroupBox* custom = new QGroupBox(tr("Custom Presets"), this);
-    QVBoxLayout* cl = new QVBoxLayout(custom);
-    m_presetList = new QListWidget(this);
-    m_presetList->setMaximumHeight(110);
-    cl->addWidget(m_presetList);
-    QHBoxLayout* bl = new QHBoxLayout;
-    QPushButton* loadB = new QPushButton(tr("Load"), this);
-    QPushButton* saveB = new QPushButton(tr("Save As…"), this);
-    QPushButton* delB = new QPushButton(tr("Delete"), this);
-    bl->addWidget(loadB);
-    bl->addWidget(saveB);
-    bl->addWidget(delB);
-    cl->addLayout(bl);
-    connect(loadB, &QPushButton::clicked, this, [this]() { onLoadPreset(m_presetList->currentRow()); });
-    connect(saveB, &QPushButton::clicked, this, &DisplayPanel::onSavePreset);
-    connect(delB, &QPushButton::clicked, this, &DisplayPanel::onDeletePreset);
-    mainLayout->addWidget(custom);
-}
-
 // Claude Generated 2026 - Expand one accordion section and scroll it into view
 // (queued so the layout has settled after the expand).
 void DisplayPanel::expandSection(const QString& key)
@@ -1378,82 +1339,3 @@ void DisplayPanel::onResetDefaults()
     syncFromViewer();
 }
 
-void DisplayPanel::onSaveAsDefault()
-{
-    if (!m_settings || !m_viewer)
-        return;
-    // Read-modify-write: centerOnLoad persists on toggle and stays untouched here.
-    Settings::VisualizationSettings c = m_settings->getVisualizationSettings();
-    static_cast<DisplaySettings&>(c) = m_viewer->currentDisplaySettings();
-    c.instancingThreshold = m_viewer->getInstancingThreshold();
-    m_settings->setVisualizationSettings(c);
-}
-
-void DisplayPanel::onLoadDefaults()
-{
-    if (!m_settings || !m_viewer)
-        return;
-    m_viewer->applyDisplaySettings(m_settings->getVisualizationSettings());
-    syncFromViewer();
-}
-
-void DisplayPanel::refreshPresetList()
-{
-    if (!m_settings || !m_presetList)
-        return;
-    m_presetList->clear();
-    for (const auto& preset : m_settings->getVisualizationPresets())
-        m_presetList->addItem(preset.name);
-}
-
-void DisplayPanel::onLoadPreset(int index)
-{
-    if (!m_settings || index < 0 || !m_viewer)
-        return;
-    auto presets = m_settings->getVisualizationPresets();
-    if (index >= presets.size())
-        return;
-    m_viewer->applyDisplayPreset(presets[index].settings);
-    syncFromViewer();
-}
-
-void DisplayPanel::onSavePreset()
-{
-    if (!m_settings || !m_viewer)
-        return;
-    bool ok = false;
-    QString name = QInputDialog::getText(this, tr("Save Preset"), tr("Preset name:"),
-        QLineEdit::Normal, "", &ok);
-    if (!ok || name.isEmpty())
-        return;
-    Settings::VisualizationSettings c;
-    static_cast<DisplaySettings&>(c) = m_viewer->currentDisplaySettings();
-    c.instancingThreshold = m_viewer->getInstancingThreshold();
-    m_settings->savePreset(name, c);
-    refreshPresetList();
-}
-
-void DisplayPanel::onDeletePreset()
-{
-    if (!m_settings || !m_presetList || m_presetList->currentRow() < 0)
-        return;
-    QString name = m_presetList->currentItem()->text();
-    if (name == "Publication" || name == "Analysis" || name == "Presentation") {
-        QMessageBox::warning(this, tr("Cannot Delete"), tr("Built-in presets cannot be deleted."));
-        return;
-    }
-    m_settings->deletePreset(name);
-    refreshPresetList();
-}
-
-void DisplayPanel::loadQuickPreset(const QString& presetName)
-{
-    if (!m_settings || !m_viewer)
-        return;
-    auto presets = m_settings->getVisualizationPresets();
-    for (int i = 0; i < presets.size(); ++i)
-        if (presets[i].name == presetName) {
-            onLoadPreset(i);
-            return;
-        }
-}

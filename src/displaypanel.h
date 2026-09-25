@@ -32,13 +32,13 @@ class DisplayPanel : public QWidget
 public:
     explicit DisplayPanel(MoleculeViewer* viewer, Settings* settings = nullptr, QWidget* parent = nullptr);
 
-    /// Re-read all control values from the viewer (called after shortcuts, presets
+    /// Re-read all control values from the viewer (called after shortcuts, looks
     /// or external changes so the panel stays in sync). Read-only: the viewer is
     /// the single source of truth, this never writes viewer state.
     void syncFromViewer();
 
     /// Expand one accordion section by its stable key ("style", "nci", "effects",
-    /// "lighting", "tools", "presets") and scroll it into view. Claude Generated 2026.
+    /// "lighting", "tools") and scroll it into view. Claude Generated 2026.
     void expandSection(const QString& key);
 
 signals:
@@ -77,18 +77,11 @@ private slots:
     void onExposureChanged(double value);
     // Tools / interaction
     void onRotationModeChanged(int index);
-    // Footer / presets
+    // Footer
     void onResetDefaults();
-    void onSaveAsDefault();
-    void onLoadDefaults();
-    void onLoadPreset(int index);
-    void onSavePreset();
-    void onDeletePreset();
-    void loadQuickPreset(const QString& presetName);
 
 private:
     void setupUI();
-    void refreshPresetList();
     // Section content builders (reused from the former dialog).
     void createRenderingGroup(QVBoxLayout* layout);
     void createMaterialGroup(QVBoxLayout* layout);
@@ -110,7 +103,6 @@ private:
     /// Collect the NCI widgets into nci::Options and push them to the viewer.
     void applyNciOptions();
     bool m_applyingNciOptions = false;  // Claude Generated 2026 - see applyNciOptions()
-    void createPresetsGroup(QVBoxLayout* layout);
 
     // Style
     QComboBox* m_renderingModeCombo = nullptr;
@@ -188,9 +180,6 @@ private:
     QSlider* m_fragmentScaleSlider = nullptr;
     QLabel* m_fragmentScaleLabel = nullptr;
     QGroupBox* m_fragmentSelectedGroup = nullptr;
-
-    // Presets
-    QListWidget* m_presetList = nullptr;
 
     // Accordion sections by stable key (expand-state persistence, expandSection).
     QHash<QString, CollapsibleSection*> m_sections;

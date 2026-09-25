@@ -191,9 +191,10 @@ void MainWindow::setupUI()
     // Replaces the old 1x1 dummy — fixes dock resize math and eliminates the tab-support hack.
     m_moleculeView = new MoleculeViewer;
     // Claude Generated 2026 - The ONLY place persisted display settings are pushed
-    // into the viewer. From here on the viewer is the source of truth; the Display
-    // panel only reads (syncFromViewer) and explicit commands (Reset, Load
-    // Defaults, presets) re-apply a full DisplaySettings struct.
+    // into the viewer: the last session's state, saved on exit (closeEvent). From here
+    // on the viewer is the source of truth; the Display panel only reads
+    // (syncFromViewer), looks set their own fields (applyLook), Reset applies defaults.
+    m_settings.dropLegacyDisplayPresetsOnce();  // UX stage 3: old presets are not migrated
     const Settings::VisualizationSettings vizSettings = m_settings.getVisualizationSettings();
     m_moleculeView->applyDisplaySettings(vizSettings);
     m_moleculeView->setInstancingThreshold(vizSettings.instancingThreshold);
@@ -1244,15 +1245,14 @@ void MainWindow::createMenus()
     displayPanelAction->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
     connect(displayPanelAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
 
-    // Claude Generated 2026 - The viewer bar's "Look" dropdown: the colour scheme and
-    // the way into the detailed settings. Built from the same actions as the Display
-    // menu; the look presets of UX stage 3 will join it here.
-    m_lookMenu = new QMenu(tr("Look"), this);
-    m_lookMenu->addMenu(colorSchemeMenu);
-    m_lookMenu->addSeparator();
-    QAction* lookDetailsAction = m_lookMenu->addAction(tr("Details…"));
-    lookDetailsAction->setToolTip(displayPanelAction->toolTip());
-    connect(lookDetailsAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
+    // Claude Generated 2026 - Looks (UX stage 3): one menu for the viewer bar's Look
+    // button, the Display menu, the viewport context menu and the palette. Rebuilt on
+    // every opening so user looks and the check mark on the active look are current.
+    m_colorSchemeMenu = colorSchemeMenu;
+    m_lookMenu = new QMenu(tr("&Look"), this);
+    displayMenu->insertMenu(displayPanelAction, m_lookMenu);
+    connect(m_lookMenu, &QMenu::aboutToShow, this, &MainWindow::populateLookMenu);
+    populateLookMenu();  // once now, so the palette finds the looks before the menu opened
 
     // Claude Generated 2026 - Hand the shared menus/actions to the viewer bar here, once
     // they exist. (setupNciAnalysis runs from setupUI, before createMenus, so the NCI
@@ -2696,6 +2696,84 @@ void MainWindow::handleEscape()
         }
     }
     clearAtomSelection();
+}
+
+// Claude Generated 2026 - The Look menu: built-in and user looks (checked = the look the
+// scene currently shows), save/delete, the colour scheme and the detailed settings.
+void MainWindow::populateLookMenu()
+{
+    if (!m_lookMenu)
+        return;
+    m_lookMenu->clear();
+    // clear() keeps sub-menu objects alive; drop the previous "Delete Look" menu. The
+    // colour scheme menu belongs to the Display menu, so it is not a child of this one.
+    qDeleteAll(m_lookMenu->findChildren<QMenu*>(Qt::FindDirectChildrenOnly));
+    const Look current = m_moleculeView ? m_moleculeView->currentLook() : Look();
+    auto addLook = [this, &current](const Look& look) {
+        QAction* a = m_lookMenu->addAction(look.name);
+        a->setCheckable(true);
+        a->setChecked(look.sameAppearance(current));
+        connect(a, &QAction::triggered, this, [this, look]() {
+            if (!m_moleculeView)
+                return;
+            m_moleculeView->applyLook(look);
+            statusBar()->showMessage(tr("Look: %1").arg(look.name), 2000);
+        });
+    };
+    for (const Look& look : looks::builtIn())
+        addLook(look);
+    const QVector<Look> user = m_settings.userLooks();
+    if (!user.isEmpty()) {
+        m_lookMenu->addSeparator();
+        for (const Look& look : user)
+            addLook(look);
+    }
+
+    m_lookMenu->addSeparator();
+    QAction* saveAct = m_lookMenu->addAction(tr("Save Current Look…"));
+    connect(saveAct, &QAction::triggered, this, [this]() {
+        if (!m_moleculeView)
+            return;
+        bool ok = false;
+        const QString name = QInputDialog::getText(this, tr("Save Look"),
+            tr("Name (colours, material, lighting, effects, background):"),
+            QLineEdit::Normal, QString(), &ok).trimmed();
+        if (!ok || name.isEmpty())
+            return;
+        if (looks::isBuiltInName(name)) {
+            QMessageBox::information(this, tr("Save Look"),
+                tr("'%1' is a built-in look; please choose another name.").arg(name));
+            return;
+        }
+        for (const Look& l : m_settings.userLooks()) {
+            if (l.name.compare(name, Qt::CaseInsensitive) == 0
+                && QMessageBox::question(this, tr("Save Look"),
+                       tr("A look named '%1' already exists. Replace it?").arg(name))
+                    != QMessageBox::Yes)
+                return;
+        }
+        Look look = m_moleculeView->currentLook();
+        look.name = name;
+        m_settings.saveUserLook(look);
+        statusBar()->showMessage(tr("Look '%1' saved").arg(name), 2000);
+    });
+    QMenu* deleteMenu = m_lookMenu->addMenu(tr("Delete Look"));
+    deleteMenu->setEnabled(!user.isEmpty());
+    for (const Look& look : user) {
+        QAction* a = deleteMenu->addAction(look.name);
+        connect(a, &QAction::triggered, this, [this, name = look.name]() {
+            if (QMessageBox::question(this, tr("Delete Look"), tr("Delete the look '%1'?").arg(name))
+                == QMessageBox::Yes)
+                m_settings.deleteUserLook(name);
+        });
+    }
+
+    m_lookMenu->addSeparator();
+    if (m_colorSchemeMenu)
+        m_lookMenu->addMenu(m_colorSchemeMenu);
+    QAction* details = m_lookMenu->addAction(tr("Details…"));
+    details->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
+    connect(details, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
 }
 
 // Claude Generated 2026 - One checkable entry per molecule kind of the loaded structure
@@ -4670,6 +4748,14 @@ void MainWindow::closeEvent(QCloseEvent* event)
 {
     if (m_dockManager)
         m_dockManager->saveLayout();
+    // Claude Generated 2026 - The display state of this session is restored at the next
+    // start (setupUI). Read-modify-write: centerOnLoad and friends keep their values.
+    if (m_moleculeView) {
+        Settings::VisualizationSettings c = m_settings.getVisualizationSettings();
+        static_cast<DisplaySettings&>(c) = m_moleculeView->currentDisplaySettings();
+        c.instancingThreshold = m_moleculeView->getInstancingThreshold();
+        m_settings.setVisualizationSettings(c);
+    }
     QMainWindow::closeEvent(event);
 }
 

@@ -10,7 +10,6 @@
 #include <QVector3D>
 #include <QString>
 
-#include "displaysettings.h"
 
 /** @brief How the stored camera distance is interpreted when loading a preset.
  *
@@ -25,8 +24,9 @@ enum class ZoomMode {
     Relative = 1
 };
 
-/** @brief A reproducible view preset: camera orientation plus the display
- *  settings that should be applied together for uniform figures.
+/** @brief A reproducible camera view ("View"): orientation, pan, field of view and
+ *  zoom. Since UX stage 3 it carries no display settings; how the scene looks is a
+ *  Look (look.h), chosen independently.
  *
  *  The camera distance is stored in two forms: `cameraDistance` (absolute)
  *  and `zoomFactor` (relative, = cameraDistance / sceneExtent at capture
@@ -34,7 +34,7 @@ enum class ZoomMode {
  *
  *  Claude Generated 2026.
  */
-struct ViewPreset : public DisplaySettings {
+struct ViewPreset {
     QString name;
 
     // --- camera (SceneController transform) ---
@@ -51,9 +51,6 @@ struct ViewPreset : public DisplaySettings {
     // The shared appearance fields (rendering mode, colours, effects, walls, ...)
     // are inherited from DisplaySettings. Only the preset-specific extras below
     // are declared here. Claude Generated 2026.
-    float fogDistance = 0.2f;
-    QColor backgroundColor = QColor(32, 36, 44);
-    bool cornerLightEnabled[4] = { true, true, false, false };
 
     bool operator==(const ViewPreset& other) const
     {

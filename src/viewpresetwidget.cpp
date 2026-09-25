@@ -72,10 +72,6 @@ void ViewPresetWidget::setupUI()
             this, &ViewPresetWidget::onSelectionChanged);
     root->addWidget(m_presetList);
 
-    m_includeDisplayCheckBox = new QCheckBox(tr("Include display settings"));
-    m_includeDisplayCheckBox->setChecked(true);
-    m_includeDisplayCheckBox->setToolTip(tr("When checked, loading a preset also applies style, effects and lighting"));
-    root->addWidget(m_includeDisplayCheckBox);
 
     auto* buttonRow = new QHBoxLayout;
     buttonRow->setSpacing(4);
@@ -162,10 +158,6 @@ void ViewPresetWidget::onSaveCurrent()
     l->addWidget(new QLabel(tr("Zoom mode:"), &dialog));
     l->addWidget(modeCombo);
 
-    auto* includeCheck = new QCheckBox(tr("Include display settings"), &dialog);
-    includeCheck->setChecked(m_includeDisplayCheckBox->isChecked());
-    l->addWidget(includeCheck);
-
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, &dialog);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -190,35 +182,6 @@ void ViewPresetWidget::onSaveCurrent()
     const ZoomMode mode = static_cast<ZoomMode>(modeCombo->currentData().toInt());
     ViewPreset preset = m_viewer->currentViewPreset(mode);
     preset.name = name;
-
-    if (!includeCheck->isChecked()) {
-        // Keep only camera fields; reset display fields to defaults.
-        ViewPreset defaults;
-        preset.renderingMode = defaults.renderingMode;
-        preset.colorScheme = defaults.colorScheme;
-        preset.atomTransparency = defaults.atomTransparency;
-        preset.atomShininess = defaults.atomShininess;
-        preset.atomScaleFactor = defaults.atomScaleFactor;
-        preset.bondThickness = defaults.bondThickness;
-        preset.fogEnabled = defaults.fogEnabled;
-        preset.fogIntensity = defaults.fogIntensity;
-        preset.fogDistance = defaults.fogDistance;
-        preset.ssaoEnabled = defaults.ssaoEnabled;
-        preset.ssaoIntensity = defaults.ssaoIntensity;
-        preset.ssaoRadius = defaults.ssaoRadius;
-        preset.ssaoBias = defaults.ssaoBias;
-        preset.bloomEnabled = defaults.bloomEnabled;
-        preset.bloomThreshold = defaults.bloomThreshold;
-        preset.bloomIntensity = defaults.bloomIntensity;
-        preset.hdrEnabled = defaults.hdrEnabled;
-        preset.exposure = defaults.exposure;
-        preset.rotationMode = defaults.rotationMode;
-        preset.wallVisible = defaults.wallVisible;
-        preset.wallOpacity = defaults.wallOpacity;
-        preset.backgroundColor = defaults.backgroundColor;
-        for (int i = 0; i < 4; ++i)
-            preset.cornerLightEnabled[i] = defaults.cornerLightEnabled[i];
-    }
 
     m_settings->saveViewPreset(preset);
     refreshPresetList();
@@ -247,7 +210,7 @@ void ViewPresetWidget::onLoadSelected()
     if (it == presets.cend())
         return;
 
-    m_viewer->applyViewPreset(*it, true, m_includeDisplayCheckBox->isChecked());
+    m_viewer->applyViewPreset(*it);
 }
 
 void ViewPresetWidget::onDeleteSelected()
