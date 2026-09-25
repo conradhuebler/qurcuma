@@ -1772,7 +1772,9 @@ void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, cons
 
     if (m_frameSlider && m_frameLabel && m_frameJumpBox && m_frameControlWidget) {
         m_frameSlider->setMaximum(m_frameCount - 1);
-        m_frameJumpBox->setMaximum(m_frameCount - 1);
+        m_frameJumpBox->blockSignals(true);  // a clamped value must not trigger a jump
+        m_frameJumpBox->setMaximum(qMax(1, m_frameCount));
+        m_frameJumpBox->blockSignals(false);
         m_frameLabel->setText(QString("1/%1").arg(m_frameCount));
         m_frameControlWidget->setVisible(m_frameCount > 1);
     }
@@ -1813,7 +1815,7 @@ void MoleculeViewer::showFrame(int frameIndex)
         m_frameSlider->setValue(m_currentFrame);
         m_frameSlider->blockSignals(false);
         m_frameJumpBox->blockSignals(true);
-        m_frameJumpBox->setValue(m_currentFrame);
+        m_frameJumpBox->setValue(m_currentFrame + 1);
         m_frameJumpBox->blockSignals(false);
         m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
     }
@@ -1835,7 +1837,7 @@ void MoleculeViewer::updateFramePositions(int frameIndex)
         m_frameSlider->setValue(m_currentFrame);
         m_frameSlider->blockSignals(false);
         m_frameJumpBox->blockSignals(true);
-        m_frameJumpBox->setValue(m_currentFrame);
+        m_frameJumpBox->setValue(m_currentFrame + 1);
         m_frameJumpBox->blockSignals(false);
         m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
     }
@@ -4742,17 +4744,17 @@ void MoleculeViewer::setupControlPanel()
     m_frameLabel->setAlignment(Qt::AlignCenter);
     frameLayout->addWidget(m_frameLabel);
 
+    // Claude Generated 2026 - Counts from 1 like the "n/N" label next to it. Jumping calls
+    // showFrame(), which updates slider and box itself with their signals blocked (the old
+    // handler only moved the slider with signals blocked, so the frame never changed).
     m_frameJumpBox = new QSpinBox;
-    m_frameJumpBox->setMinimum(0);
-    m_frameJumpBox->setMaximum(0);
+    m_frameJumpBox->setMinimum(1);
+    m_frameJumpBox->setMaximum(1);
     m_frameJumpBox->setMaximumWidth(60);
     m_frameJumpBox->setToolTip(tr("Jump to frame number"));
-    connect(m_frameJumpBox, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
-        if (value != m_frameSlider->value()) {
-            m_frameSlider->blockSignals(true);
-            m_frameSlider->setValue(value);
-            m_frameSlider->blockSignals(false);
-        }
+    connect(m_frameJumpBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int value) {
+        if (value - 1 != m_currentFrame)
+            showFrame(value - 1);
     });
     frameLayout->addWidget(m_frameJumpBox);
 

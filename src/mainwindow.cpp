@@ -333,7 +333,7 @@ void MainWindow::createToolbars()
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     toolbar->addWidget(spacer);
 
-    QAction* toggleNMR = toolbar->addAction(tr("NMR Spektren"));
+    QAction* toggleNMR = toolbar->addAction(tr("NMR Spectra"));
     connect(toggleNMR, &QAction::triggered, [this]() { m_nmrDialog->show(); });
     addToolBar(Qt::TopToolBarArea, toolbar);
 }
@@ -446,16 +446,7 @@ void MainWindow::setupContextMenu()
                 QAction *visualizerAction = contextMenu.addAction(tr("Open with 3D Viewer"));
 
                 connect(visualizerAction, &QAction::triggered,
-                    [this, filePath]() {
-                        const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath);
-                        if (r.ok) {
-                            m_moleculeView->addMolecule(r.frames.first(), r.frameBonds.first());
-                            if (m_simulationControlWidget)
-                                m_simulationControlWidget->setMolecule(r.frames.first(), r.frameBonds.first());
-                        } else {
-                            QMessageBox::warning(this, tr("Error"), tr("Failed to parse PDB file: %1").arg(r.error));
-                        }
-                    });
+                    [this, filePath]() { loadMoleculeFile(filePath); });
 
                 // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
                 contextMenu.addSeparator();
@@ -487,16 +478,7 @@ void MainWindow::setupContextMenu()
                 QAction *visualizerAction = contextMenu.addAction(tr("Open with 3D Viewer"));
 
                 connect(visualizerAction, &QAction::triggered,
-                    [this, filePath]() {
-                        const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath);
-                        if (r.ok) {
-                            m_moleculeView->addMolecule(r.frames.first(), r.frameBonds.first());
-                            if (m_simulationControlWidget)
-                                m_simulationControlWidget->setMolecule(r.frames.first(), r.frameBonds.first());
-                        } else {
-                            QMessageBox::warning(this, tr("Error"), tr("Failed to parse MOL2 file: %1").arg(r.error));
-                        }
-                    });
+                    [this, filePath]() { loadMoleculeFile(filePath); });
 
                 // Claude Generated 2026 - Overlay this file onto the current structure (RMSD/Align).
                 contextMenu.addSeparator();
@@ -524,13 +506,13 @@ void MainWindow::setupContextMenu()
                 connect(fileNameAction, &QAction::triggered, [this, filePath]() { openWithVisualizer(filePath, "iboview"); });
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
 
-            }else if(filePath.contains("molden"))
+            }else if(QFileInfo(filePath).fileName().contains(".molden", Qt::CaseInsensitive))
             {
                 QMenu contextMenu(this);
                 QAction *fileNameAction = contextMenu.addAction(tr("Open with IboView"));
                 connect(fileNameAction, &QAction::triggered, [this, filePath]() { openWithVisualizer(filePath, "iboview"); });
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
-            }else if(filePath.contains("hess"))
+            }else if(filePath.endsWith(".hess", Qt::CaseInsensitive))
             {
                 QMenu contextMenu(this);
 
@@ -552,11 +534,13 @@ void MainWindow::setupContextMenu()
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
 
-            } else if (filePath.contains("out")) {
+            } else if (filePath.endsWith(".out", Qt::CaseInsensitive)) {
+                // Claude Generated 2026 - Matched on the file suffix; the old contains("out")
+                // test also hit any file inside a folder whose path contains "out".
                 QMenu contextMenu(this);
-                QAction* nmrstruktur = new QAction(tr("Add to NMR Spectrum"), this);
+                QAction* nmrstruktur = contextMenu.addAction(tr("Add to NMR Spectrum"));
                 connect(nmrstruktur, &QAction::triggered, [this, filePath]() {
-                    if (QMessageBox::question(this, tr("NMR Spektren"), tr("Do you want to load all files with the name filename from each directory?"), QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+                    if (QMessageBox::question(this, tr("NMR Spectra"), tr("Add the file of this name from every subdirectory of the working directory? No adds only this file."), QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
                         QString dirname = QFileInfo(filePath).dir().path().split(QDir::separator()).last();
                         for (const QString& subdir : this->currentSubdirectories()) {
                             QString current = filePath;
@@ -569,7 +553,6 @@ void MainWindow::setupContextMenu()
                     }
                 });
 
-                contextMenu.addAction(nmrstruktur);
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
             }
         });
@@ -797,15 +780,32 @@ void MainWindow::createMenus()
     // Claude Generated Phase 4.5 - Workspace menu
     m_workspaceMenu = fileMenu->addMenu(QIcon::fromTheme("window-duplicate"), tr("&Workspaces"));
 
+    // Claude Generated 2026 - No shortcut here: Ctrl+Shift+S is Save As (QKeySequence::SaveAs
+    // on Linux desktops), and a key bound twice fires neither action.
     QAction *saveWorkspaceAction = m_workspaceMenu->addAction(QIcon::fromTheme("document-save"), tr("&Save Current Workspace..."));
-    saveWorkspaceAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
     connect(saveWorkspaceAction, &QAction::triggered, this, &MainWindow::saveCurrentWorkspace);
 
+    // Claude Generated 2026 - Pick a saved workspace by name; restores it the same way a
+    // click in the Project dock's workspace list does.
     QAction *loadWorkspaceAction = m_workspaceMenu->addAction(QIcon::fromTheme("document-open"), tr("&Load Workspace..."));
     loadWorkspaceAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
-    connect(loadWorkspaceAction, &QAction::triggered, [this]() {
-        // For now, load workspace can be done via the sidebar list
-        statusBar()->showMessage(tr("Use workspace list in sidebar to load"), 2000);
+    connect(loadWorkspaceAction, &QAction::triggered, this, [this]() {
+        if (!m_workspaceManager)
+            return;
+        const auto workspaces = m_workspaceManager->listWorkspaces();
+        if (workspaces.isEmpty()) {
+            statusBar()->showMessage(tr("No saved workspaces"), 2000);
+            return;
+        }
+        QStringList names;
+        for (const auto& ws : workspaces)
+            names << ws.name;
+        bool ok = false;
+        const QString picked = QInputDialog::getItem(this, tr("Load Workspace"), tr("Workspace:"),
+                                                     names, 0, false, &ok);
+        const int index = ok ? names.indexOf(picked) : -1;
+        if (index >= 0)
+            restoreWorkspaceState(workspaces.at(index));
     });
 
     m_workspaceMenu->addSeparator();
@@ -1345,7 +1345,7 @@ void MainWindow::setupConnections()
                 m_commandInput->setPlaceholderText("Enter simulation command...");
             } else if (m_visualizerPrograms.contains(program)) {
                 m_commandInput->setEnabled(false);
-                m_commandInput->setPlaceholderText("Visualisierungsprogramm - kein Kommando nötig");
+                m_commandInput->setPlaceholderText(tr("Visualization program - no command needed"));
             }
         });
 
@@ -1703,7 +1703,7 @@ void MainWindow::setupProgramSpecificDirectory(const QString &dirPath, const QSt
 void MainWindow::configurePrograms()
 {
     QDialog dialog(this);
-    dialog.setWindowTitle(tr("Programmpfade konfigurieren"));
+    dialog.setWindowTitle(tr("Configure Programs"));
     QVBoxLayout *layout = new QVBoxLayout(&dialog);
 
     // Spezielle Behandlung für ORCA
@@ -1820,7 +1820,7 @@ bool MainWindow::setupCalculationDirectory()
 {
     bool ok;
     QString calcName = QInputDialog::getText(this, tr("New Calculation"),
-        tr("Name der Rechnung:"), QLineEdit::Normal, "", &ok);
+        tr("Calculation name:"), QLineEdit::Normal, "", &ok);
     
     if (!ok || calcName.isEmpty()) {
         return false;
@@ -1857,7 +1857,7 @@ bool MainWindow::setupCalculationDirectory()
 
     if (!workDir.mkdir(calcName)) {
         QMessageBox::warning(this, tr("Error"),
-            tr("Konnte Berechnungsverzeichnis nicht erstellen."));
+            tr("Could not create the calculation directory."));
         return false;
     }
 
@@ -1878,7 +1878,7 @@ bool MainWindow::setupCalculationDirectory()
         }
     }
 
-    statusBar()->showMessage(tr("Berechnungsverzeichnis erstellt: ") + calcName);
+    statusBar()->showMessage(tr("Calculation directory created: ") + calcName);
     return true;
 }
 void MainWindow::createNewDirectory()
@@ -2199,7 +2199,7 @@ void MainWindow::programSelected(int index)
         m_commandInput->setPlaceholderText("Enter simulation command...");
     } else if (m_visualizerPrograms.contains(program)) {
         m_commandInput->setEnabled(false);
-        m_commandInput->setPlaceholderText("Visualisierungsprogramm - kein Kommando nötig");
+        m_commandInput->setPlaceholderText(tr("Visualization program - no command needed"));
     }
 }
 
@@ -2253,30 +2253,6 @@ void MainWindow::loadSettings()
     // Load bookmarks and workspaces into UI
     refreshBookmarkTree();
     updateWorkspaceList();
-}
-
-void MainWindow::startNewCalculation()
-{
-    QString program = m_programSelector->currentText();
-
-    // Prüfe ob ein Programm ausgewählt ist
-    if (program.isEmpty()) {
-        QMessageBox::warning(this, tr("Error"),
-            tr("Please select a program first."));
-        return;
-    }
-
-    // Prüfe ob Input vorhanden ist
-    if (m_inputView->toPlainText().isEmpty() && program == "orca") {
-        QMessageBox::warning(this, tr("Error"),
-            tr("Bitte geben Sie zuerst Input-Daten ein."));
-        return;
-    }
-
-    // Je nach Programmtyp die entsprechende Aktion ausführen
-    if (m_simulationPrograms.contains(program)) {
-        runSimulation();
-    }
 }
 
 
@@ -2788,27 +2764,6 @@ void MainWindow::switchEditorTab()
     }
 }
 
-void MainWindow::saveCurrentEditor()
-{
-    // Get current focused editor and save its content
-    // This is a placeholder implementation
-    QTextEdit* currentEditor = nullptr;
-
-    if (m_structureView->hasFocus()) {
-        currentEditor = m_structureView;
-    } else if (m_inputView->hasFocus()) {
-        currentEditor = m_inputView;
-    } else if (m_outputViewDock && m_outputViewDock->outputView()
-               && m_outputViewDock->outputView()->hasFocus()) {
-        currentEditor = m_outputViewDock->outputView();
-    }
-
-    if (currentEditor) {
-        // In a full implementation, would save to file
-        statusBar()->showMessage(tr("Editor content ready to save"));
-    }
-}
-
 // Claude Generated 2026 - Central molecule-save routine. Used by:
 //   - File > Save / File > Save As (Ctrl+S / Ctrl+Shift+S)
 //   - The Save button inside the simulation dock
@@ -2957,13 +2912,6 @@ void MainWindow::applyStructureTextToViewer()
         statusBar()->showMessage(tr("Structure updated from editor (%1 atoms)").arg(atoms.size()), 3000);
     }
     m_structSyncing = false;
-}
-
-// Claude Generated 2026 - In-dock reset: reload the current source file to
-// discard any MD/Opt changes and start over from the original structure.
-void MainWindow::reloadCurrentFile()
-{
-    resetToOriginalSnapshot();
 }
 
 // Claude Generated 2026 - Restore the first snapshot (index 0), which is always
@@ -3204,15 +3152,6 @@ void MainWindow::pasteStructureFromClipboard()
         statusBar()->showMessage(tr("Structure pasted from clipboard"), 2000);
     } else {
         statusBar()->showMessage(tr("Clipboard content doesn't look like a structure file"), 2000);
-    }
-}
-
-// Claude Generated - Quick Win: Zoom to fit molecule
-void MainWindow::zoomToMolecule()
-{
-    if (m_moleculeView) {
-        m_moleculeView->resetViewToMolecule();
-        statusBar()->showMessage(tr("Zoomed to fit molecule"), 1500);
     }
 }
 
@@ -3654,24 +3593,15 @@ void MainWindow::centerMoleculeAtOrigin()
 void MainWindow::selectAllAtoms()
 {
     if (!m_moleculeView) return;
-    SelectionManager *selectionMgr = m_moleculeView->getSelectionManager();
-    if (!selectionMgr) return;
-
-    // Get current frame atoms count
-    const auto& selectedAtoms = m_moleculeView->getSelectedAtoms();
-    // We need to select all atoms - assuming we have access to atom count
-    // For now, we'll select the first N atoms if we know the count
-    if (!selectedAtoms.isEmpty()) {
-        // Count selected atoms to determine total count
-        int maxIndex = *std::max_element(selectedAtoms.begin(), selectedAtoms.end());
-        for (int i = 0; i <= maxIndex; ++i) {
-            if (!selectionMgr->isSelected(i)) {
-                selectionMgr->selectAtom(i, true);  // Append to selection
-            }
-        }
-    }
-    m_moleculeView->update();  // Trigger redraw
-    statusBar()->showMessage(tr("Selected all atoms"), 1500);
+    // Claude Generated 2026 - Select every atom of the current frame. The old version only
+    // filled the range 0..max(already selected), so Ctrl+A did nothing on an empty selection.
+    const int count = m_moleculeView->getCurrentFrameAtoms().size();
+    if (count == 0) return;
+    QVector<int> all(count);
+    for (int i = 0; i < count; ++i)
+        all[i] = i;
+    m_moleculeView->selectAtoms(all);
+    statusBar()->showMessage(tr("Selected all %1 atoms").arg(count), 1500);
 }
 
 void MainWindow::clearAtomSelection()
@@ -3892,14 +3822,12 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     // the working directory to the file's parent directory.
     bool fileLoaded = false;
 
-    if (suffix == "pdb" || suffix == "mol2") {
-        // PDB/MOL2 open-in-viewer is not wired yet. The loader can parse them
-        // (used by merge + remote load), but the full-file open path stays as-is.
-        statusBar()->showMessage(tr("PDB/MOL2 support coming soon"), 2000);
-    }
-    else {
-        // Claude Generated 2026 - xyz/vtf load through the shared MoleculeFileLoader.
-        // The two formerly identical per-format blocks are now one.
+    {
+        // Claude Generated 2026 - Every format the shared MoleculeFileLoader parses
+        // (xyz, vtf, pdb, mol2) loads through this one path, so snapshots, save path,
+        // recent files and the simulation dock are synced for all of them. Save on a
+        // non-xyz source asks for a new .xyz file (saveStructure) instead of
+        // overwriting the original.
         const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath);
         if (!r.supported) {
             statusBar()->showMessage(tr("Unsupported file format: %1").arg(suffix), 2000);
@@ -4255,7 +4183,7 @@ void MainWindow::createDockWidgets()
     setupNciAnalysis();
 
     // Viewer-bar "Photo" button → dialog-free quick export into the working folder.
-    if (m_moleculeView)
+    if (m_moleculeView) {
         connect(m_moleculeView, &MoleculeViewer::quickExportRequested,
             this, &MainWindow::quickExportPhoto);
         // Claude Generated 2026 - Right-click (no drag) on the 3D view.
@@ -4271,6 +4199,7 @@ void MainWindow::createDockWidgets()
             takeSnapshot(tr("Before cleanup"));
             m_simulationControlWidget->startQuickOptimization(50);
         });
+    }
 
     // ==================== PROJECT DOCK (left) ====================
     // Phase 6 redesign: ProjectDock owns a segmented upper panel

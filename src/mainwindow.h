@@ -144,13 +144,11 @@ private slots:
     void configurePrograms();
     void configureOperatorMetadata();  // Claude Generated 2026 - operator name/ORCID/institution/license
     void runSimulation();
-    void startNewCalculation();  // Neue Funktion
 
 
     // Keyboard shortcuts - Claude Generated Phase 1.2
     void cancelCalculation();
     void switchEditorTab();
-    void saveCurrentEditor();
 
     // Claude Generated 2026 - Save the (possibly MD/Opt-modified) molecule.
     // Empty path → overwrite the current XYZ source if it's a .xyz file,
@@ -158,8 +156,6 @@ private slots:
     bool saveCurrentStructure();
     void saveCurrentStructureAs();
 
-    // Claude Generated 2026 - Reload the current file to discard simulation changes.
-    void reloadCurrentFile();
 
     // Claude Generated - Visualization settings
     void openVisualizationSettings();
@@ -205,8 +201,6 @@ private slots:
     void addMoleculeToScene();
     void mergeFileIntoScene(const QString& filePath);
 
-    // Claude Generated - Quick Win: Zoom to fit molecule (moved from private to slots)
-    void zoomToMolecule();
 
     // Claude Generated - Quick Fix: Clear output view (moved from private to slots)
     void clearOutputView();

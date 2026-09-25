@@ -95,7 +95,6 @@ struct SimulationConfig {
     int    rmsdMtdMaxGaussians  = -1;     // rmsd_mtd_max_gaussians: cap stored bias structs (-1=unlimited)
     int    rmsdMtdMaxHeight     = 0;      // rmsd_mtd_max_height: cap per-struct counter (0=unbounded)
     double rmsdMtdEconv        = 1e8;    // rmsd_econv: bias-deposition convergence threshold (gates when a region is considered biased enough)
-    int    rmsdMtdPace          = 1;      // rmsd_mtd_pace: unused in counter scheme (kept for compat)
     bool   rmsdMtdWtmtd         = false;  // wtmtd: well-tempered reporting (gates rmsdMtdDt)
     double rmsdMtdDt            = 2000.0; // rmsd_mtd_dt: well-tempered bias temp ΔT (K)
     bool   rmsdMtdFreezeInherited = false;// rmsd_mtd_freeze_inherited: freeze inherited hill heights

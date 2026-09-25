@@ -221,13 +221,6 @@ QGroupBox* SimulationControlWidget::createRmsdMtdGroup()
         "passed to curcuma via setEnergyConv()."));
     rmsdForm->addRow(tr("Conv. threshold:"), m_rmsdMtdEconvSpin);
 
-    m_rmsdMtdPaceSpin = new QSpinBox(this);
-    m_rmsdMtdPaceSpin->setRange(1, 1000000);
-    m_rmsdMtdPaceSpin->setValue(1);
-    m_rmsdMtdPaceSpin->setToolTip(tr("Deposition pace. UNUSED in the counter-based "
-        "scheme (kept for compatibility) — deposition is gated by bias level."));
-    rmsdForm->addRow(tr("Pace (unused):"), m_rmsdMtdPaceSpin);
-
     m_rmsdMtdWtmtdCheck = new QCheckBox(tr("Well-tempered reporting"), this);
     m_rmsdMtdWtmtdCheck->setToolTip(tr("Switch on well-tempered reporting. Only then "
         "does ΔT below take effect (it only affects the reported well-tempered "
@@ -961,7 +954,6 @@ void SimulationControlWidget::setupConnections()
     connect(m_rmsdMtdMaxGaussiansSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_rmsdMtdMaxHeightSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_rmsdMtdEconvSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
-    connect(m_rmsdMtdPaceSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_rmsdMtdWtmtdCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rmsdMtdDtSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_rmsdMtdFreezeCheck, &QCheckBox::toggled, this, notifyConfig);
@@ -1104,7 +1096,6 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.rmsdMtdMaxGaussians  = m_rmsdMtdMaxGaussiansSpin->value();
     cfg.rmsdMtdMaxHeight     = m_rmsdMtdMaxHeightSpin->value();
     cfg.rmsdMtdEconv         = m_rmsdMtdEconvSpin->value();
-    cfg.rmsdMtdPace          = m_rmsdMtdPaceSpin->value();
     cfg.rmsdMtdWtmtd         = m_rmsdMtdWtmtdCheck->isChecked();
     cfg.rmsdMtdDt            = m_rmsdMtdDtSpin->value();
     cfg.rmsdMtdFreezeInherited = m_rmsdMtdFreezeCheck->isChecked();
@@ -1181,7 +1172,7 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
         m_rattle13Check, m_rattleTol12Spin, m_rattleTol13Spin, m_rattleMaxIterSpin,
         m_topologyModeCombo, m_rmsdMtdEnableCheck, m_rmsdMtdKSpin, m_rmsdMtdAlphaSpin,
         m_rmsdMtdAtomsEdit, m_rmsdMtdRefFileEdit, m_rmsdMtdMaxGaussiansSpin,
-        m_rmsdMtdMaxHeightSpin, m_rmsdMtdEconvSpin, m_rmsdMtdPaceSpin, m_rmsdMtdWtmtdCheck,
+        m_rmsdMtdMaxHeightSpin, m_rmsdMtdEconvSpin, m_rmsdMtdWtmtdCheck,
         m_rmsdMtdDtSpin, m_rmsdMtdFreezeCheck, m_wallEnableCheck, m_wallTypeCombo,
         m_wallPotentialCombo, m_wallRadiusSpin, m_wallXminSpin, m_wallXmaxSpin,
         m_wallYminSpin, m_wallYmaxSpin, m_wallZminSpin, m_wallZmaxSpin, m_wallTempSlider,
@@ -1224,7 +1215,6 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     m_rmsdMtdMaxGaussiansSpin->setValue(cfg.rmsdMtdMaxGaussians);
     m_rmsdMtdMaxHeightSpin->setValue(cfg.rmsdMtdMaxHeight);
     m_rmsdMtdEconvSpin->setValue(cfg.rmsdMtdEconv);
-    m_rmsdMtdPaceSpin->setValue(cfg.rmsdMtdPace);
     m_rmsdMtdWtmtdCheck->setChecked(cfg.rmsdMtdWtmtd);
     m_rmsdMtdDtSpin->setValue(cfg.rmsdMtdDt);
     m_rmsdMtdFreezeCheck->setChecked(cfg.rmsdMtdFreezeInherited);
@@ -1643,7 +1633,6 @@ void SimulationControlWidget::setRunning(bool running)
     m_rmsdMtdMaxGaussiansSpin->setEnabled(!running);
     m_rmsdMtdMaxHeightSpin->setEnabled(!running);
     m_rmsdMtdEconvSpin->setEnabled(!running);
-    m_rmsdMtdPaceSpin->setEnabled(!running);
     m_rmsdMtdWtmtdCheck->setEnabled(!running);
     m_rmsdMtdFreezeCheck->setEnabled(!running);
     // ΔT stays gated by wtmtd; re-apply that constraint after the run-state pass.

@@ -91,7 +91,6 @@ QJsonObject simConfigToJson(const SimulationConfig& cfg)
     o["rmsdMtdMaxGaussians"] = cfg.rmsdMtdMaxGaussians;
     o["rmsdMtdMaxHeight"] = cfg.rmsdMtdMaxHeight;
     o["rmsdMtdEconv"] = cfg.rmsdMtdEconv;
-    o["rmsdMtdPace"] = cfg.rmsdMtdPace;
     o["rmsdMtdWtmtd"] = cfg.rmsdMtdWtmtd;
     o["rmsdMtdDt"] = cfg.rmsdMtdDt;
     o["rmsdMtdFreezeInherited"] = cfg.rmsdMtdFreezeInherited;
@@ -162,7 +161,6 @@ SimulationConfig simConfigFromJson(const QJsonObject& o)
     cfg.rmsdMtdMaxGaussians = o.value("rmsdMtdMaxGaussians").toInt(cfg.rmsdMtdMaxGaussians);
     cfg.rmsdMtdMaxHeight = o.value("rmsdMtdMaxHeight").toInt(cfg.rmsdMtdMaxHeight);
     cfg.rmsdMtdEconv = o.value("rmsdMtdEconv").toDouble(cfg.rmsdMtdEconv);
-    cfg.rmsdMtdPace = o.value("rmsdMtdPace").toInt(cfg.rmsdMtdPace);
     cfg.rmsdMtdWtmtd = o.value("rmsdMtdWtmtd").toBool(cfg.rmsdMtdWtmtd);
     cfg.rmsdMtdDt = o.value("rmsdMtdDt").toDouble(cfg.rmsdMtdDt);
     cfg.rmsdMtdFreezeInherited = o.value("rmsdMtdFreezeInherited").toBool(cfg.rmsdMtdFreezeInherited);

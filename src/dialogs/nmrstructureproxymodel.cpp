@@ -18,7 +18,7 @@ NMRStructureProxyModel::NMRStructureProxyModel(NMRDataStore* dataStore, QObject*
     , m_dataStore(dataStore)
 {
     // Setup header labels
-    m_headerLabels << tr("Struktur") << tr("Energie (Hartree)") << tr("Sichtbar") << tr("Skalierung");
+    m_headerLabels << tr("Structure") << tr("Energy (Hartree)") << tr("Visible") << tr("Scaling");
 
     // Create root item
     m_rootItem = std::make_unique<TreeItem>(nullptr, RootItem);

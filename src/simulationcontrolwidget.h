@@ -205,7 +205,6 @@ private:
     QSpinBox*       m_rmsdMtdMaxGaussiansSpin = nullptr;
     QSpinBox*       m_rmsdMtdMaxHeightSpin = nullptr;
     QDoubleSpinBox* m_rmsdMtdEconvSpin = nullptr;
-    QSpinBox*       m_rmsdMtdPaceSpin = nullptr;
     QCheckBox*      m_rmsdMtdWtmtdCheck = nullptr;
     QDoubleSpinBox* m_rmsdMtdDtSpin = nullptr;
     QCheckBox*      m_rmsdMtdFreezeCheck = nullptr;

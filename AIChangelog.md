@@ -1,5 +1,17 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 0: Fehler und Stubs
+
+- **Ctrl+Shift+S** war doppelt belegt (Save As und Save Workspace) und löste deshalb keins von beiden aus; Save Workspace hat jetzt kein Kürzel.
+- **File ▸ Workspaces ▸ Load Workspace…** öffnet eine Auswahlliste (vorher nur eine Statusmeldung).
+- **Frame-Sprung-Spinbox** springt jetzt (`showFrame`) und zählt wie das Label ab 1.
+- **Ctrl+A** wählt alle Atome des aktuellen Frames (vorher nur 0…max. bereits gewählter Index, bei leerer Auswahl nichts).
+- **pdb/mol2** laden über `loadMoleculeFile` wie xyz/vtf (vorher Stub „coming soon“ beim Öffnen, im Kontextmenü ein Nebenweg ohne Snapshots/Recent Files).
+- **Kontextmenü der Dateiliste**: molden/hess/out werden am Dateinamen erkannt statt am ganzen Pfad; kein `QAction`-Leck mehr je Popup.
+- **Englische Oberfläche**: NMR-Dialog und restliche deutsche Meldungen übersetzt.
+- **RMSD-MTD**: das tote Feld „Pace (unused)“ entfernt, `rmsd_mtd_pace` wird nicht mehr an curcuma geschrieben (unter `rmsd_mtd_scheme=strided` ignoriert, löste eine Warnung aus).
+- Toter Code entfernt: `startNewCalculation`, `saveCurrentEditor`, `reloadCurrentFile`, `zoomToMolecule`.
+
 ## September 2026 - Wayland: Panels per Drag zurückdocken
 
 - **Ursache der fehlenden Andock-Markierung**: Qt 6.11 zieht Docks unter Wayland per Plattform-Drag-and-Drop (`xdg_toplevel_drag_v1`) und setzt die Lücke aus DragMove-Events am `QMainWindow`. Diese Events schluckte das innerste Widget mit `acceptDrops` (Viewer-`QQuickWidget`, Text- und Eingabefelder).

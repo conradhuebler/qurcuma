@@ -45,7 +45,6 @@ void applyRmsdMtdParams(const SimulationConfig& cfg, json& simplemd_params)
     simplemd_params["rmsd_mtd_max_gaussians"] = cfg.rmsdMtdMaxGaussians;
     simplemd_params["rmsd_mtd_max_height"] = cfg.rmsdMtdMaxHeight;
     simplemd_params["rmsd_econv"] = cfg.rmsdMtdEconv;  // bias-deposition convergence threshold (setEnergyConv)
-    simplemd_params["rmsd_mtd_pace"] = cfg.rmsdMtdPace;  // unused in counter scheme (compat)
     if (cfg.rmsdMtdWtmtd) {
         simplemd_params["wtmtd"] = true;
         simplemd_params["rmsd_mtd_dt"] = cfg.rmsdMtdDt;  // only used when wtmtd
