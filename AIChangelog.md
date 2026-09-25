@@ -1,5 +1,15 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 2: Viewer-Leiste
+
+- **Werkzeug-Schalter** View · Measure · Edit · Build (exklusiv, gespiegelt aus `interactionModeChanged`) statt drei einzelner Toggles; **Esc** geht eine Ebene zurück (Fragment fallen lassen → Auswahl/Marken löschen → zurück zu View).
+- **Bond-Werkzeuge** (Bindung hinzufügen/löschen/Ordnung durchschalten per Klick auf zwei Atome) im Build-Dropdown, mit Hinweis im Viewport; vorher nur über eine Combobox im eingeklappten Tools-Abschnitt erreichbar.
+- **Schnellschalter** H-Brücken · H ▾ · Stil ▾ neben NCI ▾, dazu **Look ▾** (Farbschema, Details…); Farb-Combo und „Display ⚙“-Button entfallen.
+- Frame-Navigation und Play/Pause mit gezeichneten Symbolen; die Trenner verschwinden mit ihren Gruppen bei Einzelstrukturen.
+- Clash-Anzeige auch im Build-Modus (rote Atome werden dort schon berechnet).
+- **NCI-Dropdown der Leiste** war leer: `setNciQuickMenu` lief aus `setupUI` vor `createMenus` und übergab einen Nullzeiger; die Leistenmenüs werden jetzt am Ende von `createMenus` übergeben.
+- Render-Style- und Farbschema-Aktionen starten mit dem Häkchen auf dem gespeicherten Zustand statt auf Modus 0.
+
 ## September 2026 - Messung folgt Live-MD/Opt und Wiedergabe
 
 - **`MoleculeViewer::updateMeasurement(frame)`** läuft jetzt auch im Live-Pfad (`updateSimulationFrame`, misst Frame 0, in den der Live-Pfad schreibt) und bei der Wiedergabe (`updateFramePositions`). Vorher blieben Messlinien und HUD-Werte auf der Geometrie stehen, bei der gemessen wurde.

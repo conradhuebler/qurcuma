@@ -644,6 +644,10 @@ public slots:
      *  The menu is owned by MainWindow (it also feeds the Display menu), so all
      *  entry points stay one action set. Claude Generated 2026. */
     void setNciQuickMenu(QMenu* menu);
+    /// Claude Generated 2026 - Quick-access buttons of the viewer bar, fed with the host's
+    /// shared actions/menus so bar, menu bar, context menu and palette stay in sync:
+    /// hydrogen-bond toggle, hydrogen display, render style and the Look dropdown.
+    void setQuickAccess(QAction* hbondToggle, QMenu* hydrogenMenu, QMenu* styleMenu, QMenu* lookMenu);
     /** Adopt a calculated result (GFN-FF / population) and draw it. */
     void setNciResult(const nci::Result& result);
     const nci::Result& getNciResult() const { return m_nciResult; }
@@ -958,6 +962,10 @@ private:
     bool m_nciLabelsVisible = true;
     bool m_nciLiveMd = false;          // live GFN-FF contacts during MD (see setNciLiveMd)
     QToolButton* m_nciButton = nullptr;  // bar toggle, mirrors m_nciSource
+    QToolButton* m_hbondButton = nullptr;     // Claude Generated 2026 - see setQuickAccess()
+    QToolButton* m_hydrogenButton = nullptr;
+    QToolButton* m_styleButton = nullptr;
+    QToolButton* m_lookButton = nullptr;
     AtomLabel m_atomLabelMode = AtomLabel::None;
     HydrogenDisplay m_hydrogenDisplay = HydrogenDisplay::All;
     void pushHydrogenDisplayToScene();  // applies the Build-mode override

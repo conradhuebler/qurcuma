@@ -1032,6 +1032,7 @@ void MainWindow::createMenus()
     m_displayMenu = displayMenu;
 
     QMenu* renderStyleMenu = displayMenu->addMenu(tr("&Render Style"));
+    m_renderStyleMenu = renderStyleMenu;  // Claude Generated 2026 - also the bar's Style button
     m_renderStyleGroup = new QActionGroup(this);
     const struct { int mode; QString label; QKeySequence key; void (MainWindow::*slot)(); } styles[] = {
         { 0, tr("&Ball and Stick"), QKeySequence(Qt::Key_1), &MainWindow::setRenderingModeBallAndStick },
@@ -1044,7 +1045,7 @@ void MainWindow::createMenus()
         a->setCheckable(true);
         a->setShortcut(s.key);
         a->setData(s.mode);
-        a->setChecked(s.mode == 0);
+        a->setChecked(s.mode == (m_moleculeView ? int(m_moleculeView->getRenderingMode()) : 0));
         m_renderStyleGroup->addAction(a);
         connect(a, &QAction::triggered, this, s.slot);
     }
@@ -1062,7 +1063,7 @@ void MainWindow::createMenus()
         QAction* a = colorSchemeMenu->addAction(s.second);
         a->setCheckable(true);
         a->setData(s.first);
-        a->setChecked(s.first == 0);
+        a->setChecked(s.first == (m_moleculeView ? int(m_moleculeView->getColorScheme()) : 0));
         m_colorSchemeGroup->addAction(a);
         connect(a, &QAction::triggered, this, [this, scheme = s.first]() {
             if (m_moleculeView)
@@ -1110,6 +1111,7 @@ void MainWindow::createMenus()
     // convention for "Polar"). H cycles the modes; in Build mode H stays the element key,
     // because the builder's key filter accepts the ShortcutOverride first (eventFilter).
     QMenu* hydrogenMenu = displayMenu->addMenu(tr("H&ydrogens"));
+    m_hydrogenMenu = hydrogenMenu;  // also the bar's H button
     QAction* cycleHydrogensAction = hydrogenMenu->addAction(tr("Cycle Hydrogen Display"));
     cycleHydrogensAction->setShortcut(Qt::Key_H);
     cycleHydrogensAction->setToolTip(tr("All hydrogens, then polar hydrogens only (C-H hidden), "
@@ -1235,6 +1237,24 @@ void MainWindow::createMenus()
     QAction* displayPanelAction = displayMenu->addAction(QIcon::fromTheme("configure"), tr("Display &Options…"));
     displayPanelAction->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
     connect(displayPanelAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
+
+    // Claude Generated 2026 - The viewer bar's "Look" dropdown: the colour scheme and
+    // the way into the detailed settings. Built from the same actions as the Display
+    // menu; the look presets of UX stage 3 will join it here.
+    m_lookMenu = new QMenu(tr("Look"), this);
+    m_lookMenu->addMenu(colorSchemeMenu);
+    m_lookMenu->addSeparator();
+    QAction* lookDetailsAction = m_lookMenu->addAction(tr("Details…"));
+    lookDetailsAction->setToolTip(displayPanelAction->toolTip());
+    connect(lookDetailsAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
+
+    // Claude Generated 2026 - Hand the shared menus/actions to the viewer bar here, once
+    // they exist. (setupNciAnalysis runs from setupUI, before createMenus, so the NCI
+    // source menu it passed used to be null and the NCI dropdown stayed empty.)
+    if (m_moleculeView) {
+        m_moleculeView->setNciQuickMenu(m_nciSourceMenu);
+        m_moleculeView->setQuickAccess(m_hbondToggleAction, m_hydrogenMenu, m_renderStyleMenu, m_lookMenu);
+    }
 
     // Settings Menu
     QMenu *settingsMenu = menuBar->addMenu(tr("&Settings"));
@@ -2651,16 +2671,22 @@ void MainWindow::handleEscape()
         cancelCalculation();
         return;
     }
-    // Claude Generated 2026 - In Build mode, Esc first drops a carried fragment,
-    // then leaves the builder.
-    if (m_moleculeView
-        && m_moleculeView->interactionMode() == MoleculeViewer::InteractionMode::Build) {
+    // Claude Generated 2026 - Esc steps back one level per press: a carried fragment is
+    // dropped first, then the selection / measurement marks are cleared, then the tool
+    // (Measure, Edit, Bonds, Build) is left for plain viewing.
+    if (m_moleculeView) {
         if (m_moleculeView->fragmentCarryActive()) {
             m_moleculeView->cancelFragmentCarry();
             return;
         }
-        m_moleculeView->setBuildMode(false);
-        return;
+        if (!m_moleculeView->getSelectedAtoms().isEmpty()) {
+            clearAtomSelection();
+            return;
+        }
+        if (m_moleculeView->interactionMode() != MoleculeViewer::InteractionMode::None) {
+            m_moleculeView->setInteractionMode(MoleculeViewer::InteractionMode::None);
+            return;
+        }
     }
     clearAtomSelection();
 }
@@ -4929,8 +4955,8 @@ void MainWindow::setupNciAnalysis()
         if (m_displayPanel)
             m_displayPanel->syncFromViewer();
     });
-    // The bar button's click + dropdown reuse the shared menu/toggle actions.
-    m_moleculeView->setNciQuickMenu(m_nciSourceMenu);
+    // The bar button's click reuses the shared toggle; its dropdown menu is attached in
+    // createMenus(), which runs after this.
     connect(m_moleculeView, &MoleculeViewer::nciToggleRequested,
         this, &MainWindow::toggleNciOverlay);
 

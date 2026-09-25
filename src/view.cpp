@@ -26,6 +26,7 @@
 #include <QFileInfo>
 #include <algorithm>
 #include <QActionGroup>
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
@@ -69,6 +70,7 @@
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QtMath>
 
 MoleculeViewer::MoleculeViewer(QWidget* parent)
@@ -2541,6 +2543,12 @@ void MoleculeViewer::setBondEditMode(int mode)
         }
         emit bondEditModeChanged(m_bondEditMode);
     }
+    // Claude Generated 2026 - The bond tools had no on-screen hint.
+    if (m_scene) {
+        const QString what = (m_bondEditMode == 1) ? tr("add a bond")
+            : (m_bondEditMode == 2) ? tr("delete a bond") : tr("cycle the bond order");
+        m_scene->setEditHint(tr("Bonds  ·  click two atoms to %1  ·  Esc: back to View").arg(what));
+    }
 }
 
 // Structure editing (Explore-mode "Edit" toggle): direct coordinate editing —
@@ -4735,6 +4743,62 @@ QIcon barIcon(const QString& kind, const QColor& color)
             p.drawLine(QPointF(10 + 5 * std::cos(a), 10 + 5 * std::sin(a)),
                 QPointF(10 + 7 * std::cos(a), 10 + 7 * std::sin(a)));
         }
+    } else if (kind == QLatin1String("view")) {
+        // Claude Generated 2026 - Plain viewing: a mouse pointer.
+        p.setBrush(color);
+        p.drawPolygon(QPolygonF({ QPointF(6, 3), QPointF(6, 15), QPointF(9, 12),
+            QPointF(11.5, 17), QPointF(13.5, 16), QPointF(11, 11), QPointF(15, 11) }));
+    } else if (kind == QLatin1String("first") || kind == QLatin1String("last")
+        || kind == QLatin1String("prev") || kind == QLatin1String("next")
+        || kind == QLatin1String("play")) {
+        // Claude Generated 2026 - Frame navigation: filled triangle, bar for first/last.
+        const bool left = (kind == QLatin1String("first") || kind == QLatin1String("prev"));
+        p.setBrush(color);
+        if (left)
+            p.drawPolygon(QPolygonF({ QPointF(14, 4), QPointF(14, 16), QPointF(6, 10) }));
+        else
+            p.drawPolygon(QPolygonF({ QPointF(6, 4), QPointF(6, 16), QPointF(14, 10) }));
+        if (kind == QLatin1String("first"))
+            p.drawLine(QPointF(5, 4), QPointF(5, 16));
+        if (kind == QLatin1String("last"))
+            p.drawLine(QPointF(15, 4), QPointF(15, 16));
+    } else if (kind == QLatin1String("pause")) {
+        p.setBrush(color);
+        p.drawRect(QRectF(6, 4.5, 2.5, 11));
+        p.drawRect(QRectF(11.5, 4.5, 2.5, 11));
+    } else if (kind == QLatin1String("hbond") || kind == QLatin1String("hydrogen")) {
+        // Claude Generated 2026 - A bold H; for hydrogen bonds with a dashed contact.
+        QFont f = p.font();
+        f.setBold(true);
+        f.setPixelSize(10);
+        p.setFont(f);
+        if (kind == QLatin1String("hbond")) {
+            p.drawText(QRectF(1, 4, 10, 12), Qt::AlignCenter, QStringLiteral("H"));
+            QPen dashed(color, 1.6, Qt::DashLine);
+            dashed.setDashPattern({ 1.5, 1.5 });
+            p.setPen(dashed);
+            p.drawLine(QPointF(11, 10), QPointF(16, 10));
+            p.setPen(pen);
+            p.setBrush(color);
+            p.drawEllipse(QPointF(17.5, 10), 1.8, 1.8);
+        } else {
+            p.drawEllipse(QPointF(10, 10), 7, 7);
+            p.drawText(QRectF(4, 4, 12, 12), Qt::AlignCenter, QStringLiteral("H"));
+        }
+    } else if (kind == QLatin1String("style")) {
+        // Claude Generated 2026 - Render style: ball and stick.
+        p.drawLine(QPointF(7, 13), QPointF(13, 7));
+        p.setBrush(color);
+        p.drawEllipse(QPointF(6, 14), 3, 3);
+        p.drawEllipse(QPointF(14, 6), 3, 3);
+    } else if (kind == QLatin1String("look")) {
+        // Claude Generated 2026 - Look (colours, lighting, effects): a half-lit sphere.
+        p.drawEllipse(QPointF(10, 10), 7, 7);
+        QPainterPath lit;
+        lit.moveTo(10, 3);
+        lit.arcTo(QRectF(3, 3, 14, 14), 90, 180);
+        lit.closeSubpath();
+        p.fillPath(lit, color);
     }
     return QIcon(pm);
 }
@@ -4772,30 +4836,20 @@ void MoleculeViewer::setupControlPanel()
     frameLayout->setSpacing(3);
 
     // Claude Generated 2026 - first/prev/next/last; Left/Right and Ctrl+Left/Right
-    // shortcuts are handled in MainWindow's app event filter.
-    QPushButton* firstButton = new QPushButton("⏮");
-    firstButton->setMaximumWidth(30);
-    firstButton->setToolTip(tr("First Frame (Ctrl+Left)"));
-    connect(firstButton, &QPushButton::clicked, this, &MoleculeViewer::firstFrame);
-    frameLayout->addWidget(firstButton);
-
-    QPushButton* prevButton = new QPushButton("◀");
-    prevButton->setMaximumWidth(30);
-    prevButton->setToolTip(tr("Previous Frame (Left)"));
-    connect(prevButton, &QPushButton::clicked, this, &MoleculeViewer::previousFrame);
-    frameLayout->addWidget(prevButton);
-
-    QPushButton* nextButton = new QPushButton("▶");
-    nextButton->setMaximumWidth(30);
-    nextButton->setToolTip(tr("Next Frame (Right)"));
-    connect(nextButton, &QPushButton::clicked, this, &MoleculeViewer::nextFrame);
-    frameLayout->addWidget(nextButton);
-
-    QPushButton* lastButton = new QPushButton("⏭");
-    lastButton->setMaximumWidth(30);
-    lastButton->setToolTip(tr("Last Frame (Ctrl+Right)"));
-    connect(lastButton, &QPushButton::clicked, this, &MoleculeViewer::lastFrame);
-    frameLayout->addWidget(lastButton);
+    // shortcuts are handled in MainWindow's app event filter. Drawn icons like the
+    // rest of the bar (were Unicode glyphs on push buttons).
+    auto addNavButton = [&](const QString& icon, const QString& tip, void (MoleculeViewer::*slot)()) {
+        auto* b = new QToolButton;
+        b->setIcon(barIcon(icon, iconColor));
+        b->setToolTip(tip);
+        b->setAutoRaise(true);
+        connect(b, &QToolButton::clicked, this, slot);
+        frameLayout->addWidget(b);
+    };
+    addNavButton(QStringLiteral("first"), tr("First Frame (Ctrl+Left)"), &MoleculeViewer::firstFrame);
+    addNavButton(QStringLiteral("prev"), tr("Previous Frame (Left)"), &MoleculeViewer::previousFrame);
+    addNavButton(QStringLiteral("next"), tr("Next Frame (Right)"), &MoleculeViewer::nextFrame);
+    addNavButton(QStringLiteral("last"), tr("Last Frame (Ctrl+Right)"), &MoleculeViewer::lastFrame);
 
     m_frameSlider = new QSlider(Qt::Horizontal);
     m_frameSlider->setMinimum(0);
@@ -4822,10 +4876,11 @@ void MoleculeViewer::setupControlPanel()
             showFrame(value - 1);
     });
     frameLayout->addWidget(m_frameJumpBox);
+    // The separator lives inside the group, so it hides with it for single structures.
+    frameLayout->addWidget(createSeparator());
 
     m_frameControlWidget->setVisible(false);
     panelLayout->addWidget(m_frameControlWidget, 1);
-    panelLayout->addWidget(createSeparator());
 
     // Playback — only shown for multi-frame files (hidden for a single structure).
     m_playbackWidget = new QWidget;
@@ -4835,15 +4890,13 @@ void MoleculeViewer::setupControlPanel()
 
     // Claude Generated 2026 - One play/pause toggle whose icon shows the state
     // (was two separate buttons with no running indication). Space toggles too.
-    QPushButton* playButton = new QPushButton;
-    playButton->setIcon(QIcon::fromTheme("media-playback-start"));
+    auto* playButton = new QToolButton;
+    playButton->setIcon(barIcon(QStringLiteral("play"), iconColor));
     playButton->setToolTip(tr("Play/Pause Animation (Space)"));
-    playButton->setMaximumWidth(30);
-    connect(playButton, &QPushButton::clicked, this, &MoleculeViewer::toggleAnimation);
-    connect(this, &MoleculeViewer::animationStateChanged, playButton, [playButton](bool running) {
-        playButton->setIcon(QIcon::fromTheme(running
-            ? QStringLiteral("media-playback-pause")
-            : QStringLiteral("media-playback-start")));
+    playButton->setAutoRaise(true);
+    connect(playButton, &QToolButton::clicked, this, &MoleculeViewer::toggleAnimation);
+    connect(this, &MoleculeViewer::animationStateChanged, playButton, [playButton, iconColor](bool running) {
+        playButton->setIcon(barIcon(running ? QStringLiteral("pause") : QStringLiteral("play"), iconColor));
     });
     playbackLayout->addWidget(playButton);
 
@@ -4861,92 +4914,98 @@ void MoleculeViewer::setupControlPanel()
     loopCheckbox->setChecked(true);
     connect(loopCheckbox, &QCheckBox::toggled, this, &MoleculeViewer::setAnimationLoop);
     playbackLayout->addWidget(loopCheckbox);
+    playbackLayout->addWidget(createSeparator());
 
     m_playbackWidget->setVisible(false);
     panelLayout->addWidget(m_playbackWidget);
-    panelLayout->addWidget(createSeparator());
 
-    // Measurement toggle — type is auto-detected from the number of picked atoms
-    // (2 = distance, 3 = angle, 4 = dihedral). Quick access; rendering style lives in the dock.
-    QToolButton* measureBtn = new QToolButton;
-    measureBtn->setText(tr("Measure"));
-    measureBtn->setCheckable(true);
-    measureBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    measureBtn->setIcon(barIcon(QStringLiteral("measure"), iconColor));
-    measureBtn->setToolTip(tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral. "
-                              "Click a marked atom again to deselect; Esc clears."));
-    connect(measureBtn, &QToolButton::toggled, this, [this](bool on) { setMeasurementMode(on ? 1 : 0); });
-    connect(this, &MoleculeViewer::measurementModeChanged, measureBtn, [measureBtn](int mode) {
-        const bool on = (mode != 0);
-        if (measureBtn->isChecked() != on) {
-            measureBtn->blockSignals(true);
-            measureBtn->setChecked(on);
-            measureBtn->blockSignals(false);
+    // Claude Generated 2026 - Tool selector: one exclusive group View · Measure · Edit ·
+    // Build over setInteractionMode(), mirrored from interactionModeChanged whatever
+    // changed the mode (menu, key, Esc). Bond editing is a Build sub-tool in its dropdown.
+    auto* toolGroup = new QButtonGroup(m_controlPanel);
+    toolGroup->setExclusive(true);
+    auto makeToolButton = [&](const QString& text, const QString& icon, const QString& tip) {
+        auto* b = new QToolButton;
+        b->setText(text);
+        b->setCheckable(true);
+        b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        b->setIcon(barIcon(icon, iconColor));
+        b->setToolTip(tip);
+        panelLayout->addWidget(b);
+        return b;
+    };
+    QToolButton* viewBtn = makeToolButton(tr("View"), QStringLiteral("view"),
+        tr("Plain viewing: drag rotates, click selects an atom. Esc returns here from every tool."));
+    viewBtn->setChecked(true);
+    QToolButton* measureBtn = makeToolButton(tr("Measure"), QStringLiteral("measure"),
+        tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral. "
+           "Click a marked atom again to deselect; Esc clears."));
+    QToolButton* editBtn = makeToolButton(tr("Edit"), QStringLiteral("edit"),
+        tr("Edit mode: click to select an atom, double-click for the whole molecule, "
+           "drag to move (Shift = depth, arrow keys = nudge). Overlapping atoms turn red."));
+    QToolButton* buildBtn = makeToolButton(tr("Build"), QStringLiteral("build"),
+        tr("Molecule builder: click empty space to place an atom, click an "
+           "atom to change its element, middle-click an atom to attach one, "
+           "right-click an atom to delete it, drag atom to atom to bond, "
+           "drag an atom onto empty space to move it. "
+           "Keys H C N O S P F L(Cl) R(Br) pick the element. "
+           "Arrow: fragments (dock onto a single selected atom) and bond tools."));
+    toolGroup->addButton(viewBtn, int(InteractionMode::None));
+    toolGroup->addButton(measureBtn, int(InteractionMode::Measure));
+    toolGroup->addButton(editBtn, int(InteractionMode::Edit));
+    toolGroup->addButton(buildBtn, int(InteractionMode::Build));
+    connect(toolGroup, &QButtonGroup::idClicked, this, [this](int id) {
+        switch (static_cast<InteractionMode>(id)) {
+        case InteractionMode::Measure: setMeasurementMode(1); break;
+        case InteractionMode::Edit:    setEditMode(true); break;
+        case InteractionMode::Build:   setBuildMode(true); break;
+        default:                       setInteractionMode(InteractionMode::None); break;
         }
     });
-    panelLayout->addWidget(measureBtn);
-
-    // Edit toggle — structure editing: select/move atoms & molecules, copy/paste, merge,
-    // with collision feedback (Claude Generated 2026). Sibling of the Measure toggle.
-    QToolButton* editBtn = new QToolButton;
-    editBtn->setText(tr("Edit"));
-    editBtn->setCheckable(true);
-    editBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    editBtn->setIcon(barIcon(QStringLiteral("edit"), iconColor));
-    editBtn->setToolTip(tr("Edit mode: click to select an atom, double-click for the whole molecule, "
-                           "drag to move (Shift = depth, arrow keys = nudge). Overlapping atoms turn red."));
-    connect(editBtn, &QToolButton::toggled, this, [this](bool on) { setEditMode(on); });
-    connect(this, &MoleculeViewer::editModeChanged, editBtn, [editBtn](bool on) {
-        if (editBtn->isChecked() != on) {
-            editBtn->blockSignals(true);
-            editBtn->setChecked(on);
-            editBtn->blockSignals(false);
-        }
+    // setChecked() does not emit idClicked, so mirroring cannot loop back.
+    connect(this, &MoleculeViewer::interactionModeChanged, toolGroup, [toolGroup](InteractionMode m) {
+        const InteractionMode shown = (m == InteractionMode::BondEdit) ? InteractionMode::Build : m;
+        if (QAbstractButton* b = toolGroup->button(int(shown)))
+            b->setChecked(true);
     });
-    panelLayout->addWidget(editBtn);
 
-    // Build toggle — molecule builder (Claude Generated 2026). Sibling of
-    // Measure/Edit; the element strip and dropdown arrive with the element picker.
-    QToolButton* buildBtn = new QToolButton;
-    buildBtn->setText(tr("Build"));
-    buildBtn->setCheckable(true);
-    buildBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    buildBtn->setIcon(barIcon(QStringLiteral("build"), iconColor));
-    buildBtn->setToolTip(tr("Molecule builder: click empty space to place an atom, click an "
-                            "atom to change its element, middle-click an atom to attach one, "
-                            "right-click an atom to delete it, drag atom to atom to bond, "
-                            "drag an atom onto empty space to move it. "
-                            "Keys H C N O S P F L(Cl) R(Br) pick the element. "
-                            "Arrow: insert a fragment (docks onto a single selected atom)."));
-    connect(buildBtn, &QToolButton::toggled, this, [this](bool on) { setBuildMode(on); });
-    // Claude Generated 2026 - Fragment dropdown: with exactly one selected atom a
-    // substituent docks onto it, otherwise the fragment lands standalone.
+    // Build dropdown: fragments (the fragment hangs on the mouse until a click drops it,
+    // Shift+click drops a copy; with one selected atom a substituent docks onto it), then
+    // the bond tools (formerly only in the Display panel's collapsed Tools section).
     buildBtn->setPopupMode(QToolButton::MenuButtonPopup);
-    QMenu* fragmentMenu = new QMenu(buildBtn);
+    QMenu* buildMenu = new QMenu(buildBtn);
     const auto& library = build::fragmentLibrary();
     QString lastCategory;
     for (int i = 0; i < library.size(); ++i) {
         if (library[i].category != lastCategory) {
             lastCategory = library[i].category;
-            fragmentMenu->addSection(lastCategory);
+            buildMenu->addSection(lastCategory);
         }
-        QAction* a = fragmentMenu->addAction(library[i].name);
+        QAction* a = buildMenu->addAction(library[i].name);
         connect(a, &QAction::triggered, this, [this, i]() {
-            // Claude Generated 2026 - The fragment hangs on the mouse (carry mode):
-            // move it into place, click drops it, Shift+click drops a copy.
             startFragmentCarry(build::fragmentLibrary()[i]);
         });
     }
-    buildBtn->setMenu(fragmentMenu);
-    connect(this, &MoleculeViewer::interactionModeChanged, buildBtn, [buildBtn](InteractionMode m) {
-        const bool on = (m == InteractionMode::Build);
-        if (buildBtn->isChecked() != on) {
-            buildBtn->blockSignals(true);
-            buildBtn->setChecked(on);
-            buildBtn->blockSignals(false);
-        }
+    buildMenu->addSection(tr("Bonds"));
+    auto* bondGroup = new QActionGroup(buildMenu);
+    bondGroup->setExclusionPolicy(QActionGroup::ExclusionPolicy::ExclusiveOptional);
+    const QVector<QPair<int, QString>> bondTools = {
+        { 1, tr("Add Bond (click two atoms)") },
+        { 2, tr("Delete Bond (click two atoms)") },
+        { 3, tr("Cycle Bond Order (click two atoms)") },
+    };
+    for (const auto& t : bondTools) {
+        QAction* a = buildMenu->addAction(t.second);
+        a->setCheckable(true);
+        a->setData(t.first);
+        bondGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, mode = t.first]() { setBondEditMode(mode); });
+    }
+    connect(this, &MoleculeViewer::bondEditModeChanged, bondGroup, [bondGroup](int mode) {
+        for (QAction* a : bondGroup->actions())
+            a->setChecked(a->data().toInt() == mode);
     });
-    panelLayout->addWidget(buildBtn);
+    buildBtn->setMenu(buildMenu);
 
     // Element strip — visible only while Build mode is on (Claude Generated 2026).
     // Two-way sync with the viewer's build element (hotkeys move the highlight).
@@ -5028,6 +5087,8 @@ void MoleculeViewer::setupControlPanel()
         [updateValenceLabel](const QVector<MoleculeViewer::Atom>&,
             const QVector<MoleculeViewer::Bond>&) { updateValenceLabel(); });
 
+    panelLayout->addWidget(createSeparator());
+
     // NCI toggle — quick access to the non-covalent interaction overlay (Claude
     // Generated 2026). Click toggles; the dropdown arrow picks the source. The
     // source menu is injected by MainWindow (setNciQuickMenu), which owns the
@@ -5051,6 +5112,36 @@ void MoleculeViewer::setupControlPanel()
         }
     });
     panelLayout->addWidget(m_nciButton);
+
+    // Claude Generated 2026 - Quick toggles next to NCI, icon only; the host attaches the
+    // shared actions/menus in setQuickAccess() (tooltips name the keys).
+    auto makeQuickButton = [&](const QString& icon, const QString& tip, bool checkable) {
+        auto* b = new QToolButton;
+        b->setIcon(barIcon(icon, iconColor));
+        b->setToolTip(tip);
+        b->setCheckable(checkable);
+        if (!checkable)
+            b->setPopupMode(QToolButton::InstantPopup);
+        panelLayout->addWidget(b);
+        return b;
+    };
+    m_hbondButton = makeQuickButton(QStringLiteral("hbond"),
+        tr("Hydrogen bonds in the NCI overlay (switches the overlay on). Shortcut: Shift+N"), true);
+    m_hydrogenButton = makeQuickButton(QStringLiteral("hydrogen"),
+        tr("Hydrogens: all, polar only (C-H hidden) or none. Display only. Shortcut: H"), false);
+    m_styleButton = makeQuickButton(QStringLiteral("style"),
+        tr("Render style: ball and stick, space filling, wireframe, sticks. Keys 1-4"), false);
+
+    panelLayout->addWidget(createSeparator());
+
+    // Look: colour scheme and the way into the detailed display settings.
+    m_lookButton = new QToolButton;
+    m_lookButton->setText(tr("Look"));
+    m_lookButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_lookButton->setIcon(barIcon(QStringLiteral("look"), iconColor));
+    m_lookButton->setPopupMode(QToolButton::InstantPopup);
+    m_lookButton->setToolTip(tr("Colour scheme and detailed display settings"));
+    panelLayout->addWidget(m_lookButton);
 
     // Photo — one-click image export (no dialog). Sibling of Measure/Edit; the host
     // supplies the working dir + operator settings via quickExportRequested.
@@ -5095,25 +5186,6 @@ void MoleculeViewer::setupControlPanel()
     photoBtn->setMenu(photoMenu);
     panelLayout->addWidget(photoBtn);
 
-    QComboBox* colorCombo = new QComboBox;
-    colorCombo->addItem(tr("CPK"), static_cast<int>(ColorScheme::CPK));
-    colorCombo->addItem(tr("Monochrome"), static_cast<int>(ColorScheme::Monochrome));
-    colorCombo->addItem(tr("By Charge"), static_cast<int>(ColorScheme::ByCharge));
-    colorCombo->addItem(tr("By Type"), static_cast<int>(ColorScheme::ByType));
-    colorCombo->addItem(tr("Custom"), static_cast<int>(ColorScheme::Custom));
-    colorCombo->setMaximumWidth(100);
-    connect(colorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, colorCombo](int index) {
-        setColorScheme(static_cast<ColorScheme>(colorCombo->itemData(index).toInt()));
-    });
-    connect(this, &MoleculeViewer::colorSchemeChanged, colorCombo, [colorCombo](ColorScheme s) {
-        const int i = colorCombo->findData(static_cast<int>(s));
-        if (i >= 0 && i != colorCombo->currentIndex()) {
-            colorCombo->blockSignals(true);
-            colorCombo->setCurrentIndex(i);
-            colorCombo->blockSignals(false);
-        }
-    });
-    panelLayout->addWidget(colorCombo);
 
     // Clash status + auto-resolve (visible only in Edit mode). Claude Generated 2026.
     QLabel* clashLabel = new QLabel;
@@ -5126,9 +5198,11 @@ void MoleculeViewer::setupControlPanel()
     connect(resolveBtn, &QPushButton::clicked, this, [this] { resolveClashes(); });
     panelLayout->addWidget(resolveBtn);
 
+    // Claude Generated 2026 - Clashes are computed in Edit and Build (red atoms), so the
+    // count shows in both; resolving moves the selection, which only Edit has.
     connect(this, &MoleculeViewer::collisionCountChanged, this,
         [this, clashLabel, resolveBtn](int n) {
-            clashLabel->setVisible(editMode());
+            clashLabel->setVisible(editMode() || buildMode());
             resolveBtn->setVisible(editMode() && n > 0);
             if (n > 0) {
                 clashLabel->setText(tr("⚠ %1 clash%2").arg(n).arg(n == 1 ? QString() : tr("es")));
@@ -5138,20 +5212,32 @@ void MoleculeViewer::setupControlPanel()
                 clashLabel->setStyleSheet(QStringLiteral("QLabel { color: #4caf50; border: none; }"));
             }
         });
-    connect(this, &MoleculeViewer::editModeChanged, this,
-        [clashLabel, resolveBtn](bool on) {
-            clashLabel->setVisible(on);
-            if (!on)
+    connect(this, &MoleculeViewer::interactionModeChanged, this,
+        [clashLabel, resolveBtn](InteractionMode m) {
+            clashLabel->setVisible(m == InteractionMode::Edit || m == InteractionMode::Build);
+            if (m != InteractionMode::Edit)
                 resolveBtn->setVisible(false);
         });
 
+    // The detailed display settings are reached through Look ▸ Details… (the former
+    // "Display" button at this end of the bar).
     panelLayout->addStretch();
+}
 
-    // Everything else (material, glow, measure, bond-edit, force, fog, lights,
-    // background, …) now lives in the "Display" dock — opened by this button.
-    QPushButton* displayBtn = new QPushButton(tr("Display"));
-    displayBtn->setIcon(barIcon(QStringLiteral("gear"), iconColor));
-    displayBtn->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
-    connect(displayBtn, &QPushButton::clicked, this, &MoleculeViewer::displayOptionsRequested);
-    panelLayout->addWidget(displayBtn);
+// Claude Generated 2026 - Attach the host's shared hydrogen-bond action and the
+// hydrogen / render-style / look menus to the bar's quick-access buttons.
+void MoleculeViewer::setQuickAccess(QAction* hbondToggle, QMenu* hydrogenMenu, QMenu* styleMenu,
+    QMenu* lookMenu)
+{
+    if (m_hbondButton && hbondToggle) {
+        m_hbondButton->setChecked(hbondToggle->isChecked());
+        connect(m_hbondButton, &QToolButton::clicked, hbondToggle, &QAction::trigger);
+        connect(hbondToggle, &QAction::toggled, m_hbondButton, &QToolButton::setChecked);
+    }
+    if (m_hydrogenButton)
+        m_hydrogenButton->setMenu(hydrogenMenu);
+    if (m_styleButton)
+        m_styleButton->setMenu(styleMenu);
+    if (m_lookButton)
+        m_lookButton->setMenu(lookMenu);
 }
