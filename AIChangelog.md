@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 4a-2: Tools-Abschnitt aufgelöst
+
+- **Measure** und **Bond Edit** gibt es nur noch in der Viewer-Leiste (Werkzeug-Schalter, Build ▾).
+- **Simulation dock ▸ „Show in viewer“** (einklappbar, `SimulationViewOptions`): Confinement walls, Wall opacity, Wall potential shells, Wall force field, Force vectors while grabbing, Dynamic bonds; vorher im Tools-Abschnitt des Display-Panels.
+- **Settings ▸ Center Molecule on Load** und **Settings ▸ Mouse Rotation** (Molekül drehen / Kamera umkreisen).
+- **Build ▾ ▸ Live Docking Preview**.
+
 ## September 2026 - UX-Etappe 4a-1: Structure und Appearance getrennt
 
 - **Structure-Dock** (`docks/structuredock.*`, vorher `DisplayDock`): nur noch [Structure | Atoms], also XYZ-Editor und Atomtabelle.

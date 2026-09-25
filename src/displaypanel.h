@@ -38,15 +38,10 @@ public:
     void syncFromViewer();
 
     /// Expand one accordion section by its stable key ("style", "nci", "effects",
-    /// "lighting", "tools") and scroll it into view. Claude Generated 2026.
+    /// "lighting") and scroll it into view. Claude Generated 2026.
     void expandSection(const QString& key);
 
 signals:
-    void centerOnLoadChanged(bool enabled);
-    /** Emitted when the "Show potential gradient" checkbox changes. */
-    void potGradientChanged(bool enabled);
-    /** Emitted when the "Show force vectors" checkbox or resolution spinbox changes. */
-    void potVectorFieldChanged(bool enabled, int resolution);
     /** Emitted when the NCI overlay source changes (0=off, 1=geometry,
      *  2=GFN-FF parameters, 3=population analysis). The calculated sources need a
      *  run of the analysis worker, which MainWindow owns. */
@@ -75,8 +70,6 @@ private slots:
     void onBloomIntensityChanged(int value);
     void onHDREnabledChanged(bool enabled);
     void onExposureChanged(double value);
-    // Tools / interaction
-    void onRotationModeChanged(int index);
     // Footer
     void onResetDefaults();
 
@@ -88,7 +81,6 @@ private:
     void createSizeGroup(QVBoxLayout* layout);
     void createAppearanceGroup(QVBoxLayout* layout); // SSAO/Bloom/HDR/Fog
     void createLightingGroup(QVBoxLayout* layout);   // corner lights + background (new)
-    void createToolsGroup(QVBoxLayout* layout);      // measure/bond-edit/force + interaction (new)
     void createBeadTypeGroup(QVBoxLayout* layout);  // per-bead-type colours (CG beads)
     void createFragmentGroup(QVBoxLayout* layout);  // per-fragment tint (host-guest)
     void createNciGroup(QVBoxLayout* layout);       // non-covalent interaction overlay
@@ -134,18 +126,10 @@ private:
     QToolButton* m_cornerLightButtons[4] = { nullptr, nullptr, nullptr, nullptr };
     QPushButton* m_bgColorButton = nullptr;
 
-    // Tools / interaction
-    QCheckBox* m_measureCheck = nullptr;  // measurement on/off (type auto-detected by atom count)
-    QComboBox* m_bondEditCombo = nullptr;
-    QCheckBox* m_forceVectorsCheck = nullptr;
-    QCheckBox* m_wallCheck = nullptr;          // confinement-wall wireframe show/hide
-    QSlider* m_wallOpacitySlider = nullptr;    // confinement-wall wireframe transparency
-    QLabel* m_wallOpacityLabel = nullptr;
-    QCheckBox* m_potGradientCheck = nullptr;   // iso-potential shell overlay show/hide
-    QCheckBox* m_potArrowCheck = nullptr;      // wall force vector field show/hide
-    QSpinBox*  m_potArrowResSpin = nullptr;    // vector field resolution (points per axis)
-    QComboBox* m_rotationModeCombo = nullptr;
-    QCheckBox* m_dockPreviewCheck = nullptr;   // builder: live docking preview (opt-out)
+    // Claude Generated 2026 - The former Tools section is gone (UX stage 4): measure and
+    // bond tools are viewer-bar tools, the simulation display options live in the
+    // Simulation dock (SimulationViewOptions), rotation mode and centre-on-load in the
+    // Settings menu, the docking preview in the Build dropdown.
 
     // Non-covalent interactions
     QComboBox* m_nciSourceCombo = nullptr;

@@ -5079,6 +5079,18 @@ void MoleculeViewer::setupControlPanel()
         for (QAction* a : bondGroup->actions())
             a->setChecked(a->data().toInt() == mode);
     });
+    // Claude Generated 2026 - Builder preference (formerly in the Display panel's Tools
+    // section). Read on open: the last session restores it after the bar is built.
+    buildMenu->addSeparator();
+    QAction* dockPreviewAct = buildMenu->addAction(tr("Live Docking Preview"));
+    dockPreviewAct->setCheckable(true);
+    dockPreviewAct->setToolTip(tr("While carrying a fragment near a bonding partner, show the "
+                                  "final docked pose live instead of only on drop."));
+    connect(dockPreviewAct, &QAction::toggled, this, [this](bool on) { setDockPreviewEnabled(on); });
+    connect(buildMenu, &QMenu::aboutToShow, this, [this, dockPreviewAct]() {
+        const QSignalBlocker block(dockPreviewAct);
+        dockPreviewAct->setChecked(m_dockPreviewEnabled);
+    });
     buildBtn->setMenu(buildMenu);
 
     // Element strip — visible only while Build mode is on (Claude Generated 2026).

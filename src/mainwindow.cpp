@@ -1299,6 +1299,45 @@ void MainWindow::createMenus()
     // Note: checkbox state will be updated in constructor after loading settings
     connect(m_darkModeAction, &QAction::triggered, this, &MainWindow::toggleDarkMode);
 
+    // Claude Generated 2026 - UX stage 4: viewer preferences moved here from the Display
+    // panel's former Tools section.
+    settingsMenu->addSeparator();
+    QAction* centerOnLoadAction = settingsMenu->addAction(tr("&Center Molecule on Load"));
+    centerOnLoadAction->setCheckable(true);
+    centerOnLoadAction->setChecked(m_centerOnLoad);
+    centerOnLoadAction->setToolTip(tr("When opening a file, translate all frames so the "
+                                      "mass-weighted centre of mass is at the origin."));
+    connect(centerOnLoadAction, &QAction::toggled, this, [this](bool on) {
+        m_centerOnLoad = on;
+        if (m_lessonController)
+            m_lessonController->setCenterOnLoad(on);
+        Settings::VisualizationSettings vs = m_settings.getVisualizationSettings();
+        vs.centerOnLoad = on;
+        m_settings.setVisualizationSettings(vs);
+    });
+    QMenu* rotationMenu = settingsMenu->addMenu(tr("Mouse &Rotation"));
+    auto* rotationGroup = new QActionGroup(this);
+    const QVector<QPair<int, QString>> rotationModes = {
+        { static_cast<int>(MoleculeViewer::RotationMode::Model), tr("Rotate Molecule (camera fixed)") },
+        { static_cast<int>(MoleculeViewer::RotationMode::CameraOrbit), tr("Rotate Camera (orbit)") },
+    };
+    for (const auto& r : rotationModes) {
+        QAction* a = rotationMenu->addAction(r.second);
+        a->setCheckable(true);
+        a->setData(r.first);
+        rotationGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, mode = r.first]() {
+            if (m_moleculeView)
+                m_moleculeView->setRotationMode(mode);
+        });
+    }
+    // The mode is restored with the last session after the menus exist; read it on open.
+    connect(rotationMenu, &QMenu::aboutToShow, this, [this, rotationGroup]() {
+        const int current = m_moleculeView ? m_moleculeView->getRotationMode() : 0;
+        for (QAction* a : rotationGroup->actions())
+            a->setChecked(a->data().toInt() == current);
+    });
+
     settingsMenu->addSeparator();
     QAction *configAction = settingsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure Programs..."));
     connect(configAction, &QAction::triggered, this, &MainWindow::configurePrograms);
@@ -4395,6 +4434,9 @@ void MainWindow::createDockWidgets()
         m_displayPanel = m_appearanceDock->displayPanel();
     if (m_simulationDock) {
         m_simulationTabs = m_simulationDock->tabs();
+        // Claude Generated 2026 - UX stage 4: walls, wall potential, grab force vectors and
+        // dynamic bonds are shown/hidden from the Simulation dock ("Show in viewer").
+        m_simulationDock->setViewOptions(new SimulationViewOptions(m_moleculeView));
         m_inputView = m_simulationDock->inputView();
         m_inputFileEdit = m_simulationDock->inputFileEdit();
         m_inputFileEditExtension = m_simulationDock->inputFileEditExtension();
@@ -4599,20 +4641,8 @@ void MainWindow::createDockWidgets()
     }
 
     // ==================== DISPLAY PANEL (inside the Appearance dock) ====================
-    // Phase 8: DisplayPanel is owned by StructureDock and harvested above; MainWindow
-    // only wires its signals here.
-    connect(m_displayPanel, &DisplayPanel::centerOnLoadChanged, this, [this](bool on) {
-        m_centerOnLoad = on;
-        if (m_lessonController)
-            m_lessonController->setCenterOnLoad(on);
-        Settings::VisualizationSettings vs = m_settings.getVisualizationSettings();
-        vs.centerOnLoad = on;
-        m_settings.setVisualizationSettings(vs);
-    });
-    connect(m_displayPanel, &DisplayPanel::potVectorFieldChanged,
-        this, [this](bool on, int res) {
-            if (m_moleculeView) m_moleculeView->setWallVectorField(on, res);
-        });
+    // DisplayPanel is owned by the Appearance dock and harvested above; MainWindow only
+    // wires its signals here.
     // The viewer's slim "Display ⚙" bar button surfaces this dock.
     if (m_moleculeView)
         connect(m_moleculeView, &MoleculeViewer::displayOptionsRequested,

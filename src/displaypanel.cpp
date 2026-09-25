@@ -129,8 +129,6 @@ void DisplayPanel::setupUI()
         [this](QVBoxLayout* l) { createAppearanceGroup(l); }, false);
     addSection(QStringLiteral("lighting"), tr("Lighting"),
         [this](QVBoxLayout* l) { createLightingGroup(l); }, false);
-    addSection(QStringLiteral("tools"), tr("Tools"),
-        [this](QVBoxLayout* l) { createToolsGroup(l); }, false);
 
     col->addStretch();
     scroll->setWidget(content);
@@ -425,173 +423,6 @@ void DisplayPanel::createLightingGroup(QVBoxLayout* mainLayout)
     mainLayout->addWidget(g);
 }
 
-void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
-{
-    QGroupBox* g = new QGroupBox(tr("Tools"), this);
-    QFormLayout* f = new QFormLayout(g);
-
-    m_measureCheck = new QCheckBox(tr("on — click atoms (2=dist, 3=angle, 4=dihedral)"), this);
-    m_measureCheck->setToolTip(tr("Type is auto-detected from the number of picked atoms. "
-                                  "Click a marked atom again to deselect; Esc clears."));
-    connect(m_measureCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setMeasurementMode(on ? 1 : 0);
-    });
-    // Stay in sync with the viewer-bar measurement toggle.
-    if (m_viewer)
-        connect(m_viewer, &MoleculeViewer::measurementModeChanged, m_measureCheck, [this](int mode) {
-            const bool on = (mode != 0);
-            if (m_measureCheck->isChecked() != on) {
-                m_measureCheck->blockSignals(true);
-                m_measureCheck->setChecked(on);
-                m_measureCheck->blockSignals(false);
-            }
-        });
-    f->addRow(tr("Measure:"), m_measureCheck);
-
-    m_bondEditCombo = new QComboBox(this);
-    m_bondEditCombo->addItem(tr("No Bond Edit"), 0);
-    m_bondEditCombo->addItem(tr("Add Bond"), 1);
-    m_bondEditCombo->addItem(tr("Delete Bond"), 2);
-    m_bondEditCombo->addItem(tr("Cycle Order"), 3);
-    connect(m_bondEditCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int i) {
-        if (m_viewer) m_viewer->setBondEditMode(m_bondEditCombo->itemData(i).toInt());
-    });
-    // Claude Generated 2026 - Follow external mode switches (e.g. Edit mode turning
-    // bond-edit off), so the combo no longer shows a stale "Add Bond".
-    if (m_viewer)
-        connect(m_viewer, &MoleculeViewer::bondEditModeChanged, this, [this](int mode) {
-            const int i = m_bondEditCombo->findData(mode);
-            if (i >= 0 && i != m_bondEditCombo->currentIndex()) {
-                m_bondEditCombo->blockSignals(true);
-                m_bondEditCombo->setCurrentIndex(i);
-                m_bondEditCombo->blockSignals(false);
-            }
-        });
-    f->addRow(tr("Bond Edit:"), m_bondEditCombo);
-
-    m_forceVectorsCheck = new QCheckBox(tr("Show force vectors while grabbing"), this);
-    connect(m_forceVectorsCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setForceVectorsVisible(on);
-    });
-    f->addRow(QString(), m_forceVectorsCheck);
-
-    // Claude Generated 2026 - Dynamic bonds: re-detect the bond graph each live MD/Opt frame so
-    // bond breaking/formation in reactions is drawn. Default on (matches MoleculeViewer).
-    auto* dynamicBondsCheck = new QCheckBox(tr("Dynamic bonds (live MD/Opt reactions)"), this);
-    dynamicBondsCheck->setToolTip(tr("Re-detect bonds from the geometry every simulation frame so "
-        "bonds break and form as the structure reacts. Turn off to keep the initial topology fixed."));
-    dynamicBondsCheck->setChecked(m_viewer ? m_viewer->dynamicBonds() : true);
-    connect(dynamicBondsCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setDynamicBonds(on);
-    });
-    f->addRow(QString(), dynamicBondsCheck);
-
-    // Claude Generated 2026 - Builder: live docked pose while carrying a fragment.
-    m_dockPreviewCheck = new QCheckBox(tr("Live docking preview (fragments)"), this);
-    m_dockPreviewCheck->setToolTip(tr("While carrying a fragment near a bonding partner, show "
-        "the final docked pose (orientation and clash-avoiding roll) live instead of only "
-        "on drop."));
-    m_dockPreviewCheck->setChecked(true);
-    connect(m_dockPreviewCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setDockPreviewEnabled(on);
-    });
-    f->addRow(QString(), m_dockPreviewCheck);
-
-    // Claude Generated 2026 - Auto-center on load: shift COM to origin when a file is opened.
-    auto* centerOnLoadCheck = new QCheckBox(tr("Center molecule at origin on load"), this);
-    centerOnLoadCheck->setToolTip(tr("When opening a file, translate all frames so the "
-        "mass-weighted centre-of-mass is at the coordinate origin."));
-    const bool currentCenterOnLoad = m_settings
-        ? m_settings->getVisualizationSettings().centerOnLoad : true;
-    centerOnLoadCheck->setChecked(currentCenterOnLoad);
-    connect(centerOnLoadCheck, &QCheckBox::toggled, this, [this](bool on) {
-        emit centerOnLoadChanged(on);
-    });
-    f->addRow(QString(), centerOnLoadCheck);
-
-    // Claude Generated 2026 - Confinement-wall wireframe toggle. The wall geometry
-    // itself is driven by the Simulation config (auto-show when walls are enabled);
-    // this checkbox is an independent show/hide override for the wireframe.
-    m_wallCheck = new QCheckBox(tr("Show confinement walls"), this);
-    m_wallCheck->setToolTip(tr("Show/hide the harmonic confinement-wall wireframe. "
-        "The wall geometry and activation come from the Simulation dock; this only "
-        "toggles whether the box/sphere is drawn."));
-    connect(m_wallCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setWallVisibleOverride(on);
-    });
-    f->addRow(QString(), m_wallCheck);
-
-    // Claude Generated 2026 - Variable wall-wireframe transparency. The RGB
-    // (grey/red on violations) comes from the instance colour; this slider sets
-    // the material alpha via MoleculeViewer::setWallOpacity.
-    QHBoxLayout* wol = new QHBoxLayout;
-    m_wallOpacitySlider = new QSlider(Qt::Horizontal, this);
-    m_wallOpacitySlider->setRange(0, 100);
-    m_wallOpacitySlider->setValue(60);
-    m_wallOpacitySlider->setToolTip(tr("Transparency of the confinement-wall wireframe"));
-    m_wallOpacityLabel = new QLabel("60%", this);
-    m_wallOpacityLabel->setMinimumWidth(40);
-    wol->addWidget(m_wallOpacitySlider);
-    wol->addWidget(m_wallOpacityLabel);
-    connect(m_wallOpacitySlider, &QSlider::valueChanged, this, [this](int v) {
-        if (m_wallOpacityLabel)
-            m_wallOpacityLabel->setText(QString("%1%").arg(v));
-        if (m_viewer)
-            m_viewer->setWallOpacity(v / 100.0);
-    });
-    f->addRow(tr("Wall opacity:"), wol);
-
-    // Iso-potential gradient shell overlay. 3 inside shells (blue->teal) +
-    // 3 outside shells (yellow->red) at force-contour distances from the boundary.
-    m_potGradientCheck = new QCheckBox(tr("Show potential gradient"), this);
-    m_potGradientCheck->setToolTip(tr("Overlay concentric iso-potential wireframe shells:\n"
-        "Blue/teal (inside boundary, approach zone), yellow/red (outside, force zone).\n"
-        "Shell spacing scales with 1/beta for LogFermi walls."));
-    m_potGradientCheck->setChecked(false);
-    connect(m_potGradientCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setWallPotentialViz(on);
-        emit potGradientChanged(on);
-    });
-    f->addRow(QString(), m_potGradientCheck);
-
-    // Wall force vector field: arrows sampled on a grid around the boundary.
-    m_potArrowCheck = new QCheckBox(tr("Show force vectors"), this);
-    m_potArrowCheck->setToolTip(tr("Draw force arrows at grid points around the wall boundary.\n"
-        "Length = force magnitude; colour = distance level.\n"
-        "LogFermi: also shows arrows inside (bell-shaped force profile)."));
-    m_potArrowCheck->setChecked(false);
-    QHBoxLayout* arrowResLay = new QHBoxLayout;
-    m_potArrowResSpin = new QSpinBox(this);
-    m_potArrowResSpin->setRange(2, 8);
-    m_potArrowResSpin->setValue(4);
-    m_potArrowResSpin->setToolTip(tr("Sample points per axis (box face) or per latitude ring (sphere)."));
-    arrowResLay->addWidget(m_potArrowCheck);
-    arrowResLay->addWidget(new QLabel(tr("Res:"), this));
-    arrowResLay->addWidget(m_potArrowResSpin);
-    arrowResLay->addStretch();
-    auto emitArrows = [this]() {
-        const bool on  = m_potArrowCheck   && m_potArrowCheck->isChecked();
-        const int  res = m_potArrowResSpin ? m_potArrowResSpin->value() : 4;
-        if (m_viewer) m_viewer->setWallVectorField(on, res);
-        emit potVectorFieldChanged(on, res);
-    };
-    connect(m_potArrowCheck,   &QCheckBox::toggled,
-            this, [emitArrows](bool) { emitArrows(); });
-    connect(m_potArrowResSpin, QOverload<int>::of(&QSpinBox::valueChanged),
-            this, [emitArrows](int)  { emitArrows(); });
-    f->addRow(QString(), arrowResLay);
-
-    f->addRow(new QLabel(""));
-
-    m_rotationModeCombo = new QComboBox(this);
-    m_rotationModeCombo->addItem(tr("Rotate molecule (camera fixed)"), static_cast<int>(MoleculeViewer::RotationMode::Model));
-    m_rotationModeCombo->addItem(tr("Rotate camera (orbit)"), static_cast<int>(MoleculeViewer::RotationMode::CameraOrbit));
-    connect(m_rotationModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-        this, &DisplayPanel::onRotationModeChanged);
-    f->addRow(tr("Rotation:"), m_rotationModeCombo);
-
-    mainLayout->addWidget(g);
-}
 
 // Claude Generated 2026 - Fragment tinting for host-guest systems.
 //
@@ -1162,9 +993,7 @@ void DisplayPanel::syncFromViewer()
         m_shininessSpinBox, m_atomScaleSpinBox, m_bondThicknessSpinBox, m_fogEnabledCheckBox,
         m_fogIntensitySlider, m_fogDistanceSlider, m_ssaoEnabledCheckBox, m_ssaoIntensitySlider,
         m_ssaoRadiusSpinBox, m_ssaoBiasSpinBox, m_bloomEnabledCheckBox, m_bloomThresholdSpinBox,
-        m_bloomIntensitySlider, m_hdrEnabledCheckBox, m_exposureSpinBox, m_rotationModeCombo,
-        m_forceVectorsCheck, m_wallCheck, m_wallOpacitySlider, m_measureCheck, m_bondEditCombo,
-        m_dockPreviewCheck,
+        m_bloomIntensitySlider, m_hdrEnabledCheckBox, m_exposureSpinBox,
         m_cornerLightButtons[0], m_cornerLightButtons[1], m_cornerLightButtons[2], m_cornerLightButtons[3],
         m_nciSourceCombo, m_nciHBondCheck, m_nciXBondCheck, m_nciPiCheck, m_nciContactCheck,
         m_nciHbDistanceSpin, m_nciHbAngleSpin, m_nciLabelCheck, m_nciLiveMdCheck,
@@ -1208,11 +1037,6 @@ void DisplayPanel::syncFromViewer()
     m_exposureSpinBox->setValue(m_viewer->getExposure());
     m_exposureSpinBox->setEnabled(hdrOn);
 
-    setComboData(m_rotationModeCombo, m_viewer->getRotationMode());
-    m_wallCheck->setChecked(m_viewer->getWallVisibleOverride());
-    const qreal wallOpacity = m_viewer->getWallOpacity();
-    m_wallOpacitySlider->setValue(int(wallOpacity * 100));
-    m_wallOpacityLabel->setText(QString("%1%").arg(int(wallOpacity * 100)));
 
     const nci::Options o = m_viewer->getNciOptions();
     m_nciHBondCheck->setChecked(o.hydrogenBonds);
@@ -1237,15 +1061,6 @@ void DisplayPanel::syncFromViewer()
 
     m_fogIntensitySlider->setEnabled(m_fogEnabledCheckBox->isChecked());
     m_fogDistanceSlider->setValue(int(m_viewer->getFogDistance() * 100.0f));
-    m_forceVectorsCheck->setChecked(m_viewer->getForceVectorsVisible());
-    m_measureCheck->setChecked(m_viewer->getMeasurementMode() != 0);
-    if (m_dockPreviewCheck)
-        m_dockPreviewCheck->setChecked(m_viewer->dockPreviewEnabled());
-    if (m_bondEditCombo) {
-        const int i = m_bondEditCombo->findData(m_viewer->getBondEditMode());
-        if (i >= 0)
-            m_bondEditCombo->setCurrentIndex(i);
-    }
     for (int i = 0; i < 4; ++i)
         m_cornerLightButtons[i]->setChecked(m_viewer->isCornerLightEnabled(i));
 
@@ -1321,10 +1136,6 @@ void DisplayPanel::onHDREnabledChanged(bool enabled)
     m_exposureSpinBox->setEnabled(enabled);
 }
 void DisplayPanel::onExposureChanged(double value) { if (m_viewer) m_viewer->setExposure(float(value)); }
-void DisplayPanel::onRotationModeChanged(int index)
-{
-    if (m_viewer) m_viewer->setRotationMode(m_rotationModeCombo->itemData(index).toInt());
-}
 
 // ---------------------------------------------------------------------------
 // Footer + presets
