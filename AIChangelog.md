@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 2b: Moleküle sortenweise ausblenden
+
+- **Display ▸ Hide Molecules** (auch Leisten-Button neben H und Kontextmenü): listet die Molekülsorten der geladenen Struktur nach Summenformel mit Anzahl (z. B. „H2O ×120“), jede einzeln ausblendbar, dazu „Show All“. Nur Anzeige; verborgene Moleküle werden nicht gezeichnet, beschriftet oder gepickt, NCI-Kontakte zu ihnen entfallen.
+- Gleiche Maske wie die H-Anzeige (`SceneController::isAtomHidden`); Auswahl gehört zur Struktur, wird beim Laden einer neuen zurückgesetzt und im Build-Modus ignoriert. Geprüft in `test_fragments`.
+
 ## September 2026 - UX-Etappe 2: Viewer-Leiste
 
 - **Werkzeug-Schalter** View · Measure · Edit · Build (exklusiv, gespiegelt aus `interactionModeChanged`) statt drei einzelner Toggles; **Esc** geht eine Ebene zurück (Fragment fallen lassen → Auswahl/Marken löschen → zurück zu View).

@@ -11,6 +11,7 @@
 #include <QHash>
 #include <QObject>
 #include <QPair>
+#include <QSet>
 #include <QQuaternion>
 #include <QRectF>
 #include <QVariant>
@@ -359,8 +360,17 @@ public:
         const QVector<BondDatum>& bonds, int mode);
     void setHydrogenDisplay(int mode);
     int hydrogenDisplay() const { return m_hydrogenDisplay; }
-    bool isAtomHidden(int index) const;
+    bool isAtomHidden(int index) const;   // hidden H or atom of a hidden molecule kind
     int hiddenAtomCount() const;
+
+    // Claude Generated 2026 - Hide molecules by kind (solvent etc.). A kind is a fragment
+    // formula (fragments(), Hill notation); every fragment with a hidden formula is hidden
+    // like a hidden H, except that NCI contacts to it are dropped instead of rerouted.
+    // Pi-stacking lines (ring centroids, no atom index) and RMSD overlays are not affected.
+    /// Distinct fragment formulas with their molecule count, most numerous first.
+    QVector<QPair<QString, int>> moleculeKinds() const;
+    void setHiddenMoleculeKinds(const QSet<QString>& formulas);
+    QSet<QString> hiddenMoleculeKinds() const { return m_hiddenMoleculeKinds; }
     // Claude Generated 2026 - Structure editing: atoms that currently clash with a
     // moved/placed selection. Drawn RED (priority above the magenta selection) so the
     // user sees what to push apart. Empty = no clashes.
@@ -494,12 +504,17 @@ private:
     bool m_labelSelectionOnly = false;
     QVariantList m_atomLabels;
     void rebuildLabels();
-    // Claude Generated 2026 - Hydrogen display state; the mask is rebuilt lazily after
-    // every structure or bond change (same invalidation points as the fragments).
+    // Claude Generated 2026 - Visibility state (hydrogen display + hidden molecule kinds);
+    // the mask is rebuilt lazily after every structure or bond change (same invalidation
+    // points as the fragments).
     int m_hydrogenDisplay = AllHydrogens;
     mutable HydrogenMask m_hydrogenMask;
-    mutable bool m_hydrogenMaskDirty = true;
-    void ensureHydrogenMask() const;
+    mutable bool m_visibilityMaskDirty = true;
+    void ensureVisibilityMask() const;
+    QSet<QString> m_hiddenMoleculeKinds;
+    mutable QVector<bool> m_moleculeHidden;   // per atom, from m_hiddenMoleculeKinds
+    mutable int m_hiddenTotal = 0;            // union of hidden H and hidden molecules
+    bool isInHiddenMolecule(int index) const;
     // Claude Generated 2026 - Fragment (connected component) state. Recomputed
     // lazily because every structure and bond change invalidates it.
     mutable QVector<int> m_fragmentOf;          // atom index -> fragment index

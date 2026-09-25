@@ -1152,6 +1152,12 @@ void MainWindow::createMenus()
         connect(m_moleculeView, &MoleculeViewer::hydrogenDisplayChanged, this,
             [this, checkByData](int mode) { checkByData(m_hydrogenDisplayGroup, mode); });
 
+    // Claude Generated 2026 - Hide molecules by kind (solvent etc.), display only. The list
+    // comes from the loaded structure each time the menu opens (also from the bar button
+    // and the viewport context menu, which share this QMenu).
+    m_moleculeKindsMenu = displayMenu->addMenu(tr("Hide &Molecules"));
+    connect(m_moleculeKindsMenu, &QMenu::aboutToShow, this, &MainWindow::populateMoleculeKindsMenu);
+
     displayMenu->addSeparator();
 
     m_nciToggleAction = displayMenu->addAction(QIcon::fromTheme("draw-connector"), tr("&NCI Overlay"));
@@ -1253,7 +1259,8 @@ void MainWindow::createMenus()
     // source menu it passed used to be null and the NCI dropdown stayed empty.)
     if (m_moleculeView) {
         m_moleculeView->setNciQuickMenu(m_nciSourceMenu);
-        m_moleculeView->setQuickAccess(m_hbondToggleAction, m_hydrogenMenu, m_renderStyleMenu, m_lookMenu);
+        m_moleculeView->setQuickAccess(m_hbondToggleAction, m_hydrogenMenu, m_moleculeKindsMenu,
+            m_renderStyleMenu, m_lookMenu);
     }
 
     // Settings Menu
@@ -2689,6 +2696,49 @@ void MainWindow::handleEscape()
         }
     }
     clearAtomSelection();
+}
+
+// Claude Generated 2026 - One checkable entry per molecule kind of the loaded structure
+// (checked = hidden), most numerous first, plus "Show All".
+void MainWindow::populateMoleculeKindsMenu()
+{
+    if (!m_moleculeKindsMenu)
+        return;
+    m_moleculeKindsMenu->clear();
+    if (!m_moleculeView)
+        return;
+    const auto kinds = m_moleculeView->moleculeKinds();
+    const QSet<QString> hidden = m_moleculeView->hiddenMoleculeKinds();
+
+    QAction* showAll = m_moleculeKindsMenu->addAction(tr("Show All"));
+    showAll->setEnabled(!hidden.isEmpty());
+    connect(showAll, &QAction::triggered, this, [this]() {
+        if (m_moleculeView)
+            m_moleculeView->setHiddenMoleculeKinds({});
+    });
+    m_moleculeKindsMenu->addSeparator();
+
+    if (kinds.size() < 2) {
+        QAction* note = m_moleculeKindsMenu->addAction(tr("Only one kind of molecule loaded"));
+        note->setEnabled(false);
+        return;
+    }
+    for (const auto& kind : kinds) {
+        QAction* a = m_moleculeKindsMenu->addAction(
+            tr("Hide %1  (×%2)").arg(kind.first).arg(kind.second));
+        a->setCheckable(true);
+        a->setChecked(hidden.contains(kind.first));
+        connect(a, &QAction::toggled, this, [this, formula = kind.first](bool on) {
+            if (!m_moleculeView)
+                return;
+            QSet<QString> set = m_moleculeView->hiddenMoleculeKinds();
+            if (on)
+                set.insert(formula);
+            else
+                set.remove(formula);
+            m_moleculeView->setHiddenMoleculeKinds(set);
+        });
+    }
 }
 
 // Claude Generated 2026 - Viewport context menu: the shared Display-menu actions

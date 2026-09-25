@@ -752,7 +752,7 @@ void SceneController::setStructure(const QVector<AtomDatum>& atoms, const QVecto
     m_atoms = atoms;
     m_bonds = bonds;
     m_fragmentsDirty = true;
-    m_hydrogenMaskDirty = true;
+    m_visibilityMaskDirty = true;
     if (keepView) {
         // Structure editing: atom count changed but keep the current view. Don't
         // recompute bounds (that would shift a rotated molecule) or reset the camera;
@@ -787,7 +787,7 @@ void SceneController::updateBonds(const QVector<BondDatum>& bonds)
 {
     m_bonds = bonds;
     m_fragmentsDirty = true;   // bond breaking/forming splits or merges fragments
-    m_hydrogenMaskDirty = true; // and can turn a C-H into an O-H or back
+    m_visibilityMaskDirty = true; // and can turn a C-H into an O-H or back
     rebuildGeometry();
 }
 
@@ -797,7 +797,7 @@ void SceneController::clear()
     m_bonds.clear();
     m_selection.clear();
     m_fragmentsDirty = true;
-    m_hydrogenMaskDirty = true;
+    m_visibilityMaskDirty = true;
     rebuildGeometry();
     emit structureChanged();
 }
@@ -1199,7 +1199,7 @@ void SceneController::rebuildAtoms()
         // Ball-and-stick shrinks spheres; space-filling uses full vdW radius.
         const float radiusFactor = (m_renderingMode == SpaceFilling) ? 1.0f : 0.30f;
         items.reserve(m_atoms.size());
-        ensureHydrogenMask();
+        ensureVisibilityMask();
         for (int i = 0; i < m_atoms.size(); ++i) {
             if (isAtomHidden(i))
                 continue;
@@ -1256,28 +1256,81 @@ SceneController::HydrogenMask SceneController::computeHydrogenMask(
     return mask;
 }
 
-void SceneController::ensureHydrogenMask() const
+void SceneController::ensureVisibilityMask() const
 {
-    if (!m_hydrogenMaskDirty)
+    if (!m_visibilityMaskDirty)
         return;
     m_hydrogenMask = computeHydrogenMask(m_atoms, m_bonds, m_hydrogenDisplay);
-    m_hydrogenMaskDirty = false;
+    m_moleculeHidden = QVector<bool>(m_atoms.size(), false);
+    m_hiddenTotal = m_hydrogenMask.hiddenCount;
+    if (!m_hiddenMoleculeKinds.isEmpty()) {
+        ensureFragments();
+        for (int i = 0; i < m_atoms.size(); ++i) {
+            const int f = m_fragmentOf.value(i, -1);
+            if (f < 0 || f >= m_fragmentInfo.size()
+                || !m_hiddenMoleculeKinds.contains(m_fragmentInfo[f].formula))
+                continue;
+            m_moleculeHidden[i] = true;
+            if (!m_hydrogenMask.hidden.value(i))
+                ++m_hiddenTotal;
+        }
+    }
+    m_visibilityMaskDirty = false;
 }
 
 bool SceneController::isAtomHidden(int index) const
 {
-    if (m_hydrogenDisplay == AllHydrogens)
+    if (m_hydrogenDisplay == AllHydrogens && m_hiddenMoleculeKinds.isEmpty())
         return false;
-    ensureHydrogenMask();
-    return index >= 0 && index < m_hydrogenMask.hidden.size() && m_hydrogenMask.hidden[index];
+    ensureVisibilityMask();
+    if (index < 0 || index >= m_atoms.size())
+        return false;
+    return m_hydrogenMask.hidden.value(index) || m_moleculeHidden.value(index);
+}
+
+bool SceneController::isInHiddenMolecule(int index) const
+{
+    if (m_hiddenMoleculeKinds.isEmpty() || index < 0)
+        return false;
+    ensureVisibilityMask();
+    return m_moleculeHidden.value(index);
 }
 
 int SceneController::hiddenAtomCount() const
 {
-    if (m_hydrogenDisplay == AllHydrogens)
+    if (m_hydrogenDisplay == AllHydrogens && m_hiddenMoleculeKinds.isEmpty())
         return 0;
-    ensureHydrogenMask();
-    return m_hydrogenMask.hiddenCount;
+    ensureVisibilityMask();
+    return m_hiddenTotal;
+}
+
+QVector<QPair<QString, int>> SceneController::moleculeKinds() const
+{
+    ensureFragments();
+    QVector<QPair<QString, int>> kinds;
+    QHash<QString, int> slot;  // formula -> index in kinds (first-seen order = size order)
+    for (const FragmentInfo& f : m_fragmentInfo) {
+        const auto it = slot.constFind(f.formula);
+        if (it == slot.constEnd()) {
+            slot.insert(f.formula, kinds.size());
+            kinds.append({ f.formula, 1 });
+        } else {
+            ++kinds[it.value()].second;
+        }
+    }
+    std::stable_sort(kinds.begin(), kinds.end(),
+        [](const QPair<QString, int>& a, const QPair<QString, int>& b) { return a.second > b.second; });
+    return kinds;
+}
+
+void SceneController::setHiddenMoleculeKinds(const QSet<QString>& formulas)
+{
+    if (formulas == m_hiddenMoleculeKinds)
+        return;
+    m_hiddenMoleculeKinds = formulas;
+    m_visibilityMaskDirty = true;
+    rebuildGeometry();  // atoms, bonds and NCI
+    rebuildLabels();
 }
 
 void SceneController::setHydrogenDisplay(int mode)
@@ -1285,7 +1338,7 @@ void SceneController::setHydrogenDisplay(int mode)
     if (mode < AllHydrogens || mode > NoHydrogens || mode == m_hydrogenDisplay)
         return;
     m_hydrogenDisplay = mode;
-    m_hydrogenMaskDirty = true;
+    m_visibilityMaskDirty = true;
     rebuildGeometry();  // atoms, bonds, overlays and NCI endpoints
     rebuildLabels();
 }
@@ -1313,7 +1366,7 @@ void SceneController::rebuildGeometry()
         segs.reserve(m_bonds.size() * 2);
         ensureFragments();
         const bool scaleByFragment = m_fragmentInfo.size() > 1;
-        ensureHydrogenMask();
+        ensureVisibilityMask();
         for (const BondDatum& b : m_bonds) {
             if (b.a < 0 || b.b < 0 || b.a >= m_atoms.size() || b.b >= m_atoms.size())
                 continue;
@@ -1473,7 +1526,8 @@ void SceneController::cloneStateFrom(const SceneController* src)
     m_fragmentStrengths = src->m_fragmentStrengths;
     m_fragmentsDirty = true;
     m_hydrogenDisplay = src->m_hydrogenDisplay;  // an export shows the H the view shows
-    m_hydrogenMaskDirty = true;
+    m_hiddenMoleculeKinds = src->m_hiddenMoleculeKinds;  // ... and hides the same molecules
+    m_visibilityMaskDirty = true;
 
     // Non-covalent interaction overlay: a deliberate display option like the walls,
     // so an exported image shows it too (unlike the transient interaction hints).
@@ -1543,7 +1597,7 @@ void SceneController::rebuildNci()
             return radiusFactor * m_atomScaleFactor * atomDrawRadiusFor(index);
         };
 
-        ensureHydrogenMask();
+        ensureVisibilityMask();
         // A hidden H is replaced by the atom it is bonded to (e.g. D-H...A is drawn
         // D...A when no H are shown). Unbonded hidden H keep their own position.
         const auto visibleEnd = [&](int atom, QVector3D& pos) -> int {
@@ -1556,6 +1610,9 @@ void SceneController::rebuildNci()
             return parent;
         };
         for (const NciSegment& c : m_nciSegments) {
+            // A contact to a hidden molecule (e.g. solvent) is left out entirely.
+            if (isInHiddenMolecule(c.atomA) || isInHiddenMolecule(c.atomB))
+                continue;
             QVector3D from = c.a;
             QVector3D to = c.b;
             const int atomA = visibleEnd(c.atomA, from);

@@ -500,6 +500,8 @@ private:
     QMenu* m_renderStyleMenu = nullptr;               // Claude Generated 2026 - shared with the viewer bar
     QMenu* m_hydrogenMenu = nullptr;                  //   (Style, H and Look buttons)
     QMenu* m_lookMenu = nullptr;
+    QMenu* m_moleculeKindsMenu = nullptr;             // Claude Generated 2026 - filled on aboutToShow
+    void populateMoleculeKindsMenu();
     QAction* m_fitViewAction = nullptr;
     QMenu* m_displayMenu = nullptr;         // reused as the viewport context menu
     /// Esc: cancel a running calculation, else clear selection/measurement.

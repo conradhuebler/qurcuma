@@ -17,6 +17,7 @@
 #include <QVector3D>
 #include <QHash>
 #include <QPair>
+#include <QSet>
 #include <QVector>
 #include "simulationframe.h"  // Claude Generated - Zero-copy simulation payload
 #include "viewpreset.h"  // Claude Generated 2026 - reproducible camera/display presets
@@ -199,6 +200,13 @@ public:
     void setHydrogenDisplay(HydrogenDisplay mode);
     HydrogenDisplay getHydrogenDisplay() const { return m_hydrogenDisplay; }
     void cycleHydrogenDisplay();  // All -> Polar -> None -> All
+
+    // Claude Generated 2026 - Hide molecules by kind (solvent etc.), display only. Kinds are
+    // fragment formulas of the current structure; the choice is reset when a new structure
+    // is loaded (setTrajectoryData) and, like the H display, ignored in Build mode.
+    QVector<QPair<QString, int>> moleculeKinds() const;  // formula, count; most numerous first
+    void setHiddenMoleculeKinds(const QSet<QString>& formulas);
+    QSet<QString> hiddenMoleculeKinds() const { return m_hiddenMoleculeKinds; }
 
     void setAtomTransparency(float alpha);  // 0.0 (transparent) to 1.0 (opaque)
     float getAtomTransparency() const { return m_atomTransparency; }
@@ -529,6 +537,8 @@ signals:
     void atomLabelModeChanged(int mode);
     /// Claude Generated 2026 - Hydrogen display changed. Value = int(HydrogenDisplay).
     void hydrogenDisplayChanged(int mode);
+    /// Claude Generated 2026 - The set of hidden molecule kinds changed.
+    void hiddenMoleculeKindsChanged();
     /// Claude Generated 2026 - NCI detection options changed (panel, menu or a
     /// display-settings apply), so every UI mirror follows.
     void nciOptionsChanged(const nci::Options& options);
@@ -647,7 +657,8 @@ public slots:
     /// Claude Generated 2026 - Quick-access buttons of the viewer bar, fed with the host's
     /// shared actions/menus so bar, menu bar, context menu and palette stay in sync:
     /// hydrogen-bond toggle, hydrogen display, render style and the Look dropdown.
-    void setQuickAccess(QAction* hbondToggle, QMenu* hydrogenMenu, QMenu* styleMenu, QMenu* lookMenu);
+    void setQuickAccess(QAction* hbondToggle, QMenu* hydrogenMenu, QMenu* moleculesMenu,
+        QMenu* styleMenu, QMenu* lookMenu);
     /** Adopt a calculated result (GFN-FF / population) and draw it. */
     void setNciResult(const nci::Result& result);
     const nci::Result& getNciResult() const { return m_nciResult; }
@@ -964,11 +975,13 @@ private:
     QToolButton* m_nciButton = nullptr;  // bar toggle, mirrors m_nciSource
     QToolButton* m_hbondButton = nullptr;     // Claude Generated 2026 - see setQuickAccess()
     QToolButton* m_hydrogenButton = nullptr;
+    QToolButton* m_moleculesButton = nullptr;
     QToolButton* m_styleButton = nullptr;
     QToolButton* m_lookButton = nullptr;
     AtomLabel m_atomLabelMode = AtomLabel::None;
     HydrogenDisplay m_hydrogenDisplay = HydrogenDisplay::All;
-    void pushHydrogenDisplayToScene();  // applies the Build-mode override
+    QSet<QString> m_hiddenMoleculeKinds;  // Claude Generated 2026 - see setHiddenMoleculeKinds
+    void pushVisibilityToScene();  // H display + hidden kinds, with the Build-mode override
     nci::Options m_nciOptions;
     nci::Result m_nciResult;
     QVector<QVector<int>> m_nciRings;  // ring perception cache (topology, not geometry)

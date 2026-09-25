@@ -201,7 +201,7 @@ void MoleculeViewer::applyAppearanceToController()
     m_scene->setFogDistance(m_fogDistance);
     for (int i = 0; i < 4; ++i)
         m_scene->setCornerLight(i, m_cornerLightEnabled[i]);
-    pushHydrogenDisplayToScene();
+    pushVisibilityToScene();
 }
 
 // ---------------------------------------------------------------------------
@@ -1766,6 +1766,12 @@ void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, cons
     m_frameCount = atoms.size();
     m_currentFrame = 0;
     m_moleculeDirty = false;
+    // Claude Generated 2026 - A new structure has its own molecule kinds.
+    if (!m_hiddenMoleculeKinds.isEmpty()) {
+        m_hiddenMoleculeKinds.clear();
+        pushVisibilityToScene();
+        emit hiddenMoleculeKindsChanged();
+    }
 
     m_trajectoryBonds.clear();
     if (bonds.isEmpty() || (bonds.size() == atoms.size() && bonds[0].isEmpty())) {
@@ -2196,7 +2202,7 @@ void MoleculeViewer::setHydrogenDisplay(HydrogenDisplay mode)
     if (m_hydrogenDisplay == mode)
         return;
     m_hydrogenDisplay = mode;
-    pushHydrogenDisplayToScene();
+    pushVisibilityToScene();
     emit hydrogenDisplayChanged(static_cast<int>(mode));
 }
 
@@ -2205,15 +2211,29 @@ void MoleculeViewer::cycleHydrogenDisplay()
     setHydrogenDisplay(static_cast<HydrogenDisplay>((static_cast<int>(m_hydrogenDisplay) + 1) % 3));
 }
 
-// Build mode shows every H regardless of the chosen mode: the builder places, bonds and
-// deletes hydrogens, and a hidden atom cannot be picked.
-void MoleculeViewer::pushHydrogenDisplayToScene()
+// Build mode shows every atom regardless of the chosen H display and hidden molecule
+// kinds: the builder places, bonds and deletes atoms, and a hidden atom cannot be picked.
+void MoleculeViewer::pushVisibilityToScene()
 {
     if (!m_scene)
         return;
-    const HydrogenDisplay effective =
-        (m_mode == InteractionMode::Build) ? HydrogenDisplay::All : m_hydrogenDisplay;
-    m_scene->setHydrogenDisplay(static_cast<int>(effective));
+    const bool build = (m_mode == InteractionMode::Build);
+    m_scene->setHydrogenDisplay(static_cast<int>(build ? HydrogenDisplay::All : m_hydrogenDisplay));
+    m_scene->setHiddenMoleculeKinds(build ? QSet<QString>() : m_hiddenMoleculeKinds);
+}
+
+QVector<QPair<QString, int>> MoleculeViewer::moleculeKinds() const
+{
+    return m_scene ? m_scene->moleculeKinds() : QVector<QPair<QString, int>>();
+}
+
+void MoleculeViewer::setHiddenMoleculeKinds(const QSet<QString>& formulas)
+{
+    if (formulas == m_hiddenMoleculeKinds)
+        return;
+    m_hiddenMoleculeKinds = formulas;
+    pushVisibilityToScene();
+    emit hiddenMoleculeKindsChanged();
 }
 
 void MoleculeViewer::setBackgroundColor(const QColor& color)
@@ -2497,7 +2517,7 @@ void MoleculeViewer::setInteractionMode(InteractionMode mode)
         break;
     }
 
-    pushHydrogenDisplayToScene();  // entering/leaving Build switches the H override
+    pushVisibilityToScene();  // entering/leaving Build switches the H override
 
     if (wasEdit != (m_mode == InteractionMode::Edit))
         emit editModeChanged(m_mode == InteractionMode::Edit);
@@ -4785,6 +4805,17 @@ QIcon barIcon(const QString& kind, const QColor& color)
             p.drawEllipse(QPointF(10, 10), 7, 7);
             p.drawText(QRectF(4, 4, 12, 12), Qt::AlignCenter, QStringLiteral("H"));
         }
+    } else if (kind == QLatin1String("molecules")) {
+        // Claude Generated 2026 - Small molecules (solvent): two bent triatomics.
+        const auto water = [&](qreal x, qreal y) {
+            p.drawLine(QPointF(x, y), QPointF(x - 3, y + 3));
+            p.drawLine(QPointF(x, y), QPointF(x + 3, y + 3));
+            p.setBrush(color);
+            p.drawEllipse(QPointF(x, y), 2, 2);
+            p.setBrush(Qt::NoBrush);
+        };
+        water(6, 5);
+        water(14, 11);
     } else if (kind == QLatin1String("style")) {
         // Claude Generated 2026 - Render style: ball and stick.
         p.drawLine(QPointF(7, 13), QPointF(13, 7));
@@ -5129,6 +5160,8 @@ void MoleculeViewer::setupControlPanel()
         tr("Hydrogen bonds in the NCI overlay (switches the overlay on). Shortcut: Shift+N"), true);
     m_hydrogenButton = makeQuickButton(QStringLiteral("hydrogen"),
         tr("Hydrogens: all, polar only (C-H hidden) or none. Display only. Shortcut: H"), false);
+    m_moleculesButton = makeQuickButton(QStringLiteral("molecules"),
+        tr("Hide molecules by kind (solvent etc.). Display only."), false);
     m_styleButton = makeQuickButton(QStringLiteral("style"),
         tr("Render style: ball and stick, space filling, wireframe, sticks. Keys 1-4"), false);
 
@@ -5226,9 +5259,11 @@ void MoleculeViewer::setupControlPanel()
 
 // Claude Generated 2026 - Attach the host's shared hydrogen-bond action and the
 // hydrogen / render-style / look menus to the bar's quick-access buttons.
-void MoleculeViewer::setQuickAccess(QAction* hbondToggle, QMenu* hydrogenMenu, QMenu* styleMenu,
-    QMenu* lookMenu)
+void MoleculeViewer::setQuickAccess(QAction* hbondToggle, QMenu* hydrogenMenu, QMenu* moleculesMenu,
+    QMenu* styleMenu, QMenu* lookMenu)
 {
+    if (m_moleculesButton)
+        m_moleculesButton->setMenu(moleculesMenu);
     if (m_hbondButton && hbondToggle) {
         m_hbondButton->setChecked(hbondToggle->isChecked());
         connect(m_hbondButton, &QToolButton::clicked, hbondToggle, &QAction::trigger);

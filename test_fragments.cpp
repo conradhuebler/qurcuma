@@ -203,6 +203,39 @@ int main(int argc, char* argv[])
     hScene.updateBonds(brokenCH);
     check(!hScene.isAtomHidden(2), "a bond change re-evaluates the mask (freed H shows)");
 
+    // Claude Generated 2026 - Hiding molecules by kind: a C6 ring in three waters.
+    std::cout << std::endl << "Hidden molecule kinds" << std::endl;
+    QVector<SceneController::AtomDatum> m;
+    QVector<SceneController::BondDatum> mb;
+    for (int i = 0; i < 6; ++i)            // 0..5 : ring
+        m.append(atom("C", float(i)));
+    for (int i = 0; i < 6; ++i)
+        mb.append({ i, (i + 1) % 6, 1 });
+    for (int w = 0; w < 3; ++w) {           // 6..14 : three waters
+        const int o = m.size();
+        m.append(atom("O", 10.0f + 3 * w));
+        m.append(atom("H", 11.0f + 3 * w));
+        m.append(atom("H", 12.0f + 3 * w));
+        mb.append({ o, o + 1, 1 });
+        mb.append({ o, o + 2, 1 });
+    }
+    SceneController mScene;
+    mScene.setStructure(m, mb, /*keepView=*/true);
+    const auto kinds = mScene.moleculeKinds();
+    check(kinds.size() == 2 && kinds[0].first == QStringLiteral("H2O") && kinds[0].second == 3
+            && kinds[1].first == QStringLiteral("C6") && kinds[1].second == 1,
+        "kinds are listed by formula, most numerous first (H2O x3, C6 x1)");
+    mScene.setHiddenMoleculeKinds({ QStringLiteral("H2O") });
+    check(mScene.isAtomHidden(6) && mScene.isAtomHidden(7) && mScene.isAtomHidden(14),
+        "every water atom is hidden");
+    check(!mScene.isAtomHidden(0) && !mScene.isAtomHidden(5), "the ring stays visible");
+    check(mScene.hiddenAtomCount() == 9, "nine hidden atoms (three waters)");
+    mScene.setHydrogenDisplay(SceneController::NoHydrogens);
+    check(mScene.hiddenAtomCount() == 9, "an H hidden twice (kind + H display) counts once");
+    mScene.setHiddenMoleculeKinds({});
+    check(!mScene.isAtomHidden(6) && mScene.isAtomHidden(7),
+        "Show All brings the waters back; the H display still applies");
+
     std::cout << std::endl;
     if (g_failures == 0) {
         std::cout << "All checks passed." << std::endl;
