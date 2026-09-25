@@ -1384,11 +1384,12 @@ void MoleculeViewer::updateForceVectors()
 // ---------------------------------------------------------------------------
 // Measurement overlay (M2): distance (2), angle (3), dihedral (4)
 // ---------------------------------------------------------------------------
-void MoleculeViewer::updateMeasurement()
+void MoleculeViewer::updateMeasurement(int frameIndex)
 {
     if (!m_scene)
         return;
-    const int frame = (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) ? m_currentFrame : -1;
+    const int wanted = (frameIndex >= 0) ? frameIndex : m_currentFrame;
+    const int frame = (wanted >= 0 && wanted < m_trajectoryAtoms.size()) ? wanted : -1;
     if (m_measurementMode == 0 || frame < 0) {
         m_scene->setMeasurement({}, QString());
         return;
@@ -1843,6 +1844,8 @@ void MoleculeViewer::updateFramePositions(int frameIndex)
         m_frameJumpBox->blockSignals(false);
         m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
     }
+    if (m_measurementMode != 0)
+        updateMeasurement();  // Claude Generated 2026 - playback: lines and values follow the frame
     emit frameChanged(m_currentFrame);
 }
 
@@ -2003,6 +2006,10 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
         m_scene->updateBonds(sb);
     }
     computeWallViolations();  // live MD: recolour box + status as atoms cross walls
+    // Claude Generated 2026 - Measurement lines and HUD values follow the running
+    // geometry (the live frame is written into frame 0, see refAtoms above).
+    if (m_measurementMode != 0)
+        updateMeasurement(0);
 
     // Throttled cache notify (once per worker run).
     if (!m_moleculeDirty) {

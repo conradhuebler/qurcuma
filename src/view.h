@@ -740,7 +740,9 @@ private:
     void updateForceVectors();  // recompute arrows from the current grab force
 
     // Measurement overlay (M2): recompute lines + value from the selected atoms.
-    void updateMeasurement();
+    // Claude Generated 2026 - frameIndex = the frame on screen; -1 means m_currentFrame.
+    // The live MD/Opt path passes 0, the frame it writes into.
+    void updateMeasurement(int frameIndex = -1);
     // Bond editing via an atom pair (M2): add/delete/cycle the bond between a and b.
     void performBondEdit(int a, int b);
 

@@ -1,5 +1,9 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Messung folgt Live-MD/Opt und Wiedergabe
+
+- **`MoleculeViewer::updateMeasurement(frame)`** läuft jetzt auch im Live-Pfad (`updateSimulationFrame`, misst Frame 0, in den der Live-Pfad schreibt) und bei der Wiedergabe (`updateFramePositions`). Vorher blieben Messlinien und HUD-Werte auf der Geometrie stehen, bei der gemessen wurde.
+
 ## September 2026 - UX-Etappe 1: Schnellschalter H-Anzeige und H-Brücken
 
 - **H-Anzeige** (Display ▸ Hydrogens, Taste `H` schaltet durch): All / Polar (wie in Strukturformeln: H nur an C wird ausgeblendet) / None. Nur Anzeige; verborgene Atome werden nicht gezeichnet, beschriftet oder gepickt, NCI-Linien setzen am gebundenen Atom an. Im Build-Modus immer alle H. Regel in `SceneController::computeHydrogenMask`, geprüft in `test_fragments`.
