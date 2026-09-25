@@ -2,6 +2,7 @@
 // DisplayPanel — docked viewer display options. Ported from the former
 // VisualizationSettingsDialog (wiring/presets/persistence preserved). Claude Generated 2026.
 #include "displaypanel.h"
+#include "widgets/colorswatch.h"
 
 #include "widgets/collapsiblesection.h"
 
@@ -46,39 +47,12 @@ DisplayPanel::DisplayPanel(MoleculeViewer* viewer, Settings* settings, QWidget* 
     // Claude Generated 2026 - Looks (Look menu) change the appearance from outside.
     if (m_viewer)
         connect(m_viewer, &MoleculeViewer::lookApplied, this, [this]() { syncFromViewer(); });
-    // Claude Generated 2026 - NCI options also change from the Display menu (the
-    // hydrogen-bond quick toggle); the checkboxes follow read-only.
-    if (m_viewer)
-        connect(m_viewer, &MoleculeViewer::nciOptionsChanged,
-                this, [this]() { if (!m_applyingNciOptions) syncFromViewer(); });
 }
 
 namespace {
-// Claude Generated 2026 - Paint a colour button so the button itself is the swatch.
-// Used by both colour selectors (bead types, interaction classes).
-void applySwatch(QPushButton* button, const QColor& color)
-{
-    if (!button)
-        return;
-    const QString text = color.isValid() ? color.name(QColor::HexRgb) : QString();
-    button->setText(text);
-    if (!color.isValid()) {
-        button->setStyleSheet(QString());
-        return;
-    }
-    // Readable label on both light and dark swatches.
-    const bool dark = color.lightness() < 128;
-    button->setStyleSheet(QStringLiteral("background-color: %1; color: %2;")
-                              .arg(color.name(QColor::HexRgb), dark ? "#ffffff" : "#000000"));
-}
-
-// Small colour square for a combo-box entry, so the whole palette is visible at a glance.
-QIcon swatchIcon(const QColor& color)
-{
-    QPixmap pm(14, 14);
-    pm.fill(color.isValid() ? color : QColor(Qt::transparent));
-    return QIcon(pm);
-}
+// Claude Generated 2026 - Colour selectors use the shared helpers (widgets/colorswatch.h).
+void applySwatch(QPushButton* button, const QColor& color) { swatch::apply(button, color); }
+QIcon swatchIcon(const QColor& color) { return swatch::icon(color); }
 } // namespace
 
 void DisplayPanel::setupUI()
@@ -123,8 +97,6 @@ void DisplayPanel::setupUI()
         createMaterialGroup(l);
         createSizeGroup(l);
     }, true);
-    addSection(QStringLiteral("nci"), tr("Interactions (NCI)"),
-        [this](QVBoxLayout* l) { createNciGroup(l); }, false);
     addSection(QStringLiteral("effects"), tr("Effects"),
         [this](QVBoxLayout* l) { createAppearanceGroup(l); }, false);
     addSection(QStringLiteral("lighting"), tr("Lighting"),
@@ -772,199 +744,6 @@ void DisplayPanel::refreshBeadTypes()
         m_viewer->getColorScheme() != MoleculeViewer::ColorScheme::ByType);
 }
 
-// Claude Generated 2026 - Non-covalent interaction overlay.
-//
-// Only the two hydrogen-bond numbers are exposed: they are the ones worth moving
-// when looking at a structure. The halogen-bond and van-der-Waals fractions keep
-// their literature defaults (see nci::detectGeometric) rather than adding a wall
-// of spin boxes.
-void DisplayPanel::createNciGroup(QVBoxLayout* mainLayout)
-{
-    QGroupBox* g = new QGroupBox(tr("Non-covalent interactions"), this);
-    QFormLayout* f = new QFormLayout(g);
-
-    m_nciSourceCombo = new QComboBox(this);
-    m_nciSourceCombo->addItem(tr("Off"), 0);
-    m_nciSourceCombo->addItem(tr("Geometry (distance/angle)"), 1);
-    m_nciSourceCombo->addItem(tr("GFN-FF parameters"), 2);
-    m_nciSourceCombo->addItem(tr("Population analysis (GFN2)"), 3);
-    m_nciSourceCombo->setToolTip(tr(
-        "Geometry evaluates distance and angle criteria on the displayed frame. "
-        "GFN-FF reads the hydrogen- and halogen-bond terms of the force field, "
-        "population analysis the charges of a GFN2 calculation."));
-    connect(m_nciSourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this](int i) {
-            const int source = m_nciSourceCombo->itemData(i).toInt();
-            if (m_viewer && source <= 1)
-                m_viewer->setNciSource(source);
-            emit nciSourceChanged(source);
-        });
-    f->addRow(tr("Overlay:"), m_nciSourceCombo);
-
-    auto* kinds = new QWidget(this);
-    auto* kindRow = new QHBoxLayout(kinds);
-    kindRow->setContentsMargins(0, 0, 0, 0);
-    m_nciHBondCheck = new QCheckBox(tr("H"), this);
-    m_nciHBondCheck->setToolTip(tr("Hydrogen bonds D-H...A with D, A from N, O, F, S"));
-    m_nciXBondCheck = new QCheckBox(tr("X"), this);
-    m_nciXBondCheck->setToolTip(tr("Halogen bonds C-X...A with X = Cl, Br, I"));
-    m_nciPiCheck = new QCheckBox(QString::fromUtf8("\xcf\x80"), this);
-    m_nciPiCheck->setToolTip(tr("Pi stacking between planar five- and six-rings"));
-    m_nciContactCheck = new QCheckBox(tr("vdW"), this);
-    m_nciContactCheck->setToolTip(tr("Undirected close contacts below 0.9 times the sum of "
-                                     "the van der Waals radii. Can produce many lines."));
-    m_nciElectrostaticCheck = new QCheckBox(tr("q"), this);
-    m_nciElectrostaticCheck->setToolTip(tr("GFN-FF source only: electrostatic atom pairs with "
-                                           "their Coulomb pair energy, coloured by sign."));
-    m_nciDispersionCheck = new QCheckBox(tr("disp"), this);
-    m_nciDispersionCheck->setToolTip(tr("GFN-FF source only: dispersion atom pairs with their "
-                                        "D4 pair energy."));
-    for (QCheckBox* c : { m_nciHBondCheck, m_nciXBondCheck, m_nciPiCheck, m_nciContactCheck,
-             m_nciElectrostaticCheck, m_nciDispersionCheck }) {
-        kindRow->addWidget(c);
-        connect(c, &QCheckBox::toggled, this, [this]() { applyNciOptions(); });
-    }
-    kindRow->addStretch();
-    f->addRow(tr("Show:"), kinds);
-
-    // The two pair terms exist only in the force-field parameter set.
-    const auto updatePairKindState = [this]() {
-        const bool gfnff = m_nciSourceCombo->currentData().toInt() == 2;
-        m_nciElectrostaticCheck->setEnabled(gfnff);
-        m_nciDispersionCheck->setEnabled(gfnff);
-    };
-    connect(m_nciSourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [updatePairKindState](int) { updatePairKindState(); });
-    updatePairKindState();
-
-    auto* gate = new QWidget(this);
-    auto* gateRow = new QHBoxLayout(gate);
-    gateRow->setContentsMargins(0, 0, 0, 0);
-    m_nciHbDistanceSpin = new QDoubleSpinBox(this);
-    m_nciHbDistanceSpin->setRange(2.0, 3.5);
-    m_nciHbDistanceSpin->setSingleStep(0.05);
-    m_nciHbDistanceSpin->setDecimals(2);
-    m_nciHbDistanceSpin->setSuffix(QString::fromUtf8(" \xc3\x85"));
-    m_nciHbDistanceSpin->setToolTip(tr(
-        "Maximum H...A distance. 2.50 A covers the strong and moderate bands and the "
-        "top of the weak band (Jeffrey, An Introduction to Hydrogen Bonding, 1997)."));
-    m_nciHbAngleSpin = new QSpinBox(this);
-    m_nciHbAngleSpin->setRange(90, 180);
-    m_nciHbAngleSpin->setSuffix(QString::fromUtf8(" \xc2\xb0"));
-    m_nciHbAngleSpin->setToolTip(tr(
-        "Minimum D-H...A angle. The IUPAC definition requires the angle to tend "
-        "towards linearity (Arunan et al., Pure Appl. Chem. 2011, 83, 1637)."));
-    gateRow->addWidget(m_nciHbDistanceSpin);
-    gateRow->addWidget(m_nciHbAngleSpin);
-    gateRow->addStretch();
-    connect(m_nciHbDistanceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-        [this]() { applyNciOptions(); });
-    connect(m_nciHbAngleSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
-        [this]() { applyNciOptions(); });
-    f->addRow(tr("H...A / angle:"), gate);
-
-    // Colours per interaction class. Same selector shape as the bead types: pick a
-    // class, pick its colour. The electrostatic term is listed twice because the
-    // default palette splits it by sign (attractive vs repulsive).
-    auto* colourRow = new QWidget(this);
-    auto* colourLayout = new QHBoxLayout(colourRow);
-    colourLayout->setContentsMargins(0, 0, 0, 0);
-
-    m_nciKindCombo = new QComboBox(this);
-    for (const auto& entry : nci::paletteEntries())
-        m_nciKindCombo->addItem(entry.second, entry.first);
-    m_nciKindCombo->setToolTip(tr("Interaction class whose overlay colour you want to change."));
-    colourLayout->addWidget(m_nciKindCombo, 1);
-
-    m_nciKindColorButton = new QPushButton(this);
-    m_nciKindColorButton->setMinimumWidth(80);
-    m_nciKindColorButton->setToolTip(tr("Colour of this interaction class in the 3D overlay "
-                                        "and in the contact table."));
-    colourLayout->addWidget(m_nciKindColorButton);
-
-    auto* nciColourReset = new QPushButton(tr("Auto"), this);
-    nciColourReset->setToolTip(tr("Drop all custom interaction colours."));
-    colourLayout->addWidget(nciColourReset);
-    f->addRow(tr("Colour:"), colourRow);
-
-    connect(m_nciKindCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this](int i) {
-            if (m_viewer && i >= 0)
-                applySwatch(m_nciKindColorButton,
-                    m_viewer->getNciKindColor(m_nciKindCombo->itemData(i).toInt()));
-        });
-    connect(m_nciKindColorButton, &QPushButton::clicked, this, [this]() {
-        if (!m_viewer)
-            return;
-        const int key = m_nciKindCombo->currentData().toInt();
-        const QColor chosen = QColorDialog::getColor(m_viewer->getNciKindColor(key), this,
-            tr("Colour for %1").arg(m_nciKindCombo->currentText()));
-        if (!chosen.isValid())
-            return;
-        m_viewer->setNciKindColor(key, chosen);
-        if (m_settings)
-            m_settings->setNciPalette(m_viewer->getNciPalette());
-        refreshNciPalette();
-    });
-    connect(nciColourReset, &QPushButton::clicked, this, [this]() {
-        if (!m_viewer)
-            return;
-        m_viewer->resetNciKindColors();
-        if (m_settings)
-            m_settings->setNciPalette({});
-        refreshNciPalette();
-    });
-
-    m_nciLabelCheck = new QCheckBox(tr("Label contacts with the distance"), this);
-    connect(m_nciLabelCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setNciLabelsVisible(on);
-    });
-    f->addRow(QString(), m_nciLabelCheck);
-
-    m_nciLiveMdCheck = new QCheckBox(tr("Live from GFN-FF during MD"), this);
-    m_nciLiveMdCheck->setToolTip(tr(
-        "Take the contact list from the running GFN-FF force field on every step "
-        "instead of from the geometry. The force field then rebuilds its hydrogen- "
-        "and halogen-bond lists every step, which costs simulation speed."));
-    connect(m_nciLiveMdCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setNciLiveMd(on);
-        emit nciLiveMdChanged(on);
-    });
-    f->addRow(QString(), m_nciLiveMdCheck);
-
-    mainLayout->addWidget(g);
-}
-
-void DisplayPanel::refreshNciPalette()
-{
-    if (!m_viewer || !m_nciKindCombo)
-        return;
-    for (int i = 0; i < m_nciKindCombo->count(); ++i) {
-        const int key = m_nciKindCombo->itemData(i).toInt();
-        m_nciKindCombo->setItemIcon(i, swatchIcon(m_viewer->getNciKindColor(key)));
-    }
-    applySwatch(m_nciKindColorButton,
-        m_viewer->getNciKindColor(m_nciKindCombo->currentData().toInt()));
-}
-
-void DisplayPanel::applyNciOptions()
-{
-    if (!m_viewer)
-        return;
-    nci::Options o = m_viewer->getNciOptions();
-    if (m_nciHBondCheck) o.hydrogenBonds = m_nciHBondCheck->isChecked();
-    if (m_nciXBondCheck) o.halogenBonds = m_nciXBondCheck->isChecked();
-    if (m_nciPiCheck) o.piStacking = m_nciPiCheck->isChecked();
-    if (m_nciContactCheck) o.closeContacts = m_nciContactCheck->isChecked();
-    if (m_nciElectrostaticCheck) o.electrostatics = m_nciElectrostaticCheck->isChecked();
-    if (m_nciDispersionCheck) o.dispersion = m_nciDispersionCheck->isChecked();
-    if (m_nciHbDistanceSpin) o.hbMaxDistance = float(m_nciHbDistanceSpin->value());
-    if (m_nciHbAngleSpin) o.hbMinAngle = float(m_nciHbAngleSpin->value());
-    // Our own change: no re-sync, it would reformat a spin box while the user types.
-    m_applyingNciOptions = true;
-    m_viewer->setNciOptions(o);
-    m_applyingNciOptions = false;
-}
 
 // Claude Generated 2026 - Expand one accordion section and scroll it into view
 // (queued so the layout has settled after the expand).
@@ -995,9 +774,7 @@ void DisplayPanel::syncFromViewer()
         m_ssaoRadiusSpinBox, m_ssaoBiasSpinBox, m_bloomEnabledCheckBox, m_bloomThresholdSpinBox,
         m_bloomIntensitySlider, m_hdrEnabledCheckBox, m_exposureSpinBox,
         m_cornerLightButtons[0], m_cornerLightButtons[1], m_cornerLightButtons[2], m_cornerLightButtons[3],
-        m_nciSourceCombo, m_nciHBondCheck, m_nciXBondCheck, m_nciPiCheck, m_nciContactCheck,
-        m_nciHbDistanceSpin, m_nciHbAngleSpin, m_nciLabelCheck, m_nciLiveMdCheck,
-        m_nciElectrostaticCheck, m_nciDispersionCheck, m_nciKindCombo, m_beadTypeCombo,
+        m_beadTypeCombo,
         m_fragmentTintCheck, m_fragmentStrengthSlider, m_fragmentCombo,
         m_fragmentScaleSlider };
     for (const QWidget* w : all)
@@ -1038,25 +815,9 @@ void DisplayPanel::syncFromViewer()
     m_exposureSpinBox->setEnabled(hdrOn);
 
 
-    const nci::Options o = m_viewer->getNciOptions();
-    m_nciHBondCheck->setChecked(o.hydrogenBonds);
-    m_nciXBondCheck->setChecked(o.halogenBonds);
-    m_nciPiCheck->setChecked(o.piStacking);
-    m_nciContactCheck->setChecked(o.closeContacts);
-    m_nciElectrostaticCheck->setChecked(o.electrostatics);
-    m_nciDispersionCheck->setChecked(o.dispersion);
-    m_nciHbDistanceSpin->setValue(o.hbMaxDistance);
-    m_nciHbAngleSpin->setValue(int(o.hbMinAngle));
-    m_nciLabelCheck->setChecked(m_viewer->getNciLabelsVisible());
-    m_nciLiveMdCheck->setChecked(m_viewer->getNciLiveMd());
     m_fragmentTintCheck->setChecked(m_viewer->getFragmentTint());
-    setComboData(m_nciSourceCombo, m_viewer->getNciSource());
-    const bool gfnff = m_viewer->getNciSource() == 2;
-    m_nciElectrostaticCheck->setEnabled(gfnff);
-    m_nciDispersionCheck->setEnabled(gfnff);
 
     refreshBeadTypes();
-    refreshNciPalette();
     refreshFragments();
 
     m_fogIntensitySlider->setEnabled(m_fogEnabledCheckBox->isChecked());

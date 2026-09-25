@@ -1,5 +1,11 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 4a-3: NCI-Optionen im Interactions-Dock
+
+- **Interactions-Dock** = einklappbare „Options“ (`NciOptionsWidget`: Kontaktarten, H-Brücken-Grenzen, Farben, Distanz-Labels, Live-GFN-FF während MD) über der Kontakttabelle; vorher der NCI-Abschnitt im Display-Panel mit einer zweiten Quellenauswahl.
+- Display ▸ NCI Options… öffnet das Interactions-Dock mit aufgeklappten Optionen.
+- Farb-Swatch-Helfer gemeinsam in `widgets/colorswatch.h`.
+
 ## September 2026 - UX-Etappe 4a-2: Tools-Abschnitt aufgelöst
 
 - **Measure** und **Bond Edit** gibt es nur noch in der Viewer-Leiste (Werkzeug-Schalter, Build ▾).

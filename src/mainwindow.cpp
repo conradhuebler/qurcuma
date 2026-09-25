@@ -1223,12 +1223,14 @@ void MainWindow::createMenus()
             [this](const nci::Options& o) { m_hbondToggleAction->setChecked(o.hydrogenBonds); });
 
     QAction* nciOptionsAction = displayMenu->addAction(tr("NCI Op&tions…"));
-    nciOptionsAction->setToolTip(tr("Open the Display panel at the Interactions (NCI) section "
+    nciOptionsAction->setToolTip(tr("Open the Interactions dock with its options "
                                     "(kind filters, thresholds, colours)."));
     connect(nciOptionsAction, &QAction::triggered, this, [this]() {
-        openVisualizationSettings();
-        if (m_displayPanel)
-            m_displayPanel->expandSection(QStringLiteral("nci"));
+        if (!m_nciDock)
+            return;
+        m_nciDock->show();
+        m_nciDock->raise();
+        m_nciDock->expandOptions();
     });
 
     displayMenu->addSeparator();
@@ -5184,19 +5186,10 @@ void MainWindow::setupNciAnalysis()
         m_nciSelectionSyncing = false;
     });
 
-    if (m_displayPanel) {
-        connect(m_displayPanel, &DisplayPanel::nciSourceChanged, this, [this](int source) {
-            if (m_nciDock) {
-                m_nciDock->setSource(source);
-                if (source != 0)
-                    m_nciDock->show();
-            }
-            if (source >= 2)
-                startNciAnalysis(source);
-        });
-        connect(m_displayPanel, &DisplayPanel::nciLiveMdChanged, this,
-            [this](bool on) { m_nciLiveMd = on; });
-    }
+    // Claude Generated 2026 - UX stage 4: the NCI options live in the Interactions dock.
+    auto* nciOptions = new NciOptionsWidget(m_moleculeView, &m_settings);
+    connect(nciOptions, &NciOptionsWidget::liveMdChanged, this, [this](bool on) { m_nciLiveMd = on; });
+    m_nciDock->setOptionsWidget(nciOptions);
 }
 
 // Claude Generated 2026 - NCI quick access: shortcut N, Display menu, bar button.
