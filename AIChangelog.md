@@ -1,5 +1,13 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 4a-1: Structure und Appearance getrennt
+
+- **Structure-Dock** (`docks/structuredock.*`, vorher `DisplayDock`): nur noch [Structure | Atoms], also XYZ-Editor und Atomtabelle.
+- **Appearance-Dock** (`docks/appearancedock.*`, neu): Display-Panel und Kamera-Views, rechts als Tab, **standardmäßig geschlossen** (Look ▸ Details… bzw. View ▸ Dock Panels öffnet es).
+- View ▸ Dock Panels: Structure, Appearance und jetzt auch Images.
+- Gespeicherte Dock-Layouts und der Dock-Anteil gespeicherter Workspaces werden einmalig verworfen (`DockConfig::UiLayoutVersion` = 2; Operator-Entscheidung). Workspaces behalten Namen und Arbeitsverzeichnis.
+- `test_looks` als eigenes Test-Target (vorher Teil von `test_fragments`).
+
 ## September 2026 - UX-Etappe 3: ein Look-System, Views nur Kamera, letzte Sitzung
 
 - **Looks** (`src/look.h`): Farbschema, Material, Fog, SSAO, Bloom, HDR/Belichtung, Eckenlichter, Hintergrund und sonst nichts. `MoleculeViewer::applyLook` setzt nur diese Felder; ein Look kann also keinen Schnellschalter umstellen. Eingebaut: Default, Publication, Presentation, Flat (Teaching); eigene Looks speichern/löschen im Look-Menü (Leiste, Display ▸ Look, Kontextmenü, Palette).

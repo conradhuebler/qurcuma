@@ -7,7 +7,8 @@
 
 ## Wrapper Classes
 - `ProjectDock` — working directory chooser, breadcrumb, segmented directory list (Files / Bookmarks / Workspaces / Remote), file/content browser with Files/Lesson toggle, lesson metadata + per-structure editor.
-- `DisplayDock` — right-side dock with segmented top area [Structure | Atoms], the Display panel, and the View-Preset widget.
+- `StructureDock` — right-side dock with a segmented [Structure | Atoms] area (XYZ editor + atom table).
+- `AppearanceDock` (UX stage 4) — the Display panel + camera views; tabified on the right, **closed by default** (Look ▸ Details…). Old layouts/workspace dock states were reset once (`DockConfig::UiLayoutVersion` = 2).
 - `SimulationDock` — right-side dock with tabs [Simulation | Snapshots | RMSD / Align | Input].
 - `OutputDock` — output log + clear button.
 - `ImageGalleryDock` — bottom dock (tabified with Output), hidden until the first image export; thumbnail grid of exported images. "Show:" combo = session / folder all-PNG / resized-only / originals-only. Common border-trim analysis (flip-book: centre all frames on a max-size canvas, `imagecrop::commonContentRect` = union of content → one crop at identical position, uniform X×Y even for differently-sized sources; the crop rect is drawn dashed-red onto the analyzed thumbnails) → saves metadata-preserving `<name>.resized.png`. Fed by `MoleculeViewer::imageExported` (export dialog + viewer-bar "Photo" quick-export with transparent/colour-preset controls). Context menu / double-click: view image (fit-to-window + zoom slider) + embedded-metadata table, remove from gallery, delete file from disk (confirmed).
@@ -30,7 +31,7 @@
 - Embedded compact bar above the content list: search field + `Extensions` popup menu with all suffixes in the current directory + clear button; session-only (resets on restart).
 - `MainWindow` resolves view indices back to source indices via `filePathFromContentIndex()`; Lesson/SFTP modes bypass the proxy.
 
-## DisplayDock Views (camera)
+## AppearanceDock Views (camera)
 - `ViewPresetWidget` lives below the `DisplayPanel`; manages reproducible **camera views** only (UX stage 3; the appearance is a Look, see `src/CLAUDE.md`).
 - Views are stored under `viewPresets/` in `QSettings` and survive restarts; the list starts empty.
 - `ViewPreset` (`src/viewpreset.h`) holds camera only (`rootRotation`, `pan`, `fieldOfView`, `cameraDistance`, `zoomFactor`, `zoomMode`). `ZoomMode::Absolute` applies the stored distance verbatim; `ZoomMode::Relative` reconstructs distance = `zoomFactor * sceneExtent` so the molecule keeps its on-screen size across different structures.

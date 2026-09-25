@@ -10,7 +10,8 @@
 #include "outputdock.h"
 #include "projectdock.h"
 #include "simulationdock.h"
-#include "displaydock.h"
+#include "structuredock.h"
+#include "appearancedock.h"
 #include "imagegallerydock.h"
 #include "ncidock.h"
 
@@ -28,7 +29,8 @@ DockManager::DockManager(QMainWindow* mainWindow, QObject* parent)
 }
 
 QDockWidget* DockManager::projectDock() const { return m_projectDock; }
-QDockWidget* DockManager::displayDock() const { return m_displayDock; }
+QDockWidget* DockManager::structureDock() const { return m_structureDock; }
+QDockWidget* DockManager::appearanceDock() const { return m_appearanceDock; }
 QDockWidget* DockManager::simulationDock() const { return m_simulationDock; }
 QDockWidget* DockManager::outputDock() const { return m_outputViewDock; }
 QDockWidget* DockManager::imageGalleryDock() const { return m_imageGalleryDock; }
@@ -96,9 +98,14 @@ OutputDock* DockManager::outputDockImpl() const
     return qobject_cast<OutputDock*>(m_outputViewDock);
 }
 
-DisplayDock* DockManager::displayDockImpl() const
+StructureDock* DockManager::structureDockImpl() const
 {
-    return qobject_cast<DisplayDock*>(m_displayDock);
+    return qobject_cast<StructureDock*>(m_structureDock);
+}
+
+AppearanceDock* DockManager::appearanceDockImpl() const
+{
+    return qobject_cast<AppearanceDock*>(m_appearanceDock);
 }
 
 SimulationDock* DockManager::simulationDockImpl() const
@@ -162,15 +169,15 @@ void DockManager::applyPreset(DockConfig::LayoutPreset preset)
     }
 
     const PresetSpec& s = kPresetSpecs[key];
-    applyDockVisibility(m_projectDock, s.project, m_displayDock, s.display,
+    applyDockVisibility(m_projectDock, s.project, m_structureDock, s.display,
         m_simulationDock, s.simulation, m_outputViewDock, s.output,
-        s.raiseSimulation ? m_simulationDock : m_displayDock);
+        s.raiseSimulation ? m_simulationDock : m_structureDock);
 
     // Preset-specific content selection (which tab/segment to show).
     switch (preset) {
     case DockConfig::LayoutPreset::Editing:
-        if (auto* sdd = displayDockImpl())
-            sdd->setCurrentTopSegment(DisplayDock::TopSegment::Structure);
+        if (auto* sdd = structureDockImpl())
+            sdd->setCurrentTopSegment(StructureDock::TopSegment::Structure);
         break;
     case DockConfig::LayoutPreset::Calculation:
         if (auto* sd = simulationDockImpl())
@@ -185,7 +192,7 @@ void DockManager::applyPreset(DockConfig::LayoutPreset preset)
     }
 
     if (s.displayW > 0.0 && m_mainWindow->width() > 0) {
-        m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
+        m_mainWindow->resizeDocks({ m_projectDock, m_structureDock },
             { int(m_mainWindow->width() * s.projectW), int(m_mainWindow->width() * s.displayW) },
             Qt::Horizontal);
     }
@@ -207,14 +214,14 @@ void DockManager::setAppMode(DockConfig::AppMode mode, bool reflow)
 
     // Explore: Project + Display, viewer focus. Compute: everything, with the
     // Simulation tab in front. Per-dock visibility (see setDockVisible).
-    applyDockVisibility(m_projectDock, true, m_displayDock, true,
+    applyDockVisibility(m_projectDock, true, m_structureDock, true,
         m_simulationDock, !explore, m_outputViewDock, !explore,
-        explore ? m_displayDock : m_simulationDock);
+        explore ? m_structureDock : m_simulationDock);
 
     if (reflow) {
         if (explore) {
             if (m_mainWindow->width() > 0)
-                m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
+                m_mainWindow->resizeDocks({ m_projectDock, m_structureDock },
                                           { int(m_mainWindow->width() * 0.16),
                                             int(m_mainWindow->width() * 0.22) },
                                           Qt::Horizontal);
@@ -258,10 +265,14 @@ void DockManager::restoreSavedLayout()
     const QByteArray savedState = uiSettings.value(DockConfig::UiDockStateKey).toByteArray();
     if (!savedGeometry.isEmpty())
         m_mainWindow->restoreGeometry(savedGeometry);
-    if (!savedState.isEmpty())
+    // Claude Generated 2026 - A layout saved for an older dock set is dropped once
+    // (operator decision for UX stage 4) instead of being restored half-matching.
+    const bool current = uiSettings.value(DockConfig::UiLayoutVersionKey, 0).toInt() >= DockConfig::UiLayoutVersion;
+    if (!savedState.isEmpty() && current)
         m_mainWindow->restoreState(savedState);
     else
         applyPreset(DockConfig::LayoutPreset::Analysis);
+    uiSettings.setValue(DockConfig::UiLayoutVersionKey, DockConfig::UiLayoutVersion);
 }
 
 void DockManager::resetToBaseline()
@@ -297,9 +308,10 @@ void DockManager::redockFloating()
     };
 
     redock(m_projectDock, DockConfig::ProjectDockArea, nullptr);
-    redock(m_displayDock, DockConfig::DisplayDockArea, nullptr);
-    redock(m_simulationDock, DockConfig::SimulationDockArea, m_displayDock);
-    redock(m_nciDock, DockConfig::NciDockArea, m_displayDock);
+    redock(m_structureDock, DockConfig::StructureDockArea, nullptr);
+    redock(m_appearanceDock, DockConfig::AppearanceDockArea, m_structureDock);
+    redock(m_simulationDock, DockConfig::SimulationDockArea, m_structureDock);
+    redock(m_nciDock, DockConfig::NciDockArea, m_structureDock);
     redock(m_outputViewDock, DockConfig::OutputViewDockArea, nullptr);
     redock(m_imageGalleryDock, DockConfig::ImageGalleryDockArea, m_outputViewDock);
 }
@@ -310,7 +322,8 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
         return;
 
     m_outputViewDock = new OutputDock(m_mainWindow);
-    m_displayDock = new DisplayDock(viewer, settings, m_mainWindow);
+    m_structureDock = new StructureDock(m_mainWindow);
+    m_appearanceDock = new AppearanceDock(viewer, settings, m_mainWindow);
     m_simulationDock = new SimulationDock(m_mainWindow);
     m_projectDock = new ProjectDock(settings, m_mainWindow);
     m_imageGalleryDock = new ImageGalleryDock(m_mainWindow);
@@ -328,9 +341,9 @@ void DockManager::placeDocks()
         m_projectDock->raise();
     }
 
-    if (m_displayDock) {
-        m_displayDock->setAllowedAreas(Qt::RightDockWidgetArea);
-        m_mainWindow->addDockWidget(DockConfig::DisplayDockArea, m_displayDock);
+    if (m_structureDock) {
+        m_structureDock->setAllowedAreas(Qt::RightDockWidgetArea);
+        m_mainWindow->addDockWidget(DockConfig::StructureDockArea, m_structureDock);
     }
 
     if (m_simulationDock) {
@@ -338,10 +351,20 @@ void DockManager::placeDocks()
         m_mainWindow->addDockWidget(DockConfig::SimulationDockArea, m_simulationDock);
     }
 
-    // The two right-side docks (Structure&Display and Simulation) are tabified
+    // The two right-side docks (Structure and Simulation) are tabified
     // so the user can switch between them via a single tab bar.
-    if (m_simulationDock && m_displayDock)
-        m_mainWindow->tabifyDockWidget(m_displayDock, m_simulationDock);
+    if (m_simulationDock && m_structureDock)
+        m_mainWindow->tabifyDockWidget(m_structureDock, m_simulationDock);
+
+    // Claude Generated 2026 - UX stage 4: the detailed display settings join the right
+    // tab group but start closed (Look ▸ Details… or View ▸ Dock Panels opens them).
+    if (m_appearanceDock) {
+        m_appearanceDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+        m_mainWindow->addDockWidget(DockConfig::AppearanceDockArea, m_appearanceDock);
+        if (m_structureDock)
+            m_mainWindow->tabifyDockWidget(m_structureDock, m_appearanceDock);
+        m_appearanceDock->hide();
+    }
 
     if (m_outputViewDock)
         m_mainWindow->addDockWidget(DockConfig::OutputViewDockArea, m_outputViewDock);
@@ -352,8 +375,8 @@ void DockManager::placeDocks()
     // Claude Generated 2026.
     if (m_nciDock) {
         m_mainWindow->addDockWidget(DockConfig::NciDockArea, m_nciDock);
-        if (m_displayDock)
-            m_mainWindow->tabifyDockWidget(m_displayDock, m_nciDock);
+        if (m_structureDock)
+            m_mainWindow->tabifyDockWidget(m_structureDock, m_nciDock);
         m_nciDock->hide();
     }
 

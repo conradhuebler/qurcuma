@@ -1,37 +1,31 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
-// DisplayDock implementation.
+// StructureDock implementation.
 //
 // Claude Generated 2026 - Dock system restructuring.
 
-#include "displaydock.h"
+#include "structuredock.h"
 
 #include "atomlistpanel.h"
-#include "displaypanel.h"
 #include "modifiabletextedit.h"
-#include "settings.h"
-#include "view.h"
-#include "viewpresetwidget.h"
 
 #include <QButtonGroup>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
-#include <QSettings>
-#include <QSplitter>
 #include <QStackedWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
 
-DisplayDock::DisplayDock(MoleculeViewer* viewer, Settings* settings, QWidget* parent)
-    : QDockWidget(DockConfig::DisplayDockTitle, parent)
+StructureDock::StructureDock(QWidget* parent)
+    : QDockWidget(DockConfig::StructureDockTitle, parent)
 {
-    setObjectName(DockConfig::DisplayDockObjectName);
-    setupUI(viewer, settings);
+    setObjectName(DockConfig::StructureDockObjectName);
+    setupUI();
 }
 
-void DisplayDock::setupUI(MoleculeViewer* viewer, Settings* settings)
+void StructureDock::setupUI()
 {
     QWidget* central = new QWidget;
     QVBoxLayout* centralLayout = new QVBoxLayout(central);
@@ -76,31 +70,7 @@ void DisplayDock::setupUI(MoleculeViewer* viewer, Settings* settings)
     m_topStack->addWidget(createStructurePage());
     m_topStack->addWidget(createAtomsPage());
 
-    // Display panel (middle)
-    m_displayPanel = new DisplayPanel(viewer, settings, this);
-
-    // View presets (bottom) - compact widget for reproducible camera + display.
-    m_viewPresetWidget = new ViewPresetWidget(viewer, settings, this);
-
-    // Splitter: top = Structure/Atoms, middle = Display, bottom = Presets
-    QSplitter* splitter = new QSplitter(Qt::Vertical);
-    splitter->addWidget(m_topStack);
-    splitter->addWidget(m_displayPanel);
-    splitter->addWidget(m_viewPresetWidget);
-    splitter->setStretchFactor(0, 1);
-    splitter->setStretchFactor(1, 2);
-    splitter->setStretchFactor(2, 1);
-    // Claude Generated 2026 - Persist the operator's chosen split across restarts.
-    {
-        QSettings uiSettings;
-        const QByteArray state = uiSettings.value(QStringLiteral("ui/displayDock/splitter")).toByteArray();
-        if (!state.isEmpty())
-            splitter->restoreState(state);
-        connect(splitter, &QSplitter::splitterMoved, this, [splitter]() {
-            QSettings().setValue(QStringLiteral("ui/displayDock/splitter"), splitter->saveState());
-        });
-    }
-    centralLayout->addWidget(splitter, 1);
+    centralLayout->addWidget(m_topStack, 1);
 
     connect(m_structureSegmentBtn, &QToolButton::clicked,
             this, [this]() { setCurrentTopSegment(TopSegment::Structure); });
@@ -110,7 +80,7 @@ void DisplayDock::setupUI(MoleculeViewer* viewer, Settings* settings)
     setWidget(central);
 }
 
-QWidget* DisplayDock::createStructurePage()
+QWidget* StructureDock::createStructurePage()
 {
     QWidget* page = new QWidget;
     QVBoxLayout* layout = new QVBoxLayout(page);
@@ -128,7 +98,7 @@ QWidget* DisplayDock::createStructurePage()
     QToolButton* applyBtn = new QToolButton;
     applyBtn->setText(tr("Apply → Viewer"));
     applyBtn->setToolTip(tr("Parse the editor text as XYZ and replace the current structure"));
-    connect(applyBtn, &QToolButton::clicked, this, &DisplayDock::structureApplyRequested);
+    connect(applyBtn, &QToolButton::clicked, this, &StructureDock::structureApplyRequested);
     fileLayout->addWidget(applyBtn);
 
     layout->addLayout(fileLayout);
@@ -140,7 +110,7 @@ QWidget* DisplayDock::createStructurePage()
     return page;
 }
 
-QWidget* DisplayDock::createAtomsPage()
+QWidget* StructureDock::createAtomsPage()
 {
     QWidget* page = new QWidget;
     QVBoxLayout* layout = new QVBoxLayout(page);
@@ -152,14 +122,14 @@ QWidget* DisplayDock::createAtomsPage()
     return page;
 }
 
-DisplayDock::TopSegment DisplayDock::currentTopSegment() const
+StructureDock::TopSegment StructureDock::currentTopSegment() const
 {
     if (!m_topStack)
         return TopSegment::Structure;
     return (m_topStack->currentIndex() == 1) ? TopSegment::Atoms : TopSegment::Structure;
 }
 
-void DisplayDock::setCurrentTopSegment(TopSegment segment)
+void StructureDock::setCurrentTopSegment(TopSegment segment)
 {
     if (!m_topStack)
         return;
@@ -171,13 +141,11 @@ void DisplayDock::setCurrentTopSegment(TopSegment segment)
         m_atomsSegmentBtn->setChecked(segment == TopSegment::Atoms);
 }
 
-QToolButton* DisplayDock::structureSegmentButton() const { return m_structureSegmentBtn; }
-QToolButton* DisplayDock::atomsSegmentButton() const { return m_atomsSegmentBtn; }
+QToolButton* StructureDock::structureSegmentButton() const { return m_structureSegmentBtn; }
+QToolButton* StructureDock::atomsSegmentButton() const { return m_atomsSegmentBtn; }
 
-ModifiableTextEdit* DisplayDock::structureView() const { return m_structureView; }
-QLineEdit* DisplayDock::structureFileEdit() const { return m_structureFileEdit; }
-QLineEdit* DisplayDock::structureFileEditExtension() const { return m_structureFileEditExtension; }
+ModifiableTextEdit* StructureDock::structureView() const { return m_structureView; }
+QLineEdit* StructureDock::structureFileEdit() const { return m_structureFileEdit; }
+QLineEdit* StructureDock::structureFileEditExtension() const { return m_structureFileEditExtension; }
 
-AtomListPanel* DisplayDock::atomListPanel() const { return m_atomListPanel; }
-DisplayPanel* DisplayDock::displayPanel() const { return m_displayPanel; }
-ViewPresetWidget* DisplayDock::viewPresetWidget() const { return m_viewPresetWidget; }
+AtomListPanel* StructureDock::atomListPanel() const { return m_atomListPanel; }

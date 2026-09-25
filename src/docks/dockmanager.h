@@ -15,7 +15,8 @@
 #include <QObject>
 
 class SimulationDock;
-class DisplayDock;
+class StructureDock;
+class AppearanceDock;
 class OutputDock;
 class ProjectDock;
 class ImageGalleryDock;
@@ -37,7 +38,8 @@ public:
 
     // Typed accessors for the docks already migrated into wrappers.
     OutputDock* outputDockImpl() const;
-    DisplayDock* displayDockImpl() const;
+    StructureDock* structureDockImpl() const;
+    AppearanceDock* appearanceDockImpl() const;
     SimulationDock* simulationDockImpl() const;
     ProjectDock* projectDockImpl() const;
     ImageGalleryDock* imageGalleryDockImpl() const;
@@ -45,7 +47,8 @@ public:
 
     // Accessors (return nullptr until the corresponding dock has been created).
     QDockWidget* projectDock() const;
-    QDockWidget* displayDock() const;
+    QDockWidget* structureDock() const;
+    QDockWidget* appearanceDock() const;
     QDockWidget* simulationDock() const;
     QDockWidget* outputDock() const;
     QDockWidget* imageGalleryDock() const;
@@ -100,7 +103,8 @@ private:
     QMainWindow* m_mainWindow = nullptr;
 
     QDockWidget* m_projectDock = nullptr;
-    QDockWidget* m_displayDock = nullptr;
+    QDockWidget* m_structureDock = nullptr;
+    QDockWidget* m_appearanceDock = nullptr;   // Claude Generated 2026 - UX stage 4
     QDockWidget* m_simulationDock = nullptr;
     QDockWidget* m_outputViewDock = nullptr;
     QDockWidget* m_imageGalleryDock = nullptr;

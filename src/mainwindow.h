@@ -56,7 +56,8 @@ class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table 
 class DockManager;          // Claude Generated 2026 - owns all docks and layout presets
 class OutputDock;           // Claude Generated 2026 - Output dock wrapper
 class SimulationDock;       // Claude Generated 2026 - Simulation dock wrapper
-class DisplayDock; // Claude Generated 2026 - Structure & Display dock wrapper
+class StructureDock; // Claude Generated 2026 - Structure dock wrapper
+class AppearanceDock; // Claude Generated 2026 - UX stage 4: display settings + camera views
 class ProjectDock;            // Claude Generated 2026 - Project dock wrapper
 class ImageGalleryDock;       // Claude Generated 2026 - batch border-trim gallery (bottom)
 class NciDock;                // Claude Generated 2026 - non-covalent interaction dock
@@ -446,7 +447,8 @@ private:
     // Claude Generated - Dock architecture rewrite (2026-04): 5 docks rahmen MoleculeViewer (CentralWidget)
     // NOTE: these are being migrated into DockManager / src/docks/ wrappers.
     ProjectDock* m_projectDock = nullptr;           // Left: Project dock with Files/Bookmarks/Workspaces/Remote segments
-    DisplayDock* m_displayDock = nullptr; // Right: [Structure | Atoms] segment + Display panel
+    StructureDock* m_structureDock = nullptr; // Right: [Structure | Atoms] segment
+    AppearanceDock* m_appearanceDock = nullptr; // Right (tabified, closed): display settings + views
     SimulationDock* m_simulationDock = nullptr;     // Right: Simulation/Snapshots/RMSD/Input tabs (tabified with Structure&Display)
     OutputDock* m_outputViewDock = nullptr;         // Bottom: output log
     ImageGalleryDock* m_imageGalleryDock = nullptr; // Bottom (tabified): batch border-trim gallery

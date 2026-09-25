@@ -85,7 +85,8 @@
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "docks/dockmanager.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/simulationdock.h"  // Claude Generated 2026 - Dock system restructuring
-#include "docks/displaydock.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/structuredock.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/appearancedock.h"  // Claude Generated 2026 - UX stage 4
 #include "docks/outputdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/bookmarkwidget.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/workspacepanel.h"  // Claude Generated 2026 - Dock system restructuring
@@ -262,6 +263,18 @@ void MainWindow::setupUI()
     QTimer::singleShot(0, this, [this]() {
         // DockManager owns layout persistence: it restores both window geometry
         // and dock state (no separate geometry restore here — that double-restored).
+        // Claude Generated 2026 - UX stage 4 changed the dock set; workspaces saved before
+        // it keep their directory and name but drop their dock layout once (operator
+        // decision). Must run before restoreSavedLayout(), which stores the new version.
+        if (m_workspaceManager
+            && QSettings().value(DockConfig::UiLayoutVersionKey, 0).toInt() < DockConfig::UiLayoutVersion) {
+            for (Settings::Workspace ws : m_workspaceManager->listWorkspaces()) {
+                if (!ws.dockState.isEmpty()) {
+                    ws.dockState.clear();
+                    m_workspaceManager->saveWorkspace(ws);
+                }
+            }
+        }
         if (m_dockManager) {
             m_dockManager->captureBaselineState();
             m_dockManager->restoreSavedLayout();
@@ -996,10 +1009,12 @@ void MainWindow::createMenus()
     };
 
     addDockToggle(m_projectDock,          tr("&Project"),            QKeySequence(Qt::CTRL | Qt::Key_B));
-    addDockToggle(m_displayDock, tr("Structure & Display"));
+    addDockToggle(m_structureDock,        tr("S&tructure"));
+    addDockToggle(m_appearanceDock,       tr("&Appearance"));
     addDockToggle(m_simulationDock,       tr("&Simulation"));
     addDockToggle(m_outputViewDock,       tr("&Output"));
     addDockToggle(m_nciDock,              tr("&Interactions"));
+    addDockToggle(m_imageGalleryDock,     tr("I&mages"));
 
     viewMenu->addSeparator();
 
@@ -3393,14 +3408,15 @@ void MainWindow::copyCurrentPath()
 // Claude Generated - Visualization Settings Dialog
 // Claude Generated 2026 - Display options now live in the docked DisplayPanel
 // (the former modal dialog was retired). This just surfaces the dock.
+// Claude Generated 2026 - Opens the Appearance dock (UX stage 4; it starts closed).
 void MainWindow::openVisualizationSettings()
 {
-    if (!m_displayDock)
+    if (!m_appearanceDock)
         return;
     if (m_displayPanel)
         m_displayPanel->syncFromViewer();
-    m_displayDock->show();
-    m_displayDock->raise();
+    m_appearanceDock->show();
+    m_appearanceDock->raise();
 }
 
 // Claude Generated 2026 - RMSD / align / reorder tool (curcuma RMSDDriver),
@@ -4364,17 +4380,19 @@ void MainWindow::createDockWidgets()
     // MainWindow members so existing logic keeps working during the migration.
     m_dockManager->initialize(m_moleculeView, &m_settings);
     m_outputViewDock = m_dockManager->outputDockImpl();
-    m_displayDock = m_dockManager->displayDockImpl();
+    m_structureDock = m_dockManager->structureDockImpl();
     m_simulationDock = m_dockManager->simulationDockImpl();
     // Pull the wrapped internal widgets into MainWindow members so the rest of the
     // code can keep using them during the migration.
-    if (m_displayDock) {
-        m_structureView = m_displayDock->structureView();
-        m_structureFileEdit = m_displayDock->structureFileEdit();
-        m_structureFileEditExtension = m_displayDock->structureFileEditExtension();
-        m_atomListPanel = m_displayDock->atomListPanel();
-        m_displayPanel = m_displayDock->displayPanel();
+    if (m_structureDock) {
+        m_structureView = m_structureDock->structureView();
+        m_structureFileEdit = m_structureDock->structureFileEdit();
+        m_structureFileEditExtension = m_structureDock->structureFileEditExtension();
+        m_atomListPanel = m_structureDock->atomListPanel();
     }
+    m_appearanceDock = m_dockManager->appearanceDockImpl();  // Claude Generated 2026 - UX stage 4
+    if (m_appearanceDock)
+        m_displayPanel = m_appearanceDock->displayPanel();
     if (m_simulationDock) {
         m_simulationTabs = m_simulationDock->tabs();
         m_inputView = m_simulationDock->inputView();
@@ -4520,14 +4538,14 @@ void MainWindow::createDockWidgets()
 
     // ==================== STRUCTURE & DISPLAY DOCK (right) ====================
     // Phase 8: dock with [Structure | Atoms] segment toggle on top and Display panel below.
-    if (m_displayDock) {
+    if (m_structureDock) {
         // "Apply → Viewer" button lives inside the wrapper now.
-        connect(m_displayDock, &DisplayDock::structureApplyRequested,
+        connect(m_structureDock, &StructureDock::structureApplyRequested,
                 this, &MainWindow::applyStructureTextToViewer);
     }
 
     // ==================== SIMULATION DOCK (right) ====================
-    // Phase 8: dock with Simulation/Snapshots/RMSD/Input tabs, tabified with Structure&Display.
+    // Phase 8: dock with Simulation/Snapshots/RMSD/Input tabs, tabified with Structure.
     if (m_simulationDock) {
         // RMSD / align workspace signals. The widget owns a table of structures (one is
         // the reference, the rest are aligned overlays) and drives the viewer through a
@@ -4580,8 +4598,8 @@ void MainWindow::createDockWidgets()
         }
     }
 
-    // ==================== DISPLAY PANEL (inside Structure & Display dock) ====================
-    // Phase 8: DisplayPanel is owned by DisplayDock and harvested above; MainWindow
+    // ==================== DISPLAY PANEL (inside the Appearance dock) ====================
+    // Phase 8: DisplayPanel is owned by StructureDock and harvested above; MainWindow
     // only wires its signals here.
     connect(m_displayPanel, &DisplayPanel::centerOnLoadChanged, this, [this](bool on) {
         m_centerOnLoad = on;
