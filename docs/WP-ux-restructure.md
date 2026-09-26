@@ -62,7 +62,7 @@ Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 ### 6: Simulationsparameter, Versuchsfahrplan
 Grundlage ist curcumas `ParameterRegistry` (`external/curcuma/src/core/parameter_registry.h`). Sie liefert je Parameter `tier` (primary/advanced/expert), `relevantWhen`, Einheit, Min/Max und erlaubte Werte. qurcuma füllt die Registry schon in `src/main.cpp`.
 
-- **S1, Basis/Erweitert von Hand:** erledigt (siehe Tabelle). Nicht in der Oberfläche: `external_potentials` (auch primary) und `max_time` (qurcuma zeigt Schritte). „Total steps“ ist im Opt-Modus verborgen, obwohl es dort die Iterationszahl setzt.
+- **S1, Basis/Erweitert von Hand:** erledigt (siehe Tabelle). Nicht in der Oberfläche: `external_potentials` (auch primary) und `max_time` (qurcuma zeigt Schritte).
 - **S2, Rezepte:** benannte `SimulationConfig`-Vorlagen über `simConfigToJson`/`simConfigFromJson` (`src/lesson.*`).
 - **S3, generierte Expertenansicht:** „All parameters“ aus der Registry, parallel zur Handoberfläche. Nach 2–3 echten Läufen wird verglichen und entschieden.
 - **S4, Erfahrung sammeln:** Jeder Lauf protokolliert, welche Parameter vom Default abweichen. Nach N Läufen wird über Basis und Expert entschieden.

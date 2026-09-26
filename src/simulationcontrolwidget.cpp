@@ -389,6 +389,15 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     m_optimizerCombo->setToolTip(tr("Optimization algorithm (geometry optimization only)"));
     methodForm->addRow(tr("Optimizer:"), m_optimizerCombo);
 
+    // Claude Generated 2026 - The optimizer's iteration limit. It shares cfg.steps with
+    // the MD step count; buildConfig reads the field of the current mode.
+    m_maxIterSpin = new QSpinBox(this);
+    m_maxIterSpin->setRange(1, 10000000);
+    m_maxIterSpin->setValue(10000);
+    m_maxIterSpin->setToolTip(tr("Maximum number of optimizer iterations per run "
+                                 "(curcuma max_iterations)."));
+    methodForm->addRow(tr("Max iterations:"), m_maxIterSpin);
+
     // Claude Generated 2026 - curcuma primary parameters, used by MD and optimization.
     m_chargeSpin = new QSpinBox(this);
     m_chargeSpin->setRange(-20, 20);
@@ -891,6 +900,7 @@ void SimulationControlWidget::setupConnections()
     updateThermostatRows();
     connect(m_timestepSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_stepsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_maxIterSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_fpsLimitSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_hmassSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_gpuCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
@@ -1020,7 +1030,8 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.optimizer = m_optimizerCombo->currentData().toString();
     cfg.temperature = m_tempSlider->value();
     cfg.timestep = m_timestepSpin->value();
-    cfg.steps = m_stepsSpin->value();
+    cfg.steps = (cfg.mode == SimulationConfig::Mode::MolecularDynamics)
+        ? m_stepsSpin->value() : m_maxIterSpin->value();
     cfg.fpsLimit = m_fpsLimitSpin->value();
     cfg.hmass = m_hmassSpin->value();
     // Thermostat (Claude Generated 2026)
@@ -1124,7 +1135,7 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
 
     const QList<QWidget*> guarded = {
         m_modeCombo, m_methodCombo, m_chargeSpin, m_spinSpin, m_optimizerCombo, m_tempSlider, m_timestepSpin,
-        m_stepsSpin, m_fpsLimitSpin, m_hmassSpin, m_thermostatCombo, m_couplingSpin,
+        m_stepsSpin, m_maxIterSpin, m_fpsLimitSpin, m_hmassSpin, m_thermostatCombo, m_couplingSpin,
         m_andersenProbSpin, m_noseChainSpin, m_gpuCombo, m_writeTrjCheck, m_perfCheck,
         m_convergenceSpin, m_optKeepParamsCheck, m_rattleCombo, m_rattle12Check,
         m_rattle13Check, m_rattleTol12Spin, m_rattleTol13Spin, m_rattleMaxIterSpin,
@@ -1147,7 +1158,10 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     selectData(m_optimizerCombo, cfg.optimizer);
     if (m_tempSlider) m_tempSlider->setValue(cfg.temperature);
     m_timestepSpin->setValue(cfg.timestep);
-    m_stepsSpin->setValue(cfg.steps);
+    if (cfg.mode == SimulationConfig::Mode::MolecularDynamics)
+        m_stepsSpin->setValue(cfg.steps);
+    else
+        m_maxIterSpin->setValue(cfg.steps);
     m_fpsLimitSpin->setValue(cfg.fpsLimit);
     m_hmassSpin->setValue(cfg.hmass);
     selectData(m_thermostatCombo, cfg.thermostat);
@@ -1504,6 +1518,7 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
     m_tempRampSection->setVisible(isMD);
     m_tempRegionSection->setVisible(isMD);
     m_methodForm->setRowVisible(m_optimizerCombo, !isMD);
+    m_methodForm->setRowVisible(m_maxIterSpin, !isMD);
     m_advancedForm->setRowVisible(m_hmassSpin, isMD);
     m_advancedForm->setRowVisible(m_convergenceSpin, !isMD);
     m_advancedForm->setRowVisible(m_optKeepParamsCheck, !isMD);
@@ -1572,6 +1587,7 @@ void SimulationControlWidget::setRunning(bool running)
         m_tempOverrideLabel->setVisible(false);  // clear the override badge on (re)start
     m_timestepSpin->setEnabled(!running);
     m_stepsSpin->setEnabled(!running);
+    m_maxIterSpin->setEnabled(!running);
     // Thermostat type/params are fixed for the duration of a run (Claude Generated 2026);
     // which of them are shown is updateThermostatRows' job.
     m_thermostatCombo->setEnabled(!running);

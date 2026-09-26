@@ -181,7 +181,8 @@ private:
     QDoubleSpinBox* m_andersenProbSpin = nullptr;  // Andersen collision probability
     QSpinBox*       m_noseChainSpin = nullptr;     // Nosé-Hoover chain length
     QDoubleSpinBox* m_timestepSpin = nullptr;
-    QSpinBox* m_stepsSpin = nullptr;
+    QSpinBox* m_stepsSpin = nullptr;        // MD: total steps
+    QSpinBox* m_maxIterSpin = nullptr;      // Opt: max iterations (same config field, cfg.steps)
     QDoubleSpinBox* m_hmassSpin = nullptr;  // Hydrogen mass scaling
     QComboBox* m_gpuCombo = nullptr;
     QCheckBox* m_writeTrjCheck = nullptr;
