@@ -61,6 +61,21 @@ Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 - **RMSD-MTD:** Wird in Etappe 6 S1 an curcumas `strided`-Schema angeglichen (Option c).
 - **Teaching und Simulation (2026-09-26):** Teaching zeigt Simulation standardmäßig, jeder Modus merkt sich seine Panels, und eine Lesson speichert ihren Panel-Stand wie ein Workspace. Gespeichert wird nur, welche Panels offen sind, nicht der binäre Dock-Zustand.
 
+## Verifikation: Bedienelemente vorher/nachher
+
+Gezählt wird statisch jede Konstruktion `new <Control>` (QPushButton, QToolButton, QCheckBox, QRadioButton, QSpinBox, QDoubleSpinBox, QComboBox, QSlider, TemperatureSlider) je Datei unter `src/`, einmal im Stand vor dem Umbau (`4d4c433`) und einmal danach. Befehl: `python3 docs/development/count_controls.py 4d4c433 HEAD`.
+
+Grenzen der Methode: Ein Element, das in einer Schleife entsteht, zählt einmal; der Tab „All parameters“ erzeugt so rund 80 Editoren und zählt 6. Die Zahl sagt nichts darüber, was sichtbar ist: eingeklappte Abschnitte (Advanced, Interactive Grab, Abschnitte mit Schalter) und je Modus ausgeblendete Zeilen zählen mit. Die Bestandsaufnahme nannte „rund 195“, ohne die Zählweise festzuhalten; mit dieser Methode ergibt derselbe Stand 230, die Zahlen sind also nicht direkt vergleichbar.
+
+| Bereich | Dateien | vorher | nachher |
+|---|---|---|---|
+| Display → Appearance | `displaypanel`, `docks/displaydock`, `viewpresetwidget` | 78 | 41 (Appearance) + 3 (Structure-Dock) |
+| Simulation | `simulationcontrolwidget`, `docks/simulationdock`, `snapshotswidget`, `rmsdwidget`, `simulationparameterswidget` | 68 | 81 (davon 7 „Show in viewer“ aus dem Display-Panel, 6 im Tab „All parameters“) |
+| Interactions (NCI) | `nciwidget` | 3 | 16 (NCI-Optionen aus dem Display-Panel) |
+| Viewer-Leiste | `view` | 26 | 22 |
+| Project | `docks/projectdock` | 10 | 8 |
+| alle Dateien | `src/**/*.cpp` | 230 | 217 |
+
 ## Offen: die nächsten Etappen
 
 ### 6: Simulationsparameter, Versuchsfahrplan
