@@ -1,9 +1,9 @@
 # Arbeitspaket (WP): UX-Entschlackung und Neuordnung
 
-> **Status:** in Arbeit, Etappen 0 bis 5 committet. Erstellt 2026-09-25, Claude Generated.
+> **Status:** in Arbeit, Etappen 0 bis 5 und 6 S1 committet. Erstellt 2026-09-25, Claude Generated.
 > **Branch:** `claude/dockwidgets-overlap-click-issue-th1rwk` (nicht gepusht).
 > **Test:** Build und Unit-Tests je Etappe grün. In der GUI hat der Operator bisher nur
-> Etappe 3 kurz angesehen („sieht erstmal gut aus“); 0, 1, 2, 2b, 4a, 4b und 5 sind dort ungetestet.
+> Etappe 3 kurz angesehen („sieht erstmal gut aus“); 0, 1, 2, 2b, 4a, 4b, 5 und 6 S1 sind dort ungetestet.
 > Die GUI rendert aus der Agenten-Shell nicht, Sichtprüfung also nur durch den Operator.
 
 ## Ziel und Ordnungsprinzip
@@ -44,6 +44,7 @@ Die Operator-Entscheidungen vom 2026-09-25 stehen jeweils bei der Etappe, zu der
 | 4b | `a24a70b` | Modi Explore · Compute · Teaching im Eckschalter (Teaching = Explore + Lesson-Browser); Layout-Presets, Ctrl+Alt+1–5 und `DockConfig::LayoutPreset` entfernt; ohne gespeichertes Layout legt der Modus die Docks an |
 | 5 | `ceb56c9` | Menüleiste File · Edit · View · Structure · Simulation · Tools · Help; Simulation-Einträge starten wirklich; Werkzeug-Radio mit `M`/Ctrl+E/`B`; Help ▸ Keyboard Shortcuts aus den QActions; Kontextmenü nach Atom/leerer Fläche getrennt; Palette nur aus der Menüleiste |
 | 4b+ | `4c19e7e`, `7fdc8ef`, `90fa070` | Jeder Modus merkt sich seine Panels (`ui/modePanels/<mode>`), Teaching öffnet standardmäßig Simulation; Lessons speichern die offenen Panels (`layout.panels`) und öffnen sie beim Laden, dabei Wechsel in Teaching (abschaltbar unter Edit ▸ Preferences) |
+| 6 S1 | `cbaf7ae`, `3d78898`, `876bd3f` | RMSD-MTD auf `strided` (Deposit every, Hill spacing, ohne `rmsd_econv`); Charge und ungepaarte Elektronen; Simulation-Dock: Basis-Gruppen + Abschnitte mit Schalter im Kopf + „Advanced“; H-Massenfaktor ganzzahlig |
 
 Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 - **Modus-Trennung:** Einsteiger und Forschende werden über die Modi getrennt.
@@ -61,10 +62,7 @@ Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 ### 6: Simulationsparameter, Versuchsfahrplan
 Grundlage ist curcumas `ParameterRegistry` (`external/curcuma/src/core/parameter_registry.h`). Sie liefert je Parameter `tier` (primary/advanced/expert), `relevantWhen`, Einheit, Min/Max und erlaubte Werte. qurcuma füllt die Registry schon in `src/main.cpp`.
 
-- **S1, Basis/Erweitert von Hand:**
-  - Basis = die primary-Parameter.
-  - Alle Enable→Details-Muster werden eine einheitliche einklappbare Gruppe.
-  - **RMSD-MTD an das `strided`-Schema angleichen:** `rmsd_mtd_deposit_stride` und `rmsd_mtd_r_dep` fehlen in qurcuma; `rmsd_econv` wird unter `strided` ignoriert und löst eine Warnung aus. Heute ist das Feld nur als „(legacy)“ markiert.
+- **S1, Basis/Erweitert von Hand:** erledigt (siehe Tabelle). Nicht in der Oberfläche: `external_potentials` (auch primary) und `max_time` (qurcuma zeigt Schritte). „Total steps“ ist im Opt-Modus verborgen, obwohl es dort die Iterationszahl setzt.
 - **S2, Rezepte:** benannte `SimulationConfig`-Vorlagen über `simConfigToJson`/`simConfigFromJson` (`src/lesson.*`).
 - **S3, generierte Expertenansicht:** „All parameters“ aus der Registry, parallel zur Handoberfläche. Nach 2–3 echten Läufen wird verglichen und entschieden.
 - **S4, Erfahrung sammeln:** Jeder Lauf protokolliert, welche Parameter vom Default abweichen. Nach N Läufen wird über Basis und Expert entschieden.

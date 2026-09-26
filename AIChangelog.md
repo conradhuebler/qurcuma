@@ -1,5 +1,13 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 6 S1: Simulationsparameter Basis/Erweitert
+
+- **Basis = curcumas primary-Parameter**: Method-Gruppe (Method, Optimizer im Opt-Modus, Charge, Unpaired electrons) und MD-Gruppe (Temperatur, Thermostat, Time step, Total steps); Thermostat-Felder nur, wenn der gewählte Thermostat sie liest.
+- **Charge und ungepaarte Elektronen** neu (curcuma `charge`/`spin`), für MD und Optimierung, in Lessons gespeichert; vorher lief alles als neutrales Singulett.
+- **Ein Muster für optionale Funktionen**: `CollapsibleSection` mit Schalter im Kopf für Temperature Ramp, Temperature Regions (neu schaltbar), RATTLE, RMSD Metadynamics, Confinement Walls; Rest in „Advanced“, Grab-Einstellungen in „Interactive Grab“.
+- **RMSD-MTD auf curcumas `strided`-Schema**: Deposit every (`rmsd_mtd_deposit_stride`) und Hill spacing (`rmsd_mtd_r_dep`); `rmsd_econv` entfällt, damit auch curcumas Warnung bei jedem Lauf.
+- **H-Massenfaktor ganzzahlig**: curcuma liest `hydrogen_mass` als Int, 1,5 wurde zu 1.
+
 ## September 2026 - Panels je Modus und je Lesson
 
 - **Jeder Modus merkt sich seine Panels** (`ui/modePanels/<mode>`, beim Verlassen und beim Beenden gespeichert); vorher setzte jeder Moduswechsel und jeder Start einen festen Satz. Teaching öffnet standardmäßig zusätzlich Simulation.
