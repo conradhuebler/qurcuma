@@ -1,7 +1,7 @@
 # Dock Architecture (`src/docks/`)
 
 ## Ownership
-- `DockManager` owns all `QDockWidget` shells, initial placement, layout presets, and Explore/Compute mode.
+- `DockManager` owns all `QDockWidget` shells, initial placement and the dock side of the app mode (Explore/Compute/Teaching).
 - `MainWindow` coordinates via signals and pulls internal widgets through wrapper getters during migration.
 - Each wrapper inherits `QDockWidget` and exposes its content widgets so existing logic can stay in `MainWindow` while construction moves here.
 
@@ -15,16 +15,12 @@
 - `NciDock` — right-side dock (tabified with Display, hidden by default) with the non-covalent interaction contact table (`NciWidget`): source combo, "Analyse current frame" for the calculated sources, summary line, table Typ/Atome/d/Winkel/Score/E/Notiz, TSV copy. Row click selects the contact's atoms in the viewer, double-click zooms to them; signals only, MainWindow drives the viewer (same split as `RMSDWidget`).
 
 ## Shared Config (`dockconfig.h`)
-- `DockConfig::LayoutPreset` — Visualization, Editing, Calculation, Analysis, Teaching.
-- `DockConfig::AppMode` — Explore (viewer focus) vs. Compute (calculation workflow).
+- `DockConfig::AppMode` — Explore / Compute / Teaching, persisted as int in `ui/appMode` (append only).
 - Stable `objectName`s and default dock areas. Do not change names without a migration plan; they are persisted in `QSettings` via `QMainWindow::saveState()`/`restoreState()`.
 
-## Layout Presets
-- Implemented in `DockManager` using lazy `saveState()`/`restoreState()` caching to avoid Qt drift from repeated `tabifyDockWidget`/`splitDockWidget`.
-- MainWindow only adds status-bar messages and menu/shortcut dispatch.
-- Bound to Ctrl+Alt+1..4; Teaching is used by the Lesson / interactive-demo workflow.
+## Dock Visibility
 - View ▸ Dock Panels uses each dock's `QDockWidget::toggleViewAction()`, which is Qt's safe path for tabified groups.
-- Presets/app mode set visibility **per dock** (`setDockVisible`, hides before shows, then `raise()` the preset's front tab). Never toggle via `tabifiedDockWidgets()`: Display/Simulation/Interactions share one tab bar, so a group toggle hid Display with Simulation and surfaced the hidden-by-default Interactions/Images docks.
+- The app mode sets visibility **per dock** (`setDockVisible`, hides before shows, then `raise()` the mode's front tab). Never toggle via `tabifiedDockWidgets()`: Structure/Simulation/Interactions share one tab bar, so a group toggle hid Structure with Simulation and surfaced the hidden-by-default Interactions/Images docks.
 
 ## ProjectDock File Browser Filter
 - `DirectoryFilterProxyModel` sits between `QFileSystemModel` and `QListView`; combines live name search with extension subset filtering.
@@ -38,10 +34,12 @@
 - `MoleculeViewer::currentViewPreset(ZoomMode)` captures; `applyViewPreset()` restores via the atomic `SceneController::setCameraTransform` + `m_quickWindow->update()`, then emits `viewPresetApplied()` so `DisplayPanel::syncFromViewer()` re-syncs its controls (no dock raise).
 - Quick buttons `Front`/`Top`/`Side` call `MoleculeViewer::setCameraOrientation()` (rotation only; zoom stays).
 
-## Explore / Compute Mode
-- `MainWindow::setAppMode` updates mode buttons, persists to `ui/appMode`, and toggles the calculation toolbar.
-- Dock visibility and reflow are delegated to `DockManager::setAppMode`.
-- Explore hides Simulation + Output and raises Display; Compute shows all four layout docks and raises Simulation. Interactions/Images are left as they are.
+## App Modes (Explore / Compute / Teaching)
+- The only layout switch (UX stage 4b; the five layout presets and Ctrl+Alt+1–5 are gone). Custom layouts are saved as workspaces.
+- `MainWindow::setAppMode` updates the corner buttons, persists `ui/appMode`, shows the calculation toolbar in Compute only.
+- Teaching = Explore + lesson browser: entering it calls `LessonController::setBrowserMode(true)`, leaving it switches back to Files.
+- `DockManager::setAppMode`: Explore/Teaching show Project + Structure (Structure in front); Compute adds Simulation + Output (Simulation in front). Appearance, Interactions and Images are left as they are.
+- Without a stored layout (first run, workspace without layout, View ▸ Reset to Default Layout) the mode also sizes the docks (`reflow`).
 
 ## Viewer Embedding (why docks stopped overlapping)
 - `MoleculeViewer` embeds the 3D scene as a `QQuickWidget` (`src/view.cpp`, `setupViewer`). The former `QQuickView` + `createWindowContainer()` was a **native window**, which Qt stacks above all sibling widgets: it painted over dock panels/tab bars during resizes, animations and on Wayland, and swallowed the clicks meant for them.

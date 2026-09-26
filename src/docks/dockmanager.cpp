@@ -1,7 +1,7 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
-// DockManager implementation. Owns all QDockWidget shells, their initial placement,
-// layout presets and the Explore/Compute application mode.
+// DockManager implementation. Owns all QDockWidget shells, their initial placement
+// and the dock side of the application mode (Explore/Compute/Teaching).
 //
 // Claude Generated 2026 - Dock system restructuring.
 
@@ -55,7 +55,7 @@ bool DockManager::dockVisible(QDockWidget* dock) const
 // The previous helper toggled the whole tabified group (tabifiedDockWidgets()).
 // With Display, Simulation and Interactions sharing one tab bar on the right
 // (and Output + Images at the bottom) that was wrong in both directions:
-// hiding Simulation for Explore mode / the Visualization preset also hid
+// hiding Simulation for Explore mode also hid
 // Display, and showing Display pulled the hidden-by-default Interactions and
 // Images docks into the tab bar. The "tab-bar collapse" it was meant to avoid
 // was the native 3D window (createWindowContainer) painting over the freshly
@@ -128,92 +128,15 @@ NciDock* DockManager::nciDockImpl() const
     return qobject_cast<NciDock*>(m_nciDock);
 }
 
-namespace {
-// Claude Generated 2026 - Data-driven layout presets. Each preset is a set of
-// per-dock visibility flags plus optional resize fractions; the five previous
-// near-identical applyXxxLayout() methods collapsed into this table + the single
-// applyPreset() below. Row order matches DockConfig::LayoutPreset.
-struct PresetSpec {
-    bool project;      // dock visibility
-    bool display;
-    bool simulation;
-    bool output;
-    bool raiseSimulation;  // front tab on the right: Simulation (true) or Display
-    double projectW;   // horizontal resize as fraction of window width (0 = skip)
-    double displayW;
-    double outputH;    // vertical resize as fraction of window height (0 = skip)
-};
-const PresetSpec kPresetSpecs[] = {
-    /* Visualization */ { true,  true,  false, false, false, 0.18, 0.22, 0.00 },
-    /* Editing       */ { true,  true,  false, false, false, 0.22, 0.32, 0.00 },
-    /* Calculation   */ { true,  false, true,  true,  true,  0.00, 0.00, 0.35 },
-    /* Analysis      */ { true,  true,  true,  true,  false, 0.22, 0.28, 0.22 },
-    /* Teaching      */ { true,  true,  true,  true,  true,  0.18, 0.26, 0.25 },
-};
-}  // namespace
-
-void DockManager::applyPreset(DockConfig::LayoutPreset preset)
-{
-    if (!m_mainWindow)
-        return;
-
-    const int key = static_cast<int>(preset);
-
-    // Repeated tabify/split drifts Qt's layout, so once a preset has been built
-    // we restore its exact saved state instead of rebuilding it.
-    auto it = m_presetStates.find(key);
-    if (it != m_presetStates.end()) {
-        m_mainWindow->restoreState(*it);
-        emit presetApplied(preset);
-        return;
-    }
-
-    const PresetSpec& s = kPresetSpecs[key];
-    applyDockVisibility(m_projectDock, s.project, m_structureDock, s.display,
-        m_simulationDock, s.simulation, m_outputViewDock, s.output,
-        s.raiseSimulation ? m_simulationDock : m_structureDock);
-
-    // Preset-specific content selection (which tab/segment to show).
-    switch (preset) {
-    case DockConfig::LayoutPreset::Editing:
-        if (auto* sdd = structureDockImpl())
-            sdd->setCurrentTopSegment(StructureDock::TopSegment::Structure);
-        break;
-    case DockConfig::LayoutPreset::Calculation:
-        if (auto* sd = simulationDockImpl())
-            sd->setCurrentTab(0);  // Simulation tab
-        break;
-    case DockConfig::LayoutPreset::Teaching:
-        if (auto* tabs = simulationTabs())
-            tabs->setCurrentIndex(0);
-        break;
-    default:
-        break;
-    }
-
-    if (s.displayW > 0.0 && m_mainWindow->width() > 0) {
-        m_mainWindow->resizeDocks({ m_projectDock, m_structureDock },
-            { int(m_mainWindow->width() * s.projectW), int(m_mainWindow->width() * s.displayW) },
-            Qt::Horizontal);
-    }
-    if (s.outputH > 0.0 && m_mainWindow->height() > 0) {
-        m_mainWindow->resizeDocks({ m_outputViewDock },
-            { int(m_mainWindow->height() * s.outputH) }, Qt::Vertical);
-    }
-
-    m_presetStates.insert(key, m_mainWindow->saveState());
-    emit presetApplied(preset);
-}
-
 void DockManager::setAppMode(DockConfig::AppMode mode, bool reflow)
 {
     if (!m_mainWindow)
         return;
 
-    const bool explore = (mode == DockConfig::AppMode::Explore);
-
-    // Explore: Project + Display, viewer focus. Compute: everything, with the
-    // Simulation tab in front. Per-dock visibility (see setDockVisible).
+    // Explore and Teaching: Project + Structure, viewer focus (Teaching differs only in
+    // the Project panel's browser, which MainWindow switches). Compute: all four, with
+    // the Simulation tab in front. Per-dock visibility (see setDockVisible).
+    const bool explore = (mode != DockConfig::AppMode::Compute);
     applyDockVisibility(m_projectDock, true, m_structureDock, true,
         m_simulationDock, !explore, m_outputViewDock, !explore,
         explore ? m_structureDock : m_simulationDock);
@@ -256,10 +179,10 @@ void DockManager::saveLayout()
     uiSettings.setValue(DockConfig::UiDockStateKey, m_mainWindow->saveState());
 }
 
-void DockManager::restoreSavedLayout()
+bool DockManager::restoreSavedLayout()
 {
     if (!m_mainWindow)
-        return;
+        return false;
     QSettings uiSettings;
     const QByteArray savedGeometry = uiSettings.value(DockConfig::UiGeometryKey).toByteArray();
     const QByteArray savedState = uiSettings.value(DockConfig::UiDockStateKey).toByteArray();
@@ -268,18 +191,15 @@ void DockManager::restoreSavedLayout()
     // Claude Generated 2026 - A layout saved for an older dock set is dropped once
     // (operator decision for UX stage 4) instead of being restored half-matching.
     const bool current = uiSettings.value(DockConfig::UiLayoutVersionKey, 0).toInt() >= DockConfig::UiLayoutVersion;
-    if (!savedState.isEmpty() && current)
-        m_mainWindow->restoreState(savedState);
-    else
-        applyPreset(DockConfig::LayoutPreset::Analysis);
+    const bool restored = !savedState.isEmpty() && current && m_mainWindow->restoreState(savedState);
     uiSettings.setValue(DockConfig::UiLayoutVersionKey, DockConfig::UiLayoutVersion);
+    return restored;
 }
 
 void DockManager::resetToBaseline()
 {
     if (!m_mainWindow || m_defaultState.isEmpty())
         return;
-    m_presetStates.clear();
     m_mainWindow->restoreState(m_defaultState);
 }
 

@@ -1,5 +1,11 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 4b: Modi statt Layout-Presets
+
+- **Eckschalter mit drei Modi** Explore, Compute, Teaching (auch View ▸ Mode und Palette); Teaching = Explore mit dem Lesson-Browser im Project-Panel.
+- Die fünf Layout-Presets (View ▸ Layout Presets, Ctrl+Alt+1–5) und `DockConfig::LayoutPreset` entfallen; eigene Layouts speichern die Workspaces.
+- Ohne gespeichertes Layout (Erststart, Workspace ohne Layout, Reset to Default Layout) legt der aktuelle Modus die Docks an; vorher das Preset „Analysis“.
+
 ## September 2026 - UX-Etappe 4a-4: Appearance geglättet
 
 - **Appearance-Panel** ohne verschachtelte Abschnitte: oben die Gruppe „Style“ (Modus, Farben, Atomgröße, Bindungsdicke, Beschriftungen, Hintergrund als Farbfeld), darunter Fragmente und Bead-Typen, sofern die Struktur welche hat.

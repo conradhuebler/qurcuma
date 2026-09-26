@@ -224,7 +224,7 @@ private slots:
 private:
     void setupUI();
     void createToolbars();
-    void createModeBar();                       // Claude Generated 2026 - P2 Explore/Compute switch
+    void createModeBar();                       // Claude Generated 2026 - Explore/Compute/Teaching switch
     void setAppMode(DockConfig::AppMode mode, bool reflow = true);  // apply mode (toolbar + dock visibility)
     void showCommandPalette();                  // Claude Generated 2026 - P3 Ctrl+K palette
     void createMenus();
@@ -301,8 +301,6 @@ private:
     void restoreWorkspaceState(const Settings::Workspace& ws);
     void updateWorkspaceList();
 
-    // Claude Generated - UI Restructuring: Layout preset management
-    void applyLayoutPreset(DockConfig::LayoutPreset preset);
     void createDockWidgets();  // Helper to create all dock widgets
 
     QTreeWidget* m_bookmarkTreeView;  // Claude Generated Phase 3.2 - Replaced QListWidget
@@ -456,12 +454,12 @@ private:
     QDialog* m_simulationChartDialog = nullptr;     // Modeless dialog: live MD temperature/energy charts
     QTabWidget* m_simulationTabs = nullptr;         // Internal tabs inside m_simulationDock
 
-    // Claude Generated 2026 - P2: Explore/Compute mode switch
+    // Claude Generated 2026 - Explore/Compute/Teaching mode switch
     DockConfig::AppMode m_appMode = DockConfig::AppMode::Explore;
-    QToolBar* m_modeToolbar = nullptr;          // top row: [Explore | Compute]
     QToolBar* m_calculationToolbar = nullptr;   // 2nd row: program/command/threads (Compute only)
     QToolButton* m_exploreButton = nullptr;
     QToolButton* m_computeButton = nullptr;
+    QToolButton* m_teachingButton = nullptr;
     SimulationControlWidget* m_simulationControlWidget = nullptr;  // Claude Generated
     SimulationChartWidget* m_simulationChartWidget = nullptr;     // Claude Generated 2026 - live T/energy charts
     SimulationConfig m_simulationConfig;             // Claude Generated - Shared config, edited from dock

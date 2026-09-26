@@ -53,10 +53,10 @@ A Qt-based GUI for molecular visualization, interactive simulation, and quantum 
 - Structure and input-file management
 
 ### UI
-- **Explore / Compute mode switch** in the menu-bar corner
-- **Display dock** with collapsible sections (Style, Effects, Lighting, Tools, Presets)
+- **Modes Explore / Compute / Teaching** in the menu-bar corner; own layouts are saved as workspaces
+- **Looks** (Look ▾ in the viewer bar): colour scheme, material, lighting, effects and background as one named set
+- **Appearance dock** (closed by default): style, fragment and bead-type colours; material, lighting and effects under "Advanced"
 - **Command palette** (Ctrl+K): fuzzy search over all menu actions and viewer commands
-- 4 layout presets (Ctrl+Alt+1–4)
 
 ## Requirements
 

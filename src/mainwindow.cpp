@@ -257,9 +257,9 @@ void MainWindow::setupUI()
     setWindowTitle("Qurcuma");
 
     // Claude Generated (2026-04) - Dock rewrite: capture baseline after Qt finished
-    // placement, then prefer the globally persisted layout from QSettings. Falls
-    // back to Analysis layout only on first run. Phase 5: state capture/restore is
-    // owned by DockManager; geometry stays with MainWindow.
+    // placement, then prefer the globally persisted layout from QSettings. Without
+    // one (first run, reset layout version) the saved mode lays out the docks.
+    // State capture/restore is owned by DockManager.
     QTimer::singleShot(0, this, [this]() {
         // DockManager owns layout persistence: it restores both window geometry
         // and dock state (no separate geometry restore here — that double-restored).
@@ -275,16 +275,19 @@ void MainWindow::setupUI()
                 }
             }
         }
+        bool restored = false;
         if (m_dockManager) {
             m_dockManager->captureBaselineState();
-            m_dockManager->restoreSavedLayout();
+            restored = m_dockManager->restoreSavedLayout();
         }
-        // Claude Generated 2026 - P2: enforce the saved Explore/Compute mode last so the
-        // calculation toolbar + dock visibility match the mode (default Explore on first run).
-        QSettings uiSettings;
-        const auto savedMode = static_cast<DockConfig::AppMode>(
-            uiSettings.value(DockConfig::UiAppModeKey, static_cast<int>(DockConfig::AppMode::Explore)).toInt());
-        setAppMode(savedMode, /*reflow=*/false);
+        // Claude Generated 2026 - Enforce the saved mode last so the calculation toolbar,
+        // dock visibility and lesson browser match it (default Explore on first run).
+        // Without a restored layout the mode also sizes the docks.
+        int savedMode = QSettings().value(DockConfig::UiAppModeKey,
+                                          static_cast<int>(DockConfig::AppMode::Explore)).toInt();
+        if (savedMode < 0 || savedMode > static_cast<int>(DockConfig::AppMode::Teaching))
+            savedMode = static_cast<int>(DockConfig::AppMode::Explore);
+        setAppMode(static_cast<DockConfig::AppMode>(savedMode), /*reflow=*/!restored);
     });
 }
 
@@ -607,9 +610,11 @@ void MainWindow::createModeBar()
         return b;
     };
     m_exploreButton = makeBtn(tr("🔬 Explore"),
-        tr("Molecule viewing & interactive simulation (hides the calculation toolbar)"));
+        tr("View and edit molecules: Project and Structure panels"));
     m_computeButton = makeBtn(tr("⚙ Compute"),
-        tr("Run calculations: program / command / threads, with project & output panels"));
+        tr("Run calculations: calculation toolbar plus the Simulation and Output panels"));
+    m_teachingButton = makeBtn(tr("🎓 Teaching"),
+        tr("Explore with the lesson browser in the Project panel"));
 
     modeWidget->setStyleSheet(QStringLiteral(
         "QToolButton { padding: 3px 14px; border: 1px solid palette(mid); }"
@@ -618,35 +623,56 @@ void MainWindow::createModeBar()
 
     connect(m_exploreButton, &QToolButton::clicked, this, [this]() { setAppMode(DockConfig::AppMode::Explore); });
     connect(m_computeButton, &QToolButton::clicked, this, [this]() { setAppMode(DockConfig::AppMode::Compute); });
+    connect(m_teachingButton, &QToolButton::clicked, this, [this]() { setAppMode(DockConfig::AppMode::Teaching); });
 
     if (menuBar())
         menuBar()->setCornerWidget(modeWidget, Qt::TopRightCorner);
 }
 
-// Claude Generated 2026 - P2: apply a top-level mode. Sets the calculation toolbar +
-// dock visibility explicitly (deterministic); reflow=false keeps restored sizes on startup.
+// Claude Generated 2026 - Apply a top-level mode, the only layout switch (UX stage 4b).
+// Sets the calculation toolbar, dock visibility and the Project panel's browser
+// explicitly (deterministic); reflow=false keeps restored sizes on startup.
 void MainWindow::setAppMode(DockConfig::AppMode mode, bool reflow)
 {
+    const DockConfig::AppMode previous = m_appMode;
     m_appMode = mode;
-    const bool explore = (mode == DockConfig::AppMode::Explore);
 
-    for (QToolButton* b : { m_exploreButton, m_computeButton }) {
-        if (!b)
+    const std::pair<QToolButton*, DockConfig::AppMode> buttons[] = {
+        { m_exploreButton, DockConfig::AppMode::Explore },
+        { m_computeButton, DockConfig::AppMode::Compute },
+        { m_teachingButton, DockConfig::AppMode::Teaching }
+    };
+    for (const auto& [button, buttonMode] : buttons) {
+        if (!button)
             continue;
-        b->blockSignals(true);
-        b->setChecked((b == m_exploreButton) == explore);
-        b->blockSignals(false);
+        button->blockSignals(true);
+        button->setChecked(buttonMode == mode);
+        button->blockSignals(false);
     }
     QSettings().setValue(DockConfig::UiAppModeKey, static_cast<int>(mode));
 
     if (m_calculationToolbar)
-        m_calculationToolbar->setVisible(!explore);
+        m_calculationToolbar->setVisible(mode == DockConfig::AppMode::Compute);
 
-    // Phase 5: dock visibility and reflow are owned by DockManager.
+    // Dock visibility and reflow are owned by DockManager.
     if (m_dockManager)
         m_dockManager->setAppMode(mode, reflow);
 
-    statusBar()->showMessage(explore ? tr("Mode: Explore") : tr("Mode: Compute"), 2000);
+    // Teaching = Explore with the lesson browser; leaving it returns to the files.
+    if (m_lessonController) {
+        if (mode == DockConfig::AppMode::Teaching)
+            m_lessonController->setBrowserMode(true);
+        else if (previous == DockConfig::AppMode::Teaching)
+            m_lessonController->setBrowserMode(false);
+    }
+
+    QString name;
+    switch (mode) {
+    case DockConfig::AppMode::Explore:  name = tr("Explore"); break;
+    case DockConfig::AppMode::Compute:  name = tr("Compute"); break;
+    case DockConfig::AppMode::Teaching: name = tr("Teaching"); break;
+    }
+    statusBar()->showMessage(tr("Mode: %1").arg(name), 2000);
 }
 
 // Claude Generated 2026 - P3: recursively collect leaf menu actions as palette commands.
@@ -700,6 +726,7 @@ void MainWindow::showCommandPalette()
     };
     add(tr("Explore Mode"), tr("Mode"), [this]() { setAppMode(DockConfig::AppMode::Explore); });
     add(tr("Compute Mode"), tr("Mode"), [this]() { setAppMode(DockConfig::AppMode::Compute); });
+    add(tr("Teaching Mode"), tr("Mode"), [this]() { setAppMode(DockConfig::AppMode::Teaching); });
     add(tr("Ball and Stick"), tr("Render"), [this]() { setRenderingModeBallAndStick(); });
     add(tr("Space Filling"), tr("Render"), [this]() { setRenderingModeSpaceFilling(); });
     add(tr("Wireframe"), tr("Render"), [this]() { setRenderingModeWireframe(); });
@@ -955,42 +982,8 @@ void MainWindow::createMenus()
     connect(exploreAct, &QAction::triggered, this, [this]() { setAppMode(DockConfig::AppMode::Explore); });
     QAction* computeAct = modeMenu->addAction(QIcon::fromTheme("system-run"), tr("&Compute"));
     connect(computeAct, &QAction::triggered, this, [this]() { setAppMode(DockConfig::AppMode::Compute); });
-
-    viewMenu->addSeparator();
-
-    // Layout Presets submenu
-    QMenu *layoutMenu = viewMenu->addMenu(QIcon::fromTheme("view-choose"), tr("&Layout Presets"));
-
-    QAction *visualizationLayoutAction = layoutMenu->addAction(tr("&Visualization Mode"));
-    visualizationLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_1));
-    visualizationLayoutAction->setToolTip(tr("Focus on 3D viewer (Ctrl+Alt+1)"));
-    connect(visualizationLayoutAction, &QAction::triggered, this,
-            [this]() { applyLayoutPreset(DockConfig::LayoutPreset::Visualization); });
-
-    QAction *editingLayoutAction = layoutMenu->addAction(tr("&Editing Mode"));
-    editingLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_2));
-    editingLayoutAction->setToolTip(tr("Focus on editors (Ctrl+Alt+2)"));
-    connect(editingLayoutAction, &QAction::triggered, this,
-            [this]() { applyLayoutPreset(DockConfig::LayoutPreset::Editing); });
-
-    QAction *calculationLayoutAction = layoutMenu->addAction(tr("&Calculation Mode"));
-    calculationLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_3));
-    calculationLayoutAction->setToolTip(tr("Focus on calculation workflow (Ctrl+Alt+3)"));
-    connect(calculationLayoutAction, &QAction::triggered, this,
-            [this]() { applyLayoutPreset(DockConfig::LayoutPreset::Calculation); });
-
-    QAction *analysisLayoutAction = layoutMenu->addAction(tr("&Analysis Mode (All Panels)"));
-    analysisLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_4));
-    analysisLayoutAction->setToolTip(tr("Balanced layout with all panels (Ctrl+Alt+4)"));
-    connect(analysisLayoutAction, &QAction::triggered, this,
-            [this]() { applyLayoutPreset(DockConfig::LayoutPreset::Analysis); });
-
-    // Claude Generated 2026 - Teaching existed as a preset but had no UI entry.
-    QAction *teachingLayoutAction = layoutMenu->addAction(tr("&Teaching Mode"));
-    teachingLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_5));
-    teachingLayoutAction->setToolTip(tr("Lesson / interactive-demo layout (Ctrl+Alt+5)"));
-    connect(teachingLayoutAction, &QAction::triggered, this,
-            [this]() { applyLayoutPreset(DockConfig::LayoutPreset::Teaching); });
+    QAction* teachingAct = modeMenu->addAction(tr("&Teaching"));
+    connect(teachingAct, &QAction::triggered, this, [this]() { setAppMode(DockConfig::AppMode::Teaching); });
 
     viewMenu->addSeparator();
 
@@ -1018,12 +1011,13 @@ void MainWindow::createMenus()
 
     viewMenu->addSeparator();
 
-    // Reset layout: restore the captured baseline (drops preset caches so they re-derive).
+    // Reset layout: restore the captured baseline, then lay out the current mode on it.
     QAction *resetLayoutAction = viewMenu->addAction(QIcon::fromTheme("view-restore"), tr("&Reset to Default Layout"));
     resetLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_0));
     connect(resetLayoutAction, &QAction::triggered, this, [this]() {
         if (m_dockManager) {
             m_dockManager->resetToBaseline();
+            setAppMode(m_appMode);
             statusBar()->showMessage(tr("Layout reset to default"), 2000);
         }
     });
@@ -4039,9 +4033,9 @@ void MainWindow::restoreWorkspaceState(const Settings::Workspace& ws)
     // Claude Generated - UI Restructuring: Restore dock widget layout
     if (!ws.dockState.isEmpty()) {
         restoreState(ws.dockState);
-    } else if (m_dockManager) {
-        // Fallback: Apply default layout if no dock state saved (backward compatibility)
-        m_dockManager->applyPreset(DockConfig::LayoutPreset::Analysis);
+    } else {
+        // No layout stored with the workspace: lay out the current mode.
+        setAppMode(m_appMode);
     }
 
     if (m_workspaceManager) {
@@ -4770,26 +4764,6 @@ void MainWindow::createDockWidgets()
     // Phase 4: all docks are now owned by DockManager. Ask it to place them in the
     // default areas and tabify/split as configured.
     m_dockManager->placeDocks();
-}
-
-// Claude Generated - UI Restructuring: Layout preset dispatcher
-// Phase 5: all preset implementations live in DockManager; MainWindow only adds
-// the status-bar message here.
-void MainWindow::applyLayoutPreset(DockConfig::LayoutPreset preset)
-{
-    if (m_dockManager)
-        m_dockManager->applyPreset(preset);
-
-    QString msg;
-    switch (preset) {
-    case DockConfig::LayoutPreset::Visualization: msg = tr("Layout: Visualization Mode"); break;
-    case DockConfig::LayoutPreset::Editing:       msg = tr("Layout: Editing Mode"); break;
-    case DockConfig::LayoutPreset::Calculation:   msg = tr("Layout: Calculation Mode"); break;
-    case DockConfig::LayoutPreset::Analysis:      msg = tr("Layout: Analysis Mode (All Panels)"); break;
-    case DockConfig::LayoutPreset::Teaching:      msg = tr("Layout: Teaching Mode"); break;
-    }
-    if (!msg.isEmpty())
-        statusBar()->showMessage(msg, 2000);
 }
 
 // Claude Generated (2026-04) - Save global dock/geometry on close so next start

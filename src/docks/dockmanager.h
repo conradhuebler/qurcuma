@@ -1,7 +1,7 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
-// DockManager — owns all QDockWidgets, their initial placement, layout presets
-// and the Explore/Compute application mode. MainWindow coordinates via signals,
+// DockManager — owns all QDockWidgets, their initial placement and the dock side
+// of the application mode (Explore/Compute/Teaching). MainWindow coordinates via signals,
 // the manager handles the spatial/presentational side.
 //
 // Claude Generated 2026 - Dock system restructuring.
@@ -11,7 +11,6 @@
 #include "dockconfig.h"
 
 #include <QByteArray>
-#include <QHash>
 #include <QObject>
 
 class SimulationDock;
@@ -62,10 +61,7 @@ public:
     bool dockVisible(QDockWidget* dock) const;
 
 public slots:
-    // Apply a named layout preset. Uses saveState()/restoreState() caching.
-    void applyPreset(DockConfig::LayoutPreset preset);
-
-    // Apply the top-level Explore/Compute mode. When reflow is false only
+    // Apply the dock visibility of an application mode. When reflow is false only
     // visibility is toggled, preserving restored sizes on startup.
     void setAppMode(DockConfig::AppMode mode, bool reflow = true);
 
@@ -75,10 +71,11 @@ public slots:
     // Persist the window geometry + dock layout to QSettings (call on close).
     void saveLayout();
 
-    // Restore globally persisted layout (geometry + dock state).
-    void restoreSavedLayout();
+    // Restore globally persisted layout (geometry + dock state). Returns false when
+    // no current dock state was stored, so the caller lays out the mode from scratch.
+    bool restoreSavedLayout();
 
-    // Reset to the baseline layout (clears preset caches).
+    // Reset to the baseline layout captured at startup.
     void resetToBaseline();
 
     // Toggle the left panel group (Project + Navigation).
@@ -93,7 +90,6 @@ public slots:
 
 signals:
     void appModeChanged(DockConfig::AppMode mode);
-    void presetApplied(DockConfig::LayoutPreset preset);
 
 public:
     // Phase 2+: place all adopted/created docks in their default areas.
@@ -113,5 +109,4 @@ private:
     QTabWidget* m_simulationTabs = nullptr;
 
     QByteArray m_defaultState;
-    QHash<int, QByteArray> m_presetStates;
 };

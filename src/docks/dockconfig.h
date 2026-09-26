@@ -13,20 +13,13 @@
 
 namespace DockConfig {
 
-// Layout presets supported by DockManager. The first four are bound to
-// Ctrl+Alt+1..4; Teaching is used by the Lesson / interactive-demo workflow.
-enum class LayoutPreset {
-    Visualization = 0,  // 3D viewer focus: Project + Structure
-    Editing,            // Structure editing: Project + Structure
-    Calculation,        // Job setup/run: Project + Simulation + Output
-    Analysis,           // Balanced: all panels visible
-    Teaching            // Interactive demo: Project + Structure + Simulation + Output
-};
-
-// Top-level application mode. Explore = viewer focus; Compute = calculation workflow.
+// Top-level application mode, the only layout switch (UX stage 4b; the former five
+// layout presets are gone, custom layouts are saved as workspaces). The values are
+// persisted as ints under UiAppModeKey, so only append.
 enum class AppMode {
-    Explore,
-    Compute
+    Explore = 0,   // viewer focus: Project + Structure
+    Compute = 1,   // calculation workflow: + Simulation, Output and the calculation toolbar
+    Teaching = 2   // Explore with the Project panel showing the lesson browser
 };
 
 // Stable object names used by QMainWindow::saveState()/restoreState().
