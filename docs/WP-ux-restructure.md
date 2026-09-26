@@ -46,7 +46,7 @@ Die Operator-Entscheidungen vom 2026-09-25 stehen jeweils bei der Etappe, zu der
 | 4b+ | `4c19e7e`, `7fdc8ef`, `90fa070` | Jeder Modus merkt sich seine Panels (`ui/modePanels/<mode>`), Teaching öffnet standardmäßig Simulation; Lessons speichern die offenen Panels (`layout.panels`) und öffnen sie beim Laden, dabei Wechsel in Teaching (abschaltbar unter Edit ▸ Preferences) |
 | 6 S1 | `cbaf7ae`, `3d78898`, `876bd3f` | RMSD-MTD auf `strided` (Deposit every, Hill spacing, ohne `rmsd_econv`); Charge und ungepaarte Elektronen; Simulation-Dock: Basis-Gruppen + Abschnitte mit Schalter im Kopf + „Advanced“; H-Massenfaktor ganzzahlig |
 | 6 S2 | `284946b` | Rezepte (`src/recipe.h`): Protokoll ohne System/Maschine/Vorlieben, 4 eingebaute + eigene, Simulation ▸ Recipe und Knopf im Dock; Max iterations im Opt-Modus (`8820e81`); Test `test_recipes` |
-| 6 S3 | (folgt) | Tab „All parameters“: alle `simplemd`-Parameter aus der Registry; Hand-Parameter read-only mit gesendetem Wert, Rest editierbar, nur Abweichungen vom Default gesendet (`mdExtraParams`); `relevantWhen` graut aus |
+| 6 S3 | `e2de967` | Tab „All parameters“: alle `simplemd`-Parameter aus der Registry; Hand-Parameter read-only mit gesendetem Wert, Rest editierbar, nur Abweichungen vom Default gesendet (`mdExtraParams`); `relevantWhen` graut aus |
 
 Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 - **Modus-Trennung:** Einsteiger und Forschende werden über die Modi getrennt.
