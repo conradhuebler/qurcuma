@@ -432,6 +432,25 @@ Qt6::Gui
 )
 target_include_directories(test_looks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+# Simulation settings JSON + recipes test - Claude Generated 2026 (UX stage 6).
+# lesson.cpp needs only Qt; the worker/viewer types it names come from headers.
+add_executable(test_recipes test_recipes.cpp src/lesson.cpp)
+target_link_libraries(test_recipes PRIVATE
+Qt6::Core
+Qt6::Gui
+Qt6::Widgets
+)
+target_include_directories(test_recipes PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+
 # Builder auto-hydrogen test - Claude Generated 2026
 # Header-only use of MoleculeViewer's Atom/Bond types; no GUI, no Quick3D.
 add_executable(test_buildtools test_buildtools.cpp src/buildtools.cpp src/elementdata.cpp

@@ -511,6 +511,9 @@ private:
     QAction* m_quickPhotoAction = nullptr;
     QActionGroup* m_appModeGroup = nullptr;           // View ▸ Mode radio items
     QMenu* m_viewsMenu = nullptr;                     // View ▸ Views, filled on aboutToShow
+    QMenu* m_recipeMenu = nullptr;                    // Simulation ▸ Recipe, also the dock's button
+    /// Built-in and user simulation recipes, save/delete. Claude Generated 2026 (UX stage 6 S2).
+    void populateRecipeMenu();
     /// Quick camera views plus the saved views. Claude Generated 2026.
     void populateViewsMenu();
     /// Help ▸ Keyboard Shortcuts: table built from the menu-bar actions. Claude Generated 2026.

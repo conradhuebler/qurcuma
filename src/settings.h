@@ -15,6 +15,8 @@
 #include "look.h"
 #include "viewpreset.h"
 
+struct SimulationRecipe;  // recipe.h (kept out of this header: it pulls in the worker)
+
 class Settings : public QObject
 {
     Q_OBJECT
@@ -98,6 +100,11 @@ public:
     void saveUserLook(const Look& look);        // replaces a look of the same name
     void deleteUserLook(const QString& name);
     void dropLegacyDisplayPresetsOnce();        // pre-2026-09 display presets (no migration)
+
+    // Claude Generated 2026 - Simulation recipes (recipe.h): user recipes; built-ins are in code.
+    QVector<SimulationRecipe> userRecipes() const;
+    void saveUserRecipe(const SimulationRecipe& recipe);  // replaces a recipe of the same name
+    void deleteUserRecipe(const QString& name);
 
     // Claude Generated 2026 - Reproducible camera views (camera only since UX stage 3)
     QVector<ViewPreset> viewPresets();  // non-const due to QSettings::beginGroup
@@ -225,6 +232,7 @@ public:
 private:
     QSettings m_settings;
     void writeUserLooks(const QVector<Look>& all);  // Claude Generated 2026
+    void writeUserRecipes(const QVector<SimulationRecipe>& all);  // Claude Generated 2026
 
     // Konstanten für Settings-Keys
     static const QString WORKING_DIR_KEY;

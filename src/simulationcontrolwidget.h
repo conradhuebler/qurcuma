@@ -20,6 +20,7 @@
 #include <QWidget>
 
 class QTableWidget;
+class QMenu;
 class QFormLayout;
 class CollapsibleSection;
 class TemperatureSlider;  // Claude Generated 2026 - vertical temperature-colored slider
@@ -58,6 +59,12 @@ public:
      *  buildConfig() reflects the requested mode). Used by the CLI auto-start
      *  (-md / -opt). Claude Generated 2026. */
     void setMode(SimulationConfig::Mode mode);
+
+    /** @brief Attach the shared recipe menu (MainWindow's Simulation ▸ Recipe) to the
+     *  Recipe button next to the mode. Claude Generated 2026 (UX stage 6 S2). */
+    void setRecipeMenu(QMenu* menu);
+    /** @brief True while an MD or optimization run is active. */
+    bool isRunning() const { return m_running; }
 
     /** @brief Bounded geometry optimization with the current method — the
      *  builder's "Clean up" (refuses while a run is active). Claude Generated 2026. */
@@ -160,6 +167,7 @@ private:
 
     // --- Mode / method ---
     QComboBox* m_modeCombo = nullptr;
+    QToolButton* m_recipeButton = nullptr;  // Claude Generated 2026 - shared recipe menu
     QFormLayout* m_methodForm = nullptr;    // Method group (method, optimizer, charge, spin)
     QFormLayout* m_mdForm = nullptr;        // MD group (thermostat rows, time step, steps)
     QFormLayout* m_advancedForm = nullptr;  // Advanced section (mode-specific rows)

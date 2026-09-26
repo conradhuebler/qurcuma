@@ -722,7 +722,19 @@ void SimulationControlWidget::setupUI()
         static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
     m_modeCombo->addItem(tr("Geometry Optimization"),
         static_cast<int>(SimulationConfig::Mode::GeometryOptimization));
-    simForm->addRow(tr("Mode:"), m_modeCombo);
+    // Claude Generated 2026 - Recipe ▾ next to the mode: named protocols (recipe.h); the
+    // menu is MainWindow's (setRecipeMenu), shared with Simulation ▸ Recipe.
+    m_recipeButton = new QToolButton(this);
+    m_recipeButton->setText(tr("Recipe"));
+    m_recipeButton->setPopupMode(QToolButton::InstantPopup);
+    m_recipeButton->setToolTip(tr("Apply a named simulation protocol (mode, temperature control, "
+                                  "time step, run length, constraints, bias, walls). Method, "
+                                  "charge and unpaired electrons stay as they are."));
+    auto* modeRow = new QHBoxLayout;
+    modeRow->setContentsMargins(0, 0, 0, 0);
+    modeRow->addWidget(m_modeCombo, 1);
+    modeRow->addWidget(m_recipeButton);
+    simForm->addRow(tr("Mode:"), modeRow);
     innerLayout->addLayout(simForm);
 
     // ---- Compact icon button bar + state pill (Claude Generated 2026) ----
@@ -1560,9 +1572,17 @@ void SimulationControlWidget::setMode(SimulationConfig::Mode mode)
     m_modeCombo->setCurrentIndex(idx);
 }
 
+void SimulationControlWidget::setRecipeMenu(QMenu* menu)
+{
+    if (m_recipeButton)
+        m_recipeButton->setMenu(menu);
+}
+
 void SimulationControlWidget::setRunning(bool running)
 {
     m_running = running;
+    if (m_recipeButton)
+        m_recipeButton->setEnabled(!running);
     m_startBtn->setEnabled(!running);
     m_pauseBtn->setEnabled(running);
     m_stopBtn->setEnabled(running);

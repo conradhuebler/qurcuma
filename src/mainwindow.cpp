@@ -86,6 +86,7 @@
 #endif
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "docks/dockmanager.h"  // Claude Generated 2026 - Dock system restructuring
+#include "recipe.h"              // Claude Generated 2026 - simulation recipes (UX stage 6 S2)
 #include "docks/simulationdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/structuredock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/appearancedock.h"  // Claude Generated 2026 - UX stage 4
@@ -1495,6 +1496,15 @@ void MainWindow::createMenus()
             });
 
     simulationMenu->addSeparator();
+
+    // Claude Generated 2026 - Recipes (UX stage 6 S2): named protocols; the same menu
+    // hangs off the Simulation dock's Recipe button.
+    m_recipeMenu = simulationMenu->addMenu(tr("&Recipe"));
+    m_recipeMenu->setToolTipsVisible(true);
+    connect(m_recipeMenu, &QMenu::aboutToShow, this, &MainWindow::populateRecipeMenu);
+    populateRecipeMenu();  // once now, so the palette finds the recipes
+    if (m_simulationControlWidget)
+        m_simulationControlWidget->setRecipeMenu(m_recipeMenu);
 
     // Bring one tab of the Simulation dock to the front.
     auto showSimulationTab = [this](int tab) {
@@ -2952,6 +2962,84 @@ void MainWindow::populateLookMenu()
     QAction* details = m_lookMenu->addAction(tr("Details…"));
     details->setToolTip(tr("Open the Appearance dock (style, material, lighting, effects)"));
     connect(details, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
+}
+
+// Claude Generated 2026 - Simulation ▸ Recipe (and the Simulation dock's Recipe button):
+// built-in and user recipes, rebuilt on every opening. A recipe replaces the protocol
+// part of the dock's settings (recipe.h); method, charge and spin stay. Nothing can be
+// applied while a run is active, because the run keeps the settings it started with.
+void MainWindow::populateRecipeMenu()
+{
+    if (!m_recipeMenu)
+        return;
+    m_recipeMenu->clear();
+    qDeleteAll(m_recipeMenu->findChildren<QMenu*>(Qt::FindDirectChildrenOnly));
+    const bool idle = m_simulationControlWidget && !m_simulationControlWidget->isRunning();
+
+    auto addRecipe = [this, idle](const SimulationRecipe& recipe) {
+        QAction* a = m_recipeMenu->addAction(recipe.name);
+        a->setToolTip(recipe.description);
+        a->setEnabled(idle);
+        connect(a, &QAction::triggered, this, [this, recipe]() {
+            if (!m_simulationControlWidget || m_simulationControlWidget->isRunning())
+                return;
+            m_simulationControlWidget->applyConfig(
+                recipes::apply(m_simulationControlWidget->currentConfig(), recipe));
+            statusBar()->showMessage(tr("Recipe: %1").arg(recipe.name), 2500);
+        });
+    };
+    for (const SimulationRecipe& recipe : recipes::builtIn())
+        addRecipe(recipe);
+    const QVector<SimulationRecipe> user = m_settings.userRecipes();
+    if (!user.isEmpty()) {
+        m_recipeMenu->addSeparator();
+        for (const SimulationRecipe& recipe : user)
+            addRecipe(recipe);
+    }
+
+    m_recipeMenu->addSeparator();
+    QAction* saveAct = m_recipeMenu->addAction(tr("Save Current Settings as Recipe…"));
+    saveAct->setEnabled(m_simulationControlWidget != nullptr);
+    connect(saveAct, &QAction::triggered, this, [this]() {
+        if (!m_simulationControlWidget)
+            return;
+        bool ok = false;
+        const QString name = QInputDialog::getText(this, tr("Save Recipe"),
+            tr("Name (the protocol only; method, charge and unpaired electrons are not stored):"),
+            QLineEdit::Normal, QString(), &ok).trimmed();
+        if (!ok || name.isEmpty())
+            return;
+        if (recipes::isBuiltInName(name)) {
+            QMessageBox::information(this, tr("Save Recipe"),
+                tr("'%1' is a built-in recipe; please choose another name.").arg(name));
+            return;
+        }
+        for (const SimulationRecipe& r : m_settings.userRecipes()) {
+            if (r.name.compare(name, Qt::CaseInsensitive) == 0
+                && QMessageBox::question(this, tr("Save Recipe"),
+                       tr("A recipe named '%1' already exists. Replace it?").arg(name))
+                    != QMessageBox::Yes)
+                return;
+        }
+        const SimulationConfig cfg = m_simulationControlWidget->currentConfig();
+        const bool md = cfg.mode == SimulationConfig::Mode::MolecularDynamics;
+        const QString description = md
+            ? tr("MD at %1 K, %2 steps of %3 fs.").arg(cfg.temperature).arg(cfg.steps).arg(cfg.timestep)
+            : tr("Geometry optimization, gradient %1 Eh/Bohr, at most %2 iterations.")
+                  .arg(cfg.convergence).arg(cfg.steps);
+        m_settings.saveUserRecipe({ name, description, recipes::protocolOf(cfg) });
+        statusBar()->showMessage(tr("Recipe '%1' saved").arg(name), 2500);
+    });
+    QMenu* deleteMenu = m_recipeMenu->addMenu(tr("Delete Recipe"));
+    deleteMenu->setEnabled(!user.isEmpty());
+    for (const SimulationRecipe& recipe : user) {
+        QAction* a = deleteMenu->addAction(recipe.name);
+        connect(a, &QAction::triggered, this, [this, name = recipe.name]() {
+            if (QMessageBox::question(this, tr("Delete Recipe"), tr("Delete the recipe '%1'?").arg(name))
+                == QMessageBox::Yes)
+                m_settings.deleteUserRecipe(name);
+        });
+    }
 }
 
 // Claude Generated 2026 - One checkable entry per molecule kind of the loaded structure

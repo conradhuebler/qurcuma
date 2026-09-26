@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 6 S2: Simulations-Rezepte
+
+- **Rezepte** (`src/recipe.h`): benannte Protokolle (Modus, Temperaturführung, Zeitschritt, Laufzeit, Constraints, Bias, Wände), angewendet über die aktuelle Konfiguration; Methode, Ladung, ungepaarte Elektronen, GPU und Arbeitsvorlieben bleiben.
+- Eingebaut: Quick relax, MD 300 K, Heat up, Confined; eigene speichern und löschen. Erreichbar über Simulation ▸ Recipe und den Recipe-Knopf neben dem Modus im Simulation-Dock.
+- **Max iterations** im Opt-Modus sichtbar (vorher im MD-Block verborgen, obwohl es die Iterationszahl setzte).
+- Neuer Test `test_recipes`: vollständiger `SimulationConfig`-JSON-Roundtrip, Lesson-Panels, Rezept-Regeln.
+
 ## September 2026 - UX-Etappe 6 S1: Simulationsparameter Basis/Erweitert
 
 - **Basis = curcumas primary-Parameter**: Method-Gruppe (Method, Optimizer im Opt-Modus, Charge, Unpaired electrons) und MD-Gruppe (Temperatur, Thermostat, Time step, Total steps); Thermostat-Felder nur, wenn der gewählte Thermostat sie liest.

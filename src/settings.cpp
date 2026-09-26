@@ -1,5 +1,6 @@
 // m_settings.cpp
 #include "settings.h"
+#include "recipe.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
@@ -561,6 +562,52 @@ void Settings::deleteUserLook(const QString& name)
         return l.name.compare(name, Qt::CaseInsensitive) == 0;
     }), all.end());
     writeUserLooks(all);
+}
+
+// Claude Generated 2026 - User simulation recipes, one JSON array (recipes::toJson).
+QVector<SimulationRecipe> Settings::userRecipes() const
+{
+    QVector<SimulationRecipe> out;
+    const QJsonArray arr =
+        QJsonDocument::fromJson(m_settings.value(QStringLiteral("simulation/recipes")).toByteArray()).array();
+    for (const QJsonValue& v : arr) {
+        const SimulationRecipe r = recipes::fromJson(v.toObject());
+        if (!r.name.isEmpty())
+            out.append(r);
+    }
+    return out;
+}
+
+void Settings::writeUserRecipes(const QVector<SimulationRecipe>& all)
+{
+    QJsonArray arr;
+    for (const SimulationRecipe& r : all)
+        arr.append(recipes::toJson(r));
+    m_settings.setValue(QStringLiteral("simulation/recipes"),
+                        QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    m_settings.sync();
+}
+
+void Settings::saveUserRecipe(const SimulationRecipe& recipe)
+{
+    QVector<SimulationRecipe> all = userRecipes();
+    auto it = std::find_if(all.begin(), all.end(), [&recipe](const SimulationRecipe& r) {
+        return r.name.compare(recipe.name, Qt::CaseInsensitive) == 0;
+    });
+    if (it != all.end())
+        *it = recipe;
+    else
+        all.append(recipe);
+    writeUserRecipes(all);
+}
+
+void Settings::deleteUserRecipe(const QString& name)
+{
+    QVector<SimulationRecipe> all = userRecipes();
+    all.erase(std::remove_if(all.begin(), all.end(), [&name](const SimulationRecipe& r) {
+        return r.name.compare(name, Qt::CaseInsensitive) == 0;
+    }), all.end());
+    writeUserRecipes(all);
 }
 
 // The display presets before 2026-09 carried render style, sizes and NCI along with the
