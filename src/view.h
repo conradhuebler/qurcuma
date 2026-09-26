@@ -652,7 +652,7 @@ public slots:
     void setNciLiveMd(bool on) { m_nciLiveMd = on; }
     bool getNciLiveMd() const { return m_nciLiveMd; }
     /** Attach the shared NCI source menu to the bar button's dropdown arrow.
-     *  The menu is owned by MainWindow (it also feeds the Display menu), so all
+     *  The menu is owned by MainWindow (it also feeds the View menu), so all
      *  entry points stay one action set. Claude Generated 2026. */
     void setNciQuickMenu(QMenu* menu);
     /// Claude Generated 2026 - Quick-access buttons of the viewer bar, fed with the host's

@@ -19,7 +19,7 @@
 - Stable `objectName`s and default dock areas. Do not change names without a migration plan; they are persisted in `QSettings` via `QMainWindow::saveState()`/`restoreState()`.
 
 ## Dock Visibility
-- View ▸ Dock Panels uses each dock's `QDockWidget::toggleViewAction()`, which is Qt's safe path for tabified groups.
+- View ▸ Panels uses each dock's `QDockWidget::toggleViewAction()`, which is Qt's safe path for tabified groups.
 - The app mode sets visibility **per dock** (`setDockVisible`, hides before shows, then `raise()` the mode's front tab). Never toggle via `tabifiedDockWidgets()`: Structure/Simulation/Interactions share one tab bar, so a group toggle hid Structure with Simulation and surfaced the hidden-by-default Interactions/Images docks.
 
 ## ProjectDock File Browser Filter

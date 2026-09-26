@@ -277,7 +277,7 @@ void DockManager::placeDocks()
         m_mainWindow->tabifyDockWidget(m_structureDock, m_simulationDock);
 
     // Claude Generated 2026 - UX stage 4: the detailed display settings join the right
-    // tab group but start closed (Look ▸ Details… or View ▸ Dock Panels opens them).
+    // tab group but start closed (Look ▸ Details… or View ▸ Panels opens them).
     if (m_appearanceDock) {
         m_appearanceDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
         m_mainWindow->addDockWidget(DockConfig::AppearanceDockArea, m_appearanceDock);
@@ -291,7 +291,7 @@ void DockManager::placeDocks()
 
     // The interaction dock joins the right-hand tab group (Display / Simulation)
     // and starts hidden: the NCI overlay is off by default, so an empty contact
-    // table would only take space. View > Dock Panels brings it up.
+    // table would only take space. View ▸ Panels brings it up.
     // Claude Generated 2026.
     if (m_nciDock) {
         m_mainWindow->addDockWidget(DockConfig::NciDockArea, m_nciDock);

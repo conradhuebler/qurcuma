@@ -1,5 +1,17 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 5: Menüs neu geschnitten
+
+- **Menüleiste** File · Edit · View · Structure · Simulation · Tools · Help; Display geht in View auf, Settings wird Edit ▸ Preferences, Molecule verteilt sich auf Structure und Simulation.
+- **Simulation ▸ Start MD / Start Optimization** starten einen Lauf mit den Parametern des Simulation-Docks (vorher nur Dock nach vorn); Stop, Parameters, Snapshots, Charts.
+- **Structure**: Werkzeug als Radio View · Measure (`M`) · Edit (Ctrl+E) · Build (`B`), Add Molecule, Add Hydrogens, Move to Origin, RMSD / Align.
+- **Tools**: Run Calculation (Ctrl+R/F5), New Calculation Directory (Ctrl+N), Clear Output (Ctrl+L), NMR Spectra (vorher nur auf der Rechen-Toolbar), Configure Programs.
+- **Neu als QAction**: Select All, Deselect All (Ctrl+Shift+A), Quick Photo, View ▸ Views (Front/Top/Side + gespeicherte Ansichten), Mode als Radio.
+- **Help ▸ Keyboard Shortcuts**: Tabelle aus den Menü-Aktionen; **About** mit Version aus CMake und Jahr 2026.
+- **Viewport-Kontextmenü**: auf einem Atom die Atom-Aktionen, auf leerer Fläche Kamera, Schnellschalter, Style, Look, Deselect, Quick Photo; die Kopie des Display-Menüs entfällt.
+- **Palette** nur noch aus der Menüleiste, ohne handverlesene Doppelungen; zeigt alle Kürzel einer Aktion.
+- Tooltip des Edit-Werkzeugs korrigiert (Nudge per Shift+WASD/QE, nicht Pfeiltasten).
+
 ## September 2026 - UX-Etappe 4b: Modi statt Layout-Presets
 
 - **Eckschalter mit drei Modi** Explore, Compute, Teaching (auch View ▸ Mode und Palette); Teaching = Explore mit dem Lesson-Browser im Project-Panel.

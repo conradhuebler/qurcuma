@@ -32,8 +32,8 @@ A Qt-based GUI for molecular visualization, interactive simulation, and quantum 
 ### Structure Editing (Edit Mode)
 - Click to select atoms; double-click to select whole molecule (BFS fragment)
 - Ctrl/Shift+drag for rubber-band box selection
-- Drag to translate; Shift+drag for depth; arrow-key nudge
-- WASD/QE scene rotation (full 3-axis) while editing
+- Drag to translate; Shift+drag for depth
+- WASD/QE scene rotation (full 3-axis) while editing; Shift+WASD/QE nudges the selection
 - Collision detection with clash count and one-click resolve
 - Copy / paste / delete atoms (single-frame structures)
 - Load and merge molecules from file into the current scene
@@ -42,7 +42,7 @@ A Qt-based GUI for molecular visualization, interactive simulation, and quantum 
 ### Analysis
 - Distance, angle, and dihedral measurement (auto-detected from selection count)
 - RMSD alignment against a reference file with 3D overlay
-- Center-at-origin (mass-weighted, Ctrl+Backspace)
+- Move to origin (mass-weighted centre of mass, Ctrl+Backspace)
 
 ### File Formats
 - XYZ, VTF (with periodic boundary conditions), PDB, MOL2
@@ -56,7 +56,8 @@ A Qt-based GUI for molecular visualization, interactive simulation, and quantum 
 - **Modes Explore / Compute / Teaching** in the menu-bar corner; own layouts are saved as workspaces
 - **Looks** (Look ▾ in the viewer bar): colour scheme, material, lighting, effects and background as one named set
 - **Appearance dock** (closed by default): style, fragment and bead-type colours; material, lighting and effects under "Advanced"
-- **Command palette** (Ctrl+K): fuzzy search over all menu actions and viewer commands
+- **Menus** File · Edit · View · Structure · Simulation · Tools · Help; Help ▸ Keyboard Shortcuts lists the keys of all menu commands
+- **Command palette** (Ctrl+K): fuzzy search over all menu actions
 
 ## Requirements
 

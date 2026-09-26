@@ -36,7 +36,7 @@ public:
     void setStatus(const QString& text);
     /// Claude Generated 2026 - Place the NCI options (NciOptionsWidget) above the table.
     void setOptionsWidget(QWidget* options);
-    /// Open the options section (Display ▸ NCI Options…).
+    /// Open the options section (View ▸ NCI Options…).
     void expandOptions();
 
 signals:

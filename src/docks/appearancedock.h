@@ -3,7 +3,7 @@
 // AppearanceDock — the detailed display settings (DisplayPanel) and the saved
 // camera views (ViewPresetWidget). Closed by default: the frequent switches are
 // quick toggles in the viewer bar, the rest comes from Looks (Look menu); this
-// dock is opened through Look ▸ Details… or View ▸ Dock Panels.
+// dock is opened through Look ▸ Details… or View ▸ Panels.
 //
 // Claude Generated 2026 - UX stage 4 (split off the former Structure & Display dock).
 

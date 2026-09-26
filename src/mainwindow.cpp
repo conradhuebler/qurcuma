@@ -21,6 +21,7 @@
 #include <QDialog>
 #include <QDir>
 #include <QFormLayout>
+#include <QHeaderView>
 #include <QLineEdit>
 #include <QDateTime>
 #include <QDialogButtonBox>
@@ -58,6 +59,7 @@
 #include <QStatusBar>
 #include <QStringListModel>
 #include <QSysInfo>
+#include <QTableWidget>
 #include <QThread>
 #include <QTime>
 #include <QTimer>
@@ -238,11 +240,9 @@ void MainWindow::setupUI()
     updateRemoteDirectoriesView();
 #endif
 
-    // Claude Generated 2026 - Rendering/size/bond/fit shortcuts moved onto the
-    // Display-menu QActions (createMenus), so they are visible, palette-listed
-    // and registered exactly once. Ctrl+Backspace lives on Molecule ▸ Center at
-    // Origin. Only actions without a menu home stay as bare shortcuts here.
-    new QShortcut(Qt::CTRL | Qt::Key_A, this, this, &MainWindow::selectAllAtoms);       // Ctrl+A for select all
+    // Claude Generated 2026 - Every other shortcut sits on a menu QAction (createMenus),
+    // so it is visible, palette-listed and registered exactly once. Esc steps back
+    // one level (handleEscape) and has no menu home.
     new QShortcut(Qt::Key_Escape, this, this, &MainWindow::handleEscape);               // cancel calc / clear selection
 
     // Claude Generated 2026 - P3 command palette: Ctrl+K is carried by the View ▸ Command
@@ -346,12 +346,7 @@ void MainWindow::createToolbars()
     m_timerLabel->setToolTip(tr("Elapsed calculation time"));
     toolbar->addWidget(m_timerLabel);
 
-    QWidget* spacer = new QWidget;
-    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    toolbar->addWidget(spacer);
-
-    QAction* toggleNMR = toolbar->addAction(tr("NMR Spectra"));
-    connect(toggleNMR, &QAction::triggered, [this]() { m_nmrDialog->show(); });
+    // NMR Spectra lives in the Tools menu (UX stage 5).
     addToolBar(Qt::TopToolBarArea, toolbar);
 }
 
@@ -649,6 +644,9 @@ void MainWindow::setAppMode(DockConfig::AppMode mode, bool reflow)
         button->setChecked(buttonMode == mode);
         button->blockSignals(false);
     }
+    if (m_appModeGroup)
+        for (QAction* a : m_appModeGroup->actions())
+            a->setChecked(a->data().toInt() == static_cast<int>(mode));
     QSettings().setValue(DockConfig::UiAppModeKey, static_cast<int>(mode));
 
     if (m_calculationToolbar)
@@ -692,7 +690,10 @@ static void collectMenuCommands(QMenu* menu, const QString& path, QVector<Comman
             CommandPalette::Command c;
             c.title = text;
             c.context = path;
-            c.shortcut = a->shortcut().toString(QKeySequence::NativeText);
+            QStringList keys;
+            for (const QKeySequence& k : a->shortcuts())
+                keys << k.toString(QKeySequence::NativeText);
+            c.shortcut = keys.join(QStringLiteral(", "));
             c.enabled = a->isEnabled();
             QPointer<QAction> ap(a);
             c.run = [ap]() { if (ap) ap->trigger(); };
@@ -701,51 +702,85 @@ static void collectMenuCommands(QMenu* menu, const QString& path, QVector<Comman
     }
 }
 
+// Claude Generated 2026 - Every leaf action of the menu bar, in menu order. The one
+// source of the command palette and Help ▸ Keyboard Shortcuts.
+static QVector<CommandPalette::Command> collectMenuBarCommands(QMenuBar* bar)
+{
+    QVector<CommandPalette::Command> cmds;
+    if (!bar)
+        return cmds;
+    for (QAction* topAct : bar->actions()) {
+        if (!topAct->menu())
+            continue;
+        QString top = topAct->text();
+        top.remove('&');
+        collectMenuCommands(topAct->menu(), top, cmds);
+    }
+    return cmds;
+}
+
 void MainWindow::showCommandPalette()
 {
     if (!m_commandPalette)
         m_commandPalette = new CommandPalette(this);
-
-    QVector<CommandPalette::Command> cmds;
-    if (menuBar()) {
-        for (QAction* topAct : menuBar()->actions()) {
-            if (!topAct->menu())
-                continue;
-            QString top = topAct->text();
-            top.remove('&');
-            collectMenuCommands(topAct->menu(), top, cmds);
-        }
-    }
-    // Curated viewer/mode commands that are shortcut-only (not in any menu).
-    auto add = [&](const QString& title, const QString& ctx, std::function<void()> run) {
-        CommandPalette::Command c;
-        c.title = title;
-        c.context = ctx;
-        c.run = std::move(run);
-        cmds.append(c);
-    };
-    add(tr("Explore Mode"), tr("Mode"), [this]() { setAppMode(DockConfig::AppMode::Explore); });
-    add(tr("Compute Mode"), tr("Mode"), [this]() { setAppMode(DockConfig::AppMode::Compute); });
-    add(tr("Teaching Mode"), tr("Mode"), [this]() { setAppMode(DockConfig::AppMode::Teaching); });
-    add(tr("Ball and Stick"), tr("Render"), [this]() { setRenderingModeBallAndStick(); });
-    add(tr("Space Filling"), tr("Render"), [this]() { setRenderingModeSpaceFilling(); });
-    add(tr("Wireframe"), tr("Render"), [this]() { setRenderingModeWireframe(); });
-    add(tr("Sticks"), tr("Render"), [this]() { setRenderingModeSticks(); });
-    add(tr("Fit Molecule in View"), tr("View"), [this]() { fitMoleculeInView(); });
-    add(tr("Center Molecule at Origin"), tr("View"), [this]() { centerMoleculeAtOrigin(); });
-    add(tr("Select All Atoms"), tr("Selection"), [this]() { selectAllAtoms(); });
-    add(tr("Clear Selection"), tr("Selection"), [this]() { clearAtomSelection(); });
-
-    m_commandPalette->setCommands(cmds);
+    // Claude Generated 2026 - UX stage 5: every command has a menu QAction (Photo,
+    // Measure, Select All, Deselect, the modes included), so the menu bar is the
+    // palette's only source and no entry appears twice.
+    m_commandPalette->setCommands(collectMenuBarCommands(menuBar()));
     m_commandPalette->popUp();
 }
 
+// Claude Generated 2026 - Help ▸ Keyboard Shortcuts: every menu-bar action that has a
+// key, in menu order. Generated from the actions, so it cannot drift from them.
+void MainWindow::showKeyboardShortcuts()
+{
+    QVector<CommandPalette::Command> rows;
+    for (const CommandPalette::Command& c : collectMenuBarCommands(menuBar()))
+        if (!c.shortcut.isEmpty())
+            rows.append(c);
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Keyboard Shortcuts"));
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* table = new QTableWidget(rows.size(), 3, &dialog);
+    table->setHorizontalHeaderLabels({ tr("Shortcut"), tr("Command"), tr("Menu") });
+    table->verticalHeader()->setVisible(false);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    for (int r = 0; r < rows.size(); ++r) {
+        table->setItem(r, 0, new QTableWidgetItem(rows[r].shortcut));
+        table->setItem(r, 1, new QTableWidgetItem(rows[r].title));
+        table->setItem(r, 2, new QTableWidgetItem(rows[r].context));
+    }
+    table->resizeColumnsToContents();
+    table->horizontalHeader()->setStretchLastSection(true);
+    layout->addWidget(table);
+
+    auto* note = new QLabel(tr("In the viewport: Esc steps back one level (drops a carried "
+                               "fragment, clears the selection, leaves the tool). The keys of "
+                               "the Edit and Build tools are listed in their tooltips on the "
+                               "viewer bar."), &dialog);
+    note->setWordWrap(true);
+    layout->addWidget(note);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    dialog.resize(620, 560);
+    dialog.exec();
+}
+
+// Claude Generated 2026 - UX stage 5: seven menus File · Edit · View · Structure ·
+// Simulation · Tools · Help. Every entry is a QAction, so the Ctrl+K palette and
+// Help ▸ Keyboard Shortcuts (both harvested from the menu bar) list it. The quick
+// toggles, Style/Look/Hydrogens/Hide Molecules menus are shared with the viewer bar
+// and the viewport context menu, so every entry point shows the same checked state.
 void MainWindow::createMenus()
 {
     QMenuBar *menuBar = new QMenuBar;
     setMenuBar(menuBar);
 
-    // File Menu
+    // ------------------------------------------------------------------ File
     QMenu *fileMenu = menuBar->addMenu(tr("&File"));
 
     // Claude Generated 2026 - Empty scene for the molecule builder.
@@ -754,11 +789,8 @@ void MainWindow::createMenus()
                                   "(enters Build mode; the old structure stays in Snapshots)."));
     connect(newSceneAction, &QAction::triggered, this, &MainWindow::newScene);
 
-    // Claude Generated 2026 - Local file open. The previous File menu only
-    // exposed "Open Remote File..."; the standard "Open File..." action was
-    // missing. The action uses the current Working Directory as the dialog's
-    // start path so the user lands where they expect; loading the file does
-    // not change the Working Directory.
+    // Claude Generated 2026 - Local file open. The action uses the current Working
+    // Directory as the dialog's start path; loading the file does not change it.
     QAction *openFileAction = fileMenu->addAction(QIcon::fromTheme("document-open"), tr("&Open File..."));
     openFileAction->setShortcut(QKeySequence::Open);  // Ctrl+O / Cmd+O
     connect(openFileAction, &QAction::triggered, this, [this]() {
@@ -773,25 +805,9 @@ void MainWindow::createMenus()
         loadMoleculeFile(path);
     });
 
-    fileMenu->addSeparator();
-
-    // Claude Generated 2026 - Save / Save As. The Save action overwrites the
-    // source XYZ when the source is a .xyz file; otherwise it falls through
-    // to a Save-As dialog. Save As always opens the dialog.
-    m_saveAction = fileMenu->addAction(QIcon::fromTheme("document-save"), tr("&Save"));
-    m_saveAction->setShortcut(QKeySequence::Save);
-    m_saveAction->setToolTip(tr("Save the current structure. Overwrites the source "
-                               "XYZ, or opens a Save As dialog for other formats."));
-    m_saveAction->setEnabled(false);
-    connect(m_saveAction, &QAction::triggered, this, &MainWindow::saveCurrentStructure);
-
-    m_saveAsAction = fileMenu->addAction(QIcon::fromTheme("document-save-as"), tr("Save &As..."));
-    m_saveAsAction->setShortcut(QKeySequence::SaveAs);
-    m_saveAsAction->setToolTip(tr("Save the current structure to a new XYZ file"));
-    m_saveAsAction->setEnabled(false);
-    connect(m_saveAsAction, &QAction::triggered, this, &MainWindow::saveCurrentStructureAs);
-
-    fileMenu->addSeparator();
+    // Claude Generated - Quick Win: Recent files menu
+    m_recentFilesMenu = fileMenu->addMenu(QIcon::fromTheme("document-open-recent"), tr("&Recent Files"));
+    m_recentFilesMenu->setEnabled(false);
 
 #ifdef USE_SFTP
     QAction *openRemoteAction = fileMenu->addAction(QIcon::fromTheme("folder-remote"), tr("Open &Remote File..."));
@@ -814,11 +830,68 @@ void MainWindow::createMenus()
 
     fileMenu->addSeparator();
 
-    // Claude Generated - Quick Win: Recent files menu
-    m_recentFilesMenu = fileMenu->addMenu(QIcon::fromTheme("document-open-recent"), tr("&Recent Files"));
-    m_recentFilesMenu->setEnabled(false);
+    // Claude Generated 2026 - Save / Save As. The Save action overwrites the
+    // source XYZ when the source is a .xyz file; otherwise it falls through
+    // to a Save-As dialog. Save As always opens the dialog.
+    m_saveAction = fileMenu->addAction(QIcon::fromTheme("document-save"), tr("&Save"));
+    m_saveAction->setShortcut(QKeySequence::Save);
+    m_saveAction->setToolTip(tr("Save the current structure. Overwrites the source "
+                               "XYZ, or opens a Save As dialog for other formats."));
+    m_saveAction->setEnabled(false);
+    connect(m_saveAction, &QAction::triggered, this, &MainWindow::saveCurrentStructure);
 
-    // Claude Generated Phase 4.5 - Workspace menu
+    m_saveAsAction = fileMenu->addAction(QIcon::fromTheme("document-save-as"), tr("Save &As..."));
+    m_saveAsAction->setShortcut(QKeySequence::SaveAs);
+    m_saveAsAction->setToolTip(tr("Save the current structure to a new XYZ file"));
+    m_saveAsAction->setEnabled(false);
+    connect(m_saveAsAction, &QAction::triggered, this, &MainWindow::saveCurrentStructureAs);
+
+    fileMenu->addSeparator();
+
+    // Claude Generated 2026 - High-quality image export: offscreen render of the 3D
+    // viewer at an arbitrary resolution (true supersampling), with white/transparent
+    // background options.
+    QAction* exportImageAction = fileMenu->addAction(
+        QIcon::fromTheme("camera-photo"), tr("&Export Image..."));
+    exportImageAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E));
+    connect(exportImageAction, &QAction::triggered, this, [this]() {
+        if (m_moleculeView)
+            m_moleculeView->exportImageDialog(m_workingDirectory, &m_settings);
+    });
+    m_quickPhotoAction = fileMenu->addAction(QIcon::fromTheme("camera-photo"), tr("Quick P&hoto"));
+    m_quickPhotoAction->setToolTip(tr("Save a PNG of the current view into the working "
+                                      "directory, without a dialog."));
+    connect(m_quickPhotoAction, &QAction::triggered, this, &MainWindow::quickExportPhoto);
+
+    fileMenu->addSeparator();
+
+    // Claude Generated 2026 - Lesson (OER teaching scenario) menu. A lesson is a
+    // self-contained *.qlesson.json: several structures, each with its full
+    // simulation conditions, plus author/ORCID/institution metadata.
+    QMenu* lessonMenu = fileMenu->addMenu(QIcon::fromTheme("x-office-presentation"), tr("&Lesson"));
+    QAction* openLessonAction = lessonMenu->addAction(tr("&Open Lesson..."));
+    connect(openLessonAction, &QAction::triggered, this, [this]() {
+        const QString startDir = m_workingDirectory.isEmpty() ? QDir::homePath() : m_workingDirectory;
+        const QString path = QFileDialog::getOpenFileName(this, tr("Open Lesson"),
+            startDir, tr("Qurcuma Lesson (*.qlesson.json *.json);;All Files (*)"));
+        if (!path.isEmpty()) m_lessonController->openLesson(path);
+    });
+    QAction* addStructAction = lessonMenu->addAction(tr("&Add Current Structure to Lesson..."));
+    connect(addStructAction, &QAction::triggered, this,
+        [this]() { m_lessonController->addCurrentStructure(m_currentMoleculeFilePath); });
+    QAction* metaAction = lessonMenu->addAction(tr("Lesson &Metadata..."));
+    connect(metaAction, &QAction::triggered, this, [this]() { m_lessonController->editMetadata(); });
+    lessonMenu->addSeparator();
+    // Save: overwrite the currently open lesson file directly; Save As: always
+    // prompt. Both route through saveLessonInteractive() (Claude Generated 2026).
+    QAction* saveLessonAction = lessonMenu->addAction(tr("&Save Lesson"));
+    connect(saveLessonAction, &QAction::triggered, this,
+        [this]() { m_lessonController->saveLessonInteractive(/*forceDialog=*/false); });
+    QAction* saveLessonAsAction = lessonMenu->addAction(tr("Save Lesson &As..."));
+    connect(saveLessonAsAction, &QAction::triggered, this,
+        [this]() { m_lessonController->saveLessonInteractive(/*forceDialog=*/true); });
+
+    // Claude Generated Phase 4.5 - Workspace menu (saved list appended by updateWorkspaceList)
     m_workspaceMenu = fileMenu->addMenu(QIcon::fromTheme("window-duplicate"), tr("&Workspaces"));
 
     // Claude Generated 2026 - No shortcut here: Ctrl+Shift+S is Save As (QKeySequence::SaveAs
@@ -852,52 +925,12 @@ void MainWindow::createMenus()
     m_workspaceMenu->addSeparator();
 
     fileMenu->addSeparator();
-
-    // Claude Generated 2026 - High-quality image export: offscreen render of the 3D
-    // viewer at an arbitrary resolution (true supersampling), with white/transparent
-    // background options.
-    QAction* exportImageAction = fileMenu->addAction(
-        QIcon::fromTheme("camera-photo"), tr("&Export Image..."));
-    exportImageAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E));
-    connect(exportImageAction, &QAction::triggered, this, [this]() {
-        if (m_moleculeView)
-            m_moleculeView->exportImageDialog(m_workingDirectory, &m_settings);
-    });
-
-    fileMenu->addSeparator();
-
-    // Claude Generated 2026 - Lesson (OER teaching scenario) menu. A lesson is a
-    // self-contained *.qlesson.json: several structures, each with its full
-    // simulation conditions, plus author/ORCID/institution metadata.
-    QMenu* lessonMenu = fileMenu->addMenu(QIcon::fromTheme("x-office-presentation"), tr("&Lesson"));
-    QAction* openLessonAction = lessonMenu->addAction(tr("&Open Lesson..."));
-    connect(openLessonAction, &QAction::triggered, this, [this]() {
-        const QString startDir = m_workingDirectory.isEmpty() ? QDir::homePath() : m_workingDirectory;
-        const QString path = QFileDialog::getOpenFileName(this, tr("Open Lesson"),
-            startDir, tr("Qurcuma Lesson (*.qlesson.json *.json);;All Files (*)"));
-        if (!path.isEmpty()) m_lessonController->openLesson(path);
-    });
-    QAction* addStructAction = lessonMenu->addAction(tr("&Add Current Structure to Lesson..."));
-    connect(addStructAction, &QAction::triggered, this,
-        [this]() { m_lessonController->addCurrentStructure(m_currentMoleculeFilePath); });
-    QAction* metaAction = lessonMenu->addAction(tr("Lesson &Metadata..."));
-    connect(metaAction, &QAction::triggered, this, [this]() { m_lessonController->editMetadata(); });
-    lessonMenu->addSeparator();
-    // Save: overwrite the currently open lesson file directly; Save As: always
-    // prompt. Both route through saveLessonInteractive() (Claude Generated 2026).
-    QAction* saveLessonAction = lessonMenu->addAction(tr("&Save Lesson"));
-    connect(saveLessonAction, &QAction::triggered, this,
-        [this]() { m_lessonController->saveLessonInteractive(/*forceDialog=*/false); });
-    QAction* saveLessonAsAction = lessonMenu->addAction(tr("Save Lesson &As..."));
-    connect(saveLessonAsAction, &QAction::triggered, this,
-        [this]() { m_lessonController->saveLessonInteractive(/*forceDialog=*/true); });
-
-    fileMenu->addSeparator();
     // Claude Generated - Visual Polish: Menu icons
     QAction *quitAction = fileMenu->addAction(QIcon::fromTheme("application-exit"), tr("&Quit"));
+    quitAction->setShortcut(QKeySequence::Quit);
     connect(quitAction, &QAction::triggered, this, &QWidget::close);
 
-    // Claude Generated - Quick Win: Edit Menu with Copy/Paste
+    // ------------------------------------------------------------------ Edit
     QMenu *editMenu = menuBar->addMenu(tr("&Edit"));
 
     // Claude Generated 2026 - Ctrl+Z restores (and consumes) the newest snapshot,
@@ -936,19 +969,6 @@ void MainWindow::createMenus()
         }
     });
 
-    // Claude Generated 2026 - Structure editing actions (active in viewer Edit mode).
-    editMenu->addSeparator();
-
-    QAction *editModeAction = editMenu->addAction(QIcon::fromTheme("transform-move"), tr("Structure &Edit Mode"));
-    editModeAction->setCheckable(true);
-    editModeAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_E));
-    editModeAction->setToolTip(tr("Select/move atoms & molecules, copy/paste, merge files, with clash feedback."));
-    connect(editModeAction, &QAction::toggled, this, [this](bool on) {
-        if (m_moleculeView) m_moleculeView->setEditMode(on);
-    });
-    if (m_moleculeView)
-        connect(m_moleculeView, &MoleculeViewer::editModeChanged, editModeAction, &QAction::setChecked);
-
     QAction *deleteSelAction = editMenu->addAction(QIcon::fromTheme("edit-delete"), tr("&Delete Selection"));
     deleteSelAction->setShortcut(QKeySequence::Delete);
     deleteSelAction->setToolTip(tr("Delete the selected atoms (Edit mode, single-frame structures)."));
@@ -957,11 +977,74 @@ void MainWindow::createMenus()
             m_moleculeView->deleteSelection();
     });
 
-    QAction *addMoleculeAction = editMenu->addAction(QIcon::fromTheme("list-add"), tr("&Add Molecule to Scene…"));
-    addMoleculeAction->setToolTip(tr("Merge a molecule from a file into the current scene (single-frame structures)."));
-    connect(addMoleculeAction, &QAction::triggered, this, &MainWindow::addMoleculeToScene);
+    editMenu->addSeparator();
 
-    QAction *cursorLockAction = editMenu->addAction(tr("&Lock Cursor While Dragging"));
+    QAction *selectAllAction = editMenu->addAction(QIcon::fromTheme("edit-select-all"), tr("Select &All Atoms"));
+    selectAllAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_A));
+    connect(selectAllAction, &QAction::triggered, this, &MainWindow::selectAllAtoms);
+
+    m_deselectAction = editMenu->addAction(tr("D&eselect All"));
+    m_deselectAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A));
+    m_deselectAction->setToolTip(tr("Clear the atom selection and measurement marks (also Esc)."));
+    connect(m_deselectAction, &QAction::triggered, this, &MainWindow::clearAtomSelection);
+
+    editMenu->addSeparator();
+
+    // Claude Generated 2026 - Preferences (the former Settings menu, UX stage 5).
+    QMenu* preferencesMenu = editMenu->addMenu(QIcon::fromTheme("preferences-system"), tr("P&references"));
+
+    // "Use Invocation Directory": checkbox state is updated in the constructor after
+    // settings are loaded.
+    m_useInvocationDirAction = preferencesMenu->addAction(QIcon::fromTheme("go-home"), tr("Use &Invocation Directory"));
+    m_useInvocationDirAction->setCheckable(true);
+    m_useInvocationDirAction->setToolTip(
+        tr("If enabled, treat the directory from which qurcuma was launched "
+           "as the active Working Directory on each launch."));
+    connect(m_useInvocationDirAction, &QAction::triggered,
+            this, &MainWindow::toggleUseInvocationDirectory);
+
+    // Claude Generated - Visual Polish: Dark mode toggle (checkbox state set later after loading settings)
+    m_darkModeAction = preferencesMenu->addAction(QIcon::fromTheme("weather-clear-night"), tr("&Dark Mode"));
+    m_darkModeAction->setCheckable(true);
+    connect(m_darkModeAction, &QAction::triggered, this, &MainWindow::toggleDarkMode);
+
+    preferencesMenu->addSeparator();
+    QAction* centerOnLoadAction = preferencesMenu->addAction(tr("&Center Molecule on Load"));
+    centerOnLoadAction->setCheckable(true);
+    centerOnLoadAction->setChecked(m_centerOnLoad);
+    centerOnLoadAction->setToolTip(tr("When opening a file, translate all frames so the "
+                                      "mass-weighted centre of mass is at the origin."));
+    connect(centerOnLoadAction, &QAction::toggled, this, [this](bool on) {
+        m_centerOnLoad = on;
+        if (m_lessonController)
+            m_lessonController->setCenterOnLoad(on);
+        Settings::VisualizationSettings vs = m_settings.getVisualizationSettings();
+        vs.centerOnLoad = on;
+        m_settings.setVisualizationSettings(vs);
+    });
+    QMenu* rotationMenu = preferencesMenu->addMenu(tr("Mouse &Rotation"));
+    auto* rotationGroup = new QActionGroup(this);
+    const QVector<QPair<int, QString>> rotationModes = {
+        { static_cast<int>(MoleculeViewer::RotationMode::Model), tr("Rotate Molecule (camera fixed)") },
+        { static_cast<int>(MoleculeViewer::RotationMode::CameraOrbit), tr("Rotate Camera (orbit)") },
+    };
+    for (const auto& r : rotationModes) {
+        QAction* a = rotationMenu->addAction(r.second);
+        a->setCheckable(true);
+        a->setData(r.first);
+        rotationGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, mode = r.first]() {
+            if (m_moleculeView)
+                m_moleculeView->setRotationMode(mode);
+        });
+    }
+    // The mode is restored with the last session after the menus exist; read it on open.
+    connect(rotationMenu, &QMenu::aboutToShow, this, [this, rotationGroup]() {
+        const int current = m_moleculeView ? m_moleculeView->getRotationMode() : 0;
+        for (QAction* a : rotationGroup->actions())
+            a->setChecked(a->data().toInt() == current);
+    });
+    QAction *cursorLockAction = preferencesMenu->addAction(tr("&Lock Cursor While Dragging"));
     cursorLockAction->setCheckable(true);
     cursorLockAction->setChecked(m_moleculeView ? m_moleculeView->dragCursorLock() : true);
     cursorLockAction->setToolTip(tr("Pin the cursor at the press point during a move so the drag never runs off-screen (relative drag)."));
@@ -969,158 +1052,98 @@ void MainWindow::createMenus()
         if (m_moleculeView) m_moleculeView->setDragCursorLock(on);
     });
 
-    // Claude Generated - UI Restructuring: View Menu for dock visibility and layout presets
+    preferencesMenu->addSeparator();
+    // Claude Generated 2026 - Operator metadata (name/ORCID/institution/license),
+    // reused as default authorship for image exports and lessons.
+    QAction *operatorAction = preferencesMenu->addAction(QIcon::fromTheme("user-identity"), tr("Operator Metadata..."));
+    operatorAction->setToolTip(tr("Set your name, ORCID, institution and default license. "
+                                  "Used as authorship for exported images and lessons."));
+    connect(operatorAction, &QAction::triggered, this, &MainWindow::configureOperatorMetadata);
+
+    // ------------------------------------------------------------------ View
     QMenu *viewMenu = menuBar->addMenu(tr("&View"));
 
-    // Claude Generated 2026 - P4: Command palette + mode switch entries (discoverability).
-    QAction* paletteAction = viewMenu->addAction(QIcon::fromTheme("edit-find"), tr("Command &Palette…"));
-    paletteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_K));
-    connect(paletteAction, &QAction::triggered, this, &MainWindow::showCommandPalette);
-
+    // Mode: radio items, checked from setAppMode() (corner buttons, palette, startup).
     QMenu* modeMenu = viewMenu->addMenu(tr("&Mode"));
-    QAction* exploreAct = modeMenu->addAction(QIcon::fromTheme("view-preview"), tr("&Explore"));
-    connect(exploreAct, &QAction::triggered, this, [this]() { setAppMode(DockConfig::AppMode::Explore); });
-    QAction* computeAct = modeMenu->addAction(QIcon::fromTheme("system-run"), tr("&Compute"));
-    connect(computeAct, &QAction::triggered, this, [this]() { setAppMode(DockConfig::AppMode::Compute); });
-    QAction* teachingAct = modeMenu->addAction(tr("&Teaching"));
-    connect(teachingAct, &QAction::triggered, this, [this]() { setAppMode(DockConfig::AppMode::Teaching); });
+    m_appModeGroup = new QActionGroup(this);
+    const struct { DockConfig::AppMode mode; QString label; } modes[] = {
+        { DockConfig::AppMode::Explore, tr("&Explore") },
+        { DockConfig::AppMode::Compute, tr("&Compute") },
+        { DockConfig::AppMode::Teaching, tr("&Teaching") },
+    };
+    for (const auto& m : modes) {
+        QAction* a = modeMenu->addAction(m.label);
+        a->setCheckable(true);
+        a->setData(static_cast<int>(m.mode));
+        a->setChecked(m.mode == m_appMode);
+        m_appModeGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, mode = m.mode]() { setAppMode(mode); });
+    }
 
     viewMenu->addSeparator();
 
-    // Claude Generated (2026-04) - Dock rewrite: toggle actions for the dock architecture.
-    QMenu *docksMenu = viewMenu->addMenu(QIcon::fromTheme("view-split-left-right"), tr("&Dock Panels"));
+    // Quick toggles: NCI, hydrogen bonds, hydrogen display, hidden molecules, labels.
+    m_nciToggleAction = viewMenu->addAction(QIcon::fromTheme("draw-connector"), tr("&NCI Overlay"));
+    m_nciToggleAction->setCheckable(true);
+    m_nciToggleAction->setShortcut(Qt::Key_N);
+    m_nciToggleAction->setToolTip(tr("Show non-covalent interactions (hydrogen/halogen bonds, "
+                                     "pi stacking, contacts) as dashed lines in the 3D view."));
+    connect(m_nciToggleAction, &QAction::triggered, this, &MainWindow::toggleNciOverlay);
 
-    // Claude Generated 2026 - Use each dock's official toggleViewAction() instead of
-    // wiring setVisible() directly. Qt's toggle action knows about tabified groups
-    // and keeps the shared tab bar stable when the user hides/showes a dock.
-    auto addDockToggle = [&docksMenu, this](QDockWidget* dock, const QString& label, const QKeySequence& shortcut = QKeySequence()) {
-        if (!dock) return;
-        QAction* act = dock->toggleViewAction();
-        act->setText(label);
-        if (!shortcut.isEmpty()) act->setShortcut(shortcut);
-        docksMenu->addAction(act);
+    m_nciSourceMenu = viewMenu->addMenu(tr("NCI So&urce"));
+    m_nciSourceGroup = new QActionGroup(this);
+    const QVector<QPair<int, QString>> nciSources = {
+        { 0, tr("Off") },
+        { 1, tr("Geometry (distance/angle)") },
+        { 2, tr("GFN-FF parameters") },
+        { 3, tr("Population analysis (GFN2)") },
     };
+    for (const auto& src : nciSources) {
+        QAction* a = m_nciSourceMenu->addAction(src.second);
+        a->setCheckable(true);
+        a->setData(src.first);
+        a->setChecked(src.first == 0);
+        m_nciSourceGroup->addAction(a);
+        connect(a, &QAction::triggered, this,
+                [this, source = src.first]() { setNciSourceFromUi(source); });
+    }
 
-    addDockToggle(m_projectDock,          tr("&Project"),            QKeySequence(Qt::CTRL | Qt::Key_B));
-    addDockToggle(m_structureDock,        tr("S&tructure"));
-    addDockToggle(m_appearanceDock,       tr("&Appearance"));
-    addDockToggle(m_simulationDock,       tr("&Simulation"));
-    addDockToggle(m_outputViewDock,       tr("&Output"));
-    addDockToggle(m_nciDock,              tr("&Interactions"));
-    addDockToggle(m_imageGalleryDock,     tr("I&mages"));
-
-    viewMenu->addSeparator();
-
-    // Reset layout: restore the captured baseline, then lay out the current mode on it.
-    QAction *resetLayoutAction = viewMenu->addAction(QIcon::fromTheme("view-restore"), tr("&Reset to Default Layout"));
-    resetLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_0));
-    connect(resetLayoutAction, &QAction::triggered, this, [this]() {
-        if (m_dockManager) {
-            m_dockManager->resetToBaseline();
-            setAppMode(m_appMode);
-            statusBar()->showMessage(tr("Layout reset to default"), 2000);
-        }
+    // Claude Generated 2026 - Hydrogen-bond quick toggle, the most used contact kind.
+    // Switching it on also shows the overlay, so the key always has a visible effect.
+    m_hbondToggleAction = viewMenu->addAction(tr("Hydrogen &Bonds"));
+    m_hbondToggleAction->setCheckable(true);
+    m_hbondToggleAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_N));
+    m_hbondToggleAction->setToolTip(tr("Show or hide hydrogen bonds in the NCI overlay "
+                                       "(switches the overlay on if it is off)."));
+    m_hbondToggleAction->setChecked(m_moleculeView && m_moleculeView->getNciOptions().hydrogenBonds);
+    connect(m_hbondToggleAction, &QAction::triggered, this, [this](bool on) {
+        if (!m_moleculeView)
+            return;
+        nci::Options o = m_moleculeView->getNciOptions();
+        o.hydrogenBonds = on;
+        m_moleculeView->setNciOptions(o);
+        if (on && m_moleculeView->getNciSource() == 0)
+            toggleNciOverlay();
     });
+    if (m_moleculeView)
+        connect(m_moleculeView, &MoleculeViewer::nciOptionsChanged, this,
+            [this](const nci::Options& o) { m_hbondToggleAction->setChecked(o.hydrogenBonds); });
 
-    // Claude Generated 2026 - Menu path back in for a floated dock, independent of
-    // dragging it (a fallback, e.g. on a Wayland compositor without
-    // xdg_toplevel_drag_v1; see src/docks/CLAUDE.md "Wayland"). This calls
-    // QMainWindow::addDockWidget() directly, so it works on every platform.
-    QAction *redockAction = viewMenu->addAction(QIcon::fromTheme("view-restore"), tr("Re-dock &Floating Panels"));
-    connect(redockAction, &QAction::triggered, this, [this]() {
-        if (m_dockManager) {
-            m_dockManager->redockFloating();
-            statusBar()->showMessage(tr("Floating panels re-docked"), 2000);
-        }
+    QAction* nciOptionsAction = viewMenu->addAction(tr("NCI Op&tions…"));
+    nciOptionsAction->setToolTip(tr("Open the Interactions dock with its options "
+                                    "(kind filters, thresholds, colours)."));
+    connect(nciOptionsAction, &QAction::triggered, this, [this]() {
+        if (!m_nciDock)
+            return;
+        m_nciDock->show();
+        m_nciDock->raise();
+        m_nciDock->expandOptions();
     });
-
-    // Claude Generated 2026 - Display menu: frequent viewer toggles reachable in
-    // one click (and via the Ctrl+K palette, which harvests menu-bar actions).
-    // The same QActions feed the viewport context menu and the NCI bar dropdown,
-    // so every entry point shows the same checked state.
-    QMenu *displayMenu = menuBar->addMenu(tr("&Display"));
-    m_displayMenu = displayMenu;
-
-    QMenu* renderStyleMenu = displayMenu->addMenu(tr("&Render Style"));
-    m_renderStyleMenu = renderStyleMenu;  // Claude Generated 2026 - also the bar's Style button
-    m_renderStyleGroup = new QActionGroup(this);
-    const struct { int mode; QString label; QKeySequence key; void (MainWindow::*slot)(); } styles[] = {
-        { 0, tr("&Ball and Stick"), QKeySequence(Qt::Key_1), &MainWindow::setRenderingModeBallAndStick },
-        { 1, tr("&Space Filling"), QKeySequence(Qt::Key_2), &MainWindow::setRenderingModeSpaceFilling },
-        { 2, tr("&Wireframe"), QKeySequence(Qt::Key_3), &MainWindow::setRenderingModeWireframe },
-        { 3, tr("S&ticks Only"), QKeySequence(Qt::Key_4), &MainWindow::setRenderingModeSticks },
-    };
-    for (const auto& s : styles) {
-        QAction* a = renderStyleMenu->addAction(s.label);
-        a->setCheckable(true);
-        a->setShortcut(s.key);
-        a->setData(s.mode);
-        a->setChecked(s.mode == (m_moleculeView ? int(m_moleculeView->getRenderingMode()) : 0));
-        m_renderStyleGroup->addAction(a);
-        connect(a, &QAction::triggered, this, s.slot);
-    }
-
-    QMenu* colorSchemeMenu = displayMenu->addMenu(tr("&Colour Scheme"));
-    m_colorSchemeGroup = new QActionGroup(this);
-    const QVector<QPair<int, QString>> schemes = {
-        { int(MoleculeViewer::ColorScheme::CPK), tr("CPK (Element Colors)") },
-        { int(MoleculeViewer::ColorScheme::Monochrome), tr("Monochrome") },
-        { int(MoleculeViewer::ColorScheme::ByCharge), tr("By Charge") },
-        { int(MoleculeViewer::ColorScheme::ByType), tr("By Type (CG beads)") },
-        { int(MoleculeViewer::ColorScheme::Custom), tr("Custom") },
-    };
-    for (const auto& s : schemes) {
-        QAction* a = colorSchemeMenu->addAction(s.second);
-        a->setCheckable(true);
-        a->setData(s.first);
-        a->setChecked(s.first == (m_moleculeView ? int(m_moleculeView->getColorScheme()) : 0));
-        m_colorSchemeGroup->addAction(a);
-        connect(a, &QAction::triggered, this, [this, scheme = s.first]() {
-            if (m_moleculeView)
-                m_moleculeView->setColorScheme(static_cast<MoleculeViewer::ColorScheme>(scheme));
-            syncVisualizationDialog();
-        });
-    }
-
-    QMenu* labelMenu = displayMenu->addMenu(tr("Atom &Labels"));
-    m_labelModeGroup = new QActionGroup(this);
-    const QVector<QPair<int, QString>> labelModes = {
-        { int(MoleculeViewer::AtomLabel::None), tr("No Labels") },
-        { int(MoleculeViewer::AtomLabel::Element), tr("Element") },
-        { int(MoleculeViewer::AtomLabel::Type), tr("Type (bead)") },
-        { int(MoleculeViewer::AtomLabel::Index), tr("Index") },
-    };
-    for (const auto& l : labelModes) {
-        QAction* a = labelMenu->addAction(l.second);
-        a->setCheckable(true);
-        a->setData(l.first);
-        a->setChecked(l.first == 0);
-        m_labelModeGroup->addAction(a);
-        connect(a, &QAction::triggered, this, [this, mode = l.first]() {
-            if (m_moleculeView)
-                m_moleculeView->setAtomLabelMode(static_cast<MoleculeViewer::AtomLabel>(mode));
-        });
-    }
-
-    // Checked states mirror the viewer, whatever path changed it (panel, bar, key).
-    auto checkByData = [](QActionGroup* group, int value) {
-        for (QAction* a : group->actions())
-            if (a->data().toInt() == value)
-                a->setChecked(true);
-    };
-    if (m_moleculeView) {
-        connect(m_moleculeView, &MoleculeViewer::renderingModeChanged, this,
-            [this, checkByData](MoleculeViewer::RenderingMode mode) { checkByData(m_renderStyleGroup, int(mode)); });
-        connect(m_moleculeView, &MoleculeViewer::colorSchemeChanged, this,
-            [this, checkByData](MoleculeViewer::ColorScheme scheme) { checkByData(m_colorSchemeGroup, int(scheme)); });
-        connect(m_moleculeView, &MoleculeViewer::atomLabelModeChanged, this,
-            [this, checkByData](int mode) { checkByData(m_labelModeGroup, mode); });
-    }
 
     // Claude Generated 2026 - Hydrogen display quick toggle (visual only; skeletal-formula
     // convention for "Polar"). H cycles the modes; in Build mode H stays the element key,
     // because the builder's key filter accepts the ShortcutOverride first (eventFilter).
-    QMenu* hydrogenMenu = displayMenu->addMenu(tr("H&ydrogens"));
+    QMenu* hydrogenMenu = viewMenu->addMenu(tr("H&ydrogens"));
     m_hydrogenMenu = hydrogenMenu;  // also the bar's H button
     QAction* cycleHydrogensAction = hydrogenMenu->addAction(tr("Cycle Hydrogen Display"));
     cycleHydrogensAction->setShortcut(Qt::Key_H);
@@ -1158,112 +1181,182 @@ void MainWindow::createMenus()
                 m_moleculeView->setHydrogenDisplay(static_cast<MoleculeViewer::HydrogenDisplay>(mode));
         });
     }
-    if (m_moleculeView)
-        connect(m_moleculeView, &MoleculeViewer::hydrogenDisplayChanged, this,
-            [this, checkByData](int mode) { checkByData(m_hydrogenDisplayGroup, mode); });
 
     // Claude Generated 2026 - Hide molecules by kind (solvent etc.), display only. The list
     // comes from the loaded structure each time the menu opens (also from the bar button
     // and the viewport context menu, which share this QMenu).
-    m_moleculeKindsMenu = displayMenu->addMenu(tr("Hide &Molecules"));
+    m_moleculeKindsMenu = viewMenu->addMenu(tr("Hide M&olecules"));
     connect(m_moleculeKindsMenu, &QMenu::aboutToShow, this, &MainWindow::populateMoleculeKindsMenu);
 
-    displayMenu->addSeparator();
-
-    m_nciToggleAction = displayMenu->addAction(QIcon::fromTheme("draw-connector"), tr("&NCI Overlay"));
-    m_nciToggleAction->setCheckable(true);
-    m_nciToggleAction->setShortcut(Qt::Key_N);
-    m_nciToggleAction->setToolTip(tr("Show non-covalent interactions (hydrogen/halogen bonds, "
-                                     "pi stacking, contacts) as dashed lines in the 3D view."));
-    connect(m_nciToggleAction, &QAction::triggered, this, &MainWindow::toggleNciOverlay);
-
-    m_nciSourceMenu = displayMenu->addMenu(tr("NCI &Source"));
-    m_nciSourceGroup = new QActionGroup(this);
-    const QVector<QPair<int, QString>> nciSources = {
-        { 0, tr("Off") },
-        { 1, tr("Geometry (distance/angle)") },
-        { 2, tr("GFN-FF parameters") },
-        { 3, tr("Population analysis (GFN2)") },
+    QMenu* labelMenu = viewMenu->addMenu(tr("Atom Lab&els"));
+    m_labelModeGroup = new QActionGroup(this);
+    const QVector<QPair<int, QString>> labelModes = {
+        { int(MoleculeViewer::AtomLabel::None), tr("No Labels") },
+        { int(MoleculeViewer::AtomLabel::Element), tr("Element") },
+        { int(MoleculeViewer::AtomLabel::Type), tr("Type (bead)") },
+        { int(MoleculeViewer::AtomLabel::Index), tr("Index") },
     };
-    for (const auto& src : nciSources) {
-        QAction* a = m_nciSourceMenu->addAction(src.second);
+    for (const auto& l : labelModes) {
+        QAction* a = labelMenu->addAction(l.second);
         a->setCheckable(true);
-        a->setData(src.first);
-        a->setChecked(src.first == 0);
-        m_nciSourceGroup->addAction(a);
-        connect(a, &QAction::triggered, this,
-                [this, source = src.first]() { setNciSourceFromUi(source); });
+        a->setData(l.first);
+        a->setChecked(l.first == 0);
+        m_labelModeGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, mode = l.first]() {
+            if (m_moleculeView)
+                m_moleculeView->setAtomLabelMode(static_cast<MoleculeViewer::AtomLabel>(mode));
+        });
     }
 
-    // Claude Generated 2026 - Hydrogen-bond quick toggle, the most used contact kind.
-    // Switching it on also shows the overlay, so the key always has a visible effect.
-    m_hbondToggleAction = displayMenu->addAction(tr("Hydrogen &Bonds"));
-    m_hbondToggleAction->setCheckable(true);
-    m_hbondToggleAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_N));
-    m_hbondToggleAction->setToolTip(tr("Show or hide hydrogen bonds in the NCI overlay "
-                                       "(switches the overlay on if it is off)."));
-    m_hbondToggleAction->setChecked(m_moleculeView && m_moleculeView->getNciOptions().hydrogenBonds);
-    connect(m_hbondToggleAction, &QAction::triggered, this, [this](bool on) {
-        if (!m_moleculeView)
-            return;
-        nci::Options o = m_moleculeView->getNciOptions();
-        o.hydrogenBonds = on;
-        m_moleculeView->setNciOptions(o);
-        if (on && m_moleculeView->getNciSource() == 0)
-            toggleNciOverlay();
-    });
-    if (m_moleculeView)
-        connect(m_moleculeView, &MoleculeViewer::nciOptionsChanged, this,
-            [this](const nci::Options& o) { m_hbondToggleAction->setChecked(o.hydrogenBonds); });
+    viewMenu->addSeparator();
 
-    QAction* nciOptionsAction = displayMenu->addAction(tr("NCI Op&tions…"));
-    nciOptionsAction->setToolTip(tr("Open the Interactions dock with its options "
-                                    "(kind filters, thresholds, colours)."));
-    connect(nciOptionsAction, &QAction::triggered, this, [this]() {
-        if (!m_nciDock)
-            return;
-        m_nciDock->show();
-        m_nciDock->raise();
-        m_nciDock->expandOptions();
-    });
-
-    displayMenu->addSeparator();
-
-    QAction* atomsBiggerAction = displayMenu->addAction(tr("Increase Atom Size"));
+    // Style: the four drawing modes (keys 1-4), then atom and bond sizes. Also the
+    // viewer bar's Style button.
+    QMenu* renderStyleMenu = viewMenu->addMenu(tr("&Style"));
+    m_renderStyleMenu = renderStyleMenu;
+    m_renderStyleGroup = new QActionGroup(this);
+    const struct { int mode; QString label; QKeySequence key; void (MainWindow::*slot)(); } styles[] = {
+        { 0, tr("&Ball and Stick"), QKeySequence(Qt::Key_1), &MainWindow::setRenderingModeBallAndStick },
+        { 1, tr("&Space Filling"), QKeySequence(Qt::Key_2), &MainWindow::setRenderingModeSpaceFilling },
+        { 2, tr("&Wireframe"), QKeySequence(Qt::Key_3), &MainWindow::setRenderingModeWireframe },
+        { 3, tr("S&ticks Only"), QKeySequence(Qt::Key_4), &MainWindow::setRenderingModeSticks },
+    };
+    for (const auto& s : styles) {
+        QAction* a = renderStyleMenu->addAction(s.label);
+        a->setCheckable(true);
+        a->setShortcut(s.key);
+        a->setData(s.mode);
+        a->setChecked(s.mode == (m_moleculeView ? int(m_moleculeView->getRenderingMode()) : 0));
+        m_renderStyleGroup->addAction(a);
+        connect(a, &QAction::triggered, this, s.slot);
+    }
+    renderStyleMenu->addSeparator();
+    QAction* atomsBiggerAction = renderStyleMenu->addAction(tr("Increase Atom Size"));
     atomsBiggerAction->setShortcuts({ QKeySequence(Qt::Key_Plus), QKeySequence(Qt::Key_Equal) });
     connect(atomsBiggerAction, &QAction::triggered, this, &MainWindow::increaseAtomSize);
-    QAction* atomsSmallerAction = displayMenu->addAction(tr("Decrease Atom Size"));
+    QAction* atomsSmallerAction = renderStyleMenu->addAction(tr("Decrease Atom Size"));
     atomsSmallerAction->setShortcut(QKeySequence(Qt::Key_Minus));
     connect(atomsSmallerAction, &QAction::triggered, this, &MainWindow::decreaseAtomSize);
-    QAction* bondsThickerAction = displayMenu->addAction(tr("Thicker Bonds"));
+    QAction* bondsThickerAction = renderStyleMenu->addAction(tr("Thicker Bonds"));
     bondsThickerAction->setShortcuts({ QKeySequence(Qt::Key_Period), QKeySequence(Qt::SHIFT | Qt::Key_Greater) });
     connect(bondsThickerAction, &QAction::triggered, this, &MainWindow::increaseBondThickness);
-    QAction* bondsThinnerAction = displayMenu->addAction(tr("Thinner Bonds"));
+    QAction* bondsThinnerAction = renderStyleMenu->addAction(tr("Thinner Bonds"));
     bondsThinnerAction->setShortcuts({ QKeySequence(Qt::Key_Comma), QKeySequence(Qt::SHIFT | Qt::Key_Less) });
     connect(bondsThinnerAction, &QAction::triggered, this, &MainWindow::decreaseBondThickness);
 
-    displayMenu->addSeparator();
-
-    m_fitViewAction = displayMenu->addAction(QIcon::fromTheme("zoom-fit-best"), tr("&Fit in View"));
-    m_fitViewAction->setShortcuts({ QKeySequence(Qt::CTRL | Qt::Key_0), QKeySequence(Qt::Key_Home) });
-    connect(m_fitViewAction, &QAction::triggered, this, &MainWindow::fitMoleculeInView);
-    QAction* centerSelAction = displayMenu->addAction(tr("Center on Selection"));
-    centerSelAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F));
-    connect(centerSelAction, &QAction::triggered, this, &MainWindow::centerViewOnSelection);
-
-    displayMenu->addSeparator();
-    QAction* displayPanelAction = displayMenu->addAction(QIcon::fromTheme("configure"), tr("Display &Options…"));
-    displayPanelAction->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
-    connect(displayPanelAction, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
+    // Colour scheme: shown inside the Look menu (populateLookMenu), owned by the window.
+    m_colorSchemeMenu = new QMenu(tr("&Colour Scheme"), this);
+    m_colorSchemeGroup = new QActionGroup(this);
+    const QVector<QPair<int, QString>> schemes = {
+        { int(MoleculeViewer::ColorScheme::CPK), tr("CPK (Element Colors)") },
+        { int(MoleculeViewer::ColorScheme::Monochrome), tr("Monochrome") },
+        { int(MoleculeViewer::ColorScheme::ByCharge), tr("By Charge") },
+        { int(MoleculeViewer::ColorScheme::ByType), tr("By Type (CG beads)") },
+        { int(MoleculeViewer::ColorScheme::Custom), tr("Custom") },
+    };
+    for (const auto& s : schemes) {
+        QAction* a = m_colorSchemeMenu->addAction(s.second);
+        a->setCheckable(true);
+        a->setData(s.first);
+        a->setChecked(s.first == (m_moleculeView ? int(m_moleculeView->getColorScheme()) : 0));
+        m_colorSchemeGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, scheme = s.first]() {
+            if (m_moleculeView)
+                m_moleculeView->setColorScheme(static_cast<MoleculeViewer::ColorScheme>(scheme));
+            syncVisualizationDialog();
+        });
+    }
 
     // Claude Generated 2026 - Looks (UX stage 3): one menu for the viewer bar's Look
-    // button, the Display menu, the viewport context menu and the palette. Rebuilt on
+    // button, the View menu, the viewport context menu and the palette. Rebuilt on
     // every opening so user looks and the check mark on the active look are current.
-    m_colorSchemeMenu = colorSchemeMenu;
-    m_lookMenu = new QMenu(tr("&Look"), this);
-    displayMenu->insertMenu(displayPanelAction, m_lookMenu);
+    m_lookMenu = viewMenu->addMenu(tr("&Look"));
     connect(m_lookMenu, &QMenu::aboutToShow, this, &MainWindow::populateLookMenu);
     populateLookMenu();  // once now, so the palette finds the looks before the menu opened
+
+    // Checked states mirror the viewer, whatever path changed it (panel, bar, key).
+    auto checkByData = [](QActionGroup* group, int value) {
+        for (QAction* a : group->actions())
+            if (a->data().toInt() == value)
+                a->setChecked(true);
+    };
+    if (m_moleculeView) {
+        connect(m_moleculeView, &MoleculeViewer::renderingModeChanged, this,
+            [this, checkByData](MoleculeViewer::RenderingMode mode) { checkByData(m_renderStyleGroup, int(mode)); });
+        connect(m_moleculeView, &MoleculeViewer::colorSchemeChanged, this,
+            [this, checkByData](MoleculeViewer::ColorScheme scheme) { checkByData(m_colorSchemeGroup, int(scheme)); });
+        connect(m_moleculeView, &MoleculeViewer::atomLabelModeChanged, this,
+            [this, checkByData](int mode) { checkByData(m_labelModeGroup, mode); });
+        connect(m_moleculeView, &MoleculeViewer::hydrogenDisplayChanged, this,
+            [this, checkByData](int mode) { checkByData(m_hydrogenDisplayGroup, mode); });
+    }
+
+    viewMenu->addSeparator();
+
+    // Camera.
+    m_fitViewAction = viewMenu->addAction(QIcon::fromTheme("zoom-fit-best"), tr("&Fit in View"));
+    m_fitViewAction->setShortcuts({ QKeySequence(Qt::CTRL | Qt::Key_0), QKeySequence(Qt::Key_Home) });
+    connect(m_fitViewAction, &QAction::triggered, this, &MainWindow::fitMoleculeInView);
+    m_centerSelectionAction = viewMenu->addAction(tr("&Center on Selection"));
+    m_centerSelectionAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F));
+    connect(m_centerSelectionAction, &QAction::triggered, this, &MainWindow::centerViewOnSelection);
+    m_viewsMenu = viewMenu->addMenu(tr("&Views"));
+    connect(m_viewsMenu, &QMenu::aboutToShow, this, &MainWindow::populateViewsMenu);
+    populateViewsMenu();  // once now, so the palette finds the quick views
+
+    viewMenu->addSeparator();
+
+    // Claude Generated (2026-04) - Dock rewrite: toggle actions for the dock architecture.
+    QMenu *docksMenu = viewMenu->addMenu(QIcon::fromTheme("view-split-left-right"), tr("&Panels"));
+
+    // Claude Generated 2026 - Use each dock's official toggleViewAction() instead of
+    // wiring setVisible() directly. Qt's toggle action knows about tabified groups
+    // and keeps the shared tab bar stable when the user hides/showes a dock.
+    auto addDockToggle = [&docksMenu, this](QDockWidget* dock, const QString& label, const QKeySequence& shortcut = QKeySequence()) {
+        if (!dock) return;
+        QAction* act = dock->toggleViewAction();
+        act->setText(label);
+        if (!shortcut.isEmpty()) act->setShortcut(shortcut);
+        docksMenu->addAction(act);
+    };
+
+    addDockToggle(m_projectDock,          tr("&Project"),            QKeySequence(Qt::CTRL | Qt::Key_B));
+    addDockToggle(m_structureDock,        tr("S&tructure"));
+    addDockToggle(m_appearanceDock,       tr("&Appearance"));
+    addDockToggle(m_simulationDock,       tr("&Simulation"));
+    addDockToggle(m_outputViewDock,       tr("&Output"));
+    addDockToggle(m_nciDock,              tr("&Interactions"));
+    addDockToggle(m_imageGalleryDock,     tr("I&mages"));
+
+    // Reset layout: restore the captured baseline, then lay out the current mode on it.
+    QAction *resetLayoutAction = viewMenu->addAction(QIcon::fromTheme("view-restore"), tr("&Reset to Default Layout"));
+    resetLayoutAction->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_0));
+    connect(resetLayoutAction, &QAction::triggered, this, [this]() {
+        if (m_dockManager) {
+            m_dockManager->resetToBaseline();
+            setAppMode(m_appMode);
+            statusBar()->showMessage(tr("Layout reset to default"), 2000);
+        }
+    });
+
+    // Claude Generated 2026 - Menu path back in for a floated dock, independent of
+    // dragging it (a fallback, e.g. on a Wayland compositor without
+    // xdg_toplevel_drag_v1; see src/docks/CLAUDE.md "Wayland"). This calls
+    // QMainWindow::addDockWidget() directly, so it works on every platform.
+    QAction *redockAction = viewMenu->addAction(QIcon::fromTheme("view-restore"), tr("Re-&dock Floating Panels"));
+    connect(redockAction, &QAction::triggered, this, [this]() {
+        if (m_dockManager) {
+            m_dockManager->redockFloating();
+            statusBar()->showMessage(tr("Floating panels re-docked"), 2000);
+        }
+    });
+
+    viewMenu->addSeparator();
+
+    // Claude Generated 2026 - P4: Command palette (searches every menu-bar action).
+    QAction* paletteAction = viewMenu->addAction(QIcon::fromTheme("edit-find"), tr("Comm&and Palette…"));
+    paletteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_K));
+    connect(paletteAction, &QAction::triggered, this, &MainWindow::showCommandPalette);
 
     // Claude Generated 2026 - Hand the shared menus/actions to the viewer bar here, once
     // they exist. (setupNciAnalysis runs from setupUI, before createMenus, so the NCI
@@ -1274,125 +1367,146 @@ void MainWindow::createMenus()
             m_renderStyleMenu, m_lookMenu);
     }
 
-    // Settings Menu
-    QMenu *settingsMenu = menuBar->addMenu(tr("&Settings"));
+    // ------------------------------------------------------------- Structure
+    QMenu *structureMenu = menuBar->addMenu(tr("St&ructure"));
 
-    // Claude Generated 2026 - "Use Invocation Directory" preference
-    // Checkbox state is updated in the constructor after settings are loaded.
-    m_useInvocationDirAction = settingsMenu->addAction(QIcon::fromTheme("go-home"), tr("Use &Invocation Directory"));
-    m_useInvocationDirAction->setCheckable(true);
-    m_useInvocationDirAction->setToolTip(
-        tr("If enabled, treat the directory from which qurcuma was launched "
-           "as the active Working Directory on each launch."));
-    connect(m_useInvocationDirAction, &QAction::triggered,
-            this, &MainWindow::toggleUseInvocationDirectory);
-
-    settingsMenu->addSeparator();
-
-    // Claude Generated - Visual Polish: Dark mode toggle (checkbox state set later after loading settings)
-    m_darkModeAction = settingsMenu->addAction(QIcon::fromTheme("weather-clear-night"), tr("&Dark Mode"));
-    m_darkModeAction->setCheckable(true);
-    // Note: checkbox state will be updated in constructor after loading settings
-    connect(m_darkModeAction, &QAction::triggered, this, &MainWindow::toggleDarkMode);
-
-    // Claude Generated 2026 - UX stage 4: viewer preferences moved here from the Display
-    // panel's former Tools section.
-    settingsMenu->addSeparator();
-    QAction* centerOnLoadAction = settingsMenu->addAction(tr("&Center Molecule on Load"));
-    centerOnLoadAction->setCheckable(true);
-    centerOnLoadAction->setChecked(m_centerOnLoad);
-    centerOnLoadAction->setToolTip(tr("When opening a file, translate all frames so the "
-                                      "mass-weighted centre of mass is at the origin."));
-    connect(centerOnLoadAction, &QAction::toggled, this, [this](bool on) {
-        m_centerOnLoad = on;
-        if (m_lessonController)
-            m_lessonController->setCenterOnLoad(on);
-        Settings::VisualizationSettings vs = m_settings.getVisualizationSettings();
-        vs.centerOnLoad = on;
-        m_settings.setVisualizationSettings(vs);
-    });
-    QMenu* rotationMenu = settingsMenu->addMenu(tr("Mouse &Rotation"));
-    auto* rotationGroup = new QActionGroup(this);
-    const QVector<QPair<int, QString>> rotationModes = {
-        { static_cast<int>(MoleculeViewer::RotationMode::Model), tr("Rotate Molecule (camera fixed)") },
-        { static_cast<int>(MoleculeViewer::RotationMode::CameraOrbit), tr("Rotate Camera (orbit)") },
+    // Tool: the viewer bar's View · Measure · Edit · Build selector as radio items,
+    // mirrored from interactionModeChanged (Bond editing is a Build sub-tool).
+    auto* toolGroup = new QActionGroup(this);
+    const struct { MoleculeViewer::InteractionMode mode; QString label; QKeySequence key; QString tip; } tools[] = {
+        { MoleculeViewer::InteractionMode::None, tr("&View"), QKeySequence(),
+          tr("Plain viewing: drag rotates, click selects an atom. Esc steps back to it.") },
+        { MoleculeViewer::InteractionMode::Measure, tr("&Measure"), QKeySequence(Qt::Key_M),
+          tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral.") },
+        { MoleculeViewer::InteractionMode::Edit, tr("&Edit"), QKeySequence(Qt::CTRL | Qt::Key_E),
+          tr("Select and move atoms and molecules, copy/paste, with clash feedback.") },
+        { MoleculeViewer::InteractionMode::Build, tr("&Build"), QKeySequence(Qt::Key_B),
+          tr("Molecule builder: place atoms, draw bonds, add hydrogens, insert fragments.") },
     };
-    for (const auto& r : rotationModes) {
-        QAction* a = rotationMenu->addAction(r.second);
+    for (const auto& t : tools) {
+        QAction* a = structureMenu->addAction(t.label);
         a->setCheckable(true);
-        a->setData(r.first);
-        rotationGroup->addAction(a);
-        connect(a, &QAction::triggered, this, [this, mode = r.first]() {
-            if (m_moleculeView)
-                m_moleculeView->setRotationMode(mode);
+        a->setShortcut(t.key);
+        a->setToolTip(t.tip);
+        a->setData(int(t.mode));
+        a->setChecked(t.mode == MoleculeViewer::InteractionMode::None);
+        toolGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, mode = t.mode]() {
+            if (!m_moleculeView)
+                return;
+            switch (mode) {
+            case MoleculeViewer::InteractionMode::Measure: m_moleculeView->setMeasurementMode(1); break;
+            case MoleculeViewer::InteractionMode::Edit:    m_moleculeView->setEditMode(true); break;
+            case MoleculeViewer::InteractionMode::Build:   m_moleculeView->setBuildMode(true); break;
+            default: m_moleculeView->setInteractionMode(MoleculeViewer::InteractionMode::None); break;
+            }
         });
     }
-    // The mode is restored with the last session after the menus exist; read it on open.
-    connect(rotationMenu, &QMenu::aboutToShow, this, [this, rotationGroup]() {
-        const int current = m_moleculeView ? m_moleculeView->getRotationMode() : 0;
-        for (QAction* a : rotationGroup->actions())
-            a->setChecked(a->data().toInt() == current);
-    });
-
-    settingsMenu->addSeparator();
-    QAction *configAction = settingsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure Programs..."));
-    connect(configAction, &QAction::triggered, this, &MainWindow::configurePrograms);
-
-    // Claude Generated 2026 - Operator metadata (name/ORCID/institution/license),
-    // reused as default authorship for image exports and lessons.
-    QAction *operatorAction = settingsMenu->addAction(QIcon::fromTheme("user-identity"), tr("Operator Metadata..."));
-    operatorAction->setToolTip(tr("Set your name, ORCID, institution and default license. "
-                                  "Used as authorship for exported images and lessons."));
-    connect(operatorAction, &QAction::triggered, this, &MainWindow::configureOperatorMetadata);
-
-    // Claude Generated 2026 - P4: "Molecule" menu merges Simulation (MD/Opt) + Analysis (RMSD).
-    QMenu *moleculeMenu = menuBar->addMenu(tr("&Molecule"));
-
-    // Menu entries focus the simulation dock/tab instead of opening a dialog.
-    auto showSimDock = [this](SimulationConfig::Mode mode) {
-        if (!m_simulationDock) return;
-        m_simulationDock->show();
-        m_simulationDock->raise();
-        if (m_simulationTabs) m_simulationTabs->setCurrentIndex(0);  // Simulation tab
-        if (m_simulationControlWidget) {
-            SimulationConfig cfg = m_simulationControlWidget->currentConfig();
-            cfg.mode = mode;
-            m_simulationConfig = cfg;
-        }
-    };
-    QAction *mdAction = moleculeMenu->addAction(
-        QIcon::fromTheme("media-playback-start"), tr("Run &MD Simulation"));
-    mdAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
-    mdAction->setToolTip(tr("Focus the simulation dock in MD mode"));
-    connect(mdAction, &QAction::triggered, this,
-        [showSimDock]() { showSimDock(SimulationConfig::Mode::MolecularDynamics); });
-
-    QAction *optAction = moleculeMenu->addAction(
-        QIcon::fromTheme("system-run"), tr("&Geometry Optimization"));
-    optAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G));
-    optAction->setToolTip(tr("Focus the simulation dock in optimization mode"));
-    connect(optAction, &QAction::triggered, this,
-        [showSimDock]() { showSimDock(SimulationConfig::Mode::GeometryOptimization); });
-
-    // Claude Generated 2026 - Build mode as a menu action so the Ctrl+K palette
-    // lists it; mirrors the viewer-bar toggle via interactionModeChanged.
-    QAction *buildModeAction = moleculeMenu->addAction(tr("&Build Mode"));
-    buildModeAction->setCheckable(true);
-    buildModeAction->setToolTip(tr("Molecule builder: place atoms, draw bonds, add "
-                                   "hydrogens, insert fragments."));
-    connect(buildModeAction, &QAction::triggered, this, [this](bool on) {
-        if (m_moleculeView)
-            m_moleculeView->setBuildMode(on);
-    });
     if (m_moleculeView)
-        connect(m_moleculeView, &MoleculeViewer::interactionModeChanged, buildModeAction,
-            [buildModeAction](MoleculeViewer::InteractionMode m) {
-                buildModeAction->setChecked(m == MoleculeViewer::InteractionMode::Build);
+        connect(m_moleculeView, &MoleculeViewer::interactionModeChanged, this,
+            [toolGroup, checkByData](MoleculeViewer::InteractionMode m) {
+                const auto shown = (m == MoleculeViewer::InteractionMode::BondEdit)
+                    ? MoleculeViewer::InteractionMode::Build : m;
+                checkByData(toolGroup, int(shown));
             });
 
+    structureMenu->addSeparator();
+
+    QAction *addMoleculeAction = structureMenu->addAction(QIcon::fromTheme("list-add"), tr("&Add Molecule to Scene…"));
+    addMoleculeAction->setToolTip(tr("Merge a molecule from a file into the current scene (single-frame structures)."));
+    connect(addMoleculeAction, &QAction::triggered, this, &MainWindow::addMoleculeToScene);
+
+    QAction* addHydrogensAction = structureMenu->addAction(tr("Add &Hydrogens"));
+    addHydrogensAction->setToolTip(tr("Saturate every open valence with hydrogens "
+                                      "(single-frame structures)."));
+    connect(addHydrogensAction, &QAction::triggered, this, [this]() {
+        if (m_moleculeView)
+            m_moleculeView->addHydrogens();
+    });
+
+    QAction *centerOriginAction = structureMenu->addAction(
+        QIcon::fromTheme("snap-orthogonal"), tr("M&ove to Origin"));
+    centerOriginAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Backspace));
+    centerOriginAction->setToolTip(
+        tr("Translate all frames so the mass-weighted centre of mass is at the origin, "
+           "then reset the camera."));
+    connect(centerOriginAction, &QAction::triggered, this,
+        &MainWindow::centerMoleculeAtOrigin);
+
+    structureMenu->addSeparator();
+
+    QAction *rmsdAction = structureMenu->addAction(QIcon::fromTheme("view-object-histogram-linear"),
+        tr("&RMSD / Align Structures"));
+    rmsdAction->setToolTip(
+        tr("Open the RMSD / Align tab: overlay structures, align them and "
+           "optionally reorder atoms (curcuma RMSDDriver)."));
+    connect(rmsdAction, &QAction::triggered, this, [this]() { showRMSDTool(); });
+
+    // ------------------------------------------------------------ Simulation
+    QMenu *simulationMenu = menuBar->addMenu(tr("&Simulation"));
+
+    // Claude Generated 2026 - UX stage 5: the entries start a run with the Simulation
+    // dock's current parameters (the same path as its Start button and the CLI -md/-opt).
+    auto startSimulation = [this](SimulationConfig::Mode mode) {
+        if (!m_simulationControlWidget)
+            return;
+        if (m_simulationControlWidget->currentAtoms().isEmpty()) {
+            statusBar()->showMessage(tr("No molecule loaded."), 3000);
+            return;
+        }
+        m_simulationControlWidget->setMode(mode);
+        m_simulationControlWidget->onStartClicked();
+    };
+    QAction *mdAction = simulationMenu->addAction(
+        QIcon::fromTheme("media-playback-start"), tr("Start &MD"));
+    mdAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
+    mdAction->setToolTip(tr("Start an interactive MD run with the parameters of the Simulation dock."));
+    connect(mdAction, &QAction::triggered, this,
+        [startSimulation]() { startSimulation(SimulationConfig::Mode::MolecularDynamics); });
+
+    QAction *optAction = simulationMenu->addAction(
+        QIcon::fromTheme("system-run"), tr("Start &Optimization"));
+    optAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G));
+    optAction->setToolTip(tr("Start a geometry optimization with the parameters of the Simulation dock."));
+    connect(optAction, &QAction::triggered, this,
+        [startSimulation]() { startSimulation(SimulationConfig::Mode::GeometryOptimization); });
+
+    QAction *stopAction = simulationMenu->addAction(QIcon::fromTheme("media-playback-stop"), tr("S&top"));
+    stopAction->setEnabled(false);
+    connect(stopAction, &QAction::triggered, this, [this]() {
+        if (m_simulationControlWidget)
+            m_simulationControlWidget->onStopClicked();
+    });
+    // While a run is active, Start would replace it; only Stop is offered.
+    if (m_simulationControlWidget)
+        connect(m_simulationControlWidget, &SimulationControlWidget::simulationRunningChanged, this,
+            [mdAction, optAction, stopAction](bool running) {
+                mdAction->setEnabled(!running);
+                optAction->setEnabled(!running);
+                stopAction->setEnabled(running);
+            });
+
+    simulationMenu->addSeparator();
+
+    // Bring one tab of the Simulation dock to the front.
+    auto showSimulationTab = [this](int tab) {
+        if (!m_simulationDock)
+            return;
+        m_simulationDock->show();
+        m_simulationDock->raise();
+        if (m_simulationTabs)
+            m_simulationTabs->setCurrentIndex(tab);
+    };
+    QAction *parametersAction = simulationMenu->addAction(QIcon::fromTheme("configure"), tr("&Parameters…"));
+    parametersAction->setToolTip(tr("Show the Simulation dock with the method, MD and optimization parameters."));
+    connect(parametersAction, &QAction::triggered, this, [showSimulationTab]() { showSimulationTab(0); });
+    QAction *snapshotsAction = simulationMenu->addAction(tr("S&napshots…"));
+    snapshotsAction->setToolTip(tr("Show the Snapshots tab: take, restore and delete structure snapshots."));
+    connect(snapshotsAction, &QAction::triggered, this, [showSimulationTab]() { showSimulationTab(1); });
+
     // Claude Generated 2026 - open the live temperature/energy charts (modeless dialog).
-    QAction *chartsAction = moleculeMenu->addAction(
-        QIcon::fromTheme("office-chart-line"), tr("Simulation &Charts…"));
+    QAction *chartsAction = simulationMenu->addAction(
+        QIcon::fromTheme("office-chart-line"), tr("&Charts…"));
     chartsAction->setToolTip(tr("Open the live temperature/energy charts for the running simulation."));
     connect(chartsAction, &QAction::triggered, this, [this]() {
         if (!m_simulationChartDialog)
@@ -1402,28 +1516,39 @@ void MainWindow::createMenus()
         m_simulationChartDialog->activateWindow();
     });
 
-    moleculeMenu->addSeparator();
+    // ----------------------------------------------------------------- Tools
+    QMenu *toolsMenu = menuBar->addMenu(tr("&Tools"));
 
-    QAction *rmsdAction = moleculeMenu->addAction(QIcon::fromTheme("view-object-histogram-linear"),
-        tr("&RMSD / Align Structures"));
-    rmsdAction->setToolTip(
-        tr("Open the Analysis dock (RMSD tab): overlay two structures, align and "
-           "optionally reorder atoms (curcuma RMSDDriver)."));
-    connect(rmsdAction, &QAction::triggered, this, [this]() { showRMSDTool(); });
+    QAction *runCalculationAction = toolsMenu->addAction(QIcon::fromTheme("system-run"), tr("&Run Calculation"));
+    runCalculationAction->setShortcuts({ QKeySequence(Qt::CTRL | Qt::Key_R), QKeySequence(Qt::Key_F5) });
+    runCalculationAction->setToolTip(tr("Run the program and command set in the calculation "
+                                        "toolbar (Compute mode)."));
+    connect(runCalculationAction, &QAction::triggered, this, &MainWindow::runSimulation);
 
-    moleculeMenu->addSeparator();
+    QAction *newCalcDirAction = toolsMenu->addAction(QIcon::fromTheme("folder-new"), tr("New Calculation &Directory…"));
+    newCalcDirAction->setShortcut(QKeySequence::New);
+    newCalcDirAction->setToolTip(tr("Create a new calculation directory in the working directory."));
+    connect(newCalcDirAction, &QAction::triggered, this, &MainWindow::createNewDirectory);
 
-    QAction *centerOriginAction = moleculeMenu->addAction(
-        QIcon::fromTheme("snap-orthogonal"), tr("&Center at Origin"));
-    centerOriginAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Backspace));
-    centerOriginAction->setToolTip(
-        tr("Translate all frames so the mass-weighted centre-of-mass is at the origin, "
-           "then reset the camera."));
-    connect(centerOriginAction, &QAction::triggered, this,
-        &MainWindow::centerMoleculeAtOrigin);
+    QAction *clearOutputAction = toolsMenu->addAction(QIcon::fromTheme("edit-clear"), tr("C&lear Output"));
+    clearOutputAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_L));
+    connect(clearOutputAction, &QAction::triggered, this, &MainWindow::clearOutputView);
 
-    // Help Menu - Claude Generated - Quick Fix: About dialog
+    QAction *nmrAction = toolsMenu->addAction(tr("&NMR Spectra…"));
+    nmrAction->setToolTip(tr("Open the NMR spectrum viewer."));
+    connect(nmrAction, &QAction::triggered, this, [this]() {
+        if (m_nmrDialog)
+            m_nmrDialog->show();
+    });
+
+    toolsMenu->addSeparator();
+    QAction *configAction = toolsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure &Programs..."));
+    connect(configAction, &QAction::triggered, this, &MainWindow::configurePrograms);
+
+    // ------------------------------------------------------------------ Help
     QMenu *helpMenu = menuBar->addMenu(tr("&Help"));
+    QAction *shortcutsAction = helpMenu->addAction(QIcon::fromTheme("input-keyboard"), tr("&Keyboard Shortcuts"));
+    connect(shortcutsAction, &QAction::triggered, this, &MainWindow::showKeyboardShortcuts);
     QAction *aboutAction = helpMenu->addAction(QIcon::fromTheme("help-about"), tr("&About Qurcuma"));
     connect(aboutAction, &QAction::triggered, this, &MainWindow::showAboutDialog);
 
@@ -1704,21 +1829,16 @@ void MainWindow::setupConnections()
 
 void MainWindow::setupShortcuts()
 {
-    // Claude Generated - Phase 1.2: Keyboard shortcuts
-    new QShortcut(QKeySequence::New, this, this, &MainWindow::createNewDirectory);
-    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_R), this, this, &MainWindow::runSimulation);
-    new QShortcut(QKeySequence::Refresh, this, this, &MainWindow::runSimulation);  // F5
+    // Claude Generated - Phase 1.2: Keyboard shortcuts. Ctrl+N, Ctrl+R/F5 and Ctrl+L sit
+    // on the Tools menu actions (createMenus).
     // Claude Generated 2026 - Ctrl+S is bound to the File>Save menu action
     // (m_saveAction) below, so we deliberately omit a second QShortcut here to
     // avoid double-firing. The editor save behaviour is still reachable via
     // saveCurrentStructureAs() / editor shortcuts.
     // Claude Generated 2026 - Escape is handled once in setupUI (handleEscape:
     // cancel a running calculation, else clear the selection); Ctrl+0/Home live
-    // on Display ▸ Fit in View. The doubled registrations were ambiguous.
+    // on View ▸ Fit in View. The doubled registrations were ambiguous.
     new QShortcut(QKeySequence::NextChild, this, this, &MainWindow::switchEditorTab);  // Ctrl+Tab
-
-    // Claude Generated - Quick Fix: Additional shortcuts
-    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_L), this, this, &MainWindow::clearOutputView);  // Ctrl+L
 }
 
 void MainWindow::setupProjectViewContextMenu()
@@ -2756,7 +2876,7 @@ void MainWindow::populateLookMenu()
         return;
     m_lookMenu->clear();
     // clear() keeps sub-menu objects alive; drop the previous "Delete Look" menu. The
-    // colour scheme menu belongs to the Display menu, so it is not a child of this one.
+    // colour scheme menu is owned by the window, so it is not a child of this one.
     qDeleteAll(m_lookMenu->findChildren<QMenu*>(Qt::FindDirectChildrenOnly));
     const Look current = m_moleculeView ? m_moleculeView->currentLook() : Look();
     auto addLook = [this, &current](const Look& look) {
@@ -2822,7 +2942,7 @@ void MainWindow::populateLookMenu()
     if (m_colorSchemeMenu)
         m_lookMenu->addMenu(m_colorSchemeMenu);
     QAction* details = m_lookMenu->addAction(tr("Details…"));
-    details->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
+    details->setToolTip(tr("Open the Appearance dock (style, material, lighting, effects)"));
     connect(details, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
 }
 
@@ -2869,15 +2989,47 @@ void MainWindow::populateMoleculeKindsMenu()
     }
 }
 
-// Claude Generated 2026 - Viewport context menu: the shared Display-menu actions
-// (render style, colours, labels, NCI, sizes, fit) plus deselect and the quick
-// photo export. Same QActions as the menu bar, so checked states always match.
+// Claude Generated 2026 - View ▸ Views: the quick camera orientations and the saved
+// camera views of the Appearance dock, rebuilt on every opening.
+void MainWindow::populateViewsMenu()
+{
+    if (!m_viewsMenu)
+        return;
+    m_viewsMenu->clear();
+    const struct { int axis; QString label; } quick[] = {
+        { 0, tr("Front") }, { 1, tr("Top") }, { 2, tr("Side") },
+    };
+    for (const auto& q : quick) {
+        QAction* a = m_viewsMenu->addAction(q.label);
+        connect(a, &QAction::triggered, this, [this, axis = q.axis]() {
+            if (m_moleculeView)
+                m_moleculeView->setCameraOrientation(quickViewOrientation(axis));
+        });
+    }
+    const QVector<ViewPreset> saved = m_settings.viewPresets();
+    if (!saved.isEmpty()) {
+        m_viewsMenu->addSeparator();
+        for (const ViewPreset& preset : saved) {
+            QAction* a = m_viewsMenu->addAction(preset.name);
+            connect(a, &QAction::triggered, this, [this, preset]() {
+                if (m_moleculeView)
+                    m_moleculeView->applyViewPreset(preset);
+            });
+        }
+    }
+    m_viewsMenu->addSeparator();
+    QAction* manage = m_viewsMenu->addAction(tr("Manage Views…"));
+    manage->setToolTip(tr("Open the Appearance dock to save and delete camera views."));
+    connect(manage, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
+}
+
+// Claude Generated 2026 - Viewport context menu (UX stage 5). On an atom: the atom
+// actions. On empty space: camera, the quick toggles, Style, Look, deselect and the
+// quick photo. Same QActions/QMenus as the menu bar, so checked states always match.
+// (In Build mode a right-click on an atom deletes it instead, see MoleculeViewer.)
 void MainWindow::showViewportContextMenu(const QPoint& globalPos, int atomIndex)
 {
-    if (!m_displayMenu)
-        return;
     QMenu menu(this);
-    // Claude Generated 2026 - Per-atom builder entries when the click hit an atom.
     if (atomIndex >= 0 && m_moleculeView) {
         QAction* attach = menu.addAction(
             tr("Add Bonded Atom (%1)").arg(m_moleculeView->buildElement()));
@@ -2926,15 +3078,20 @@ void MainWindow::showViewportContextMenu(const QPoint& globalPos, int atomIndex)
                 m_moleculeView->attachFragment(build::fragmentLibrary()[i], atomIndex);
             });
         }
+    } else {
+        menu.addAction(m_fitViewAction);
+        menu.addAction(m_centerSelectionAction);
         menu.addSeparator();
+        menu.addAction(m_nciToggleAction);
+        menu.addAction(m_hbondToggleAction);
+        menu.addMenu(m_hydrogenMenu);
+        menu.addMenu(m_moleculeKindsMenu);
+        menu.addMenu(m_renderStyleMenu);
+        menu.addMenu(m_lookMenu);
+        menu.addSeparator();
+        menu.addAction(m_deselectAction);  // also clears measurement marks
+        menu.addAction(m_quickPhotoAction);
     }
-    for (QAction* a : m_displayMenu->actions())
-        menu.addAction(a);
-    menu.addSeparator();
-    QAction* deselect = menu.addAction(tr("Deselect All"));
-    connect(deselect, &QAction::triggered, this, &MainWindow::clearAtomSelection);
-    QAction* photo = menu.addAction(QIcon::fromTheme("camera-photo"), tr("Photo (Quick Export)"));
-    connect(photo, &QAction::triggered, this, &MainWindow::quickExportPhoto);
     menu.exec(globalPos);
 }
 
@@ -3525,15 +3682,14 @@ void MainWindow::showAboutDialog()
     QMessageBox aboutBox(this);
     aboutBox.setWindowTitle(tr("About Qurcuma"));
     aboutBox.setIcon(QMessageBox::Information);
-    aboutBox.setText(tr("Qurcuma 1.0"));
+    aboutBox.setText(tr("Qurcuma %1").arg(QCoreApplication::applicationVersion()));
     aboutBox.setInformativeText(
-        tr("Interactive molecular visualization for computational chemistry\n\n"
-           "A Qt-based GUI for visualizing molecular structures and trajectories "
-           "from quantum chemistry simulations.\n\n"
-           "Supports: VTF, XYZ file formats"));
+        tr("Molecular viewer, builder and interactive simulation front end for curcuma.\n\n"
+           "Reads XYZ, VTF, PDB and MOL2 files, runs molecular dynamics and geometry "
+           "optimizations through curcuma, and launches curcuma, ORCA and xtb calculations."));
     aboutBox.setDetailedText(
         tr("Built with Qt %1\n"
-           "Copyright 2025").arg(QT_VERSION_STR));
+           "Copyright (C) 2015 - 2026 Conrad Hübler").arg(QT_VERSION_STR));
     aboutBox.exec();
 }
 
@@ -5166,7 +5322,7 @@ void MainWindow::setupNciAnalysis()
     m_nciDock->setOptionsWidget(nciOptions);
 }
 
-// Claude Generated 2026 - NCI quick access: shortcut N, Display menu, bar button.
+// Claude Generated 2026 - NCI quick access: shortcut N, View menu, bar button.
 // Toggle-on restores the last-used source (default: geometry, instant); calculated
 // sources go through the analysis worker.
 void MainWindow::toggleNciOverlay()

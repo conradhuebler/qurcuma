@@ -346,7 +346,7 @@ NciOptionsWidget::NciOptionsWidget(MoleculeViewer* viewer, Settings* settings, Q
     f->addRow(QString(), m_liveMdCheck);
 
     if (m_viewer) {
-        // Options also change from the Display menu (Hydrogen Bonds quick toggle), from
+        // Options also change from the View menu (Hydrogen Bonds quick toggle), from
         // a restored session and from Reset; the widgets follow read-only.
         connect(m_viewer, &MoleculeViewer::nciOptionsChanged, this, [this]() {
             if (!m_applying)

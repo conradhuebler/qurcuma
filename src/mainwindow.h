@@ -481,7 +481,7 @@ private:
     bool m_nciLiveMd = false;          // keep the GFN-FF contact list live during MD
     bool m_nciSelectionSyncing = false; // guards table <-> viewer selection feedback
     // Claude Generated 2026 - NCI quick access: one shared action set feeds the
-    // Display menu, the viewer-bar button dropdown and the command palette.
+    // View menu, the viewer-bar button dropdown and the command palette.
     QAction* m_nciToggleAction = nullptr;   // checkable, shortcut N
     QMenu* m_nciSourceMenu = nullptr;       // Off/Geometry/GFN-FF/GFN2 radio group
     QActionGroup* m_nciSourceGroup = nullptr;
@@ -490,7 +490,7 @@ private:
     void toggleNciOverlay();
     /// Apply a source picked in the menu/bar dropdown (>= 2 starts the analysis).
     void setNciSourceFromUi(int source);
-    // Claude Generated 2026 - Shared display actions (Display menu + viewport
+    // Claude Generated 2026 - Shared display actions (View menu + viewport
     // context menu); checked states mirror the viewer's signals.
     QActionGroup* m_renderStyleGroup = nullptr;
     QActionGroup* m_colorSchemeGroup = nullptr;
@@ -505,12 +505,21 @@ private:
     QMenu* m_colorSchemeMenu = nullptr;               // Claude Generated 2026 - also inside the Look menu
     void populateLookMenu();                          // Claude Generated 2026 - filled on aboutToShow
     QAction* m_fitViewAction = nullptr;
-    QMenu* m_displayMenu = nullptr;         // reused as the viewport context menu
+    // Claude Generated 2026 - UX stage 5: shared with the viewport context menu.
+    QAction* m_centerSelectionAction = nullptr;
+    QAction* m_deselectAction = nullptr;
+    QAction* m_quickPhotoAction = nullptr;
+    QActionGroup* m_appModeGroup = nullptr;           // View ▸ Mode radio items
+    QMenu* m_viewsMenu = nullptr;                     // View ▸ Views, filled on aboutToShow
+    /// Quick camera views plus the saved views. Claude Generated 2026.
+    void populateViewsMenu();
+    /// Help ▸ Keyboard Shortcuts: table built from the menu-bar actions. Claude Generated 2026.
+    void showKeyboardShortcuts();
     /// Esc: cancel a running calculation, else clear selection/measurement.
     void handleEscape();
-    /// Build/show the viewport context menu from the shared display actions.
+    /// Viewport context menu: atom actions on an atom, view actions elsewhere.
     void showViewportContextMenu(const QPoint& globalPos, int atomIndex);
-    /// One-click PNG export (viewer-bar Photo button, context menu).
+    /// One-click PNG export (viewer-bar Photo button, File menu, context menu).
     void quickExportPhoto();
     /// File ▸ New Scene: clear the scene and enter Build mode. Claude Generated 2026.
     void newScene();

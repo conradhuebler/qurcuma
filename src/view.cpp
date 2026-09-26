@@ -4880,7 +4880,7 @@ QIcon barIcon(const QString& kind, const QColor& color)
 } // namespace
 
 // Claude Generated 2026 - Attach MainWindow's shared NCI source menu to the bar
-// button's dropdown, so bar, Display menu and palette use one action set.
+// button's dropdown, so bar, View menu and palette use one action set.
 void MoleculeViewer::setNciQuickMenu(QMenu* menu)
 {
     if (m_nciButton)
@@ -5016,7 +5016,8 @@ void MoleculeViewer::setupControlPanel()
            "Click a marked atom again to deselect; Esc clears."));
     QToolButton* editBtn = makeToolButton(tr("Edit"), QStringLiteral("edit"),
         tr("Edit mode: click to select an atom, double-click for the whole molecule, "
-           "drag to move (Shift = depth, arrow keys = nudge). Overlapping atoms turn red."));
+           "drag to move (Shift = depth). W A S D Q E rotate the scene, with Shift they "
+           "nudge the selection (Q/E = depth). Overlapping atoms turn red."));
     QToolButton* buildBtn = makeToolButton(tr("Build"), QStringLiteral("build"),
         tr("Molecule builder: click empty space to place an atom, click an "
            "atom to change its element, middle-click an atom to attach one, "

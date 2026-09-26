@@ -248,22 +248,7 @@ void ViewPresetWidget::onSelectionChanged()
 
 void ViewPresetWidget::onQuickOrientation(int axis)
 {
-    if (!m_viewer)
+    if (!m_viewer || axis < 0 || axis > 2)
         return;
-
-    QQuaternion q;
-    switch (axis) {
-    case 0: // Front
-        q = QQuaternion();
-        break;
-    case 1: // Top — look down the Y axis
-        q = QQuaternion::fromEulerAngles(-90.0f, 0.0f, 0.0f);
-        break;
-    case 2: // Side — look along the X axis
-        q = QQuaternion::fromEulerAngles(0.0f, 90.0f, 0.0f);
-        break;
-    default:
-        return;
-    }
-    m_viewer->setCameraOrientation(q);
+    m_viewer->setCameraOrientation(quickViewOrientation(axis));
 }
