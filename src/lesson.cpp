@@ -77,6 +77,8 @@ QJsonObject simConfigToJson(const SimulationConfig& cfg)
     o["topologyMode"] = cfg.topologyMode;
 
     // Thermostat
+    o["charge"] = cfg.charge;
+    o["spin"] = cfg.spin;
     o["thermostat"] = cfg.thermostat;
     o["thermostatCoupling"] = cfg.thermostatCoupling;
     o["andersenProbability"] = cfg.andersenProbability;
@@ -149,6 +151,8 @@ SimulationConfig simConfigFromJson(const QJsonObject& o)
 
     cfg.topologyMode = o.value("topologyMode").toString(cfg.topologyMode);
 
+    cfg.charge = o.value("charge").toInt(cfg.charge);
+    cfg.spin = o.value("spin").toInt(cfg.spin);
     cfg.thermostat = o.value("thermostat").toString(cfg.thermostat);
     cfg.thermostatCoupling = o.value("thermostatCoupling").toDouble(cfg.thermostatCoupling);
     cfg.andersenProbability = o.value("andersenProbability").toDouble(cfg.andersenProbability);

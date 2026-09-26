@@ -154,6 +154,8 @@ private:
     // --- Mode / method ---
     QComboBox* m_modeCombo = nullptr;
     QComboBox* m_methodCombo = nullptr;
+    QSpinBox* m_chargeSpin = nullptr;   // curcuma "charge" (Claude Generated 2026)
+    QSpinBox* m_spinSpin = nullptr;     // curcuma "spin": unpaired electrons
     QComboBox* m_optimizerCombo = nullptr;  // Claude Generated 2026 - opt algorithm picker
 
     // --- Common (visible in both modes) ---

@@ -122,6 +122,8 @@ json buildSimplemdParams(const SimulationConfig& cfg, bool singleStep)
 {
     json p;
     p["method"] = cfg.method.toStdString();
+    p["charge"] = cfg.charge;
+    p["spin"] = cfg.spin;
     p["temperature"] = cfg.temperature;
     p["time_step"] = cfg.timestep;
     p["dump_frequency"] = 1;
@@ -366,6 +368,8 @@ void SimulationWorker::stepOnce()
             optimizer->LoadConfiguration(merged);
 
             Molecule mol = atomsToMolecule(m_initialAtoms);
+            mol.setCharge(m_config.charge);  // the optimizer's energy calculator reads them
+            mol.setSpin(m_config.spin);      // from the molecule (as curcumaopt does)
             emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), 0.0, 0.0, 0));
             if (!optimizer->InitializeOptimization(mol)) {
                 emit errorOccurred(tr("Optimizer initialization failed for single step."));
@@ -696,6 +700,8 @@ void SimulationWorker::runOptimization()
     json energy_controller = buildEnergyController(m_config);
 
     Molecule mol = atomsToMolecule(m_initialAtoms);
+    mol.setCharge(m_config.charge);  // read by the optimizer's energy calculator
+    mol.setSpin(m_config.spin);
 
     // Emit starting geometry so the viewer reflects the pre-opt state.
     emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), 0.0, 0.0, 0));

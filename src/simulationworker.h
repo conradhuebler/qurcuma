@@ -44,6 +44,10 @@ struct SimulationConfig {
     Mode mode = Mode::MolecularDynamics;
     QString method = "gfnff";     // Energy method: gfnff / uff / gfn2 / gfn1
     QString optimizer = "auto";   // Opt algorithm: auto / lbfgspp / native_lbfgs / diis / rfo / ancopt
+    // Claude Generated 2026 - curcuma primary parameters "charge" and "spin" (MD + Opt).
+    // curcuma's spin counts unpaired electrons: 0 = singlet, 1 = doublet, 2 = triplet.
+    int charge = 0;
+    int spin = 0;
     double temperature = 300.0;   // K (MD only)
     double timestep = 1.0;        // fs (MD only)
     int steps = 1000;             // Total MD steps or max opt iterations

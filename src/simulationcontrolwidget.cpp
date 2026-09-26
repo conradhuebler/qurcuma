@@ -409,6 +409,18 @@ QGroupBox* SimulationControlWidget::createPotentialGroup()
     m_methodCombo->addItem("GFN1", "gfn1");
     potentialForm->addRow(tr("Method:"), m_methodCombo);
 
+    // Claude Generated 2026 - curcuma primary parameters, used by MD and optimization.
+    m_chargeSpin = new QSpinBox(this);
+    m_chargeSpin->setRange(-20, 20);
+    m_chargeSpin->setToolTip(tr("Total charge of the system (curcuma charge)."));
+    potentialForm->addRow(tr("Charge:"), m_chargeSpin);
+
+    m_spinSpin = new QSpinBox(this);
+    m_spinSpin->setRange(0, 20);
+    m_spinSpin->setToolTip(tr("Number of unpaired electrons (curcuma spin): 0 = singlet, "
+                              "1 = doublet, 2 = triplet."));
+    potentialForm->addRow(tr("Unpaired electrons:"), m_spinSpin);
+
     m_gpuCombo = new QComboBox(this);
     m_gpuCombo->addItem(tr("CPU (none)"), "none");
 #if defined(USE_CUDA)
@@ -920,6 +932,8 @@ void SimulationControlWidget::setupConnections()
     auto notifyConfig = [this]() { emit configChanged(buildConfig()); };
     connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_chargeSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_spinSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_topologyModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_optimizerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     // Temperature slider: stays live during a run. A drag emits temperatureChanged() (forwarded
@@ -980,7 +994,6 @@ void SimulationControlWidget::setupConnections()
     connect(m_wallRadiusSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallXminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallXmaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
-    connect(m_wallYminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallYminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallYmaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallZminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
@@ -1048,24 +1061,14 @@ void SimulationControlWidget::setupConnections()
     connect(m_grabAlphaSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, markCustom);
     connect(m_grabMaxShellsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, markCustom);
 
-    // Show/hide topology mode only for GFN-FF
+    // Show the topology mode only for GFN-FF (the row, label included).
     connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
         [this](int /*index*/) {
-            bool isGFNFF = (m_methodCombo->currentData().toString() == "gfnff");
-            // Find the topology row and hide/show it
-            // The topology combo is the 3rd row in the potential group
-            if (m_topologyModeCombo && m_topologyModeCombo->parentWidget()) {
-                QWidget* label = nullptr;
-                // Find the label associated with topology combo
-                auto* form = qobject_cast<QFormLayout*>(m_topologyModeCombo->parentWidget()->layout());
-                if (form) {
-                    int row = 2; // 3rd row (0-indexed)
-                    QLayoutItem* labelItem = form->itemAt(row, QFormLayout::LabelRole);
-                    if (labelItem) label = labelItem->widget();
-                }
-                m_topologyModeCombo->setVisible(isGFNFF);
-                if (label) label->setVisible(isGFNFF);
-            }
+            auto* form = m_topologyModeCombo
+                ? qobject_cast<QFormLayout*>(m_topologyModeCombo->parentWidget()->layout()) : nullptr;
+            if (form)
+                form->setRowVisible(m_topologyModeCombo,
+                                    m_methodCombo->currentData().toString() == "gfnff");
         });
 
     onModeChanged(0);
@@ -1076,6 +1079,8 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     SimulationConfig cfg;
     cfg.mode = static_cast<SimulationConfig::Mode>(m_modeCombo->currentData().toInt());
     cfg.method = m_methodCombo->currentData().toString();
+    cfg.charge = m_chargeSpin->value();
+    cfg.spin = m_spinSpin->value();
     cfg.optimizer = m_optimizerCombo->currentData().toString();
     cfg.temperature = m_tempSlider->value();
     cfg.timestep = m_timestepSpin->value();
@@ -1181,7 +1186,7 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     };
 
     const QList<QWidget*> guarded = {
-        m_modeCombo, m_methodCombo, m_optimizerCombo, m_tempSlider, m_timestepSpin,
+        m_modeCombo, m_methodCombo, m_chargeSpin, m_spinSpin, m_optimizerCombo, m_tempSlider, m_timestepSpin,
         m_stepsSpin, m_fpsLimitSpin, m_hmassSpin, m_thermostatCombo, m_couplingSpin,
         m_andersenProbSpin, m_noseChainSpin, m_gpuCombo, m_writeTrjCheck, m_perfCheck,
         m_convergenceSpin, m_optKeepParamsCheck, m_rattleCombo, m_rattle12Check,
@@ -1199,6 +1204,8 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
 
     selectData(m_modeCombo, static_cast<int>(cfg.mode));
     selectData(m_methodCombo, cfg.method);
+    m_chargeSpin->setValue(cfg.charge);
+    m_spinSpin->setValue(cfg.spin);
     selectData(m_optimizerCombo, cfg.optimizer);
     if (m_tempSlider) m_tempSlider->setValue(cfg.temperature);
     m_timestepSpin->setValue(cfg.timestep);
@@ -1605,6 +1612,8 @@ void SimulationControlWidget::setRunning(bool running)
     // time. Its own availability is controlled by setResetEnabled().
     m_modeCombo->setEnabled(!running);
     m_methodCombo->setEnabled(!running);
+    m_chargeSpin->setEnabled(!running);
+    m_spinSpin->setEnabled(!running);
     m_optimizerCombo->setEnabled(!running);
     // Temperature slider stays editable during a run — that is the whole point of the live
     // setpoint; a drag is forwarded to the worker (temperatureChanged). Claude Generated 2026.
