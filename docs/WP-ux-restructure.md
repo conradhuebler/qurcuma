@@ -1,9 +1,9 @@
 # Arbeitspaket (WP): UX-Entschlackung und Neuordnung
 
-> **Status:** in Arbeit, Etappen 0 bis 4a-4 committet. Erstellt 2026-09-25, Claude Generated.
+> **Status:** in Arbeit, Etappen 0 bis 4b committet. Erstellt 2026-09-25, Claude Generated.
 > **Branch:** `claude/dockwidgets-overlap-click-issue-th1rwk` (nicht gepusht).
 > **Test:** Build und Unit-Tests je Etappe grün. In der GUI hat der Operator bisher nur
-> Etappe 3 kurz angesehen („sieht erstmal gut aus“); 0, 1, 2, 2b und 4a sind dort ungetestet.
+> Etappe 3 kurz angesehen („sieht erstmal gut aus“); 0, 1, 2, 2b, 4a und 4b sind dort ungetestet.
 > Die GUI rendert aus der Agenten-Shell nicht, Sichtprüfung also nur durch den Operator.
 
 ## Ziel und Ordnungsprinzip
@@ -41,6 +41,7 @@ Die Operator-Entscheidungen vom 2026-09-25 stehen jeweils bei der Etappe, zu der
 | 4a-2 | `56e53c5` | Tools-Abschnitt aufgelöst: Sim-Anzeigen → Simulation-Dock „Show in viewer“ (`SimulationViewOptions`), Center-on-Load und Maus-Rotation → Settings-Menü, Docking-Vorschau → Build ▾ |
 | 4a-3 | `bede030` | NCI-Optionen → Interactions-Dock „Options“ (`NciOptionsWidget`); NCI-Abschnitt und zweite Quellenauswahl im Panel entfernt |
 | 4a-4 | `34eb95e` | Appearance geglättet: eine flache Gruppe Style (Modus, Farben, Größen, Beschriftungen, Hintergrund), dann Fragmente/Bead-Typen; Material, Lighting, Effects im eingeklappten „Advanced“ |
+| 4b | `a24a70b` | Modi Explore · Compute · Teaching im Eckschalter (Teaching = Explore + Lesson-Browser); Layout-Presets, Ctrl+Alt+1–5 und `DockConfig::LayoutPreset` entfernt; ohne gespeichertes Layout legt der Modus die Docks an |
 
 Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 - **Modus-Trennung:** Einsteiger und Forschende werden über die Modi getrennt.
@@ -53,13 +54,6 @@ Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 - **RMSD-MTD:** Wird in Etappe 6 S1 an curcumas `strided`-Schema angeglichen (Option c).
 
 ## Offen: die nächsten Etappen
-
-### 4b: Modi statt Layout-Presets (Operator: „Auf Modi reduzieren“)
-- Der Eckschalter bekommt die drei Modi **Explore**, **Compute** und **Teaching**; Teaching ist Explore mit Lesson-Browser.
-- `DockConfig::LayoutPreset` und `PresetSpec` (`src/docks/dockmanager.cpp`) entfallen, ebenso die fünf Presets und Ctrl+Alt+1–5.
-- Eigene Layouts speichern die bestehenden Workspaces.
-- `DockManager::setAppMode` zeigt heute: Explore = Project + Structure; Compute = alle.
-  Appearance bleibt in jedem Modus geschlossen.
 
 ### 5: Menüs neu schneiden (Operator: „Ja, neu schneiden“)
 - Neue Menüleiste: `File · Edit · View · Structure · Simulation · Tools · Help`.
