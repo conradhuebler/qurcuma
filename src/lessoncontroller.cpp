@@ -145,12 +145,11 @@ void LessonController::openLesson(const QString& path)
     m_lesson = lesson;  // adopt so further edits / re-save work
     m_lessonFilePath = path;  // remember source so "Save Lesson" can overwrite it
     emit workingDirectoryChangeRequested(targetDir);
-    // Claude Generated 2026 - Open the panels the lesson was saved with, like loading
-    // a workspace restores its layout (Simulation in front when it is among them).
-    if (m_dockManager && !lesson.panels.isEmpty())
-        m_dockManager->showPanels(lesson.panels, m_dockManager->simulationDock());
-    // Refresh the in-memory list (count); the extracted .xyz already show in the
-    // file browser, so stay in Files mode rather than auto-switching.
+    // Claude Generated 2026 - Mode and panels are MainWindow's: it switches to Teaching
+    // first and then opens the lesson's panels, so the switch cannot overwrite them.
+    emit lessonOpened(lesson.panels);
+    // Refresh the in-memory list (count) without switching the browser here: Teaching
+    // mode shows the lesson list, otherwise the extracted .xyz show in Files mode.
     refreshStructureView(/*autoShow=*/false);
 
     const QString title = lesson.meta.title.isEmpty() ? fi.fileName() : lesson.meta.title;

@@ -1044,6 +1044,14 @@ void MainWindow::createMenus()
         for (QAction* a : rotationGroup->actions())
             a->setChecked(a->data().toInt() == current);
     });
+    QAction* lessonTeachingAction = preferencesMenu->addAction(tr("Open Lessons in &Teaching Mode"));
+    lessonTeachingAction->setCheckable(true);
+    lessonTeachingAction->setChecked(QSettings().value(DockConfig::UiLessonOpensTeachingKey, true).toBool());
+    lessonTeachingAction->setToolTip(tr("Switch to Teaching mode, with the lesson browser, "
+                                        "whenever a lesson file is opened."));
+    connect(lessonTeachingAction, &QAction::toggled, this, [](bool on) {
+        QSettings().setValue(DockConfig::UiLessonOpensTeachingKey, on);
+    });
     QAction *cursorLockAction = preferencesMenu->addAction(tr("&Lock Cursor While Dragging"));
     cursorLockAction->setCheckable(true);
     cursorLockAction->setChecked(m_moleculeView ? m_moleculeView->dragCursorLock() : true);
@@ -4684,6 +4692,15 @@ void MainWindow::createDockWidgets()
                 [this](const QString& msg, int t) { statusBar()->showMessage(msg, t); });
         connect(m_lessonController, &LessonController::inMemoryStructureLoaded,
                 this, &MainWindow::onLessonStructureLoaded);
+        // Claude Generated 2026 - An opened lesson brings its panels back, like a
+        // workspace its layout (Simulation in front); by default in Teaching mode.
+        connect(m_lessonController, &LessonController::lessonOpened, this,
+                [this](const QStringList& panels) {
+            if (QSettings().value(DockConfig::UiLessonOpensTeachingKey, true).toBool())
+                setAppMode(DockConfig::AppMode::Teaching);
+            if (m_dockManager && !panels.isEmpty())
+                m_dockManager->showPanels(panels, m_dockManager->simulationDock());
+        });
 
         if (auto* bw = m_projectDock->bookmarkWidget())
             m_bookmarkTreeView = bw->treeView();

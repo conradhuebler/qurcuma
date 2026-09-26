@@ -62,6 +62,8 @@ inline const QString UiAppModeKey = QStringLiteral("ui/appMode");
 // Claude Generated 2026 - Open panels per mode, as dock objectNames under
 // ui/modePanels/<int(AppMode)>; written when a mode is left and on close.
 inline const QString UiModePanelsGroup = QStringLiteral("ui/modePanels");
+// Claude Generated 2026 - Preference: opening a lesson switches to Teaching (default on).
+inline const QString UiLessonOpensTeachingKey = QStringLiteral("ui/lessonOpensTeaching");
 // Claude Generated 2026 - Bumped when the dock set changes so old layouts are dropped
 // once instead of restored half-matching (2 = UX stage 4: Structure/Appearance split).
 inline const QString UiLayoutVersionKey = QStringLiteral("ui/layoutVersion");

@@ -42,7 +42,7 @@ public:
     // --- Collaborator injection (call once, after ProjectDock is built) ---------
     void setViewer(MoleculeViewer* v) { m_viewer = v; }
     void setSimulationWidget(SimulationControlWidget* w) { m_simWidget = w; }
-    /// Saving a lesson records the open panels, opening one restores them. Claude Generated 2026.
+    /// Saving a lesson records the open panels (restored via lessonOpened). Claude Generated 2026.
     void setDockManager(DockManager* d) { m_dockManager = d; }
     /// @p filesModel is the model to restore when leaving Lesson mode (proxy or plain).
     void setContentView(QListView* view, QAbstractItemModel* filesModel);
@@ -85,6 +85,10 @@ signals:
     /// An in-memory lesson structure was loaded into the viewer: MainWindow clears
     /// the current file path, resets modified state, enables Save and snapshots it.
     void inMemoryStructureLoaded(const QString& name);
+    /// A lesson file was opened and unpacked. MainWindow switches to Teaching (if the
+    /// preference is on) and then opens @p panels, the panels the lesson was saved with
+    /// (empty for lessons that store none). Claude Generated 2026.
+    void lessonOpened(const QStringList& panels);
 
 private:
     int appendStructureFromAtoms(const QString& name, const QVector<MoleculeViewer::Atom>& atoms);

@@ -4,6 +4,7 @@
 
 - **Jeder Modus merkt sich seine Panels** (`ui/modePanels/<mode>`, beim Verlassen und beim Beenden gespeichert); vorher setzte jeder Moduswechsel und jeder Start einen festen Satz. Teaching öffnet standardmäßig zusätzlich Simulation.
 - **Lessons tragen ihre Panels** (`layout.panels` in der `.qlesson.json`, optional): Save Lesson speichert die offenen Panels, Open Lesson öffnet sie wieder. Nur welche Panels offen sind, keine Größen.
+- **Open Lesson wechselt in den Teaching-Modus**, abschaltbar unter Edit ▸ Preferences ▸ Open Lessons in Teaching Mode (Standard an).
 
 ## September 2026 - UX-Etappe 5: Menüs neu geschnitten
 
