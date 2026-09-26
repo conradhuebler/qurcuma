@@ -19,7 +19,7 @@ namespace DockConfig {
 enum class AppMode {
     Explore = 0,   // viewer focus: Project + Structure
     Compute = 1,   // calculation workflow: + Simulation, Output and the calculation toolbar
-    Teaching = 2   // Explore with the Project panel showing the lesson browser
+    Teaching = 2   // Explore with the lesson first in the Project panel
 };
 
 // Stable object names used by QMainWindow::saveState()/restoreState().

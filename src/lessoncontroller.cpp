@@ -28,6 +28,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
+#include <QMenu>
 #include <QMessageBox>
 #include <QSignalBlocker>
 #include <QToolButton>
@@ -38,16 +39,9 @@ LessonController::LessonController(QWidget* dialogParent, QObject* parent)
 {
 }
 
-void LessonController::setContentView(QListView* view, QAbstractItemModel* filesModel)
+void LessonController::setLessonView(QListView* view)
 {
-    m_dirView = view;
-    m_filesModel = filesModel;
-}
-
-void LessonController::setModeButtons(QToolButton* filesBtn, QToolButton* lessonBtn)
-{
-    m_filesModeBtn = filesBtn;
-    m_lessonModeBtn = lessonBtn;
+    m_lessonView = view;
 }
 
 void LessonController::setMetaWidgets(QWidget* metaWidget, QLineEdit* title, QLineEdit* desc, QLabel* authors)
@@ -71,6 +65,27 @@ void LessonController::setStructWidgets(QWidget* structWidget, QLineEdit* name, 
 void LessonController::wireWidgetConnections()
 {
     m_structureModel = new LessonStructureModel(&m_lesson.structures, this);
+
+    // Claude Generated 2026 - The lesson list is its own view (Lesson section), so the
+    // file browser keeps showing files in every mode.
+    if (m_lessonView) {
+        m_lessonView->setModel(m_structureModel);
+        connect(m_lessonView, &QListView::clicked, this,
+            [this](const QModelIndex& index) { loadStructureFromIndex(index); });
+        connect(m_lessonView, &QListView::customContextMenuRequested, this, [this](const QPoint& pos) {
+            const QModelIndex index = m_lessonView->indexAt(pos);
+            if (!index.isValid())
+                return;
+            QMenu menu(m_lessonView);
+            QAction* loadAct = menu.addAction(tr("Load Structure"));
+            QAction* removeAct = menu.addAction(tr("Remove from Lesson"));
+            QAction* chosen = menu.exec(m_lessonView->viewport()->mapToGlobal(pos));
+            if (chosen == loadAct)
+                loadStructureFromIndex(index);
+            else if (chosen == removeAct)
+                removeStructure(index.row());
+        });
+    }
 
     if (m_titleEdit)
         connect(m_titleEdit, &QLineEdit::textEdited, this,
@@ -148,9 +163,11 @@ void LessonController::openLesson(const QString& path)
     // Claude Generated 2026 - Mode and panels are MainWindow's: it switches to Teaching
     // first and then opens the lesson's panels, so the switch cannot overwrite them.
     emit lessonOpened(lesson.panels);
-    // Refresh the in-memory list (count) without switching the browser here: Teaching
-    // mode shows the lesson list, otherwise the extracted .xyz show in Files mode.
+    // Refresh the lesson list, its count and the metadata; the extracted .xyz also show
+    // in the file browser of the lesson's directory.
     refreshStructureView(/*autoShow=*/false);
+    refreshMetaWidget();
+    showStructureDetails(-1);
 
     const QString title = lesson.meta.title.isEmpty() ? fi.fileName() : lesson.meta.title;
     const QString author = lesson.meta.authors.isEmpty() ? QString() : lesson.meta.authors.first().name;
@@ -249,9 +266,9 @@ void LessonController::addCurrentStructure(const QString& sourceFilePath)
     const QString defaultName = QFileInfo(sourceFilePath).completeBaseName();
     const int row = appendStructureFromAtoms(defaultName, atoms);
 
-    refreshStructureView(/*autoShow=*/true);  // switch to Lesson mode + count
-    if (m_dirView && m_structureModel)
-        m_dirView->setCurrentIndex(m_structureModel->index(row, 0));
+    refreshStructureView(/*autoShow=*/true);  // open the Lesson section + count
+    if (m_lessonView && m_structureModel)
+        m_lessonView->setCurrentIndex(m_structureModel->index(row, 0));
     showStructureDetails(row);
     if (m_structNameEdit) {
         m_structNameEdit->setFocus();
@@ -274,9 +291,9 @@ void LessonController::addFile(const QString& filePath)
         return;
     }
     appendStructureFromAtoms(QFileInfo(filePath).completeBaseName(), atoms);
-    refreshStructureView(/*autoShow=*/false);  // bump count, keep current mode
+    refreshStructureView(/*autoShow=*/false);  // bump count
     emit statusMessage(
-        tr("Added '%1' to lesson (%2). Switch to Lesson to edit details.")
+        tr("Added '%1' to the lesson (%2 structures).")
             .arg(QFileInfo(filePath).completeBaseName()).arg(m_lesson.structures.size()), 4000);
 }
 
@@ -348,40 +365,17 @@ void LessonController::applyConditions(const QString& filePath)
     }
 }
 
-// Swap the content view between the filesystem model and the in-memory lesson model
-// (no second view), and show/hide the lesson metadata + per-structure detail
-// widgets. Restores the filesystem root index when returning to Files mode.
-void LessonController::setBrowserMode(bool lessonMode)
-{
-    if (!m_dirView)
-        return;
-    m_browseMode = lessonMode;
-    if (m_filesModeBtn) m_filesModeBtn->setChecked(!lessonMode);
-    if (m_lessonModeBtn) m_lessonModeBtn->setChecked(lessonMode);
-    if (m_metaWidget) m_metaWidget->setVisible(lessonMode);
-    const bool haveSel = (m_currentRow >= 0 && m_currentRow < m_lesson.structures.size());
-    if (m_structWidget) m_structWidget->setVisible(lessonMode && haveSel);
-    if (lessonMode) {
-        refreshMetaWidget();
-        m_dirView->setModel(m_structureModel);
-        m_dirView->setRootIndex(QModelIndex());  // flat list
-    } else {
-        m_dirView->setModel(m_filesModel);
-        emit directoryContentRefreshRequested();  // restore the filesystem root index
-    }
-}
-
-// Refresh the in-memory lesson-structure model and the Lesson toggle's count. With
-// autoShow, switch to Lesson mode so the user sees a just-added structure.
+// Refresh the in-memory lesson-structure model and report the count (Lesson section
+// title and visibility). With autoShow, ask for the section to be opened so the user
+// sees a just-added structure.
 void LessonController::refreshStructureView(bool autoShow)
 {
     if (m_structureModel)
         m_structureModel->refresh();
     const int n = static_cast<int>(m_lesson.structures.size());
-    if (m_lessonModeBtn)
-        m_lessonModeBtn->setText(tr("Lesson (%1)").arg(n));
-    if (autoShow && n > 0 && !m_browseMode)
-        setBrowserMode(true);
+    emit structureCountChanged(n);
+    if (autoShow && n > 0)
+        emit revealRequested();
 }
 
 // Mirror the lesson-level metadata into the inline metadata widget.
@@ -405,7 +399,7 @@ void LessonController::showStructureDetails(int row)
     m_currentRow = row;
     const bool valid = (row >= 0 && row < m_lesson.structures.size());
     if (m_structWidget)
-        m_structWidget->setVisible(valid && m_browseMode);
+        m_structWidget->setVisible(valid);
     if (!valid)
         return;
     const LessonStructure& s = m_lesson.structures.at(row);

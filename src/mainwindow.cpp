@@ -86,7 +86,8 @@
 #endif
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "docks/dockmanager.h"  // Claude Generated 2026 - Dock system restructuring
-#include "recipe.h"              // Claude Generated 2026 - simulation recipes (UX stage 6 S2)
+#include "recipe.h"
+#include "widgets/collapsiblesection.h"  // Lesson section drop target              // Claude Generated 2026 - simulation recipes (UX stage 6 S2)
 #include "docks/simulationdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/structuredock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/appearancedock.h"  // Claude Generated 2026 - UX stage 4
@@ -282,7 +283,7 @@ void MainWindow::setupUI()
             restored = m_dockManager->restoreSavedLayout();
         }
         // Claude Generated 2026 - Enforce the saved mode last so the calculation toolbar,
-        // dock visibility and lesson browser match it (default Explore on first run).
+        // dock visibility and Lesson section match it (default Explore on first run).
         // Without a restored layout the mode also sizes the docks.
         int savedMode = QSettings().value(DockConfig::UiAppModeKey,
                                           static_cast<int>(DockConfig::AppMode::Explore)).toInt();
@@ -359,20 +360,6 @@ void MainWindow::setupContextMenu()
             if (!index.isValid())
                 return;
 
-            // Claude Generated 2026 - Lesson mode: the view shows in-memory lesson
-            // structures, so offer Load / Remove instead of the file actions.
-            if (m_lessonController->browseMode()) {
-                QMenu menu(this);
-                QAction* loadAct = menu.addAction(tr("Load Structure"));
-                QAction* removeAct = menu.addAction(tr("Remove from Lesson"));
-                QAction* chosen = menu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
-                if (chosen == loadAct) {
-                    m_lessonController->loadStructureFromIndex(index);
-                } else if (chosen == removeAct) {
-                    m_lessonController->removeStructure(index.row());
-                }
-                return;
-            }
 
             QString filePath = filePathFromContentIndex(index);
             if (filePath.endsWith(".xyz", Qt::CaseInsensitive))
@@ -610,7 +597,8 @@ void MainWindow::createModeBar()
     m_computeButton = makeBtn(tr("⚙ Compute"),
         tr("Run calculations: calculation toolbar plus the Simulation and Output panels"));
     m_teachingButton = makeBtn(tr("🎓 Teaching"),
-        tr("Explore with the lesson browser in the Project panel"));
+        tr("Explore with the lesson first: the Lesson section at the top of the Project "
+           "panel, the files below it"));
 
     modeWidget->setStyleSheet(QStringLiteral(
         "QToolButton { padding: 3px 14px; border: 1px solid palette(mid); }"
@@ -630,7 +618,6 @@ void MainWindow::createModeBar()
 // explicitly (deterministic); reflow=false keeps restored sizes on startup.
 void MainWindow::setAppMode(DockConfig::AppMode mode, bool reflow)
 {
-    const DockConfig::AppMode previous = m_appMode;
     m_appMode = mode;
 
     const std::pair<QToolButton*, DockConfig::AppMode> buttons[] = {
@@ -657,13 +644,10 @@ void MainWindow::setAppMode(DockConfig::AppMode mode, bool reflow)
     if (m_dockManager)
         m_dockManager->setAppMode(mode, reflow);
 
-    // Teaching = Explore with the lesson browser; leaving it returns to the files.
-    if (m_lessonController) {
-        if (mode == DockConfig::AppMode::Teaching)
-            m_lessonController->setBrowserMode(true);
-        else if (previous == DockConfig::AppMode::Teaching)
-            m_lessonController->setBrowserMode(false);
-    }
+    // Teaching = Explore with the lesson first: the Lesson section at the top of the
+    // Project panel is shown and open, the file browser stays usable below it.
+    if (m_projectDock)
+        m_projectDock->setLessonTeaching(mode == DockConfig::AppMode::Teaching);
 
     QString name;
     switch (mode) {
@@ -1048,8 +1032,8 @@ void MainWindow::createMenus()
     QAction* lessonTeachingAction = preferencesMenu->addAction(tr("Open Lessons in &Teaching Mode"));
     lessonTeachingAction->setCheckable(true);
     lessonTeachingAction->setChecked(QSettings().value(DockConfig::UiLessonOpensTeachingKey, true).toBool());
-    lessonTeachingAction->setToolTip(tr("Switch to Teaching mode, with the lesson browser, "
-                                        "whenever a lesson file is opened."));
+    lessonTeachingAction->setToolTip(tr("Switch to Teaching mode (the lesson first in the "
+                                        "Project panel) whenever a lesson file is opened."));
     connect(lessonTeachingAction, &QAction::toggled, this, [](bool on) {
         QSettings().setValue(DockConfig::UiLessonOpensTeachingKey, on);
     });
@@ -1668,12 +1652,6 @@ void MainWindow::setupConnections()
         });
     connect(m_directoryContentView, &QListView::clicked,
         [this](const QModelIndex& index) {
-            // Claude Generated 2026 - In Lesson mode the view shows the in-memory
-            // lesson model, not the filesystem; load that structure directly.
-            if (m_lessonController->browseMode()) {
-                m_lessonController->loadStructureFromIndex(index);
-                return;
-            }
             QString filePath = filePathFromContentIndex(index);
             QString suffix = QFileInfo(filePath).suffix().toLower();
             QString basename = QFileInfo(filePath).baseName();
@@ -4747,8 +4725,6 @@ void MainWindow::createDockWidgets()
         m_currentProjectLabel = m_projectDock->currentProjectLabel();
         m_stateIcon = m_projectDock->stateIcon();
         m_stateIndicator = m_projectDock->stateIndicator();
-        m_filesModeBtn = m_projectDock->filesModeButton();
-        m_lessonModeBtn = m_projectDock->lessonModeButton();
         m_directoryContentView = m_projectDock->directoryContentView();
         m_directoryContentModel = m_projectDock->directoryContentModel();
         m_directoryContentProxyModel = m_projectDock->directoryContentProxyModel();
@@ -4760,11 +4736,7 @@ void MainWindow::createDockWidgets()
         m_lessonController->setViewer(m_moleculeView);
         m_lessonController->setSimulationWidget(m_simulationControlWidget);
         m_lessonController->setDockManager(m_dockManager);
-        m_lessonController->setContentView(m_directoryContentView,
-            m_directoryContentProxyModel
-                ? static_cast<QAbstractItemModel*>(m_directoryContentProxyModel)
-                : static_cast<QAbstractItemModel*>(m_directoryContentModel));
-        m_lessonController->setModeButtons(m_filesModeBtn, m_lessonModeBtn);
+        m_lessonController->setLessonView(m_projectDock->lessonListView());
         m_lessonController->setMetaWidgets(m_projectDock->lessonMetaWidget(),
             m_projectDock->lessonTitleEdit(), m_projectDock->lessonDescEdit(),
             m_projectDock->lessonAuthorsLabel());
@@ -4778,8 +4750,10 @@ void MainWindow::createDockWidgets()
                 this, &MainWindow::switchWorkingDirectory);
         connect(m_lessonController, &LessonController::windowTitleChangeRequested,
                 this, &QWidget::setWindowTitle);
-        connect(m_lessonController, &LessonController::directoryContentRefreshRequested,
-                this, &MainWindow::updateDirectoryContent);
+        connect(m_lessonController, &LessonController::structureCountChanged,
+                m_projectDock, &ProjectDock::setLessonCount);
+        connect(m_lessonController, &LessonController::revealRequested,
+                m_projectDock, &ProjectDock::revealLesson);
         connect(m_lessonController, &LessonController::statusMessage, this,
                 [this](const QString& msg, int t) { statusBar()->showMessage(msg, t); });
         connect(m_lessonController, &LessonController::inMemoryStructureLoaded,
@@ -4810,12 +4784,6 @@ void MainWindow::createDockWidgets()
         // Copy current calculation path
         connect(m_projectDock->copyPathButton(), &QPushButton::clicked,
                 this, &MainWindow::copyCurrentPath);
-
-        // Files / Lesson browser toggle
-        connect(m_filesModeBtn, &QToolButton::clicked,
-                this, [this]() { m_lessonController->setBrowserMode(false); });
-        connect(m_lessonModeBtn, &QToolButton::clicked,
-                this, [this]() { m_lessonController->setBrowserMode(true); });
 
         // Content view remote-file handling
 #ifdef USE_SFTP
@@ -5155,9 +5123,9 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
         return true;
 
     // Claude Generated 2026 - Drag molecule files from the browser onto the Lesson
-    // toggle to add them to the lesson (this filter is installed on qApp, so it sees
-    // the button's drag events once the button has setAcceptDrops(true)).
-    if (obj == m_lessonModeBtn && m_lessonModeBtn) {
+    // section to add them to the lesson (this filter is installed on qApp, so it sees
+    // the section's drag events; the section has setAcceptDrops(true)).
+    if (m_projectDock && obj == m_projectDock->lessonSection()) {
         if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
             auto* de = static_cast<QDragMoveEvent*>(event);
             if (de->mimeData()->hasUrls()) {

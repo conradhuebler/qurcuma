@@ -6,7 +6,7 @@
 - Each wrapper inherits `QDockWidget` and exposes its content widgets so existing logic can stay in `MainWindow` while construction moves here.
 
 ## Wrapper Classes
-- `ProjectDock` — working directory chooser, breadcrumb, segmented directory list (Files / Bookmarks / Workspaces / Remote), file/content browser with Files/Lesson toggle, lesson metadata + per-structure editor.
+- `ProjectDock` — working directory chooser, breadcrumb, segmented directory list (Files / Bookmarks / Workspaces / Remote), file/content browser (always files); on top a Lesson section (metadata, lesson structure list, per-structure editor), shown in Teaching mode and whenever the lesson has structures.
 - `StructureDock` — right-side dock with a segmented [Structure | Atoms] area (XYZ editor + atom table).
 - `AppearanceDock` (UX stage 4) — the Display panel + camera views; tabified on the right, **closed by default** (Look ▸ Details…). Old layouts/workspace dock states were reset once (`DockConfig::UiLayoutVersion` = 2).
 - `SimulationDock` — right-side dock with tabs [Simulation | All parameters | Snapshots | RMSD / Align | Input]; tabs are switched by page (`setCurrentWidget`), never by position.
@@ -37,7 +37,7 @@
 ## App Modes (Explore / Compute / Teaching)
 - The only layout switch (UX stage 4b; the five layout presets and Ctrl+Alt+1–5 are gone). Custom layouts are saved as workspaces.
 - `MainWindow::setAppMode` updates the corner buttons, persists `ui/appMode`, shows the calculation toolbar in Compute only.
-- Teaching = Explore + lesson browser: entering it calls `LessonController::setBrowserMode(true)`, leaving it switches back to Files.
+- Teaching = Explore with the lesson first: `ProjectDock::setLessonTeaching` shows and opens the Lesson section at the top of the Project panel; the file browser below keeps working.
 - `DockManager::setAppMode`: **each mode keeps its own panels** (all seven docks, as objectNames in `ui/modePanels/<mode>`), stored when the mode is left and on close, restored on entry. Defaults: Explore = Project + Structure (Structure in front), Teaching adds Simulation, Compute also Output (Simulation in front).
 - Without a stored layout (first run, workspace without layout, View ▸ Reset to Default Layout) the mode also sizes the docks (`reflow`); Reset also forgets the panels of every mode.
 

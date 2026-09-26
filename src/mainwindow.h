@@ -245,7 +245,7 @@ private:
     void loadMoleculeFile(const QString& filePath);
 
     // Claude Generated 2026 - WP T4: the OER-lesson feature (open/save/add/apply +
-    // Files|Lesson browse mode + metadata/detail editors) lives in LessonController.
+    // the lesson list + metadata/detail editors) lives in LessonController.
     // This handles the MainWindow bookkeeping after an in-memory lesson structure is
     // loaded into the viewer (clear file path, reset modified state, snapshot).
     void onLessonStructureLoaded(const QString& name);
@@ -380,12 +380,9 @@ private:
     QString filePathFromContentIndex(const QModelIndex& viewIndex) const;
 
     // Claude Generated 2026 - WP T4: the OER-lesson feature (data + open/save/add/apply
-    // + Files|Lesson browse mode + the metadata/detail editors) is owned by
-    // LessonController. MainWindow keeps only the two mode buttons — the eventFilter
-    // drop-target compares against m_lessonModeBtn — and delegates the rest.
+    // + the lesson list and the metadata/detail editors) is owned by LessonController;
+    // the Lesson section it fills sits at the top of the Project dock.
     LessonController* m_lessonController = nullptr;
-    QToolButton* m_filesModeBtn = nullptr;
-    QToolButton* m_lessonModeBtn = nullptr;
     bool m_centerOnLoad = true;  // shift COM to origin after loading (from VisualizationSettings)
     QAction* m_saveAction = nullptr;
     QAction* m_saveAsAction = nullptr;

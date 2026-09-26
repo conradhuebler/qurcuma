@@ -20,6 +20,8 @@ public:
 
     /// Place a layout (with its widgets) into the collapsible content area.
     void setContentLayout(QLayout* layout);
+    /// Change the header text (e.g. a count in the title). Claude Generated 2026.
+    void setTitle(const QString& title);
     /// Expand/collapse programmatically.
     void setExpanded(bool expanded);
     /// Current expand state (for persistence). Claude Generated 2026.

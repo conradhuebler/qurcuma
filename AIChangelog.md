@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Teaching: Lesson oben, Dateien bleiben erreichbar
+
+- **Lesson-Abschnitt oben im Project-Panel** („Lesson (N)“, einklappbar): Metadaten, eigene Strukturliste, Detail-Editor; Dateien per Drag&Drop hinzufügen. In Teaching offen und als erstes Element, sonst sichtbar, sobald die Lesson Strukturen hat.
+- Der Datei-Browser zeigt in jedem Modus Dateien; der Files/Lesson-Umschalter entfällt. Vorher ersetzte Teaching die Dateiliste durch die Lesson, und ein Klick auf ein Verzeichnis änderte scheinbar nichts.
+
 ## September 2026 - UX-Etappe 6 S3: Tab „All parameters“
 
 - **Simulation-Dock ▸ All parameters**: alle Parameter von curcumas MD-Modul `simplemd`, erzeugt aus der `ParameterRegistry`, nach Kategorie, filterbar nach tier, Suche und „Changed only“.

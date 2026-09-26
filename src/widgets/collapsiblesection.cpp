@@ -84,6 +84,11 @@ void CollapsibleSection::setContentLayout(QLayout* layout)
     m_content->setLayout(layout);
 }
 
+void CollapsibleSection::setTitle(const QString& title)
+{
+    m_header->setText(title);
+}
+
 void CollapsibleSection::setExpanded(bool expanded)
 {
     m_header->setChecked(expanded);
