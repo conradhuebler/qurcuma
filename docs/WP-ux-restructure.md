@@ -1,9 +1,9 @@
 # Arbeitspaket (WP): UX-Entschlackung und Neuordnung
 
-> **Status:** in Arbeit, Etappen 0 bis 4b committet. Erstellt 2026-09-25, Claude Generated.
+> **Status:** in Arbeit, Etappen 0 bis 5 committet. Erstellt 2026-09-25, Claude Generated.
 > **Branch:** `claude/dockwidgets-overlap-click-issue-th1rwk` (nicht gepusht).
 > **Test:** Build und Unit-Tests je Etappe grün. In der GUI hat der Operator bisher nur
-> Etappe 3 kurz angesehen („sieht erstmal gut aus“); 0, 1, 2, 2b, 4a und 4b sind dort ungetestet.
+> Etappe 3 kurz angesehen („sieht erstmal gut aus“); 0, 1, 2, 2b, 4a, 4b und 5 sind dort ungetestet.
 > Die GUI rendert aus der Agenten-Shell nicht, Sichtprüfung also nur durch den Operator.
 
 ## Ziel und Ordnungsprinzip
@@ -42,6 +42,7 @@ Die Operator-Entscheidungen vom 2026-09-25 stehen jeweils bei der Etappe, zu der
 | 4a-3 | `bede030` | NCI-Optionen → Interactions-Dock „Options“ (`NciOptionsWidget`); NCI-Abschnitt und zweite Quellenauswahl im Panel entfernt |
 | 4a-4 | `34eb95e` | Appearance geglättet: eine flache Gruppe Style (Modus, Farben, Größen, Beschriftungen, Hintergrund), dann Fragmente/Bead-Typen; Material, Lighting, Effects im eingeklappten „Advanced“ |
 | 4b | `a24a70b` | Modi Explore · Compute · Teaching im Eckschalter (Teaching = Explore + Lesson-Browser); Layout-Presets, Ctrl+Alt+1–5 und `DockConfig::LayoutPreset` entfernt; ohne gespeichertes Layout legt der Modus die Docks an |
+| 5 | `ceb56c9` | Menüleiste File · Edit · View · Structure · Simulation · Tools · Help; Simulation-Einträge starten wirklich; Werkzeug-Radio mit `M`/Ctrl+E/`B`; Help ▸ Keyboard Shortcuts aus den QActions; Kontextmenü nach Atom/leerer Fläche getrennt; Palette nur aus der Menüleiste |
 
 Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 - **Modus-Trennung:** Einsteiger und Forschende werden über die Modi getrennt.
@@ -54,17 +55,6 @@ Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 - **RMSD-MTD:** Wird in Etappe 6 S1 an curcumas `strided`-Schema angeglichen (Option c).
 
 ## Offen: die nächsten Etappen
-
-### 5: Menüs neu schneiden (Operator: „Ja, neu schneiden“)
-- Neue Menüleiste: `File · Edit · View · Structure · Simulation · Tools · Help`.
-- **View:** Display geht in View auf und bekommt die Schnellschalter, Look ▸, Kamera, Views ▸ und Panels ▸.
-- **Simulation:** Die Einträge starten wirklich; heute bringen sie nur das Dock nach vorn.
-- **Tools:** NMR Spectra kommt hierher, heute ist es nur auf der versteckten Toolbar.
-- **Settings:** geht als Preferences unter Edit auf.
-- **Help:** bekommt „Keyboard Shortcuts“ und ein aktualisiertes About.
-- **Viewport-Kontextmenü:** Auf einem Atom stehen die Atom-Aktionen, auf leerer Fläche die Schnellschalter und Look. Die Kopie des ganzen Display-Menüs entfällt.
-- **Palette:** Handverlesene Doppelungen entfallen; Photo und Measure werden als QActions auffindbar.
-- Details stehen im Plan (siehe unten), Abschnitt „Etappe 5“.
 
 ### 6: Simulationsparameter, Versuchsfahrplan
 Grundlage ist curcumas `ParameterRegistry` (`external/curcuma/src/core/parameter_registry.h`). Sie liefert je Parameter `tier` (primary/advanced/expert), `relevantWhen`, Einheit, Min/Max und erlaubte Werte. qurcuma füllt die Registry schon in `src/main.cpp`.
