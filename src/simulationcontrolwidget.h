@@ -204,7 +204,8 @@ private:
     QLineEdit*      m_rmsdMtdRefFileEdit = nullptr;
     QSpinBox*       m_rmsdMtdMaxGaussiansSpin = nullptr;
     QSpinBox*       m_rmsdMtdMaxHeightSpin = nullptr;
-    QDoubleSpinBox* m_rmsdMtdEconvSpin = nullptr;
+    QDoubleSpinBox* m_rmsdMtdStrideSpin = nullptr;   // rmsd_mtd_deposit_stride (fs)
+    QDoubleSpinBox* m_rmsdMtdRdepSpin = nullptr;     // rmsd_mtd_r_dep (Å, -1 = auto)
     QCheckBox*      m_rmsdMtdWtmtdCheck = nullptr;
     QDoubleSpinBox* m_rmsdMtdDtSpin = nullptr;
     QCheckBox*      m_rmsdMtdFreezeCheck = nullptr;

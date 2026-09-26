@@ -44,7 +44,10 @@ void applyRmsdMtdParams(const SimulationConfig& cfg, json& simplemd_params)
     simplemd_params["rmsd_mtd_ref_file"] = cfg.rmsdMtdRefFile.toStdString();
     simplemd_params["rmsd_mtd_max_gaussians"] = cfg.rmsdMtdMaxGaussians;
     simplemd_params["rmsd_mtd_max_height"] = cfg.rmsdMtdMaxHeight;
-    simplemd_params["rmsd_econv"] = cfg.rmsdMtdEconv;  // read by the legacy scheme only; strided ignores it
+    // Strided scheme (curcuma's default rmsd_mtd_scheme): deposition cadence and hill
+    // spacing. rmsd_econv and rmsd_mtd_pace belong to the legacy scheme and are not sent.
+    simplemd_params["rmsd_mtd_deposit_stride"] = cfg.rmsdMtdDepositStride;
+    simplemd_params["rmsd_mtd_r_dep"] = cfg.rmsdMtdRdep;
     if (cfg.rmsdMtdWtmtd) {
         simplemd_params["wtmtd"] = true;
         simplemd_params["rmsd_mtd_dt"] = cfg.rmsdMtdDt;  // only used when wtmtd

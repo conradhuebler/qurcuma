@@ -94,7 +94,9 @@ struct SimulationConfig {
     QString rmsdMtdRefFile      = "none"; // rmsd_mtd_ref_file: reference structures file
     int    rmsdMtdMaxGaussians  = -1;     // rmsd_mtd_max_gaussians: cap stored bias structs (-1=unlimited)
     int    rmsdMtdMaxHeight     = 0;      // rmsd_mtd_max_height: cap per-struct counter (0=unbounded)
-    double rmsdMtdEconv        = 1e8;    // rmsd_econv: bias-deposition convergence threshold (gates when a region is considered biased enough)
+    // Claude Generated 2026 - curcuma's default "strided" deposition scheme (UX stage 6 S1).
+    double rmsdMtdDepositStride = 10.0;   // rmsd_mtd_deposit_stride: deposition cadence (fs)
+    double rmsdMtdRdep          = -1.0;   // rmsd_mtd_r_dep: hill spacing in RMSD space (Å), -1 = auto FWHM(α)
     bool   rmsdMtdWtmtd         = false;  // wtmtd: well-tempered reporting (gates rmsdMtdDt)
     double rmsdMtdDt            = 2000.0; // rmsd_mtd_dt: well-tempered bias temp ΔT (K)
     bool   rmsdMtdFreezeInherited = false;// rmsd_mtd_freeze_inherited: freeze inherited hill heights

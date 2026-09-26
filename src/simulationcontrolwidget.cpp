@@ -158,9 +158,8 @@ QGroupBox* SimulationControlWidget::createRmsdMtdGroup()
     m_rmsdMtdKSpin->setSingleStep(0.01);
     m_rmsdMtdKSpin->setValue(0.01);
     m_rmsdMtdKSpin->setSuffix(" Eh");
-    m_rmsdMtdKSpin->setToolTip(tr("Hill height constant: W_i = k * counter_i (Eh). "
-        "Force is the exact gradient of the bias, so k is ~100x smaller than the "
-        "pre-2026 value."));
+    m_rmsdMtdKSpin->setToolTip(tr("Hill height constant: W_i = k · counter_i (Eh). "
+        "The bias force is the exact gradient of the bias."));
     rmsdForm->addRow(tr("k (height):"), m_rmsdMtdKSpin);
 
     m_rmsdMtdAlphaSpin = new QDoubleSpinBox(this);
@@ -208,20 +207,33 @@ QGroupBox* SimulationControlWidget::createRmsdMtdGroup()
     m_rmsdMtdMaxHeightSpin->setRange(0, 1000000);
     m_rmsdMtdMaxHeightSpin->setValue(0);
     m_rmsdMtdMaxHeightSpin->setToolTip(tr("Cap on per-structure hill counter: "
-        "W_i = k * min(counter_i, cap). 0 = unbounded (legacy)."));
+        "W_i = k · min(counter_i, cap). 0 = unbounded."));
     rmsdForm->addRow(tr("Max height cap:"), m_rmsdMtdMaxHeightSpin);
 
-    m_rmsdMtdEconvSpin = new QDoubleSpinBox(this);
-    m_rmsdMtdEconvSpin->setRange(0.0, 1e12);
-    m_rmsdMtdEconvSpin->setDecimals(0);
-    m_rmsdMtdEconvSpin->setSingleStep(1e7);
-    m_rmsdMtdEconvSpin->setValue(1e8);
-    // Claude Generated 2026 - curcuma's default deposition scheme (rmsd_mtd_scheme=strided)
-    // ignores rmsd_econv and warns when it is set; only the legacy scheme reads it.
-    m_rmsdMtdEconvSpin->setToolTip(tr("Bias-deposition convergence threshold (rmsd_econv). "
-        "Only curcuma's legacy RMSD-MTD scheme reads it; the default strided scheme "
-        "ignores it and sets the hill spacing through rmsd_mtd_r_dep instead."));
-    rmsdForm->addRow(tr("Conv. threshold (legacy):"), m_rmsdMtdEconvSpin);
+    // Claude Generated 2026 - curcuma's default deposition scheme (rmsd_mtd_scheme=strided):
+    // a hill may be deposited every deposit_stride fs, spaced r_dep apart in RMSD space.
+    m_rmsdMtdStrideSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdStrideSpin->setRange(0.1, 1e6);
+    m_rmsdMtdStrideSpin->setDecimals(1);
+    m_rmsdMtdStrideSpin->setSingleStep(5.0);
+    m_rmsdMtdStrideSpin->setValue(10.0);
+    m_rmsdMtdStrideSpin->setSuffix(" fs");
+    m_rmsdMtdStrideSpin->setToolTip(tr("Deposition cadence (rmsd_mtd_deposit_stride): a new hill "
+        "can be deposited every this many fs, converted to steps with the time step. "
+        "The bias force acts every step."));
+    rmsdForm->addRow(tr("Deposit every:"), m_rmsdMtdStrideSpin);
+
+    m_rmsdMtdRdepSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdRdepSpin->setRange(-1.0, 100.0);
+    m_rmsdMtdRdepSpin->setDecimals(3);
+    m_rmsdMtdRdepSpin->setSingleStep(0.05);
+    m_rmsdMtdRdepSpin->setValue(-1.0);
+    m_rmsdMtdRdepSpin->setSuffix(QStringLiteral(" Å"));
+    m_rmsdMtdRdepSpin->setSpecialValueText(tr("auto"));
+    m_rmsdMtdRdepSpin->setToolTip(tr("Hill spacing in RMSD space (rmsd_mtd_r_dep). It sets the "
+        "smallest hill height V_min = k · exp(−α · r_dep²). auto = full width at half maximum "
+        "of the Gaussian, 2.3548 / √(2α), about 0.53 Å at α = 10."));
+    rmsdForm->addRow(tr("Hill spacing:"), m_rmsdMtdRdepSpin);
 
     m_rmsdMtdWtmtdCheck = new QCheckBox(tr("Well-tempered reporting"), this);
     m_rmsdMtdWtmtdCheck->setToolTip(tr("Switch on well-tempered reporting. Only then "
@@ -955,7 +967,8 @@ void SimulationControlWidget::setupConnections()
     connect(m_rmsdMtdRefFileEdit, &QLineEdit::textChanged, this, notifyConfig);
     connect(m_rmsdMtdMaxGaussiansSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_rmsdMtdMaxHeightSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
-    connect(m_rmsdMtdEconvSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rmsdMtdStrideSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rmsdMtdRdepSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_rmsdMtdWtmtdCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rmsdMtdDtSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_rmsdMtdFreezeCheck, &QCheckBox::toggled, this, notifyConfig);
@@ -1097,7 +1110,8 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.rmsdMtdRefFile       = m_rmsdMtdRefFileEdit->text().trimmed();
     cfg.rmsdMtdMaxGaussians  = m_rmsdMtdMaxGaussiansSpin->value();
     cfg.rmsdMtdMaxHeight     = m_rmsdMtdMaxHeightSpin->value();
-    cfg.rmsdMtdEconv         = m_rmsdMtdEconvSpin->value();
+    cfg.rmsdMtdDepositStride = m_rmsdMtdStrideSpin->value();
+    cfg.rmsdMtdRdep          = m_rmsdMtdRdepSpin->value();
     cfg.rmsdMtdWtmtd         = m_rmsdMtdWtmtdCheck->isChecked();
     cfg.rmsdMtdDt            = m_rmsdMtdDtSpin->value();
     cfg.rmsdMtdFreezeInherited = m_rmsdMtdFreezeCheck->isChecked();
@@ -1174,7 +1188,7 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
         m_rattle13Check, m_rattleTol12Spin, m_rattleTol13Spin, m_rattleMaxIterSpin,
         m_topologyModeCombo, m_rmsdMtdEnableCheck, m_rmsdMtdKSpin, m_rmsdMtdAlphaSpin,
         m_rmsdMtdAtomsEdit, m_rmsdMtdRefFileEdit, m_rmsdMtdMaxGaussiansSpin,
-        m_rmsdMtdMaxHeightSpin, m_rmsdMtdEconvSpin, m_rmsdMtdWtmtdCheck,
+        m_rmsdMtdMaxHeightSpin, m_rmsdMtdStrideSpin, m_rmsdMtdRdepSpin, m_rmsdMtdWtmtdCheck,
         m_rmsdMtdDtSpin, m_rmsdMtdFreezeCheck, m_wallEnableCheck, m_wallTypeCombo,
         m_wallPotentialCombo, m_wallRadiusSpin, m_wallXminSpin, m_wallXmaxSpin,
         m_wallYminSpin, m_wallYmaxSpin, m_wallZminSpin, m_wallZmaxSpin, m_wallTempSlider,
@@ -1216,7 +1230,8 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     m_rmsdMtdRefFileEdit->setText(cfg.rmsdMtdRefFile);
     m_rmsdMtdMaxGaussiansSpin->setValue(cfg.rmsdMtdMaxGaussians);
     m_rmsdMtdMaxHeightSpin->setValue(cfg.rmsdMtdMaxHeight);
-    m_rmsdMtdEconvSpin->setValue(cfg.rmsdMtdEconv);
+    m_rmsdMtdStrideSpin->setValue(cfg.rmsdMtdDepositStride);
+    m_rmsdMtdRdepSpin->setValue(cfg.rmsdMtdRdep);
     m_rmsdMtdWtmtdCheck->setChecked(cfg.rmsdMtdWtmtd);
     m_rmsdMtdDtSpin->setValue(cfg.rmsdMtdDt);
     m_rmsdMtdFreezeCheck->setChecked(cfg.rmsdMtdFreezeInherited);
@@ -1634,7 +1649,8 @@ void SimulationControlWidget::setRunning(bool running)
     m_rmsdMtdRefFileEdit->setEnabled(!running);
     m_rmsdMtdMaxGaussiansSpin->setEnabled(!running);
     m_rmsdMtdMaxHeightSpin->setEnabled(!running);
-    m_rmsdMtdEconvSpin->setEnabled(!running);
+    m_rmsdMtdStrideSpin->setEnabled(!running);
+    m_rmsdMtdRdepSpin->setEnabled(!running);
     m_rmsdMtdWtmtdCheck->setEnabled(!running);
     m_rmsdMtdFreezeCheck->setEnabled(!running);
     // ΔT stays gated by wtmtd; re-apply that constraint after the run-state pass.
