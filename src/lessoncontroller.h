@@ -23,6 +23,7 @@
 
 class MoleculeViewer;
 class SimulationControlWidget;
+class DockManager;
 class LessonStructureModel;
 class QAbstractItemModel;
 class QListView;
@@ -41,6 +42,8 @@ public:
     // --- Collaborator injection (call once, after ProjectDock is built) ---------
     void setViewer(MoleculeViewer* v) { m_viewer = v; }
     void setSimulationWidget(SimulationControlWidget* w) { m_simWidget = w; }
+    /// Saving a lesson records the open panels, opening one restores them. Claude Generated 2026.
+    void setDockManager(DockManager* d) { m_dockManager = d; }
     /// @p filesModel is the model to restore when leaving Lesson mode (proxy or plain).
     void setContentView(QListView* view, QAbstractItemModel* filesModel);
     void setModeButtons(QToolButton* filesBtn, QToolButton* lessonBtn);
@@ -99,6 +102,7 @@ private:
     QWidget* m_dialogParent = nullptr;
     MoleculeViewer* m_viewer = nullptr;
     SimulationControlWidget* m_simWidget = nullptr;
+    DockManager* m_dockManager = nullptr;
     QListView* m_dirView = nullptr;
     QAbstractItemModel* m_filesModel = nullptr;
     QToolButton* m_filesModeBtn = nullptr;

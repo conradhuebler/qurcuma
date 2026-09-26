@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - Panels je Modus und je Lesson
+
+- **Jeder Modus merkt sich seine Panels** (`ui/modePanels/<mode>`, beim Verlassen und beim Beenden gespeichert); vorher setzte jeder Moduswechsel und jeder Start einen festen Satz. Teaching öffnet standardmäßig zusätzlich Simulation.
+- **Lessons tragen ihre Panels** (`layout.panels` in der `.qlesson.json`, optional): Save Lesson speichert die offenen Panels, Open Lesson öffnet sie wieder. Nur welche Panels offen sind, keine Größen.
+
 ## September 2026 - UX-Etappe 5: Menüs neu geschnitten
 
 - **Menüleiste** File · Edit · View · Structure · Simulation · Tools · Help; Display geht in View auf, Settings wird Edit ▸ Preferences, Molecule verteilt sich auf Structure und Simulation.

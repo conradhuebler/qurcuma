@@ -8,6 +8,8 @@
 
 #include "lessoncontroller.h"
 
+#include "docks/dockmanager.h"
+
 #include "dialogs/lessonmetadatadialog.h"
 #include "lessonstructuremodel.h"
 #include "moleculefileloader.h"
@@ -143,6 +145,10 @@ void LessonController::openLesson(const QString& path)
     m_lesson = lesson;  // adopt so further edits / re-save work
     m_lessonFilePath = path;  // remember source so "Save Lesson" can overwrite it
     emit workingDirectoryChangeRequested(targetDir);
+    // Claude Generated 2026 - Open the panels the lesson was saved with, like loading
+    // a workspace restores its layout (Simulation in front when it is among them).
+    if (m_dockManager && !lesson.panels.isEmpty())
+        m_dockManager->showPanels(lesson.panels, m_dockManager->simulationDock());
     // Refresh the in-memory list (count); the extracted .xyz already show in the
     // file browser, so stay in Files mode rather than auto-switching.
     refreshStructureView(/*autoShow=*/false);
@@ -168,6 +174,8 @@ void LessonController::saveLesson(const QString& path)
         m_lesson.meta.created = now;
     m_lesson.meta.modified = now;
     m_lesson.meta.qurcumaVersion = QCoreApplication::applicationVersion();
+    if (m_dockManager)
+        m_lesson.panels = m_dockManager->openPanels();  // what the author sees now
 
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {

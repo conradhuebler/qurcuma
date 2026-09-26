@@ -4659,6 +4659,7 @@ void MainWindow::createDockWidgets()
         m_lessonController = new LessonController(this, this);
         m_lessonController->setViewer(m_moleculeView);
         m_lessonController->setSimulationWidget(m_simulationControlWidget);
+        m_lessonController->setDockManager(m_dockManager);
         m_lessonController->setContentView(m_directoryContentView,
             m_directoryContentProxyModel
                 ? static_cast<QAbstractItemModel*>(m_directoryContentProxyModel)

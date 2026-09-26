@@ -236,6 +236,13 @@ QJsonObject lessonToJson(const Lesson& lesson, bool inlineXyz)
         structures.append(so);
     }
     root["structures"] = structures;
+
+    // Optional (older files have none): which panels the lesson opens.
+    if (!lesson.panels.isEmpty()) {
+        QJsonObject layout;
+        layout["panels"] = QJsonArray::fromStringList(lesson.panels);
+        root["layout"] = layout;
+    }
     return root;
 }
 
@@ -279,6 +286,8 @@ Lesson lessonFromJson(const QJsonObject& obj, QString* error)
         s.sim = simConfigFromJson(so.value("sim").toObject());
         lesson.structures.push_back(s);
     }
+    for (const QJsonValue& v : obj.value("layout").toObject().value("panels").toArray())
+        lesson.panels << v.toString();
     return lesson;
 }
 
