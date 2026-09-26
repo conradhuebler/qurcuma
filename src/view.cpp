@@ -1210,6 +1210,8 @@ void MoleculeViewer::pushNciToScene()
                 continue;
             seg.a = centroid(c.ringA);
             seg.b = centroid(c.ringB);   // centroids: nothing to trim against
+            seg.ownerA = c.ringA.first();  // the rings' molecules, for hidden kinds
+            seg.ownerB = c.ringB.first();
         } else {
             const int from = c.bridge >= 0 ? c.bridge : c.donor;
             if (from < 0 || from >= atoms.size() || c.acceptor < 0 || c.acceptor >= atoms.size())

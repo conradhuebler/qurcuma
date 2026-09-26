@@ -236,6 +236,36 @@ int main(int argc, char* argv[])
     check(!mScene.isAtomHidden(6) && mScene.isAtomHidden(7),
         "Show All brings the waters back; the H display still applies");
 
+    // Claude Generated 2026 - The same rule as a pure function, used by RMSD overlays:
+    // the guest/host/argon system above, hiding the water guest.
+    const SceneController::FragmentSplit split = SceneController::computeFragments(atoms, bonds);
+    check(split.info.size() == 3 && split.info[1].formula == QStringLiteral("H2O")
+            && split.fragmentOf[0] == 1 && split.fragmentOf[3] == 0 && split.fragmentOf[9] == 2,
+        "computeFragments gives the cached decomposition (largest first, formulas)");
+    const QVector<bool> kindMask =
+        SceneController::computeMoleculeKindMask(atoms, bonds, { QStringLiteral("H2O") });
+    check(kindMask.size() == atoms.size() && kindMask[0] && kindMask[1] && kindMask[2]
+            && !kindMask[3] && !kindMask[8] && !kindMask[9],
+        "the molecule-kind mask hides exactly the water's three atoms");
+    check(!SceneController::computeMoleculeKindMask(atoms, bonds, {}).contains(true),
+        "no hidden kinds, nothing hidden");
+
+    // A pi-stacking line runs between ring centroids (no end atom); its owner atoms tie
+    // it to the ring (0) and to a water (6), so hiding waters hides the line too.
+    SceneController::NciSegment stack;
+    stack.a = QVector3D(2.5f, 0.0f, 0.0f);
+    stack.b = QVector3D(11.0f, 0.0f, 0.0f);
+    stack.ownerA = 0;
+    stack.ownerB = 6;
+    stack.label = QStringLiteral("stack");
+    mScene.setNciLabelsVisible(true);
+    mScene.setNciContacts({ stack });
+    mScene.setNciVisible(true);
+    check(mScene.nciLabels().size() == 1, "the pi-stacking line is drawn while waters are shown");
+    mScene.setHiddenMoleculeKinds({ QStringLiteral("H2O") });
+    check(mScene.nciLabels().isEmpty(), "hiding the waters also drops the pi-stacking line that touches one");
+    mScene.setHiddenMoleculeKinds({});
+
 
     std::cout << std::endl;
     if (g_failures == 0) {

@@ -1,5 +1,11 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Umbau: Restpunkte
+
+- **Moleküle ausblenden** wirkt jetzt auch auf Pi-Stacking-Linien (Ring-Zentroide; über ein Ringatom als Eigentümer) und auf RMSD-Overlays (eigene Fragmentzerlegung je Overlay, `SceneController::computeMoleculeKindMask`).
+- Look ▸ Details… öffnet das Appearance-Dock direkt bei „Advanced“.
+- Entfernt: Ctrl+Tab (wechselte ein beliebiges Tab-Widget), der doppelt gesetzte Fenstertitel, das nie gesendete Signal `displayOptionsRequested`.
+
 ## September 2026 - curcumas Defaults für Temperatur und Gradient
 
 - MD-Temperatur startet mit 298.15 K (vorher 300 K), die Gradient-Toleranz der Optimierung mit 5e-4 Eh/Bohr (vorher 1e-6), beides curcumas Defaults; das Laufprotokoll führt sie ohne Eingriff nicht mehr als Abweichung.

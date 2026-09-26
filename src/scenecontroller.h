@@ -216,6 +216,11 @@ public:
         QColor color{ 200, 200, 205 };
         float radius = 0.05f;
         QString label;   // empty = no label
+        // Claude Generated 2026 - One atom of each end's molecule, for hiding the line
+        // with a hidden molecule kind. atomA/atomB for atom-to-atom contacts, a ring
+        // atom for pi-stacking (whose ends are centroids, atomA/atomB = -1).
+        int ownerA = -1;
+        int ownerB = -1;
     };
     QQuick3DInstancing* nciInstancing() const;
     bool nciVisible() const { return m_nciVisible && !m_nciSegments.isEmpty(); }
@@ -300,6 +305,19 @@ public:
         QString formula;   ///< Hill notation, or bead-type composition for CG beads
         int atomCount = 0;
     };
+    /// Claude Generated 2026 - Connected components of the bond graph, largest first
+    /// (ties in file order), each with its formula. A pure function of atoms and bonds:
+    /// ensureFragments() caches it for the primary structure, RMSD overlays compute
+    /// their own (tested in test_fragments).
+    struct FragmentSplit {
+        QVector<int> fragmentOf;        ///< atom index -> fragment index
+        QVector<FragmentInfo> info;     ///< per fragment
+    };
+    static FragmentSplit computeFragments(const QVector<AtomDatum>& atoms,
+        const QVector<BondDatum>& bonds);
+    /// Per atom: does it belong to a molecule whose formula is in @p kinds?
+    static QVector<bool> computeMoleculeKindMask(const QVector<AtomDatum>& atoms,
+        const QVector<BondDatum>& bonds, const QSet<QString>& kinds);
     /// Fragments of the current structure, largest first. Fewer than two means
     /// there is nothing to distinguish.
     QVector<FragmentInfo> fragments() const;
@@ -365,8 +383,9 @@ public:
 
     // Claude Generated 2026 - Hide molecules by kind (solvent etc.). A kind is a fragment
     // formula (fragments(), Hill notation); every fragment with a hidden formula is hidden
-    // like a hidden H, except that NCI contacts to it are dropped instead of rerouted.
-    // Pi-stacking lines (ring centroids, no atom index) and RMSD overlays are not affected.
+    // like a hidden H, except that NCI contacts to it are dropped instead of rerouted
+    // (pi-stacking lines included, via NciSegment::ownerA/ownerB). RMSD overlays hide
+    // their own molecules of the same kinds.
     /// Distinct fragment formulas with their molecule count, most numerous first.
     QVector<QPair<QString, int>> moleculeKinds() const;
     void setHiddenMoleculeKinds(const QSet<QString>& formulas);

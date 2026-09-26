@@ -76,7 +76,6 @@ Grundlage ist curcumas `ParameterRegistry` (`external/curcuma/src/core/parameter
 - **Ladungsquelle für „Color by Charge“ (zu klären):**
   - Heute kommen Ladungen nur als Nebenprodukt der NCI-Analyse mit GFN-FF/GFN2: `NciAnalysisWorker` → `chargesReady` → `setAtomCharges`, und nur für den aktuellen Frame.
   - Kandidaten: GFN-FF-EEQ direkt anfordern oder Partialladungen aus Rechnungen bzw. Dateien übernehmen. Ob sie im Live-MD mitlaufen sollen, ist ebenfalls offen.
-- **Nicht abgedeckt beim Ausblenden von Molekülen:** Pi-Stacking-Linien (Ring-Zentroide ohne Atomindex) und RMSD-Overlays.
 - **Restrisiko Wayland:** Ein Layout, das eine schwebende Tab-Gruppe enthält, würde sie wiederherstellen. Nach dem Layout-Reset in 4a-1 ist das nur für neu entstehende Layouts relevant, und `GroupedDragging` ist unter Wayland aus.
 
 ## Praktisches für die nächste Session

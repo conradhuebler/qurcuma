@@ -267,8 +267,15 @@ void SceneController::rebuildOverlays()
             c.setAlphaF(m_transparency);
             return c;
         };
-        // Overlays follow the same hydrogen display as the primary structure.
-        const HydrogenMask ovMask = computeHydrogenMask(ov.atoms, ov.bonds, m_hydrogenDisplay);
+        // Overlays follow the same hydrogen display and hide the same molecule kinds
+        // as the primary structure (their own molecules, found in their own bonds).
+        HydrogenMask ovMask = computeHydrogenMask(ov.atoms, ov.bonds, m_hydrogenDisplay);
+        if (!m_hiddenMoleculeKinds.isEmpty()) {
+            const QVector<bool> kindHidden =
+                computeMoleculeKindMask(ov.atoms, ov.bonds, m_hiddenMoleculeKinds);
+            for (int i = 0; i < ov.atoms.size(); ++i)
+                ovMask.hidden[i] = ovMask.hidden[i] || kindHidden[i];
+        }
 
         if (m_atomsVisible) {
             items.reserve(items.size() + ov.atoms.size());
@@ -900,22 +907,30 @@ void SceneController::ensureFragments() const
     if (!m_fragmentsDirty)
         return;
     m_fragmentsDirty = false;
-    m_fragmentOf.assign(m_atoms.size(), -1);
-    m_fragmentInfo.clear();
-    if (m_atoms.isEmpty())
-        return;
+    FragmentSplit split = computeFragments(m_atoms, m_bonds);
+    m_fragmentOf = std::move(split.fragmentOf);
+    m_fragmentInfo = std::move(split.info);
+}
 
-    QVector<QVector<int>> adjacency(m_atoms.size());
-    for (const BondDatum& b : m_bonds) {
-        if (b.a >= 0 && b.a < m_atoms.size() && b.b >= 0 && b.b < m_atoms.size()) {
+SceneController::FragmentSplit SceneController::computeFragments(const QVector<AtomDatum>& atoms,
+    const QVector<BondDatum>& bonds)
+{
+    FragmentSplit out;
+    out.fragmentOf.fill(-1, atoms.size());
+    if (atoms.isEmpty())
+        return out;
+
+    QVector<QVector<int>> adjacency(atoms.size());
+    for (const BondDatum& b : bonds) {
+        if (b.a >= 0 && b.a < atoms.size() && b.b >= 0 && b.b < atoms.size()) {
             adjacency[b.a].append(b.b);
             adjacency[b.b].append(b.a);
         }
     }
 
     QVector<QVector<int>> components;
-    QVector<int> raw(m_atoms.size(), -1);
-    for (int start = 0; start < m_atoms.size(); ++start) {
+    QVector<int> raw(atoms.size(), -1);
+    for (int start = 0; start < atoms.size(); ++start) {
         if (raw[start] >= 0)
             continue;
         const int id = components.size();
@@ -947,7 +962,7 @@ void SceneController::ensureFragments() const
     for (int rank = 0; rank < order.size(); ++rank) {
         const QVector<int>& members = components[order[rank]];
         for (int atom : members)
-            m_fragmentOf[atom] = rank;
+            out.fragmentOf[atom] = rank;
 
         // Hill notation (C, then H, then the rest alphabetically) so a fragment is
         // recognisable as "the host" or "the guest" at a glance. Coarse-grained
@@ -955,12 +970,12 @@ void SceneController::ensureFragments() const
         QMap<QString, int> counts;
         bool anyElement = false;
         for (int atom : members) {
-            const QString& e = m_atoms[atom].element;
+            const QString& e = atoms[atom].element;
             if (!e.isEmpty()) {
                 ++counts[e];
                 anyElement = true;
-            } else if (!m_atoms[atom].type.isEmpty()) {
-                ++counts[m_atoms[atom].type];
+            } else if (!atoms[atom].type.isEmpty()) {
+                ++counts[atoms[atom].type];
             }
         }
         QString formula;
@@ -976,8 +991,23 @@ void SceneController::ensureFragments() const
         for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
             append(it.key(), it.value());
 
-        m_fragmentInfo.append({ formula, int(members.size()) });
+        out.info.append({ formula, int(members.size()) });
     }
+    return out;
+}
+
+QVector<bool> SceneController::computeMoleculeKindMask(const QVector<AtomDatum>& atoms,
+    const QVector<BondDatum>& bonds, const QSet<QString>& kinds)
+{
+    QVector<bool> hidden(atoms.size(), false);
+    if (kinds.isEmpty())
+        return hidden;
+    const FragmentSplit split = computeFragments(atoms, bonds);
+    for (int i = 0; i < atoms.size(); ++i) {
+        const int f = split.fragmentOf.value(i, -1);
+        hidden[i] = f >= 0 && f < split.info.size() && kinds.contains(split.info[f].formula);
+    }
+    return hidden;
 }
 
 QVector<SceneController::FragmentInfo> SceneController::fragments() const
@@ -1610,8 +1640,10 @@ void SceneController::rebuildNci()
             return parent;
         };
         for (const NciSegment& c : m_nciSegments) {
-            // A contact to a hidden molecule (e.g. solvent) is left out entirely.
-            if (isInHiddenMolecule(c.atomA) || isInHiddenMolecule(c.atomB))
+            // A contact to a hidden molecule (e.g. solvent) is left out entirely; the
+            // owner atoms also cover pi-stacking, whose ends are ring centroids.
+            if (isInHiddenMolecule(c.ownerA >= 0 ? c.ownerA : c.atomA)
+                || isInHiddenMolecule(c.ownerB >= 0 ? c.ownerB : c.atomB))
                 continue;
             QVector3D from = c.a;
             QVector3D to = c.b;
