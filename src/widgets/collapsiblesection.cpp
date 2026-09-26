@@ -2,6 +2,9 @@
 // CollapsibleSection. Claude Generated.
 #include "collapsiblesection.h"
 
+#include <QCheckBox>
+#include <QHBoxLayout>
+#include <QSignalBlocker>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -30,8 +33,49 @@ CollapsibleSection::CollapsibleSection(const QString& title, QWidget* parent)
         emit expandedChanged(on);
     });
 
-    outer->addWidget(m_header);
+    m_headerRow = new QHBoxLayout;
+    m_headerRow->setContentsMargins(0, 0, 0, 0);
+    m_headerRow->setSpacing(2);
+    m_headerRow->addWidget(m_header);
+    outer->addLayout(m_headerRow);
     outer->addWidget(m_content);
+}
+
+QCheckBox* CollapsibleSection::addSwitch(const QString& toolTip)
+{
+    if (m_switch)
+        return m_switch;
+    m_switch = new QCheckBox(this);
+    m_switch->setToolTip(toolTip);
+    m_headerRow->insertWidget(0, m_switch);
+    connect(m_switch, &QCheckBox::toggled, this, [this](bool on) {
+        applySwitch(on);
+        emit switchToggled(on);
+    });
+    applySwitch(false);
+    return m_switch;
+}
+
+void CollapsibleSection::setSwitchedOn(bool on)
+{
+    if (!m_switch)
+        return;
+    {
+        const QSignalBlocker blocker(m_switch);
+        m_switch->setChecked(on);
+    }
+    applySwitch(on);
+}
+
+bool CollapsibleSection::isSwitchedOn() const
+{
+    return m_switch && m_switch->isChecked();
+}
+
+void CollapsibleSection::applySwitch(bool on)
+{
+    m_content->setEnabled(on);
+    setExpanded(on);
 }
 
 void CollapsibleSection::setContentLayout(QLayout* layout)

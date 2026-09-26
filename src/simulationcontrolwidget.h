@@ -20,6 +20,8 @@
 #include <QWidget>
 
 class QTableWidget;
+class QFormLayout;
+class CollapsibleSection;
 class TemperatureSlider;  // Claude Generated 2026 - vertical temperature-colored slider
 
 /**
@@ -128,19 +130,24 @@ private:
     // Claude Generated 2026 - WP T1 rest: signal wiring extracted from setupUI() so
     // the latter stays at composition altitude. All connect() targets are m_* members.
     void setupConnections();
-    // Claude Generated 2026 - per-QGroupBox builders extracted from setupUI().
-    // Each creates its group (populating the m_* members it owns) and returns it
-    // for setupUI() to add to the scroll layout.
-    QGroupBox* createPotentialGroup();
+    // Claude Generated 2026 - builders extracted from setupUI(). Each creates its group
+    // or section (populating the m_* members it owns) and returns it for setupUI() to
+    // add to the scroll layout. UX stage 6 S1: the basic parameters (curcuma tier
+    // "primary") sit in the Method and MD groups; every optional feature is a
+    // CollapsibleSection with a switch in its header; the rest is in "Advanced".
+    QGroupBox* createMethodGroup();
     QGroupBox* createMdGroup();
-    QGroupBox* createTempRampGroup();
-    QGroupBox* createTempRegionGroup();
-    QGroupBox* createRattleGroup();
-    QGroupBox* createRmsdMtdGroup();
-    QGroupBox* createWallGroup();
-    QGroupBox* createOptGroup();
-    QGroupBox* createOutputGroup();
-    QGroupBox* createGrabGroup();
+    CollapsibleSection* createTempRampSection();
+    CollapsibleSection* createTempRegionSection();
+    CollapsibleSection* createRattleSection();
+    CollapsibleSection* createRmsdMtdSection();
+    CollapsibleSection* createWallSection();
+    CollapsibleSection* createAdvancedSection();
+    CollapsibleSection* createGrabSection();
+    /// Show only the thermostat fields the chosen thermostat reads.
+    void updateThermostatRows();
+    /// Show the GFN-FF topology row only for GFN-FF.
+    void updateMethodRows();
     void setRunning(bool running);
     void setState(const QString& label, const QString& color);  // Claude Generated 2026 - state pill
     SimulationConfig buildConfig() const;
@@ -153,6 +160,9 @@ private:
 
     // --- Mode / method ---
     QComboBox* m_modeCombo = nullptr;
+    QFormLayout* m_methodForm = nullptr;    // Method group (method, optimizer, charge, spin)
+    QFormLayout* m_mdForm = nullptr;        // MD group (thermostat rows, time step, steps)
+    QFormLayout* m_advancedForm = nullptr;  // Advanced section (mode-specific rows)
     QComboBox* m_methodCombo = nullptr;
     QSpinBox* m_chargeSpin = nullptr;   // curcuma "charge" (Claude Generated 2026)
     QSpinBox* m_spinSpin = nullptr;     // curcuma "spin": unpaired electrons
@@ -186,10 +196,9 @@ private:
 
     // --- MD/Opt specific groups (shown/hidden based on mode) ---
     QGroupBox*      m_mdGroup = nullptr;       // MD parameters
-    QGroupBox*      m_rattleGroup = nullptr;   // RATTLE constraints
-    QGroupBox*      m_optGroup = nullptr;      // Optimization parameters
-    QWidget*        m_rattleDetails = nullptr;  // hidden when mode=off
-    QComboBox*      m_rattleCombo = nullptr;
+    CollapsibleSection* m_rattleSection = nullptr;  // RATTLE constraints (switch = on/off)
+    QCheckBox*      m_rattleEnableCheck = nullptr;  // the section's switch
+    QComboBox*      m_rattleCombo = nullptr;        // 1 = all bonds, 2 = bonds to H only
     QCheckBox*      m_rattle12Check = nullptr;
     QCheckBox*      m_rattle13Check = nullptr;
     QDoubleSpinBox* m_rattleTol12Spin = nullptr;
@@ -197,9 +206,8 @@ private:
     QSpinBox*       m_rattleMaxIterSpin = nullptr;
 
     // --- RMSD metadynamics (MD bias, curcuma SimpleMD rmsd_mtd) ---
-    QGroupBox*      m_rmsdMtdGroup = nullptr;
-    QCheckBox*      m_rmsdMtdEnableCheck = nullptr;
-    QWidget*        m_rmsdMtdDetails = nullptr;
+    CollapsibleSection* m_rmsdMtdSection = nullptr;
+    QCheckBox*      m_rmsdMtdEnableCheck = nullptr;  // the section's switch
     QDoubleSpinBox* m_rmsdMtdKSpin = nullptr;
     QDoubleSpinBox* m_rmsdMtdAlphaSpin = nullptr;
     QLineEdit*      m_rmsdMtdAtomsEdit = nullptr;
@@ -213,9 +221,8 @@ private:
     QCheckBox*      m_rmsdMtdFreezeCheck = nullptr;
 
     // --- Confinement walls (curcuma SimpleMD wall_* params) ---
-    QGroupBox*       m_wallGroup = nullptr;
-    QCheckBox*       m_wallEnableCheck = nullptr;
-    QWidget*         m_wallDetails = nullptr;
+    CollapsibleSection* m_wallSection = nullptr;
+    QCheckBox*       m_wallEnableCheck = nullptr;  // the section's switch
     QComboBox*       m_wallTypeCombo = nullptr;   // 0=None, 1=Spheric, 2=Rectangular
     QComboBox*       m_wallPotentialCombo = nullptr; // 0=Harmonic, 1=LogFermi
     QDoubleSpinBox*  m_wallRadiusSpin = nullptr;
@@ -230,11 +237,11 @@ private:
     TemperatureSlider* m_wallBetaSlider = nullptr; // wall_beta: steepness (β), live during run
 
     // --- Temperature ramp (global) + regions (curcuma SimpleMD temp_* params) ---
-    QGroupBox*    m_tempRampGroup = nullptr;
-    QCheckBox*    m_tempRampEnableCheck = nullptr;
-    QWidget*      m_tempRampDetails = nullptr;
+    CollapsibleSection* m_tempRampSection = nullptr;
+    QCheckBox*    m_tempRampEnableCheck = nullptr;  // the section's switch
     QTableWidget* m_tempRampTable = nullptr;     // columns: Target(K) | Mode | Value
-    QGroupBox*    m_tempRegionGroup = nullptr;
+    CollapsibleSection* m_tempRegionSection = nullptr;
+    QCheckBox*    m_tempRegionEnableCheck = nullptr;  // the section's switch (off = no regions sent)
     QTableWidget* m_tempRegionTable = nullptr;   // columns: Atoms | Start T(K) | Schedule
     QLabel*       m_tempOverrideLabel = nullptr; // "ramp overridden" badge after a live drag
 
@@ -243,8 +250,6 @@ private:
     QDoubleSpinBox* m_grabAlphaSpin = nullptr;
     QSpinBox* m_grabMaxShellsSpin = nullptr;
     QComboBox* m_grabPresetCombo = nullptr;
-    QCheckBox* m_grabAdvancedCheck = nullptr;
-    QWidget* m_grabAdvancedWidget = nullptr;
 
     // --- Buttons / status ---
     QToolButton* m_startBtn = nullptr;
