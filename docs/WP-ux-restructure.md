@@ -1,9 +1,9 @@
 # Arbeitspaket (WP): UX-Entschlackung und Neuordnung
 
-> **Status:** in Arbeit, Etappen 0 bis 5 und 6 S1–S3 committet. Erstellt 2026-09-25, Claude Generated.
+> **Status:** in Arbeit, Etappen 0 bis 5 und 6 S1–S4 committet. Erstellt 2026-09-25, Claude Generated.
 > **Branch:** `claude/dockwidgets-overlap-click-issue-th1rwk` (nicht gepusht).
 > **Test:** Build und Unit-Tests je Etappe grün. In der GUI hat der Operator bisher nur
-> Etappe 3 kurz angesehen („sieht erstmal gut aus“); 0, 1, 2, 2b, 4a, 4b, 5 und 6 S1–S3 sind dort ungetestet.
+> Etappe 3 kurz angesehen („sieht erstmal gut aus“); 0, 1, 2, 2b, 4a, 4b, 5 und 6 S1–S4 sind dort ungetestet.
 > Die GUI rendert aus der Agenten-Shell nicht, Sichtprüfung also nur durch den Operator.
 
 ## Ziel und Ordnungsprinzip
@@ -48,6 +48,7 @@ Die Operator-Entscheidungen vom 2026-09-25 stehen jeweils bei der Etappe, zu der
 | 6 S1 | `cbaf7ae`, `3d78898`, `876bd3f` | RMSD-MTD auf `strided` (Deposit every, Hill spacing, ohne `rmsd_econv`); Charge und ungepaarte Elektronen; Simulation-Dock: Basis-Gruppen + Abschnitte mit Schalter im Kopf + „Advanced“; H-Massenfaktor ganzzahlig |
 | 6 S2 | `284946b` | Rezepte (`src/recipe.h`): Protokoll ohne System/Maschine/Vorlieben, 4 eingebaute + eigene, Simulation ▸ Recipe und Knopf im Dock; Max iterations im Opt-Modus (`8820e81`); Test `test_recipes` |
 | 6 S3 | `e2de967` | Tab „All parameters“: alle `simplemd`-Parameter aus der Registry; Hand-Parameter read-only mit gesendetem Wert, Rest editierbar, nur Abweichungen vom Default gesendet (`mdExtraParams`); `relevantWhen` graut aus |
+| 6 S4 | `529ded8` | Parameter-Protokoll je Lauf: Abweichungen vom curcuma-Default mit Quelle ins Output-Panel und nach `run-parameters.jsonl`; Tools ▸ Parameter Usage zählt je Modus/Parameter/Quelle |
 
 Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 - **Modus-Trennung:** Einsteiger und Forschende werden über die Modi getrennt.
@@ -68,7 +69,8 @@ Grundlage ist curcumas `ParameterRegistry` (`external/curcuma/src/core/parameter
 - **S1, Basis/Erweitert von Hand:** erledigt (siehe Tabelle). Nicht in der Oberfläche: `external_potentials` (auch primary) und `max_time` (qurcuma zeigt Schritte).
 - **S2, Rezepte:** erledigt (siehe Tabelle). Die vier eingebauten Rezepte sind Vorschläge, ihre Werte stehen in `src/recipe.h` und sind vom Operator noch nicht geprüft.
 - **S3, generierte Expertenansicht:** umgesetzt als Tab „All parameters“ (siehe Tabelle), nur `simplemd`. **Offen:** Vergleich an 2–3 echten Läufen durch den Operator, danach Entscheidung, ob die Handgruppen auf Basis plus generierten Rest schrumpfen.
-- **S4, Erfahrung sammeln:** Jeder Lauf protokolliert, welche Parameter vom Default abweichen. Nach N Läufen wird über Basis und Expert entschieden.
+- **S4, Erfahrung sammeln:** Protokoll umgesetzt (siehe Tabelle): `run-parameters.jsonl`, Auswertung unter Tools ▸ Parameter Usage. **Offen:** die Zahl N der Läufe festlegen, nach der über Basis und Expert entschieden wird.
+  - Erster Befund aus je einem automatisch gestarteten Lauf mit qurcumas Standardeinstellungen (1 MD-Lauf, 1 Optimierung, `conf_28.xyz`, 114 Atome, `qurcuma <datei> -md|-opt` mit eigenem `XDG_DATA_HOME`): Schon ohne Eingriff weichen qurcumas Vorgaben von curcumas ab, MD `temperature` 300 statt 298.15 K, `max_time` 10000 statt 1000 fs, `write_xyz` aus; Optimierung `gradient_threshold` 1e-6 statt 5e-4 Eh/Bohr, `max_iterations` 10000 statt 5000. Ob qurcuma hier curcumas Vorgaben übernehmen soll, ist zu entscheiden.
 
 ## Offene TODOs außerhalb der Etappen
 - **Ladungsquelle für „Color by Charge“ (zu klären):**
