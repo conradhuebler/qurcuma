@@ -43,7 +43,7 @@ Die Operator-Entscheidungen vom 2026-09-25 stehen jeweils bei der Etappe, zu der
 | 4a-4 | `34eb95e` | Appearance geglättet: eine flache Gruppe Style (Modus, Farben, Größen, Beschriftungen, Hintergrund), dann Fragmente/Bead-Typen; Material, Lighting, Effects im eingeklappten „Advanced“ |
 | 4b | `a24a70b` | Modi Explore · Compute · Teaching im Eckschalter (Teaching = Explore + Lesson-Browser); Layout-Presets, Ctrl+Alt+1–5 und `DockConfig::LayoutPreset` entfernt; ohne gespeichertes Layout legt der Modus die Docks an |
 | 5 | `ceb56c9` | Menüleiste File · Edit · View · Structure · Simulation · Tools · Help; Simulation-Einträge starten wirklich; Werkzeug-Radio mit `M`/Ctrl+E/`B`; Help ▸ Keyboard Shortcuts aus den QActions; Kontextmenü nach Atom/leerer Fläche getrennt; Palette nur aus der Menüleiste |
-| 4b+ | `4c19e7e`, `7fdc8ef` | Jeder Modus merkt sich seine Panels (`ui/modePanels/<mode>`), Teaching öffnet standardmäßig Simulation; Lessons speichern die offenen Panels (`layout.panels`) und öffnen sie beim Laden |
+| 4b+ | `4c19e7e`, `7fdc8ef`, `90fa070` | Jeder Modus merkt sich seine Panels (`ui/modePanels/<mode>`), Teaching öffnet standardmäßig Simulation; Lessons speichern die offenen Panels (`layout.panels`) und öffnen sie beim Laden, dabei Wechsel in Teaching (abschaltbar unter Edit ▸ Preferences) |
 
 Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 - **Modus-Trennung:** Einsteiger und Forschende werden über die Modi getrennt.
