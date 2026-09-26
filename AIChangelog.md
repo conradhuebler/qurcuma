@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - curcumas Defaults für Temperatur und Gradient
+
+- MD-Temperatur startet mit 298.15 K (vorher 300 K), die Gradient-Toleranz der Optimierung mit 5e-4 Eh/Bohr (vorher 1e-6), beides curcumas Defaults; das Laufprotokoll führt sie ohne Eingriff nicht mehr als Abweichung.
+- Die Temperaturanzeige am Regler zeigt bis zu zwei Nachkommastellen (298.15 K statt gerundet 298 K).
+
 ## September 2026 - UX-Etappe 6 S4: Parameter-Protokoll je Lauf
 
 - **Jeder MD-Lauf und jede Optimierung** schreibt ins Output-Panel, welche gesendeten Parameter vom curcuma-Default abweichen (Wert, Default, Quelle: Simulation-Tab, All parameters, von qurcuma fest gesetzt), und hängt den Datensatz an `run-parameters.jsonl` im Datenverzeichnis von qurcuma an. Einzelschritte und das Clean-up des Builders zählen nicht.

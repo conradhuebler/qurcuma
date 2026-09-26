@@ -50,10 +50,10 @@ struct SimulationConfig {
     // curcuma's spin counts unpaired electrons: 0 = singlet, 1 = doublet, 2 = triplet.
     int charge = 0;
     int spin = 0;
-    double temperature = 300.0;   // K (MD only)
+    double temperature = 298.15;  // K (MD only); curcuma's default
     double timestep = 1.0;        // fs (MD only)
     int steps = 1000;             // Total MD steps or max opt iterations
-    double convergence = 1e-6;    // Gradient convergence threshold (opt only)
+    double convergence = 5e-4;    // Gradient norm threshold, Eh/Bohr (opt only); curcuma's default
     // Interactive Opt: keep the force-field parameters/topology fixed across the
     // keep-alive restarts (no rebuild from grab-distorted geometry). Default ON —
     // rebuilding GFN-FF from a heavily distorted geometry is slow and can crash.

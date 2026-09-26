@@ -53,7 +53,7 @@ QGroupBox* SimulationControlWidget::createMdGroup()
     // Vertical temperature-colored slider, live-adjustable during a run. Claude Generated 2026.
     m_tempSlider = new TemperatureSlider(this);
     m_tempSlider->setRange(1.0, 1000.0);
-    m_tempSlider->setValue(300.0);
+    m_tempSlider->setValue(298.15);  // curcuma's default temperature
     m_tempSlider->setToolTip(tr("Thermostat target temperature. Editable min/max; the handle stays\n"
                                 "live during a run — drag it to change the temperature on the fly\n"
                                 "(a drag cancels an active global ramp)."));
@@ -629,7 +629,8 @@ CollapsibleSection* SimulationControlWidget::createAdvancedSection()
     m_convergenceSpin->setRange(1e-10, 1e-2);
     m_convergenceSpin->setDecimals(10);
     m_convergenceSpin->setSingleStep(1e-7);
-    m_convergenceSpin->setValue(1e-6);
+    m_convergenceSpin->setValue(5e-4);  // curcuma's default gradient_threshold (Eh/Bohr)
+    m_convergenceSpin->setToolTip(tr("Gradient norm threshold in Eh/Bohr (curcuma gradient_threshold)."));
     form->addRow(tr("Gradient tol:"), m_convergenceSpin);
 
     // Claude Generated 2026 - Opt-in: keep the force-field parameters/topology
