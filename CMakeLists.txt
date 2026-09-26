@@ -185,6 +185,7 @@ set(SOURCES
     #src/dialogs/nmrstructuremodel.cpp
     src/simulationworker.cpp  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.cpp  # Claude Generated - Interactive Simulation Integration
+    src/simulationparameterswidget.cpp  # Claude Generated 2026 - All parameters tab (registry-generated)
     src/snapshotswidget.cpp  # Claude Generated 2026 - Snapshot history foundation
     src/rmsdwidget.cpp  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/docks/dockmanager.cpp  # Claude Generated 2026 - Dock system restructuring
@@ -243,6 +244,7 @@ set(HEADERS
     src/mol2parser.h  # Claude Generated Phase 5C
     src/simulationworker.h  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.h  # Claude Generated - Interactive Simulation Integration
+    src/simulationparameterswidget.h  # Claude Generated 2026 - All parameters tab (Q_OBJECT)
     src/snapshotswidget.h  # Claude Generated 2026 - Snapshot history foundation
     src/rmsdwidget.h  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/forceinjector.h  # Claude Generated 2026 - Topological force distribution (Phase 4)

@@ -16,6 +16,7 @@
 
 #include "lesson.h"
 #include "recipe.h"
+#include "simparameters.h"
 
 namespace {
 
@@ -83,6 +84,8 @@ SimulationConfig oddConfig()
     c.tempRamp = true;
     c.tempSchedule = QStringLiteral("600:steps:100;300:reach:5");
     c.tempRegions.push_back({ QStringLiteral("1:3"), 450.0, QStringLiteral("500:steps:10") });
+    c.mdExtraParams.insert(QStringLiteral("seed"), 42);
+    c.mdExtraParams.insert(QStringLiteral("remove_com_mode"), 3);
     return c;
 }
 
@@ -102,6 +105,7 @@ int main()
     check(back.charge == -2 && back.spin == 1, "charge and unpaired electrons are stored");
     check(back.rmsdMtdDepositStride == 15.0 && back.rmsdMtdRdep == 0.4,
         "the strided RMSD-MTD parameters are stored");
+    check(back.mdExtraParams == odd.mdExtraParams, "the All parameters values are stored");
     check(!oddJson.contains(QStringLiteral("rmsdMtdEconv")),
         "the legacy RMSD-MTD convergence threshold is not written");
     const SimulationConfig defaults;
@@ -156,6 +160,7 @@ int main()
         "MD 300 K sets the MD protocol");
     check(!md.tempRamp && md.tempRegions.isEmpty() && md.rattleMode == 0 && !md.rmsdMtd && !md.wallEnabled,
         "MD 300 K switches off ramp, regions, RATTLE, RMSD-MTD and walls left over from before");
+    check(md.mdExtraParams.isEmpty(), "a built-in recipe also clears the All parameters values");
     const SimulationConfig relax = recipes::apply(odd, find(QStringLiteral("Quick relax")));
     check(relax.mode == SimulationConfig::Mode::GeometryOptimization && relax.convergence == 1e-3
             && relax.steps == 1000,
@@ -181,6 +186,30 @@ int main()
     check(mineBack.name == mine.name && mineBack.description == mine.description
             && mineBack.protocol == mine.protocol,
         "a user recipe survives JSON and back");
+
+    // --- All parameters tab: curcuma's relevantWhen grammar and value comparison ---
+    QJsonObject values;
+    values.insert(QStringLiteral("wall_type"), QStringLiteral("rect"));
+    values.insert(QStringLiteral("rmsd_mtd"), false);
+    values.insert(QStringLiteral("temp_ramp"), true);
+    values.insert(QStringLiteral("rmsd_mtd_alpha"), 10.0);
+    check(simparams::conditionHolds(QString(), values), "an empty condition holds");
+    check(simparams::conditionHolds(QStringLiteral("wall_type=rect"), values)
+            && !simparams::conditionHolds(QStringLiteral("wall_type=spheric"), values),
+        "key=value compares the text of the value");
+    check(simparams::conditionHolds(QStringLiteral("wall_type!=none"), values)
+            && !simparams::conditionHolds(QStringLiteral("wall_type!=rect"), values),
+        "key!=value is the negation");
+    check(simparams::conditionHolds(QStringLiteral("temp_ramp"), values)
+            && !simparams::conditionHolds(QStringLiteral("rmsd_mtd"), values)
+            && !simparams::conditionHolds(QStringLiteral("wtmtd"), values),
+        "a bare key holds when the switch is on, a missing key counts as off");
+    check(simparams::conditionHolds(QStringLiteral("rmsd_mtd_alpha=10"), values),
+        "numbers compare in their shortest form (10.0 is 10)");
+    check(simparams::sameValue(QJsonValue(1), QJsonValue(1.0))
+            && !simparams::sameValue(QJsonValue(1), QJsonValue(QStringLiteral("1")))
+            && simparams::sameValue(QJsonValue(298.15), QJsonValue(298.15)),
+        "values compare as numbers when both are numbers, strictly otherwise");
 
     std::cout << std::endl;
     if (g_failures == 0) {

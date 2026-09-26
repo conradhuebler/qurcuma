@@ -447,7 +447,7 @@ private:
     ProjectDock* m_projectDock = nullptr;           // Left: Project dock with Files/Bookmarks/Workspaces/Remote segments
     StructureDock* m_structureDock = nullptr; // Right: [Structure | Atoms] segment
     AppearanceDock* m_appearanceDock = nullptr; // Right (tabified, closed): display settings + views
-    SimulationDock* m_simulationDock = nullptr;     // Right: Simulation/Snapshots/RMSD/Input tabs (tabified with Structure&Display)
+    SimulationDock* m_simulationDock = nullptr;     // Right: Simulation/All parameters/Snapshots/RMSD/Input tabs
     OutputDock* m_outputViewDock = nullptr;         // Bottom: output log
     ImageGalleryDock* m_imageGalleryDock = nullptr; // Bottom (tabified): batch border-trim gallery
     NciDock* m_nciDock = nullptr;                   // Right (tabified): non-covalent interaction contacts

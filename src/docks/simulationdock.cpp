@@ -9,6 +9,7 @@
 #include "modifiabletextedit.h"
 #include "rmsdwidget.h"
 #include "simulationcontrolwidget.h"
+#include "simulationparameterswidget.h"
 #include "snapshotswidget.h"
 #include "view.h"
 #include "widgets/collapsiblesection.h"
@@ -55,6 +56,20 @@ void SimulationDock::setupUI()
         [expandKey](bool on) { QSettings().setValue(expandKey, on); });
     simLayout->addWidget(m_viewOptionsSection);
     m_tabs->addTab(simPage, tr("Simulation"));
+
+    // Claude Generated 2026 - UX stage 6 S3: every simplemd parameter, generated from
+    // curcuma's ParameterRegistry, next to the hand-built Simulation tab. It shows the
+    // Simulation tab's values read-only and hands its own non-default values back.
+    m_parametersWidget = new SimulationParametersWidget(this);
+    m_tabs->addTab(m_parametersWidget, tr("All parameters"));
+    connect(m_simulationControlWidget, &SimulationControlWidget::configChanged,
+            m_parametersWidget, &SimulationParametersWidget::setConfig);
+    connect(m_parametersWidget, &SimulationParametersWidget::extraParamsChanged,
+            m_simulationControlWidget, &SimulationControlWidget::setMdExtraParams);
+    // A run keeps the settings it started with, so the tab is locked meanwhile.
+    connect(m_simulationControlWidget, &SimulationControlWidget::simulationRunningChanged,
+            m_parametersWidget, [this](bool running) { m_parametersWidget->setEnabled(!running); });
+    m_parametersWidget->setConfig(m_simulationControlWidget->currentConfig());
 
     m_snapshotsWidget = new SnapshotsWidget(this);
     m_tabs->addTab(m_snapshotsWidget, tr("Snapshots"));

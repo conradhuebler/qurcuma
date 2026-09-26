@@ -11,6 +11,8 @@
 #include <Eigen/Dense>
 #include <QAtomicInt>
 #include <QElapsedTimer>
+#include <QJsonObject>
+#include <QStringList>
 #include <QMutex>
 #include <QObject>
 #include <QString>
@@ -124,6 +126,11 @@ struct SimulationConfig {
     bool    tempRamp = false;        // temp_ramp: enable the global multi-stage ramp
     QString tempSchedule;            // temp_schedule: "T:mode:val;..." (mode=steps|reach)
     QVector<TempRegion> tempRegions; // temp_regions: per-atom-subset thermostats (empty = none)
+
+    // Claude Generated 2026 - UX stage 6 S3: simplemd parameters set in the "All parameters"
+    // tab, i.e. those without a control in the Simulation tab. Canonical curcuma names;
+    // only values that differ from curcuma's default are kept, so its defaults survive.
+    QJsonObject mdExtraParams;
 };
 
 /**
@@ -168,6 +175,14 @@ public:
 
     /** @brief Set simulation parameters before calling run(). */
     void setConfig(const SimulationConfig& config) { m_config = config; }
+
+    /** @brief The simplemd block the Simulation tab and qurcuma's fixed settings produce
+     *  for @p cfg (mdExtraParams left out), keyed by canonical curcuma names.
+     *  Claude Generated 2026 (UX stage 6 S3, "All parameters" tab). */
+    static QJsonObject handSimplemdParams(const SimulationConfig& cfg);
+    /** @brief Canonical names of every simplemd parameter that block can contain, with
+     *  every feature switched on. The All parameters tab shows them read-only. */
+    static QStringList handSimplemdKeys();
 
     /** @brief Enable the live non-covalent interaction overlay for this run.
      *

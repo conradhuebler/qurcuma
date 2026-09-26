@@ -1506,21 +1506,25 @@ void MainWindow::createMenus()
     if (m_simulationControlWidget)
         m_simulationControlWidget->setRecipeMenu(m_recipeMenu);
 
-    // Bring one tab of the Simulation dock to the front.
-    auto showSimulationTab = [this](int tab) {
+    // Bring one tab of the Simulation dock to the front (by page, not by position).
+    auto showSimulationTab = [this](QWidget* page) {
         if (!m_simulationDock)
             return;
         m_simulationDock->show();
         m_simulationDock->raise();
-        if (m_simulationTabs)
-            m_simulationTabs->setCurrentIndex(tab);
+        if (m_simulationTabs && page)
+            m_simulationTabs->setCurrentWidget(page);
     };
     QAction *parametersAction = simulationMenu->addAction(QIcon::fromTheme("configure"), tr("&Parameters…"));
     parametersAction->setToolTip(tr("Show the Simulation dock with the method, MD and optimization parameters."));
-    connect(parametersAction, &QAction::triggered, this, [showSimulationTab]() { showSimulationTab(0); });
+    connect(parametersAction, &QAction::triggered, this, [this, showSimulationTab]() {
+        showSimulationTab(m_simulationTabs ? m_simulationTabs->widget(0) : nullptr);  // the Simulation tab
+    });
     QAction *snapshotsAction = simulationMenu->addAction(tr("S&napshots…"));
     snapshotsAction->setToolTip(tr("Show the Snapshots tab: take, restore and delete structure snapshots."));
-    connect(snapshotsAction, &QAction::triggered, this, [showSimulationTab]() { showSimulationTab(1); });
+    connect(snapshotsAction, &QAction::triggered, this, [this, showSimulationTab]() {
+        showSimulationTab(m_snapshotsWidget);
+    });
 
     // Claude Generated 2026 - open the live temperature/energy charts (modeless dialog).
     QAction *chartsAction = simulationMenu->addAction(
@@ -3733,8 +3737,8 @@ void MainWindow::showRMSDTool(const QString& targetFile)
         m_simulationDock->raise();
         m_simulationDock->activateWindow();
     }
-    if (m_simulationTabs)
-        m_simulationTabs->setCurrentIndex(2);  // Simulation=0, Snapshots=1, RMSD=2, Input=3
+    if (m_simulationTabs && m_rmsdWidget)
+        m_simulationTabs->setCurrentWidget(m_rmsdWidget);
 
     // From the file-manager context menu: load the structure, align it against the
     // current reference and add it to the workspace in one step (structureAligned()

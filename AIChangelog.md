@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 6 S3: Tab „All parameters“
+
+- **Simulation-Dock ▸ All parameters**: alle Parameter von curcumas MD-Modul `simplemd`, erzeugt aus der `ParameterRegistry`, nach Kategorie, filterbar nach tier, Suche und „Changed only“.
+- Vom Simulation-Tab oder von qurcuma gesetzte Parameter sind read-only und zeigen den gesendeten Wert; die übrigen sind editierbar, gesendet und gespeichert werden nur Abweichungen vom curcuma-Default (`mdExtraParams`, auch in Lessons und Rezepten).
+- Parameter, deren `relevantWhen`-Bedingung nicht erfüllt ist, sind ausgegraut. Nur MD; der Optimizer-Pfad liest die Defaults des gewählten Optimizers, nicht das Registry-Modul `opt`.
+- Tabs des Simulation-Docks werden über ihre Seite gewählt, nicht über die Position.
+
 ## September 2026 - UX-Etappe 6 S2: Simulations-Rezepte
 
 - **Rezepte** (`src/recipe.h`): benannte Protokolle (Modus, Temperaturführung, Zeitschritt, Laufzeit, Constraints, Bias, Wände), angewendet über die aktuelle Konfiguration; Methode, Ladung, ungepaarte Elektronen, GPU und Arbeitsvorlieben bleiben.

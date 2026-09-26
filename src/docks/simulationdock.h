@@ -23,6 +23,7 @@ class QSpinBox;
 class RMSDWidget;
 class SimulationControlWidget;
 class SnapshotsWidget;
+class SimulationParametersWidget;
 class QTabWidget;
 
 class SimulationDock : public QDockWidget
@@ -66,6 +67,7 @@ private:
     SimulationControlWidget* m_simulationControlWidget = nullptr;
     SnapshotsWidget* m_snapshotsWidget = nullptr;
     RMSDWidget* m_rmsdWidget = nullptr;
+    SimulationParametersWidget* m_parametersWidget = nullptr;  // "All parameters" tab
 
     ModifiableTextEdit* m_inputView = nullptr;
     QLineEdit* m_inputFileEdit = nullptr;

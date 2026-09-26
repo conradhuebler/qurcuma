@@ -1110,6 +1110,8 @@ SimulationConfig SimulationControlWidget::buildConfig() const
         cfg.tempSchedule = segs.join(QLatin1Char(';'));
     }
 
+    cfg.mdExtraParams = m_mdExtraParams;  // All parameters tab (UX stage 6 S3)
+
     cfg.tempRegions.clear();
     const int regionRows = m_tempRegionEnableCheck->isChecked() ? m_tempRegionTable->rowCount() : 0;
     for (int r = 0; r < regionRows; ++r) {
@@ -1247,8 +1249,17 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     m_tempRampSection->setSwitchedOn(cfg.tempRamp);
     m_tempRegionSection->setSwitchedOn(!cfg.tempRegions.isEmpty());
 
+    m_mdExtraParams = cfg.mdExtraParams;
     m_config = cfg;
     emit configChanged(cfg);
+}
+
+void SimulationControlWidget::setMdExtraParams(const QJsonObject& params)
+{
+    if (params == m_mdExtraParams)
+        return;
+    m_mdExtraParams = params;
+    emit configChanged(buildConfig());
 }
 
 // Claude Generated 2026 - append a row to the global ramp table (Target | Mode combo | Value).

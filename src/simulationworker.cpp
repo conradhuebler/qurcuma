@@ -5,6 +5,7 @@
 #include "simulationworker.h"
 
 #include "external/json.hpp"
+#include <src/core/parameter_registry.h>
 using json = nlohmann::json;
 
 #include <src/core/molecule.h>
@@ -18,6 +19,8 @@ using json = nlohmann::json;
 #include <src/core/elements.h>
 
 #include <QCoreApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QFile>
 #include <QDir>
 #include <QMutexLocker>
@@ -26,6 +29,7 @@ using json = nlohmann::json;
 #include <QElapsedTimer>
 #include <QDebug>
 #include <algorithm>
+#include <set>
 #include <limits>
 
 // Claude Generated 2026 - Write curcuma's RMSD-MTD bias parameters into the
@@ -109,6 +113,41 @@ void applyTempRampParams(const SimulationConfig& cfg, json& simplemd_params)
     }
 }
 
+// Claude Generated 2026 - UX stage 6 S3: JSON bridges and canonical simplemd names.
+json toNlohmann(const QJsonValue& value)
+{
+    const QByteArray text = QJsonDocument(QJsonArray{ value }).toJson(QJsonDocument::Compact);
+    return json::parse(text.toStdString()).at(0);
+}
+
+QJsonValue toQJson(const json& value)
+{
+    const json wrapped = json::array({ value });
+    return QJsonDocument::fromJson(QByteArray::fromStdString(wrapped.dump())).array().at(0);
+}
+
+std::string canonicalSimplemdName(const std::string& key)
+{
+    const std::string name = ParameterRegistry::getInstance().resolveAlias("simplemd", key);
+    return name.empty() ? key : name;
+}
+
+// Add the All-parameters values (cfg.mdExtraParams). A parameter the hand-built block
+// already sets, under its canonical name or any alias, is never overridden.
+void applyExtraParams(const SimulationConfig& cfg, json& simplemd_params)
+{
+    if (cfg.mdExtraParams.isEmpty())
+        return;
+    std::set<std::string> present;
+    for (auto it = simplemd_params.begin(); it != simplemd_params.end(); ++it)
+        present.insert(canonicalSimplemdName(it.key()));
+    for (auto it = cfg.mdExtraParams.begin(); it != cfg.mdExtraParams.end(); ++it) {
+        const std::string key = it.key().toStdString();
+        if (!present.count(canonicalSimplemdName(key)))
+            simplemd_params[key] = toNlohmann(it.value());
+    }
+}
+
 // Claude Generated 2026 - Single source of truth for the SimpleMD controller
 // block. Both startMD (continuous run) and stepOnce (single "Step" click) build
 // their controller here, so the two paths can no longer silently diverge — a
@@ -151,6 +190,7 @@ json buildSimplemdParams(const SimulationConfig& cfg, bool singleStep)
     applyRmsdMtdParams(cfg, p);
     applyWallParams(cfg, p);
     applyTempRampParams(cfg, p);
+    applyExtraParams(cfg, p);
     return p;
 }
 
@@ -199,6 +239,32 @@ json buildOptConfig(const SimulationConfig& cfg, bool singleStep)
     return c;
 }
 }  // namespace
+
+QJsonObject SimulationWorker::handSimplemdParams(const SimulationConfig& cfg)
+{
+    SimulationConfig handOnly = cfg;
+    handOnly.mdExtraParams = QJsonObject();
+    const json p = buildSimplemdParams(handOnly, /*singleStep=*/false);
+    QJsonObject out;
+    for (auto it = p.begin(); it != p.end(); ++it)
+        out.insert(QString::fromStdString(canonicalSimplemdName(it.key())), toQJson(it.value()));
+    return out;
+}
+
+QStringList SimulationWorker::handSimplemdKeys()
+{
+    // Every feature on, so every conditionally written key appears.
+    SimulationConfig all;
+    all.performanceAnalysis = true;
+    all.rmsdMtd = true;
+    all.rmsdMtdWtmtd = true;
+    all.rmsdMtdFreezeInherited = true;
+    all.wallEnabled = true;
+    all.tempRamp = true;
+    all.tempSchedule = QStringLiteral("300:steps:1");
+    all.tempRegions.push_back(TempRegion{});
+    return handSimplemdParams(all).keys();
+}
 
 SimulationWorker::SimulationWorker(QObject* parent)
     : QObject(parent)

@@ -1,9 +1,9 @@
 # Arbeitspaket (WP): UX-Entschlackung und Neuordnung
 
-> **Status:** in Arbeit, Etappen 0 bis 5 und 6 S1–S2 committet. Erstellt 2026-09-25, Claude Generated.
+> **Status:** in Arbeit, Etappen 0 bis 5 und 6 S1–S3 committet. Erstellt 2026-09-25, Claude Generated.
 > **Branch:** `claude/dockwidgets-overlap-click-issue-th1rwk` (nicht gepusht).
 > **Test:** Build und Unit-Tests je Etappe grün. In der GUI hat der Operator bisher nur
-> Etappe 3 kurz angesehen („sieht erstmal gut aus“); 0, 1, 2, 2b, 4a, 4b, 5 und 6 S1–S2 sind dort ungetestet.
+> Etappe 3 kurz angesehen („sieht erstmal gut aus“); 0, 1, 2, 2b, 4a, 4b, 5 und 6 S1–S3 sind dort ungetestet.
 > Die GUI rendert aus der Agenten-Shell nicht, Sichtprüfung also nur durch den Operator.
 
 ## Ziel und Ordnungsprinzip
@@ -46,6 +46,7 @@ Die Operator-Entscheidungen vom 2026-09-25 stehen jeweils bei der Etappe, zu der
 | 4b+ | `4c19e7e`, `7fdc8ef`, `90fa070` | Jeder Modus merkt sich seine Panels (`ui/modePanels/<mode>`), Teaching öffnet standardmäßig Simulation; Lessons speichern die offenen Panels (`layout.panels`) und öffnen sie beim Laden, dabei Wechsel in Teaching (abschaltbar unter Edit ▸ Preferences) |
 | 6 S1 | `cbaf7ae`, `3d78898`, `876bd3f` | RMSD-MTD auf `strided` (Deposit every, Hill spacing, ohne `rmsd_econv`); Charge und ungepaarte Elektronen; Simulation-Dock: Basis-Gruppen + Abschnitte mit Schalter im Kopf + „Advanced“; H-Massenfaktor ganzzahlig |
 | 6 S2 | `284946b` | Rezepte (`src/recipe.h`): Protokoll ohne System/Maschine/Vorlieben, 4 eingebaute + eigene, Simulation ▸ Recipe und Knopf im Dock; Max iterations im Opt-Modus (`8820e81`); Test `test_recipes` |
+| 6 S3 | (folgt) | Tab „All parameters“: alle `simplemd`-Parameter aus der Registry; Hand-Parameter read-only mit gesendetem Wert, Rest editierbar, nur Abweichungen vom Default gesendet (`mdExtraParams`); `relevantWhen` graut aus |
 
 Operator-Entscheidungen, die in diesen Etappen umgesetzt sind:
 - **Modus-Trennung:** Einsteiger und Forschende werden über die Modi getrennt.
@@ -65,7 +66,7 @@ Grundlage ist curcumas `ParameterRegistry` (`external/curcuma/src/core/parameter
 
 - **S1, Basis/Erweitert von Hand:** erledigt (siehe Tabelle). Nicht in der Oberfläche: `external_potentials` (auch primary) und `max_time` (qurcuma zeigt Schritte).
 - **S2, Rezepte:** erledigt (siehe Tabelle). Die vier eingebauten Rezepte sind Vorschläge, ihre Werte stehen in `src/recipe.h` und sind vom Operator noch nicht geprüft.
-- **S3, generierte Expertenansicht:** „All parameters“ aus der Registry, parallel zur Handoberfläche. Nach 2–3 echten Läufen wird verglichen und entschieden.
+- **S3, generierte Expertenansicht:** umgesetzt als Tab „All parameters“ (siehe Tabelle), nur `simplemd`. **Offen:** Vergleich an 2–3 echten Läufen durch den Operator, danach Entscheidung, ob die Handgruppen auf Basis plus generierten Rest schrumpfen.
 - **S4, Erfahrung sammeln:** Jeder Lauf protokolliert, welche Parameter vom Default abweichen. Nach N Läufen wird über Basis und Expert entschieden.
 
 ## Offene TODOs außerhalb der Etappen

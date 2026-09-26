@@ -66,6 +66,12 @@ public:
     /** @brief True while an MD or optimization run is active. */
     bool isRunning() const { return m_running; }
 
+public slots:
+    /** @brief Take the non-default simplemd values of the All parameters tab
+     *  (SimulationConfig::mdExtraParams). Claude Generated 2026 (UX stage 6 S3). */
+    void setMdExtraParams(const QJsonObject& params);
+
+public:
     /** @brief Bounded geometry optimization with the current method — the
      *  builder's "Clean up" (refuses while a run is active). Claude Generated 2026. */
     void startQuickOptimization(int maxSteps = 50);
@@ -279,6 +285,7 @@ private:
     QVector<MoleculeViewer::Atom> m_atoms;
     QVector<MoleculeViewer::Bond> m_bonds;
     SimulationConfig m_config;
+    QJsonObject m_mdExtraParams;  // Claude Generated 2026 - from the All parameters tab
     SimulationWorker* m_worker = nullptr;
     QThread* m_thread = nullptr;
     bool m_paused = false;

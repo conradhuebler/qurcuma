@@ -121,6 +121,9 @@ QJsonObject simConfigToJson(const SimulationConfig& cfg)
         regions.append(ro);
     }
     o["tempRegions"] = regions;
+    // Claude Generated 2026 - simplemd parameters from the All parameters tab (canonical
+    // curcuma names, non-default values only).
+    o["mdExtraParams"] = cfg.mdExtraParams;
     return o;
 }
 
@@ -196,6 +199,7 @@ SimulationConfig simConfigFromJson(const QJsonObject& o)
         r.schedule = ro.value("schedule").toString(r.schedule);
         cfg.tempRegions.push_back(r);
     }
+    cfg.mdExtraParams = o.value("mdExtraParams").toObject();
     return cfg;
 }
 
