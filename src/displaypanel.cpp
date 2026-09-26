@@ -1,12 +1,10 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
-// DisplayPanel — docked viewer display options. Ported from the former
-// VisualizationSettingsDialog (wiring/presets/persistence preserved). Claude Generated 2026.
+// DisplayPanel — the detailed viewer display options in the Appearance dock.
+// Claude Generated 2026.
 #include "displaypanel.h"
 #include "widgets/colorswatch.h"
 
 #include "widgets/collapsiblesection.h"
-
-#include "ncianalysis.h"
 
 #include <QCheckBox>
 #include <QColorDialog>
@@ -16,17 +14,12 @@
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QLabel>
-#include <QLineEdit>
-#include <QListWidget>
-#include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSettings>
 #include <QTimer>
 #include <QSlider>
-#include <QSpinBox>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <functional>
@@ -69,9 +62,15 @@ void DisplayPanel::setupUI()
     col->setContentsMargins(4, 4, 4, 4);
     col->setSpacing(4);
 
-    // Claude Generated 2026 - Sections carry a stable key so their expand state
-    // survives restarts (ui/displayPanel/<key>Expanded) and expandSection() can
-    // surface one programmatically (e.g. the Display menu's NCI entry).
+    // Claude Generated 2026 - UX stage 4a-4: the everyday options sit flat at the top
+    // (Style, then Fragments and Bead types when the structure has them). Material,
+    // Lighting and Effects are Look fields, tuned rarely, and wait in one collapsed
+    // "Advanced" section. Sections carry a stable key so their expand state survives
+    // restarts (ui/displayPanel/<key>Expanded) and expandSection() can surface one.
+    createStyleGroup(col);
+    createFragmentGroup(col);
+    createBeadTypeGroup(col);
+
     QSettings uiSettings;
     auto addSection = [&](const QString& key, const QString& title,
                           std::function<void(QVBoxLayout*)> build, bool expandedDefault) {
@@ -90,17 +89,11 @@ void DisplayPanel::setupUI()
         return sec;
     };
 
-    addSection(QStringLiteral("style"), tr("Style"), [this](QVBoxLayout* l) {
-        createRenderingGroup(l);
-        createFragmentGroup(l);
-        createBeadTypeGroup(l);
+    addSection(QStringLiteral("advanced"), tr("Advanced"), [this](QVBoxLayout* l) {
         createMaterialGroup(l);
-        createSizeGroup(l);
-    }, true);
-    addSection(QStringLiteral("effects"), tr("Effects"),
-        [this](QVBoxLayout* l) { createAppearanceGroup(l); }, false);
-    addSection(QStringLiteral("lighting"), tr("Lighting"),
-        [this](QVBoxLayout* l) { createLightingGroup(l); }, false);
+        createLightingGroup(l);
+        createEffectsGroup(l);
+    }, false);
 
     col->addStretch();
     scroll->setWidget(content);
@@ -121,11 +114,13 @@ void DisplayPanel::setupUI()
 }
 
 // ---------------------------------------------------------------------------
-// Section builders (Rendering/Material/Size/Appearance reused from the dialog)
+// Section builders
 // ---------------------------------------------------------------------------
-void DisplayPanel::createRenderingGroup(QVBoxLayout* mainLayout)
+// Claude Generated 2026 - One flat "Style" group: drawing mode, colours, sizes,
+// labels and background (the former Rendering and Size groups).
+void DisplayPanel::createStyleGroup(QVBoxLayout* mainLayout)
 {
-    QGroupBox* g = new QGroupBox(tr("Rendering"), this);
+    QGroupBox* g = new QGroupBox(tr("Style"), this);
     QFormLayout* f = new QFormLayout(g);
 
     m_renderingModeCombo = new QComboBox(this);
@@ -147,8 +142,25 @@ void DisplayPanel::createRenderingGroup(QVBoxLayout* mainLayout)
         this, &DisplayPanel::onColorSchemeChanged);
     f->addRow(tr("Colors:"), m_colorSchemeCombo);
 
+    m_atomScaleSpinBox = new QDoubleSpinBox(this);
+    m_atomScaleSpinBox->setRange(0.1, 3.0);
+    m_atomScaleSpinBox->setValue(1.0);
+    m_atomScaleSpinBox->setSingleStep(0.1);
+    m_atomScaleSpinBox->setSuffix("x");
+    connect(m_atomScaleSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+        this, &DisplayPanel::onAtomScaleChanged);
+    f->addRow(tr("Atom Size:"), m_atomScaleSpinBox);
+
+    m_bondThicknessSpinBox = new QDoubleSpinBox(this);
+    m_bondThicknessSpinBox->setRange(0.05, 0.5);
+    m_bondThicknessSpinBox->setValue(0.15);
+    m_bondThicknessSpinBox->setSingleStep(0.05);
+    m_bondThicknessSpinBox->setDecimals(2);
+    connect(m_bondThicknessSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+        this, &DisplayPanel::onBondThicknessChanged);
+    f->addRow(tr("Bond Thickness:"), m_bondThicknessSpinBox);
+
     // Claude Generated 2026 - Per-atom overlay labels (element / bead type / index).
-    // Everyday viewing option, so it lives under Style rather than Tools.
     auto* labelCombo = new QComboBox(this);
     labelCombo->addItem(tr("No labels"), int(MoleculeViewer::AtomLabel::None));
     labelCombo->addItem(tr("Element"), int(MoleculeViewer::AtomLabel::Element));
@@ -178,6 +190,19 @@ void DisplayPanel::createRenderingGroup(QVBoxLayout* mainLayout)
         if (m_viewer) m_viewer->setLabelSelectionOnly(on);
     });
     f->addRow(QString(), labelSelOnly);
+
+    // The button is the swatch of the current background (synced in syncFromViewer).
+    m_bgColorButton = new QPushButton(this);
+    m_bgColorButton->setToolTip(tr("Pick the viewer background colour."));
+    connect(m_bgColorButton, &QPushButton::clicked, this, [this]() {
+        if (!m_viewer) return;
+        QColor c = QColorDialog::getColor(m_viewer->getBackgroundColor(), this, tr("Background Color"));
+        if (c.isValid()) {
+            m_viewer->setBackgroundColor(c);
+            applySwatch(m_bgColorButton, c);
+        }
+    });
+    f->addRow(tr("Background:"), m_bgColorButton);
 
     mainLayout->addWidget(g);
 }
@@ -209,35 +234,10 @@ void DisplayPanel::createMaterialGroup(QVBoxLayout* mainLayout)
     mainLayout->addWidget(g);
 }
 
-void DisplayPanel::createSizeGroup(QVBoxLayout* mainLayout)
+// Claude Generated 2026 - Post-processing effects: fog, SSAO, bloom, HDR/exposure.
+void DisplayPanel::createEffectsGroup(QVBoxLayout* mainLayout)
 {
-    QGroupBox* g = new QGroupBox(tr("Size"), this);
-    QFormLayout* f = new QFormLayout(g);
-
-    m_atomScaleSpinBox = new QDoubleSpinBox(this);
-    m_atomScaleSpinBox->setRange(0.1, 3.0);
-    m_atomScaleSpinBox->setValue(1.0);
-    m_atomScaleSpinBox->setSingleStep(0.1);
-    m_atomScaleSpinBox->setSuffix("x");
-    connect(m_atomScaleSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-        this, &DisplayPanel::onAtomScaleChanged);
-    f->addRow(tr("Atom Size:"), m_atomScaleSpinBox);
-
-    m_bondThicknessSpinBox = new QDoubleSpinBox(this);
-    m_bondThicknessSpinBox->setRange(0.05, 0.5);
-    m_bondThicknessSpinBox->setValue(0.15);
-    m_bondThicknessSpinBox->setSingleStep(0.05);
-    m_bondThicknessSpinBox->setDecimals(2);
-    connect(m_bondThicknessSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-        this, &DisplayPanel::onBondThicknessChanged);
-    f->addRow(tr("Bond Thickness:"), m_bondThicknessSpinBox);
-
-    mainLayout->addWidget(g);
-}
-
-void DisplayPanel::createAppearanceGroup(QVBoxLayout* mainLayout)
-{
-    QGroupBox* g = new QGroupBox(tr("Post-processing"), this);
+    QGroupBox* g = new QGroupBox(tr("Effects"), this);
     QFormLayout* f = new QFormLayout(g);
 
     // Fog
@@ -382,15 +382,6 @@ void DisplayPanel::createLightingGroup(QVBoxLayout* mainLayout)
     lightsRow->addWidget(grid);
     lightsRow->addStretch();
     v->addLayout(lightsRow);
-
-    m_bgColorButton = new QPushButton(tr("Background Color…"), this);
-    connect(m_bgColorButton, &QPushButton::clicked, this, [this]() {
-        if (!m_viewer) return;
-        QColor c = QColorDialog::getColor(m_viewer->getBackgroundColor(), this, tr("Background Color"));
-        if (c.isValid())
-            m_viewer->setBackgroundColor(c);
-    });
-    v->addWidget(m_bgColorButton);
 
     mainLayout->addWidget(g);
 }
@@ -824,6 +815,7 @@ void DisplayPanel::syncFromViewer()
     m_fogDistanceSlider->setValue(int(m_viewer->getFogDistance() * 100.0f));
     for (int i = 0; i < 4; ++i)
         m_cornerLightButtons[i]->setChecked(m_viewer->isCornerLightEnabled(i));
+    applySwatch(m_bgColorButton, m_viewer->getBackgroundColor());
 
     for (const QWidget* w : all)
         if (w) const_cast<QWidget*>(w)->blockSignals(false);

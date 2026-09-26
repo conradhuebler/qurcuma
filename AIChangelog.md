@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 4a-4: Appearance geglättet
+
+- **Appearance-Panel** ohne verschachtelte Abschnitte: oben die Gruppe „Style“ (Modus, Farben, Atomgröße, Bindungsdicke, Beschriftungen, Hintergrund als Farbfeld), darunter Fragmente und Bead-Typen, sofern die Struktur welche hat.
+- **„Advanced“** (eingeklappt, Zustand in `ui/displayPanel/advancedExpanded`): Material, Lighting (Eckenlichter) und Effects (Fog, SSAO, Bloom, HDR).
+
 ## September 2026 - UX-Etappe 4a-3: NCI-Optionen im Interactions-Dock
 
 - **Interactions-Dock** = einklappbare „Options“ (`NciOptionsWidget`: Kontaktarten, H-Brücken-Grenzen, Farben, Distanz-Labels, Live-GFN-FF während MD) über der Kontakttabelle; vorher der NCI-Abschnitt im Display-Panel mit einer zweiten Quellenauswahl.

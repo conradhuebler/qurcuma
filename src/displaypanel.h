@@ -1,10 +1,9 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
-// DisplayPanel — the docked "Display" panel: single home for all 3D-viewer
-// appearance/effects/lighting/tools, organized as collapsible sections. Replaces
-// the former modal VisualizationSettingsDialog (its wiring/presets/persistence are
-// ported here verbatim). All controls drive MoleculeViewer's public setters live.
-// Claude Generated 2026.
+// DisplayPanel — the detailed display options inside the Appearance dock. Style
+// (mode, colours, sizes, labels, background), fragment and bead-type colours sit at
+// the top; material, lighting and effects in a collapsed "Advanced" section. All
+// controls drive MoleculeViewer's public setters live. Claude Generated 2026.
 #pragma once
 
 #include <QWidget>
@@ -20,8 +19,6 @@ class QPushButton;
 class QToolButton;
 class QCheckBox;
 class QDoubleSpinBox;
-class QSpinBox;
-class QListWidget;
 class QVBoxLayout;
 class QScrollArea;
 class CollapsibleSection;
@@ -37,8 +34,8 @@ public:
     /// the single source of truth, this never writes viewer state.
     void syncFromViewer();
 
-    /// Expand one accordion section by its stable key ("style", "effects",
-    /// "lighting") and scroll it into view. Claude Generated 2026.
+    /// Expand one collapsible section by its stable key (today only "advanced")
+    /// and scroll it into view. Claude Generated 2026.
     void expandSection(const QString& key);
 
 private slots:
@@ -66,17 +63,15 @@ private slots:
 
 private:
     void setupUI();
-    // Section content builders (reused from the former dialog).
-    void createRenderingGroup(QVBoxLayout* layout);
+    // Group builders.
+    void createStyleGroup(QVBoxLayout* layout);     // mode, colours, sizes, labels, background
     void createMaterialGroup(QVBoxLayout* layout);
-    void createSizeGroup(QVBoxLayout* layout);
-    void createAppearanceGroup(QVBoxLayout* layout); // SSAO/Bloom/HDR/Fog
-    void createLightingGroup(QVBoxLayout* layout);   // corner lights + background (new)
+    void createEffectsGroup(QVBoxLayout* layout);   // fog, SSAO, bloom, HDR
+    void createLightingGroup(QVBoxLayout* layout);  // corner lights
     void createBeadTypeGroup(QVBoxLayout* layout);  // per-bead-type colours (CG beads)
     void createFragmentGroup(QVBoxLayout* layout);  // per-fragment tint (host-guest)
     /// Rebuild the bead-type selector from the loaded structure.
     void refreshBeadTypes();
-    /// Re-read the interaction colours from the viewer into the selector.
     /// Rebuild the fragment selector from the loaded structure.
     void refreshFragments();
     /// Load the selected fragment's own values into the per-fragment controls.
@@ -90,6 +85,7 @@ private:
     QDoubleSpinBox* m_shininessSpinBox = nullptr;
     QDoubleSpinBox* m_atomScaleSpinBox = nullptr;
     QDoubleSpinBox* m_bondThicknessSpinBox = nullptr;
+    QPushButton* m_bgColorButton = nullptr;
 
     // Effects
     QCheckBox* m_fogEnabledCheckBox = nullptr;
@@ -110,14 +106,6 @@ private:
 
     // Lighting
     QToolButton* m_cornerLightButtons[4] = { nullptr, nullptr, nullptr, nullptr };
-    QPushButton* m_bgColorButton = nullptr;
-
-    // Claude Generated 2026 - The former Tools section is gone (UX stage 4): measure and
-    // bond tools are viewer-bar tools, the simulation display options live in the
-    // Simulation dock (SimulationViewOptions), rotation mode and centre-on-load in the
-    // Settings menu, the docking preview in the Build dropdown.
-
-    // Non-covalent interactions
 
     // Coarse-grained bead types
     QGroupBox* m_beadTypeGroup = nullptr;
@@ -138,7 +126,7 @@ private:
     QLabel* m_fragmentScaleLabel = nullptr;
     QGroupBox* m_fragmentSelectedGroup = nullptr;
 
-    // Accordion sections by stable key (expand-state persistence, expandSection).
+    // Collapsible sections by stable key (expand-state persistence, expandSection).
     QHash<QString, CollapsibleSection*> m_sections;
     QScrollArea* m_scroll = nullptr;
 
