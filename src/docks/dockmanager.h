@@ -11,6 +11,8 @@
 #include "dockconfig.h"
 
 #include <QByteArray>
+#include <QList>
+#include <QStringList>
 #include <QObject>
 
 class SimulationDock;
@@ -60,22 +62,35 @@ public:
     // State
     bool dockVisible(QDockWidget* dock) const;
 
+    // Claude Generated 2026 - Open panels as dock objectNames (the stable identifiers
+    // of DockConfig). A dock counts as open when it is not explicitly hidden, also as
+    // a background tab or floating.
+    QStringList openPanels() const;
+    // Open exactly the named panels (unknown names are ignored) and bring @p front to
+    // the front of its tab group if it is open.
+    void showPanels(const QStringList& panels, QDockWidget* front = nullptr);
+    // Panels a mode opens until the user has changed them in that mode.
+    static QStringList defaultPanels(DockConfig::AppMode mode);
+
 public slots:
-    // Apply the dock visibility of an application mode. When reflow is false only
-    // visibility is toggled, preserving restored sizes on startup.
+    // Apply an application mode: first remember the open panels of the mode being
+    // left, then open the panels remembered for @p mode (or its defaults). When
+    // reflow is false only visibility is set, preserving restored sizes on startup.
     void setAppMode(DockConfig::AppMode mode, bool reflow = true);
 
     // Capture the current state as baseline (call once after the event loop starts).
     void captureBaselineState();
 
-    // Persist the window geometry + dock layout to QSettings (call on close).
+    // Persist the window geometry + dock layout and the current mode's panels
+    // to QSettings (call on close).
     void saveLayout();
 
     // Restore globally persisted layout (geometry + dock state). Returns false when
     // no current dock state was stored, so the caller lays out the mode from scratch.
     bool restoreSavedLayout();
 
-    // Reset to the baseline layout captured at startup.
+    // Reset to the baseline layout captured at startup and forget the panels
+    // remembered per mode (the next setAppMode opens the defaults).
     void resetToBaseline();
 
     // Toggle the left panel group (Project + Navigation).
@@ -109,4 +124,11 @@ private:
     QTabWidget* m_simulationTabs = nullptr;
 
     QByteArray m_defaultState;
+
+    // Claude Generated 2026 - Panel memory per mode (see setAppMode).
+    void rememberPanels(DockConfig::AppMode mode);
+    QStringList rememberedPanels(DockConfig::AppMode mode) const;
+    QList<QDockWidget*> allDocks() const;
+    bool m_modeApplied = false;  // false until the first setAppMode and after a reset
+    DockConfig::AppMode m_currentMode = DockConfig::AppMode::Explore;
 };

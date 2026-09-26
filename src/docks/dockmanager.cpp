@@ -69,28 +69,61 @@ static void setDockVisible(QDockWidget* dock, bool visible)
         dock->setVisible(visible);
 }
 
-// Apply a visibility set to the four "layout" docks (hides first, then shows,
-// so a tab bar never briefly holds only docks that are about to disappear) and
-// bring one right-hand dock to the front of its tab group. The Interactions and
-// Images docks are never touched here: they show themselves on demand.
-static void applyDockVisibility(QDockWidget* project, bool showProject,
-    QDockWidget* display, bool showDisplay,
-    QDockWidget* simulation, bool showSimulation,
-    QDockWidget* output, bool showOutput,
-    QDockWidget* raiseDock)
+QList<QDockWidget*> DockManager::allDocks() const
 {
-    const std::pair<QDockWidget*, bool> docks[] = {
-        { project, showProject }, { display, showDisplay },
-        { simulation, showSimulation }, { output, showOutput }
-    };
-    for (const auto& [dock, show] : docks)
-        if (!show)
-            setDockVisible(dock, false);
-    for (const auto& [dock, show] : docks)
-        if (show)
-            setDockVisible(dock, true);
-    if (raiseDock && !raiseDock->isHidden())
-        raiseDock->raise();
+    QList<QDockWidget*> docks;
+    for (QDockWidget* d : { m_projectDock, m_structureDock, m_appearanceDock, m_simulationDock,
+                            m_outputViewDock, m_nciDock, m_imageGalleryDock })
+        if (d)
+            docks.append(d);
+    return docks;
+}
+
+QStringList DockManager::openPanels() const
+{
+    QStringList names;
+    for (QDockWidget* d : allDocks())
+        if (!d->isHidden())
+            names << d->objectName();
+    return names;
+}
+
+// Hides first, then shows, so a tab bar never briefly holds only docks that are
+// about to disappear; then brings @p front to the front of its tab group.
+void DockManager::showPanels(const QStringList& panels, QDockWidget* front)
+{
+    const QList<QDockWidget*> docks = allDocks();
+    for (QDockWidget* d : docks)
+        if (!panels.contains(d->objectName()))
+            setDockVisible(d, false);
+    for (QDockWidget* d : docks)
+        if (panels.contains(d->objectName()))
+            setDockVisible(d, true);
+    if (front && !front->isHidden())
+        front->raise();
+}
+
+QStringList DockManager::defaultPanels(DockConfig::AppMode mode)
+{
+    QStringList panels = { DockConfig::ProjectDockObjectName, DockConfig::StructureDockObjectName };
+    if (mode != DockConfig::AppMode::Explore)
+        panels << DockConfig::SimulationDockObjectName;
+    if (mode == DockConfig::AppMode::Compute)
+        panels << DockConfig::OutputViewDockObjectName;
+    return panels;
+}
+
+void DockManager::rememberPanels(DockConfig::AppMode mode)
+{
+    QSettings().setValue(QStringLiteral("%1/%2").arg(DockConfig::UiModePanelsGroup).arg(int(mode)),
+                         openPanels());
+}
+
+QStringList DockManager::rememberedPanels(DockConfig::AppMode mode) const
+{
+    const QVariant stored = QSettings().value(
+        QStringLiteral("%1/%2").arg(DockConfig::UiModePanelsGroup).arg(int(mode)));
+    return stored.isValid() ? stored.toStringList() : defaultPanels(mode);
 }
 
 OutputDock* DockManager::outputDockImpl() const
@@ -133,16 +166,19 @@ void DockManager::setAppMode(DockConfig::AppMode mode, bool reflow)
     if (!m_mainWindow)
         return;
 
-    // Explore and Teaching: Project + Structure, viewer focus (Teaching differs only in
-    // the Project panel's browser, which MainWindow switches). Compute: all four, with
-    // the Simulation tab in front. Per-dock visibility (see setDockVisible).
-    const bool explore = (mode != DockConfig::AppMode::Compute);
-    applyDockVisibility(m_projectDock, true, m_structureDock, true,
-        m_simulationDock, !explore, m_outputViewDock, !explore,
-        explore ? m_structureDock : m_simulationDock);
+    // Claude Generated 2026 - Every mode keeps its own panels: the open ones are stored
+    // for the mode being left, and the target mode gets back what it had (defaults:
+    // Explore = Project + Structure, Teaching adds Simulation, Compute also Output).
+    // Teaching additionally switches the Project panel's browser (MainWindow).
+    if (m_modeApplied)
+        rememberPanels(m_currentMode);
+    const bool explore = (mode == DockConfig::AppMode::Explore);
+    showPanels(rememberedPanels(mode), explore ? m_structureDock : m_simulationDock);
+    m_currentMode = mode;
+    m_modeApplied = true;
 
     if (reflow) {
-        if (explore) {
+        if (mode != DockConfig::AppMode::Compute) {
             if (m_mainWindow->width() > 0)
                 m_mainWindow->resizeDocks({ m_projectDock, m_structureDock },
                                           { int(m_mainWindow->width() * 0.16),
@@ -177,6 +213,8 @@ void DockManager::saveLayout()
     QSettings uiSettings;
     uiSettings.setValue(DockConfig::UiGeometryKey, m_mainWindow->saveGeometry());
     uiSettings.setValue(DockConfig::UiDockStateKey, m_mainWindow->saveState());
+    if (m_modeApplied)
+        rememberPanels(m_currentMode);
 }
 
 bool DockManager::restoreSavedLayout()
@@ -201,6 +239,8 @@ void DockManager::resetToBaseline()
     if (!m_mainWindow || m_defaultState.isEmpty())
         return;
     m_mainWindow->restoreState(m_defaultState);
+    QSettings().remove(DockConfig::UiModePanelsGroup);
+    m_modeApplied = false;  // the next setAppMode opens the defaults without storing this state
 }
 
 void DockManager::toggleLeftPanel()

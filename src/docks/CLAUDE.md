@@ -20,7 +20,7 @@
 
 ## Dock Visibility
 - View ▸ Panels uses each dock's `QDockWidget::toggleViewAction()`, which is Qt's safe path for tabified groups.
-- The app mode sets visibility **per dock** (`setDockVisible`, hides before shows, then `raise()` the mode's front tab). Never toggle via `tabifiedDockWidgets()`: Structure/Simulation/Interactions share one tab bar, so a group toggle hid Structure with Simulation and surfaced the hidden-by-default Interactions/Images docks.
+- The app mode sets visibility **per dock** (`DockManager::showPanels` → `setDockVisible`, hides before shows, then `raise()` the mode's front tab). Never toggle via `tabifiedDockWidgets()`: Structure/Simulation/Interactions share one tab bar, so a group toggle hid Structure with Simulation and surfaced the hidden-by-default Interactions/Images docks.
 
 ## ProjectDock File Browser Filter
 - `DirectoryFilterProxyModel` sits between `QFileSystemModel` and `QListView`; combines live name search with extension subset filtering.
@@ -38,8 +38,8 @@
 - The only layout switch (UX stage 4b; the five layout presets and Ctrl+Alt+1–5 are gone). Custom layouts are saved as workspaces.
 - `MainWindow::setAppMode` updates the corner buttons, persists `ui/appMode`, shows the calculation toolbar in Compute only.
 - Teaching = Explore + lesson browser: entering it calls `LessonController::setBrowserMode(true)`, leaving it switches back to Files.
-- `DockManager::setAppMode`: Explore/Teaching show Project + Structure (Structure in front); Compute adds Simulation + Output (Simulation in front). Appearance, Interactions and Images are left as they are.
-- Without a stored layout (first run, workspace without layout, View ▸ Reset to Default Layout) the mode also sizes the docks (`reflow`).
+- `DockManager::setAppMode`: **each mode keeps its own panels** (all seven docks, as objectNames in `ui/modePanels/<mode>`), stored when the mode is left and on close, restored on entry. Defaults: Explore = Project + Structure (Structure in front), Teaching adds Simulation, Compute also Output (Simulation in front).
+- Without a stored layout (first run, workspace without layout, View ▸ Reset to Default Layout) the mode also sizes the docks (`reflow`); Reset also forgets the panels of every mode.
 
 ## Viewer Embedding (why docks stopped overlapping)
 - `MoleculeViewer` embeds the 3D scene as a `QQuickWidget` (`src/view.cpp`, `setupViewer`). The former `QQuickView` + `createWindowContainer()` was a **native window**, which Qt stacks above all sibling widgets: it painted over dock panels/tab bars during resizes, animations and on Wayland, and swallowed the clicks meant for them.
