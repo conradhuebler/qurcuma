@@ -86,8 +86,9 @@
 #endif
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "docks/dockmanager.h"  // Claude Generated 2026 - Dock system restructuring
-#include "recipe.h"
-#include "widgets/collapsiblesection.h"  // Lesson section drop target              // Claude Generated 2026 - simulation recipes (UX stage 6 S2)
+#include "recipe.h"              // Claude Generated 2026 - simulation recipes (UX stage 6 S2)
+#include "runlog.h"              // Claude Generated 2026 - per-run parameter log (UX stage 6 S4)
+#include "widgets/collapsiblesection.h"  // Lesson section drop target
 #include "docks/simulationdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/structuredock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/appearancedock.h"  // Claude Generated 2026 - UX stage 4
@@ -713,6 +714,69 @@ void MainWindow::showCommandPalette()
     // palette's only source and no entry appears twice.
     m_commandPalette->setCommands(collectMenuBarCommands(menuBar()));
     m_commandPalette->popUp();
+}
+
+// Claude Generated 2026 - Tools ▸ Parameter Usage (UX stage 6 S4): per run mode, how many
+// of the logged runs sent each parameter with a value different from curcuma's default,
+// and from where. The basis for deciding what the Simulation tab shows up front.
+void MainWindow::showParameterUsage()
+{
+    const QString path = runlog::defaultPath();
+    const QVector<QJsonObject> records = runlog::readAll(path);
+    int mdRuns = 0, optRuns = 0;
+    for (const QJsonObject& r : records)
+        (r.value("mode").toString() == QLatin1String("md") ? mdRuns : optRuns)++;
+    const QVector<runlog::Count> counts = runlog::tally(records);
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Parameter Usage"));
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* info = new QLabel(tr("%1 MD run(s) and %2 optimization(s) logged in %3. A row counts "
+                               "the runs in which the parameter was sent with a value different "
+                               "from curcuma's default.")
+                                .arg(mdRuns).arg(optRuns).arg(QDir::toNativeSeparators(path)), &dialog);
+    info->setWordWrap(true);
+    info->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(info);
+
+    auto* table = new QTableWidget(counts.size(), 5, &dialog);
+    table->setHorizontalHeaderLabels({ tr("Mode"), tr("Parameter"), tr("Set in"), tr("Runs"), tr("Share %") });
+    table->verticalHeader()->setVisible(false);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    for (int r = 0; r < counts.size(); ++r) {
+        const runlog::Count& c = counts[r];
+        table->setItem(r, 0, new QTableWidgetItem(c.mode == QLatin1String("md") ? tr("MD") : tr("Opt")));
+        table->setItem(r, 1, new QTableWidgetItem(c.name));
+        table->setItem(r, 2, new QTableWidgetItem(runlog::sourceLabel(c.source)));
+        auto* runsItem = new QTableWidgetItem;
+        runsItem->setData(Qt::DisplayRole, c.changed);
+        runsItem->setToolTip(tr("%1 of %2 runs").arg(c.changed).arg(c.runs));
+        table->setItem(r, 3, runsItem);
+        auto* shareItem = new QTableWidgetItem;
+        shareItem->setData(Qt::DisplayRole, c.runs ? qRound(100.0 * c.changed / c.runs) : 0);
+        table->setItem(r, 4, shareItem);
+    }
+    table->resizeColumnsToContents();
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->setSortingEnabled(true);
+    layout->addWidget(table, 1);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    QPushButton* clearButton = buttons->addButton(tr("Clear Log…"), QDialogButtonBox::ResetRole);
+    clearButton->setEnabled(!records.isEmpty());
+    connect(clearButton, &QPushButton::clicked, &dialog, [this, &dialog, path]() {
+        if (QMessageBox::question(this, tr("Clear Log"),
+                tr("Delete the run log with all recorded runs?\n%1").arg(QDir::toNativeSeparators(path)))
+            != QMessageBox::Yes)
+            return;
+        QFile::remove(path);
+        dialog.accept();
+    });
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    dialog.resize(640, 520);
+    dialog.exec();
 }
 
 // Claude Generated 2026 - Help ▸ Keyboard Shortcuts: every menu-bar action that has a
@@ -1546,6 +1610,11 @@ void MainWindow::createMenus()
         if (m_nmrDialog)
             m_nmrDialog->show();
     });
+
+    QAction *usageAction = toolsMenu->addAction(tr("Parameter &Usage…"));
+    usageAction->setToolTip(tr("How often each simulation parameter differed from curcuma's "
+                               "default over the logged runs."));
+    connect(usageAction, &QAction::triggered, this, &MainWindow::showParameterUsage);
 
     toolsMenu->addSeparator();
     QAction *configAction = toolsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure &Programs..."));
@@ -5463,6 +5532,15 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
     // the worker's thread starts, which workerStarted guarantees.
     worker->setLiveNci(m_nciLiveMd && m_moleculeView
         && m_moleculeView->getNciSource() == int(nci::Source::GfnffParameters));
+
+    // Claude Generated 2026 - UX stage 6 S4: every run reports the parameters that differ
+    // from curcuma's defaults; they go to the Output panel and to the run log.
+    connect(worker, &SimulationWorker::runParameters, this, [this](const QJsonObject& record) {
+        if (m_outputViewDock)
+            m_outputViewDock->appendOutput(runlog::summary(record));
+        if (!runlog::append(runlog::defaultPath(), record))
+            statusBar()->showMessage(tr("Could not write the run log %1").arg(runlog::defaultPath()), 4000);
+    }, Qt::QueuedConnection);
 
     if (m_moleculeView) {
         // Claude Generated 2026 - Critical: a new worker run must re-arm the

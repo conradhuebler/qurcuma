@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - UX-Etappe 6 S4: Parameter-Protokoll je Lauf
+
+- **Jeder MD-Lauf und jede Optimierung** schreibt ins Output-Panel, welche gesendeten Parameter vom curcuma-Default abweichen (Wert, Default, Quelle: Simulation-Tab, All parameters, von qurcuma fest gesetzt), und hängt den Datensatz an `run-parameters.jsonl` im Datenverzeichnis von qurcuma an. Einzelschritte und das Clean-up des Builders zählen nicht.
+- **Tools ▸ Parameter Usage**: Tabelle, wie oft jeder Parameter über die protokollierten Läufe abwich (je Modus und Quelle, sortierbar), mit „Clear Log…“.
+
 ## September 2026 - Teaching: Lesson oben, Dateien bleiben erreichbar
 
 - **Lesson-Abschnitt oben im Project-Panel** („Lesson (N)“, einklappbar): Metadaten, eigene Strukturliste, Detail-Editor; Dateien per Drag&Drop hinzufügen. In Teaching offen und als erstes Element, sonst sichtbar, sobald die Lesson Strukturen hat.

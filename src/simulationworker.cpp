@@ -19,6 +19,7 @@ using json = nlohmann::json;
 #include <src/core/elements.h>
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QFile>
@@ -146,6 +147,72 @@ void applyExtraParams(const SimulationConfig& cfg, json& simplemd_params)
         if (!present.count(canonicalSimplemdName(key)))
             simplemd_params[key] = toNlohmann(it.value());
     }
+}
+
+// Claude Generated 2026 - UX stage 6 S4: what a run sends with a value different from
+// curcuma's default, and where it came from (record format: runlog.h).
+QJsonObject runRecord(const SimulationConfig& cfg, const QString& mode, int atoms, const QJsonArray& changed)
+{
+    QJsonObject r;
+    r["time"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    r["mode"] = mode;
+    r["method"] = cfg.method;
+    if (mode == QLatin1String("opt"))
+        r["optimizer"] = cfg.optimizer;
+    r["atoms"] = atoms;
+    r["changed"] = changed;
+    return r;
+}
+
+QJsonObject changeEntry(const std::string& name, const json& value, const json* defaultValue,
+                        const char* source)
+{
+    QJsonObject c;
+    c["name"] = QString::fromStdString(name);
+    c["value"] = toQJson(value);
+    c["default"] = defaultValue ? toQJson(*defaultValue) : QJsonValue();
+    c["source"] = QString::fromLatin1(source);
+    return c;
+}
+
+QJsonObject mdRunRecord(const SimulationConfig& cfg, const json& simplemd, int atoms)
+{
+    // Set by qurcuma for the interactive viewer, not by the user.
+    static const std::set<std::string> fixedByQurcuma = { "dump_frequency", "no_restart", "no_center" };
+    const json defaults = ParameterRegistry::getInstance().getDefaultJson("simplemd");
+    QJsonArray changed;
+    for (auto it = simplemd.begin(); it != simplemd.end(); ++it) {
+        const std::string name = canonicalSimplemdName(it.key());
+        if (name == "method")
+            continue;  // the run's method is recorded on its own
+        const json* def = defaults.contains(name) ? &defaults.at(name) : nullptr;
+        if (def && *def == it.value())
+            continue;
+        const char* source = cfg.mdExtraParams.contains(QString::fromStdString(name))
+            ? "all-parameters" : fixedByQurcuma.count(name) ? "qurcuma" : "simulation";
+        changed.append(changeEntry(name, it.value(), def, source));
+    }
+    return runRecord(cfg, QStringLiteral("md"), atoms, changed);
+}
+
+QJsonObject optRunRecord(const SimulationConfig& cfg, const json& sent, const json& defaults, int atoms)
+{
+    static const std::set<std::string> fixedByQurcuma = { "verbosity", "max_energy_rise", "single_step_mode" };
+    QJsonArray changed;
+    for (auto it = sent.begin(); it != sent.end(); ++it) {
+        const json* def = defaults.contains(it.key()) ? &defaults.at(it.key()) : nullptr;
+        if (def && *def == it.value())
+            continue;
+        changed.append(changeEntry(it.key(), it.value(), def,
+                                   fixedByQurcuma.count(it.key()) ? "qurcuma" : "simulation"));
+    }
+    // Charge and spin reach the optimizer through the molecule, default 0 in curcuma.
+    const json zero = 0;
+    if (cfg.charge != 0)
+        changed.append(changeEntry("charge", json(cfg.charge), &zero, "simulation"));
+    if (cfg.spin != 0)
+        changed.append(changeEntry("spin", json(cfg.spin), &zero, "simulation"));
+    return runRecord(cfg, QStringLiteral("opt"), atoms, changed);
 }
 
 // Claude Generated 2026 - Single source of truth for the SimpleMD controller
@@ -596,6 +663,7 @@ void SimulationWorker::startMD()
         return;
     }
     m_md->prepareRun();
+    emit runParameters(mdRunRecord(m_config, controller["simplemd"], m_initialAtoms.size()));
 
     // Reset perf-stat accumulators for this run
     m_mdFrameCount = 0;
@@ -814,10 +882,13 @@ void SimulationWorker::runOptimization()
 
         // Merge user config on top of driver defaults so subclass settings are preserved.
         {
-            json merged = optimizer->GetDefaultConfiguration();
+            const json defaults = optimizer->GetDefaultConfiguration();
+            json merged = defaults;
             for (auto it = opt_config.begin(); it != opt_config.end(); ++it)
                 merged[it.key()] = it.value();
             optimizer->LoadConfiguration(merged);
+            if (!m_config.optSingleShot)  // the builder's clean-up is not a user run
+                emit runParameters(optRunRecord(m_config, opt_config, defaults, m_initialAtoms.size()));
         }
 
         // Per-step callback: throttle-then-emit, same cadence model as runMD().

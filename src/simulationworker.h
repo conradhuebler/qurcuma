@@ -250,6 +250,10 @@ signals:
 
     /** @brief Emitted on fatal error (method unavailable, convergence failure, etc.). */
     void errorOccurred(QString message);
+    /** @brief At the start of an MD run or an optimization: the parameters sent with a
+     *  value different from curcuma's default and their source (runlog.h record).
+     *  Not emitted for single steps or the builder's clean-up. Claude Generated 2026. */
+    void runParameters(const QJsonObject& record);
 
     /** @brief Emitted when simulation enters paused state. */
     void paused();

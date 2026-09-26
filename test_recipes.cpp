@@ -6,7 +6,8 @@
 //    its default, so a field written but not read (or the reverse) shows up here;
 //  - the lesson's optional panel list;
 //  - recipes: a recipe never changes method, charge, spin or the working
-//    preferences, and a built-in switches off every feature it does not use.
+//    preferences, and a built-in switches off every feature it does not use;
+//  - the All parameters tab's condition grammar and the per-run parameter log.
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -17,6 +18,9 @@
 #include "lesson.h"
 #include "recipe.h"
 #include "simparameters.h"
+#include "runlog.h"
+
+#include <QTemporaryDir>
 
 namespace {
 
@@ -210,6 +214,54 @@ int main()
             && !simparams::sameValue(QJsonValue(1), QJsonValue(QStringLiteral("1")))
             && simparams::sameValue(QJsonValue(298.15), QJsonValue(298.15)),
         "values compare as numbers when both are numbers, strictly otherwise");
+
+    // --- Run log (S4) ------------------------------------------------------------------
+    auto change = [](const char* name, const QJsonValue& value, const QJsonValue& def, const char* source) {
+        QJsonObject c;
+        c["name"] = QString::fromLatin1(name);
+        c["value"] = value;
+        c["default"] = def;
+        c["source"] = QString::fromLatin1(source);
+        return c;
+    };
+    QJsonObject run1{ { "mode", "md" }, { "method", "gfnff" }, { "atoms", 3 },
+        { "changed", QJsonArray{ change("temperature", 300.0, 298.15, "simulation"),
+                                 change("dump_frequency", 1, 50, "qurcuma") } } };
+    QJsonObject run2{ { "mode", "md" }, { "method", "gfnff" }, { "atoms", 3 },
+        { "changed", QJsonArray{ change("temperature", 350.0, 298.15, "simulation"),
+                                 change("seed", 7, -1, "all-parameters"),
+                                 change("dump_frequency", 1, 50, "qurcuma") } } };
+    QJsonObject run3{ { "mode", "opt" }, { "method", "gfn2" }, { "optimizer", "auto" }, { "atoms", 3 },
+        { "changed", QJsonArray{ change("gradient_threshold", 1e-6, 5e-4, "simulation") } } };
+
+    QTemporaryDir tmp;
+    const QString logPath = tmp.filePath(QStringLiteral("sub/run-parameters.jsonl"));
+    check(runlog::append(logPath, run1) && runlog::append(logPath, run2) && runlog::append(logPath, run3),
+        "records are appended (the directory is created)");
+    const QVector<QJsonObject> logged = runlog::readAll(logPath);
+    check(logged.size() == 3 && logged[1] == run2, "records read back in order, unchanged");
+
+    const QVector<runlog::Count> counts = runlog::tally(logged);
+    auto countOf = [&counts](const QString& mode, const QString& name) {
+        for (const runlog::Count& c : counts)
+            if (c.mode == mode && c.name == name)
+                return c;
+        return runlog::Count{};
+    };
+    const runlog::Count t = countOf(QStringLiteral("md"), QStringLiteral("temperature"));
+    const runlog::Count seed = countOf(QStringLiteral("md"), QStringLiteral("seed"));
+    const runlog::Count grad = countOf(QStringLiteral("opt"), QStringLiteral("gradient_threshold"));
+    check(t.changed == 2 && t.runs == 2 && seed.changed == 1 && seed.runs == 2
+            && seed.source == QStringLiteral("all-parameters") && grad.changed == 1 && grad.runs == 1,
+        "the tally counts changed runs per mode and keeps the source");
+    check(!counts.isEmpty() && double(counts.first().changed) / counts.first().runs == 1.0
+            && double(counts.last().changed) / counts.last().runs <= 0.5 + 1e-12,
+        "the tally lists the most frequently changed parameters first");
+    const QString text = runlog::summary(run2);
+    check(text.contains(QStringLiteral("MD run (gfnff, 3 atoms): 3 parameter(s)"))
+            && text.contains(QStringLiteral("seed = 7 (default -1) [All parameters]"))
+            && text.contains(QStringLiteral("dump_frequency = 1 (default 50) [fixed by qurcuma]")),
+        "the Output summary names value, default and source");
 
     std::cout << std::endl;
     if (g_failures == 0) {

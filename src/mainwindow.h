@@ -515,6 +515,9 @@ private:
     void populateViewsMenu();
     /// Help ▸ Keyboard Shortcuts: table built from the menu-bar actions. Claude Generated 2026.
     void showKeyboardShortcuts();
+    /// Tools ▸ Parameter Usage: how often each parameter differed from curcuma's default
+    /// over the logged runs (runlog.h). Claude Generated 2026 (UX stage 6 S4).
+    void showParameterUsage();
     /// Esc: cancel a running calculation, else clear selection/measurement.
     void handleEscape();
     /// Viewport context menu: atom actions on an atom, view actions elsewhere.
