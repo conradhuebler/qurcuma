@@ -565,7 +565,6 @@ signals:
     /// Claude Generated 2026 - The bar's "New" button asks the host to start an
     /// empty scene (MainWindow owns the confirmation + snapshot bookkeeping).
     void newSceneRequested();
-    void displayOptionsRequested();
     // Claude Generated 2026 - Structure editing.
     void editModeChanged(bool on);
     void collisionCountChanged(int count);  // clashing atoms in the current frame

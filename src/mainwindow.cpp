@@ -127,9 +127,6 @@ MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     // createDockWidgets() can delegate to it in later phases.
     m_dockManager = new DockManager(this, this);
 
-    // Claude Generated - Quick Fix: Set window title and version
-    setWindowTitle("Qurcuma 1.0 - Molecular Visualization");
-
     setupUI();
     createToolbars();
     createMenus();
@@ -257,7 +254,7 @@ void MainWindow::setupUI()
 
     // Window settings
     resize(1400, 900);  // Larger default size for flexible docking
-    setWindowTitle("Qurcuma");
+    setWindowTitle(QStringLiteral("Qurcuma"));  // a lesson sets "Qurcuma — <title>"
 
     // Claude Generated (2026-04) - Dock rewrite: capture baseline after Qt finished
     // placement, then prefer the globally persisted layout from QSettings. Without
@@ -1907,7 +1904,6 @@ void MainWindow::setupShortcuts()
     // Claude Generated 2026 - Escape is handled once in setupUI (handleEscape:
     // cancel a running calculation, else clear the selection); Ctrl+0/Home live
     // on View ▸ Fit in View. The doubled registrations were ambiguous.
-    new QShortcut(QKeySequence::NextChild, this, this, &MainWindow::switchEditorTab);  // Ctrl+Tab
 }
 
 void MainWindow::setupProjectViewContextMenu()
@@ -3010,9 +3006,15 @@ void MainWindow::populateLookMenu()
     m_lookMenu->addSeparator();
     if (m_colorSchemeMenu)
         m_lookMenu->addMenu(m_colorSchemeMenu);
+    // Details… opens the Appearance dock at "Advanced", where most look fields sit
+    // (material, lighting, effects); colours and background are in Style above it.
     QAction* details = m_lookMenu->addAction(tr("Details…"));
-    details->setToolTip(tr("Open the Appearance dock (style, material, lighting, effects)"));
-    connect(details, &QAction::triggered, this, &MainWindow::openVisualizationSettings);
+    details->setToolTip(tr("Open the Appearance dock at Advanced (material, lighting, effects)"));
+    connect(details, &QAction::triggered, this, [this]() {
+        openVisualizationSettings();
+        if (m_displayPanel)
+            m_displayPanel->expandSection(QStringLiteral("advanced"));
+    });
 }
 
 // Claude Generated 2026 - Simulation ▸ Recipe (and the Simulation dock's Recipe button):
@@ -3322,18 +3324,6 @@ void MainWindow::cancelCalculation()
     if (m_calculationRunner->isRunning()) {
         m_calculationRunner->cancel();
         statusBar()->showMessage(tr("Calculation canceled"));
-    }
-}
-
-void MainWindow::switchEditorTab()
-{
-    // Find editor tabs widget and switch to next tab
-    // This is a simple implementation - can be improved
-    QTabWidget* tabWidget = findChild<QTabWidget*>();
-    if (tabWidget) {
-        int currentIndex = tabWidget->currentIndex();
-        int nextIndex = (currentIndex + 1) % tabWidget->count();
-        tabWidget->setCurrentIndex(nextIndex);
     }
 }
 
@@ -4940,12 +4930,8 @@ void MainWindow::createDockWidgets()
     }
 
     // ==================== DISPLAY PANEL (inside the Appearance dock) ====================
-    // DisplayPanel is owned by the Appearance dock and harvested above; MainWindow only
-    // wires its signals here.
-    // The viewer's slim "Display ⚙" bar button surfaces this dock.
-    if (m_moleculeView)
-        connect(m_moleculeView, &MoleculeViewer::displayOptionsRequested,
-            this, &MainWindow::openVisualizationSettings);
+    // DisplayPanel is owned by the Appearance dock and harvested above; Look ▸ Details…
+    // and View ▸ Views ▸ Manage Views… open the dock.
 
     // Claude Generated - Worker is wired to view + status slot directly (skips widget mid-hop).
     // Claude Generated 2026 - Phase 6: every molecule load path emits MoleculeViewer::moleculeUpdated;

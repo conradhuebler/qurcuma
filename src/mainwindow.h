@@ -149,7 +149,6 @@ private slots:
 
     // Keyboard shortcuts - Claude Generated Phase 1.2
     void cancelCalculation();
-    void switchEditorTab();
 
     // Claude Generated 2026 - Save the (possibly MD/Opt-modified) molecule.
     // Empty path → overwrite the current XYZ source if it's a .xyz file,
