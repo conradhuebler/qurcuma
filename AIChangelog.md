@@ -1,8 +1,8 @@
 # AIChangelog - Qurcuma Improvements
 
-## September 2026 - WASD im View-Werkzeug
+## September 2026 - WASD im View- und Measure-Werkzeug
 
-- W A S D Q E drehen die Szene jetzt auch im View-Werkzeug, solange die 3D-Ansicht den Fokus hat (hineinklicken); Listen anderswo behalten die Buchstaben für ihre Schnellsuche. Edit-Werkzeug und laufende Simulation wie bisher, im Build-Werkzeug bleiben die Buchstaben Elementtasten.
+- W A S D Q E drehen die Szene jetzt auch im View- und im Measure-Werkzeug, solange die 3D-Ansicht den Fokus hat (hineinklicken); Listen anderswo behalten die Buchstaben für ihre Schnellsuche. Edit-Werkzeug und laufende Simulation wie bisher, im Build-Werkzeug bleiben die Buchstaben Elementtasten.
 
 ## September 2026 - UX-Umbau: Restpunkte
 

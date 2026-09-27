@@ -5016,7 +5016,8 @@ void MoleculeViewer::setupControlPanel()
     viewBtn->setChecked(true);
     QToolButton* measureBtn = makeToolButton(tr("Measure"), QStringLiteral("measure"),
         tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral. "
-           "Click a marked atom again to deselect; Esc clears."));
+           "Click a marked atom again to deselect; Esc clears. W A S D Q E rotate while "
+           "the 3D view has the focus."));
     QToolButton* editBtn = makeToolButton(tr("Edit"), QStringLiteral("edit"),
         tr("Edit mode: click to select an atom, double-click for the whole molecule, "
            "drag to move (Shift = depth). W A S D Q E rotate the scene, with Shift they "

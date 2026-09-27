@@ -804,7 +804,7 @@ void MainWindow::showKeyboardShortcuts()
 
     auto* note = new QLabel(tr("In the viewport: Esc steps back one level (drops a carried "
                                "fragment, clears the selection, leaves the tool). W A S D Q E "
-                               "rotate the scene in the View tool (3D view focused), in the Edit "
+                               "rotate the scene in the View and Measure tools (3D view focused), in the Edit "
                                "tool and during a run. The keys of the Edit and Build tools are "
                                "listed in their tooltips on the viewer bar."), &dialog);
     note->setWordWrap(true);
@@ -1433,7 +1433,8 @@ void MainWindow::createMenus()
           tr("Plain viewing: drag rotates, click selects an atom, W A S D Q E rotate while the "
              "3D view has the focus. Esc steps back to it.") },
         { MoleculeViewer::InteractionMode::Measure, tr("&Measure"), QKeySequence(Qt::Key_M),
-          tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral.") },
+          tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral. W A S D Q E "
+             "rotate while the 3D view has the focus.") },
         { MoleculeViewer::InteractionMode::Edit, tr("&Edit"), QKeySequence(Qt::CTRL | Qt::Key_E),
           tr("Select and move atoms and molecules, copy/paste, with clash feedback.") },
         { MoleculeViewer::InteractionMode::Build, tr("&Build"), QKeySequence(Qt::Key_B),
@@ -5291,10 +5292,11 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
                 || key == Qt::Key_D || key == Qt::Key_Q || key == Qt::Key_E;
             // Intercept WASD/QE in Edit mode, in the interactive MD/Opt grab mode
             // (rotation is purely visual there) and, Claude Generated 2026, in the View
-            // tool while the 3D view has the focus: there the letters would otherwise
-            // be free, but lists elsewhere keep them for their type-ahead search.
-            const bool viewTool =
-                m_moleculeView->interactionMode() == MoleculeViewer::InteractionMode::None
+            // and Measure tools while the 3D view has the focus: there the letters would
+            // otherwise be free, but lists elsewhere keep them for their type-ahead search.
+            const auto tool = m_moleculeView->interactionMode();
+            const bool viewTool = (tool == MoleculeViewer::InteractionMode::None
+                                   || tool == MoleculeViewer::InteractionMode::Measure)
                 && m_moleculeView->viewportHasFocus();
             if (isRotKey
                 && (m_moleculeView->editMode() || m_moleculeView->simulationActive() || viewTool)
