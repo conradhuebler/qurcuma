@@ -115,10 +115,10 @@ set(USE_PCH OFF CACHE BOOL "" FORCE)
 set(Helper OFF CACHE BOOL "" FORCE)
 
 # Claude Generated 2026 - this branch needs curcuma's reactff2-llm (GPU plugins,
-# CIF reader, react topology API, held atoms in ANCOpt); master lacks them and a
-# fresh CI checkout would not compile. Only a fresh clone reads this line: with the
-# local checkout present FetchContent is disconnected below. Back to master once
-# reactff2-llm is merged there.
+# CIF reader, react topology API, held atoms in ANCOpt, ParameterRegistry tiers and
+# relevantWhen); master lacks them and a fresh CI checkout would not compile. Only a
+# fresh clone reads this line: with the local checkout present FetchContent is
+# disconnected below. Back to master once reactff2-llm is merged there.
 FetchContent_Declare(curcuma
     GIT_REPOSITORY https://github.com/conradhuebler/curcuma
     GIT_TAG        reactff2-llm
