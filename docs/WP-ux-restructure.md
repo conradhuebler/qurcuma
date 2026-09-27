@@ -76,6 +76,10 @@ Grenzen der Methode: Ein Element, das in einer Schleife entsteht, zählt einmal;
 | Project | `docks/projectdock` | 10 | 8 |
 | alle Dateien | `src/**/*.cpp` | 230 | 217 |
 
+## Verifikation: keine Einstellung verloren
+
+Erledigt in `docs/UX-settings-audit.md` (Skript `docs/development/audit_ui_reach.py 4d4c433 HEAD`): Viewer-Methoden, `SimulationConfig`-Felder, `nci::Options`-Felder und MainWindow-Slots, die die Oberfläche vorher erreichte, dazu Viewer-Leiste und `DisplaySettings` von Hand. Jeder fehlende Name ist aufgeklärt: verschoben oder mit Commit-Beleg bewusst entfernt. Was schwer zu finden ist, erkennt die Prüfung nicht; das bleibt dem GUI-Test.
+
 ## Offen: die nächsten Etappen
 
 ### 6: Simulationsparameter, Versuchsfahrplan
