@@ -5011,7 +5011,8 @@ void MoleculeViewer::setupControlPanel()
         return b;
     };
     QToolButton* viewBtn = makeToolButton(tr("View"), QStringLiteral("view"),
-        tr("Plain viewing: drag rotates, click selects an atom. Esc returns here from every tool."));
+        tr("Plain viewing: drag rotates, click selects an atom, W A S D Q E rotate (W/S tilt, "
+           "A/D turn, Q/E roll) while the 3D view has the focus. Esc returns here from every tool."));
     viewBtn->setChecked(true);
     QToolButton* measureBtn = makeToolButton(tr("Measure"), QStringLiteral("measure"),
         tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral. "

@@ -33,7 +33,7 @@ A Qt-based GUI for molecular visualization, interactive simulation, and quantum 
 - Click to select atoms; double-click to select whole molecule (BFS fragment)
 - Ctrl/Shift+drag for rubber-band box selection
 - Drag to translate; Shift+drag for depth
-- WASD/QE scene rotation (full 3-axis) while editing; Shift+WASD/QE nudges the selection
+- WASD/QE scene rotation (full 3-axis) while editing, and in the View tool with the 3D view focused; Shift+WASD/QE nudges the selection while editing
 - Collision detection with clash count and one-click resolve
 - Copy / paste / delete atoms (single-frame structures)
 - Load and merge molecules from file into the current scene

@@ -1,5 +1,9 @@
 # AIChangelog - Qurcuma Improvements
 
+## September 2026 - WASD im View-Werkzeug
+
+- W A S D Q E drehen die Szene jetzt auch im View-Werkzeug, solange die 3D-Ansicht den Fokus hat (hineinklicken); Listen anderswo behalten die Buchstaben für ihre Schnellsuche. Edit-Werkzeug und laufende Simulation wie bisher, im Build-Werkzeug bleiben die Buchstaben Elementtasten.
+
 ## September 2026 - UX-Umbau: Restpunkte
 
 - **Moleküle ausblenden** wirkt jetzt auch auf Pi-Stacking-Linien (Ring-Zentroide; über ein Ringatom als Eigentümer) und auf RMSD-Overlays (eigene Fragmentzerlegung je Overlay, `SceneController::computeMoleculeKindMask`).

@@ -803,9 +803,10 @@ void MainWindow::showKeyboardShortcuts()
     layout->addWidget(table);
 
     auto* note = new QLabel(tr("In the viewport: Esc steps back one level (drops a carried "
-                               "fragment, clears the selection, leaves the tool). The keys of "
-                               "the Edit and Build tools are listed in their tooltips on the "
-                               "viewer bar."), &dialog);
+                               "fragment, clears the selection, leaves the tool). W A S D Q E "
+                               "rotate the scene in the View tool (3D view focused), in the Edit "
+                               "tool and during a run. The keys of the Edit and Build tools are "
+                               "listed in their tooltips on the viewer bar."), &dialog);
     note->setWordWrap(true);
     layout->addWidget(note);
 
@@ -1429,7 +1430,8 @@ void MainWindow::createMenus()
     auto* toolGroup = new QActionGroup(this);
     const struct { MoleculeViewer::InteractionMode mode; QString label; QKeySequence key; QString tip; } tools[] = {
         { MoleculeViewer::InteractionMode::None, tr("&View"), QKeySequence(),
-          tr("Plain viewing: drag rotates, click selects an atom. Esc steps back to it.") },
+          tr("Plain viewing: drag rotates, click selects an atom, W A S D Q E rotate while the "
+             "3D view has the focus. Esc steps back to it.") },
         { MoleculeViewer::InteractionMode::Measure, tr("&Measure"), QKeySequence(Qt::Key_M),
           tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral.") },
         { MoleculeViewer::InteractionMode::Edit, tr("&Edit"), QKeySequence(Qt::CTRL | Qt::Key_E),
@@ -5287,9 +5289,15 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
             const int key = ke->key();
             const bool isRotKey = key == Qt::Key_W || key == Qt::Key_A || key == Qt::Key_S
                 || key == Qt::Key_D || key == Qt::Key_Q || key == Qt::Key_E;
-            // Intercept WASD/QE in Edit mode AND in the interactive MD/Opt grab mode
-            // (rotation is purely visual there); free everywhere else.
-            if (isRotKey && (m_moleculeView->editMode() || m_moleculeView->simulationActive())
+            // Intercept WASD/QE in Edit mode, in the interactive MD/Opt grab mode
+            // (rotation is purely visual there) and, Claude Generated 2026, in the View
+            // tool while the 3D view has the focus: there the letters would otherwise
+            // be free, but lists elsewhere keep them for their type-ahead search.
+            const bool viewTool =
+                m_moleculeView->interactionMode() == MoleculeViewer::InteractionMode::None
+                && m_moleculeView->viewportHasFocus();
+            if (isRotKey
+                && (m_moleculeView->editMode() || m_moleculeView->simulationActive() || viewTool)
                 && !isTextInputFocused()) {
                 m_moleculeView->rotateSceneByKey(key, ke->modifiers() & Qt::ShiftModifier);
                 return true;  // consume
