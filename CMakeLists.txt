@@ -102,9 +102,14 @@ set(USE_VULKAN_XTB ${USE_VULKAN} CACHE BOOL "" FORCE)
 set(USE_PCH OFF CACHE BOOL "" FORCE)
 set(Helper OFF CACHE BOOL "" FORCE)
 
+# Claude Generated 2026 - main needs curcuma's reactff2-llm (reactive GFN-FF API,
+# ParameterRegistry tiers and relevantWhen for the All parameters tab); master lacks
+# them and a fresh CI checkout would not compile. Only a fresh clone reads this line:
+# with the local checkout present FetchContent is disconnected below. Back to master
+# once reactff2-llm is merged there.
 FetchContent_Declare(curcuma
     GIT_REPOSITORY https://github.com/conradhuebler/curcuma
-    GIT_TAG        master
+    GIT_TAG        reactff2-llm
     SOURCE_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma
 )
 
