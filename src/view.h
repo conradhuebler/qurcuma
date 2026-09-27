@@ -3,7 +3,7 @@
 #define MOLECULEVIEWER_H
 
 // Claude Generated 2026 - Renderer migration: MoleculeViewer is now backed by Qt
-// Quick 3D (Vulkan RHI) via an embedded QQuickView + SceneController, replacing the
+// Quick 3D (Vulkan RHI) via an embedded QQuickWidget + SceneController, replacing the
 // former Qt3D implementation. The PUBLIC API (Atom/Bond, setters/getters, signals,
 // slots) is preserved verbatim so MainWindow and all consumers are unaffected.
 #include <QWidget>
@@ -17,10 +17,13 @@
 #include <QVector3D>
 #include <QHash>
 #include <QPair>
+#include <QSet>
 #include <QVector>
 #include "simulationframe.h"  // Claude Generated - Zero-copy simulation payload
 #include "viewpreset.h"  // Claude Generated 2026 - reproducible camera/display presets
 #include "imagemetadata.h"  // Claude Generated 2026 - export image provenance
+#include "displaysettings.h"  // Claude Generated 2026 - no longer via viewpreset.h
+#include "look.h"  // Claude Generated 2026 - Looks (UX stage 3)
 #include "ncitypes.h"  // Claude Generated 2026 - non-covalent interaction results
 
 class SelectionManager;  // Forward declaration
@@ -32,7 +35,8 @@ class SceneController;  // Claude Generated 2026 - Qt Quick 3D scene view-model
 class QMenu;
 class QToolButton;
 class Settings;  // Claude Generated 2026 - operator metadata + view presets for export
-class QQuickView;
+class QQuickWidget;
+class QQuickWindow;
 
 class MoleculeViewer : public QWidget
 {
@@ -84,6 +88,15 @@ public:
         Index           // 0-based atom index
     };
 
+    // Claude Generated 2026 - Which hydrogens are drawn (visual only). Polar follows the
+    // skeletal-formula convention: H bonded only to carbon is hidden. See
+    // SceneController::computeHydrogenMask for the rule.
+    enum class HydrogenDisplay {
+        All = 0,
+        Polar = 1,
+        None = 2
+    };
+
     struct Atom {
         QVector3D position;
         QString element;
@@ -127,19 +140,23 @@ public:
      * The reference structure is drawn as the primary molecule; every entry in
      * @p overlays is an aligned structure that inherits the global display styles plus
      * its own colour tint / size / visibility. @p refVisible hides/shows the primary.
-     * @p resetView true => the reference changed: the primary is reset to @p refAtoms
-     * (camera reframes). false => only the overlay set changed: the primary is left
-     * untouched (no camera jump). Empty @p refAtoms with resetView=false just clears the
-     * overlays (keeps the current primary).
+     * @p refTint (Claude Generated 2026) gives the reference the same colour it would
+     * show as an overlay (invalid QColor() = plain colour scheme, the pre-existing
+     * behaviour). @p resetView true => the reference changed: the primary is reset to
+     * @p refAtoms (camera reframes). false => only the overlay set changed: the primary
+     * is left untouched (no camera jump). Empty @p refAtoms with resetView=false just
+     * clears the overlays (keeps the current primary).
      */
     void setOverlayWorkspace(const QVector<Atom>& refAtoms, const QVector<Bond>& refBonds,
-        bool refVisible, const QVector<OverlaySpec>& overlays, bool resetView);
+        bool refVisible, const QColor& refTint, const QVector<OverlaySpec>& overlays,
+        bool resetView);
 
     // Cheap per-overlay live edits (index into the current overlay set; no geometry rebuild).
     void setOverlayTint(int index, const QColor& tint);
     void setOverlaySize(int index, float sizeScale);
     void setOverlayVisible(int index, bool visible);
     void setPrimaryVisible(bool visible);   // hide/show the reference (primary) structure
+    void setPrimaryTint(const QColor& tint);  // Claude Generated 2026 - see setOverlayWorkspace
     void clearOverlays();
     int overlayCount() const;
 
@@ -150,6 +167,17 @@ private:
 public:
 
     void resetSimDirty() { m_moleculeDirty = false; m_ffTopologyVersion = -1; }
+
+    /**
+     * @brief Claude Generated 2026 - P0 GUI-side timing (docs/WP-performance.md).
+     * Mirrors SimulationWorker's existing "Performance" checkbox/interval (which
+     * only times the physics step on the worker thread): reports the two GUI-side
+     * costs per live frame - bond re-detection and the rest of the scene rebuild
+     * (SceneController::updatePositions/rebuildGeometry, NCI, walls) - as a qDebug
+     * summary every @p interval frames, same style as the worker's own summary.
+     * Wired from the same "Performance" checkbox in MainWindow::wireSimulationWorker.
+     */
+    void setPerformanceAnalysis(bool enabled, int interval);
 
     // Claude Generated - Visual settings setters
     void setRenderingMode(RenderingMode mode);
@@ -168,6 +196,19 @@ public:
     void setAtomLabelMode(AtomLabel mode);
     AtomLabel getAtomLabelMode() const { return m_atomLabelMode; }  // Claude Generated 2026
     void setLabelSelectionOnly(bool on);  // true = only label selected atoms
+
+    // Claude Generated 2026 - Hydrogen display quick toggle. Build mode always shows
+    // every H (placing and bonding needs them); the chosen mode returns on leaving it.
+    void setHydrogenDisplay(HydrogenDisplay mode);
+    HydrogenDisplay getHydrogenDisplay() const { return m_hydrogenDisplay; }
+    void cycleHydrogenDisplay();  // All -> Polar -> None -> All
+
+    // Claude Generated 2026 - Hide molecules by kind (solvent etc.), display only. Kinds are
+    // fragment formulas of the current structure; the choice is reset when a new structure
+    // is loaded (setTrajectoryData) and, like the H display, ignored in Build mode.
+    QVector<QPair<QString, int>> moleculeKinds() const;  // formula, count; most numerous first
+    void setHiddenMoleculeKinds(const QSet<QString>& formulas);
+    QSet<QString> hiddenMoleculeKinds() const { return m_hiddenMoleculeKinds; }
 
     void setAtomTransparency(float alpha);  // 0.0 (transparent) to 1.0 (opaque)
     float getAtomTransparency() const { return m_atomTransparency; }
@@ -407,6 +448,17 @@ public slots:
      */
     void updateSimulationFrame(SimulationFramePtr frame);
 
+    /**
+     * @brief Claude Generated 2026 - P3 frame coalescing (docs/WP-performance.md).
+     * Entry point for SimulationWorker::frameReady instead of updateSimulationFrame
+     * directly: the worker can post frames faster than the GUI can process them
+     * (rendering happens on the GUI thread since the QQuickWidget viewer switch), so
+     * queuing every frame works through a growing backlog one by one. This stores
+     * only the latest frame and schedules exactly one processing pass at a time;
+     * frames superseded before that pass runs are dropped, never rendered stale.
+     */
+    void onWorkerFrameReady(SimulationFramePtr frame);
+
     /** @brief Enable/disable per-frame bond re-detection during live MD/Opt (default on).
      *  Claude Generated 2026 - shows bond breaking/formation in reactions. */
     void setDynamicBonds(bool on) { m_dynamicBonds = on; }
@@ -426,7 +478,10 @@ public slots:
 
     // Claude Generated 2026 - Reproducible view presets (camera + display).
     ViewPreset currentViewPreset(ZoomMode zoomMode = ZoomMode::Absolute) const;
-    void applyViewPreset(const ViewPreset& preset, bool applyCamera = true, bool applyDisplay = true);
+    void applyViewPreset(const ViewPreset& preset);  // camera only (UX stage 3)
+    /// Claude Generated 2026 - Looks (look.h): the appearance only, never a quick toggle.
+    Look currentLook() const;
+    void applyLook(const Look& look);
     /** The viewer's complete live display state. The viewer is the single source
      *  of truth for these fields; UI panels sync FROM this, never the other way.
      *  Claude Generated 2026. */
@@ -479,6 +534,15 @@ signals:
     /// Claude Generated 2026 - Atom-label mode changed (panel combo or Display
     /// menu), so the other UI mirror follows. Value = int(AtomLabel).
     void atomLabelModeChanged(int mode);
+    /// Claude Generated 2026 - Hydrogen display changed. Value = int(HydrogenDisplay).
+    void hydrogenDisplayChanged(int mode);
+    /// Claude Generated 2026 - The set of hidden molecule kinds changed.
+    void hiddenMoleculeKindsChanged();
+    /// Claude Generated 2026 - A look was applied (DisplayPanel re-syncs).
+    void lookApplied(const QString& name);
+    /// Claude Generated 2026 - NCI detection options changed (panel, menu or a
+    /// display-settings apply), so every UI mirror follows.
+    void nciOptionsChanged(const nci::Options& options);
     /// Claude Generated 2026 - Right-click (no drag) on the viewport asks the
     /// host for the shared context menu. atomIndex = picked atom or -1.
     void contextMenuRequested(const QPoint& globalPos, int atomIndex);
@@ -505,7 +569,6 @@ signals:
     /// Claude Generated 2026 - Build strip "Fill": the MainWindow opens the
     /// fill-container dialog and appends the packed copies.
     void fillContainerRequested();
-    void displayOptionsRequested();
     // Claude Generated 2026 - Structure editing.
     void editModeChanged(bool on);
     void collisionCountChanged(int count);  // clashing atoms in the current frame
@@ -594,9 +657,14 @@ public slots:
     void setNciLiveMd(bool on) { m_nciLiveMd = on; }
     bool getNciLiveMd() const { return m_nciLiveMd; }
     /** Attach the shared NCI source menu to the bar button's dropdown arrow.
-     *  The menu is owned by MainWindow (it also feeds the Display menu), so all
+     *  The menu is owned by MainWindow (it also feeds the View menu), so all
      *  entry points stay one action set. Claude Generated 2026. */
     void setNciQuickMenu(QMenu* menu);
+    /// Claude Generated 2026 - Quick-access buttons of the viewer bar, fed with the host's
+    /// shared actions/menus so bar, menu bar, context menu and palette stay in sync:
+    /// hydrogen-bond toggle, hydrogen display, render style and the Look dropdown.
+    void setQuickAccess(QAction* hbondToggle, QMenu* hydrogenMenu, QMenu* moleculesMenu,
+        QMenu* styleMenu, QMenu* lookMenu);
     /** Adopt a calculated result (GFN-FF / population) and draw it. */
     void setNciResult(const nci::Result& result);
     const nci::Result& getNciResult() const { return m_nciResult; }
@@ -660,7 +728,7 @@ private slots:
     void onAnimationTick();  // Claude Generated - Timer callback for animation
 
 private:
-    void setupViewer();         // Build the QQuickView + SceneController + container
+    void setupViewer();         // Build the QQuickWidget (or native view) + SceneController
     void setupControlPanel();   // Claude Generated - Integrated control panel (top bar)
     QFrame* createSeparator();  // Helper to create vertical separator in panel
 
@@ -693,7 +761,9 @@ private:
     void updateForceVectors();  // recompute arrows from the current grab force
 
     // Measurement overlay (M2): recompute lines + value from the selected atoms.
-    void updateMeasurement();
+    // Claude Generated 2026 - frameIndex = the frame on screen; -1 means m_currentFrame.
+    // The live MD/Opt path passes 0, the frame it writes into.
+    void updateMeasurement(int frameIndex = -1);
     // Bond editing via an atom pair (M2): add/delete/cycle the bond between a and b.
     void performBondEdit(int a, int b);
 
@@ -706,9 +776,17 @@ private:
     void applyModelRotation(float horizDeg, float vertDeg, float rollDeg = 0.0f);
     void handleMousePan(const QPoint& currentPos);
     void handleMouseZoom(int delta);
+    void setViewportCursor(Qt::CursorShape shape);  // Claude Generated 2026
+    void unloadQmlScene();                          // Claude Generated 2026
 
     // --- Qt Quick 3D backing ---
-    QQuickView* m_quickView = nullptr;
+    // Claude Generated 2026 - m_quickWindow is the QQuickWindow that receives the
+    // input events (QQuickWidget's offscreen window, or the native QQuickView when
+    // QURCUMA_NATIVE_VIEWPORT=1); m_container is the widget in the layout (the
+    // QQuickWidget itself, or the window container). m_quickWidget is null on the
+    // native route.
+    QQuickWindow* m_quickWindow = nullptr;
+    QQuickWidget* m_quickWidget = nullptr;
     QWidget* m_container = nullptr;
     SceneController* m_scene = nullptr;
     QWidget* m_controlPanel = nullptr;
@@ -884,12 +962,34 @@ private:
     bool m_dynamicBonds = true;  // Claude Generated 2026 - re-detect bonds each live frame (reactions)
     int m_ffTopologyVersion = -1; // Claude Generated 2026 - force-field topology version last adopted (reactive runs)
 
+    // Claude Generated 2026 - P3 frame coalescing state (see onWorkerFrameReady).
+    SimulationFramePtr m_pendingFrame;
+    bool m_frameUpdateScheduled = false;
+
+    // Claude Generated 2026 - P0 GUI-side timing state (see setPerformanceAnalysis).
+    bool m_perfAnalysis = false;
+    int m_perfInterval = 100;
+    int m_perfFrameCount = 0;
+    qint64 m_perfBondTotalUs = 0;
+    qint64 m_perfBondMaxUs = 0;
+    qint64 m_perfRebuildTotalUs = 0;
+    qint64 m_perfRebuildMaxUs = 0;
+    QElapsedTimer m_perfWindowTimer;
+
     // Claude Generated 2026 - Non-covalent interaction overlay state.
     int m_nciSource = 0;               // 0=off, 1=geometry, 2=gfnff, 3=population
     bool m_nciLabelsVisible = true;
     bool m_nciLiveMd = false;          // live GFN-FF contacts during MD (see setNciLiveMd)
     QToolButton* m_nciButton = nullptr;  // bar toggle, mirrors m_nciSource
+    QToolButton* m_hbondButton = nullptr;     // Claude Generated 2026 - see setQuickAccess()
+    QToolButton* m_hydrogenButton = nullptr;
+    QToolButton* m_moleculesButton = nullptr;
+    QToolButton* m_styleButton = nullptr;
+    QToolButton* m_lookButton = nullptr;
     AtomLabel m_atomLabelMode = AtomLabel::None;
+    HydrogenDisplay m_hydrogenDisplay = HydrogenDisplay::All;
+    QSet<QString> m_hiddenMoleculeKinds;  // Claude Generated 2026 - see setHiddenMoleculeKinds
+    void pushVisibilityToScene();  // H display + hidden kinds, with the Build-mode override
     nci::Options m_nciOptions;
     nci::Result m_nciResult;
     QVector<QVector<int>> m_nciRings;  // ring perception cache (topology, not geometry)

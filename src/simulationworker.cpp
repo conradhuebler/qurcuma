@@ -5,6 +5,7 @@
 #include "simulationworker.h"
 
 #include "external/json.hpp"
+#include <src/core/parameter_registry.h>
 using json = nlohmann::json;
 
 #include <src/core/molecule.h>
@@ -19,6 +20,9 @@ using json = nlohmann::json;
 #include <src/core/elements.h>
 
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QFile>
 #include <QDir>
 #include <QMutexLocker>
@@ -27,6 +31,7 @@ using json = nlohmann::json;
 #include <QElapsedTimer>
 #include <QDebug>
 #include <algorithm>
+#include <set>
 #include <limits>
 
 // Claude Generated 2026 - Write curcuma's RMSD-MTD bias parameters into the
@@ -45,8 +50,10 @@ void applyRmsdMtdParams(const SimulationConfig& cfg, json& simplemd_params)
     simplemd_params["rmsd_mtd_ref_file"] = cfg.rmsdMtdRefFile.toStdString();
     simplemd_params["rmsd_mtd_max_gaussians"] = cfg.rmsdMtdMaxGaussians;
     simplemd_params["rmsd_mtd_max_height"] = cfg.rmsdMtdMaxHeight;
-    simplemd_params["rmsd_econv"] = cfg.rmsdMtdEconv;  // bias-deposition convergence threshold (setEnergyConv)
-    simplemd_params["rmsd_mtd_pace"] = cfg.rmsdMtdPace;  // unused in counter scheme (compat)
+    // Strided scheme (curcuma's default rmsd_mtd_scheme): deposition cadence and hill
+    // spacing. rmsd_econv and rmsd_mtd_pace belong to the legacy scheme and are not sent.
+    simplemd_params["rmsd_mtd_deposit_stride"] = cfg.rmsdMtdDepositStride;
+    simplemd_params["rmsd_mtd_r_dep"] = cfg.rmsdMtdRdep;
     if (cfg.rmsdMtdWtmtd) {
         simplemd_params["wtmtd"] = true;
         simplemd_params["rmsd_mtd_dt"] = cfg.rmsdMtdDt;  // only used when wtmtd
@@ -109,6 +116,107 @@ void applyTempRampParams(const SimulationConfig& cfg, json& simplemd_params)
     }
 }
 
+// Claude Generated 2026 - UX stage 6 S3: JSON bridges and canonical simplemd names.
+json toNlohmann(const QJsonValue& value)
+{
+    const QByteArray text = QJsonDocument(QJsonArray{ value }).toJson(QJsonDocument::Compact);
+    return json::parse(text.toStdString()).at(0);
+}
+
+QJsonValue toQJson(const json& value)
+{
+    const json wrapped = json::array({ value });
+    return QJsonDocument::fromJson(QByteArray::fromStdString(wrapped.dump())).array().at(0);
+}
+
+std::string canonicalSimplemdName(const std::string& key)
+{
+    const std::string name = ParameterRegistry::getInstance().resolveAlias("simplemd", key);
+    return name.empty() ? key : name;
+}
+
+// Add the All-parameters values (cfg.mdExtraParams). A parameter the hand-built block
+// already sets, under its canonical name or any alias, is never overridden.
+void applyExtraParams(const SimulationConfig& cfg, json& simplemd_params)
+{
+    if (cfg.mdExtraParams.isEmpty())
+        return;
+    std::set<std::string> present;
+    for (auto it = simplemd_params.begin(); it != simplemd_params.end(); ++it)
+        present.insert(canonicalSimplemdName(it.key()));
+    for (auto it = cfg.mdExtraParams.begin(); it != cfg.mdExtraParams.end(); ++it) {
+        const std::string key = it.key().toStdString();
+        if (!present.count(canonicalSimplemdName(key)))
+            simplemd_params[key] = toNlohmann(it.value());
+    }
+}
+
+// Claude Generated 2026 - UX stage 6 S4: what a run sends with a value different from
+// curcuma's default, and where it came from (record format: runlog.h).
+QJsonObject runRecord(const SimulationConfig& cfg, const QString& mode, int atoms, const QJsonArray& changed)
+{
+    QJsonObject r;
+    r["time"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    r["mode"] = mode;
+    r["method"] = cfg.method;
+    if (mode == QLatin1String("opt"))
+        r["optimizer"] = cfg.optimizer;
+    r["atoms"] = atoms;
+    r["changed"] = changed;
+    return r;
+}
+
+QJsonObject changeEntry(const std::string& name, const json& value, const json* defaultValue,
+                        const char* source)
+{
+    QJsonObject c;
+    c["name"] = QString::fromStdString(name);
+    c["value"] = toQJson(value);
+    c["default"] = defaultValue ? toQJson(*defaultValue) : QJsonValue();
+    c["source"] = QString::fromLatin1(source);
+    return c;
+}
+
+QJsonObject mdRunRecord(const SimulationConfig& cfg, const json& simplemd, int atoms)
+{
+    // Set by qurcuma for the interactive viewer, not by the user.
+    static const std::set<std::string> fixedByQurcuma = { "dump_frequency", "no_restart", "no_center" };
+    const json defaults = ParameterRegistry::getInstance().getDefaultJson("simplemd");
+    QJsonArray changed;
+    for (auto it = simplemd.begin(); it != simplemd.end(); ++it) {
+        const std::string name = canonicalSimplemdName(it.key());
+        if (name == "method")
+            continue;  // the run's method is recorded on its own
+        const json* def = defaults.contains(name) ? &defaults.at(name) : nullptr;
+        if (def && *def == it.value())
+            continue;
+        const char* source = cfg.mdExtraParams.contains(QString::fromStdString(name))
+            ? "all-parameters" : fixedByQurcuma.count(name) ? "qurcuma" : "simulation";
+        changed.append(changeEntry(name, it.value(), def, source));
+    }
+    return runRecord(cfg, QStringLiteral("md"), atoms, changed);
+}
+
+QJsonObject optRunRecord(const SimulationConfig& cfg, const json& sent, const json& defaults, int atoms)
+{
+    static const std::set<std::string> fixedByQurcuma = { "verbosity", "max_energy_rise", "single_step_mode" };
+    QJsonArray changed;
+    for (auto it = sent.begin(); it != sent.end(); ++it) {
+        const json* def = defaults.contains(it.key()) ? &defaults.at(it.key()) : nullptr;
+        if (def && *def == it.value())
+            continue;
+        changed.append(changeEntry(it.key(), it.value(), def,
+                                   fixedByQurcuma.count(it.key()) ? "qurcuma" : "simulation"));
+    }
+    // Charge and spin reach the optimizer through the molecule, default 0 in curcuma.
+    const json zero = 0;
+    if (cfg.charge != 0)
+        changed.append(changeEntry("charge", json(cfg.charge), &zero, "simulation"));
+    if (cfg.spin != 0)
+        changed.append(changeEntry("spin", json(cfg.spin), &zero, "simulation"));
+    return runRecord(cfg, QStringLiteral("opt"), atoms, changed);
+}
+
 // Claude Generated 2026 - Single source of truth for the SimpleMD controller
 // block. Both startMD (continuous run) and stepOnce (single "Step" click) build
 // their controller here, so the two paths can no longer silently diverge — a
@@ -122,6 +230,8 @@ json buildSimplemdParams(const SimulationConfig& cfg, bool singleStep)
 {
     json p;
     p["method"] = cfg.method.toStdString();
+    p["charge"] = cfg.charge;
+    p["spin"] = cfg.spin;
     p["temperature"] = cfg.temperature;
     p["time_step"] = cfg.timestep;
     p["dump_frequency"] = 1;
@@ -149,6 +259,7 @@ json buildSimplemdParams(const SimulationConfig& cfg, bool singleStep)
     applyRmsdMtdParams(cfg, p);
     applyWallParams(cfg, p);
     applyTempRampParams(cfg, p);
+    applyExtraParams(cfg, p);
     return p;
 }
 
@@ -210,6 +321,32 @@ json buildOptConfig(const SimulationConfig& cfg, bool singleStep)
     return c;
 }
 }  // namespace
+
+QJsonObject SimulationWorker::handSimplemdParams(const SimulationConfig& cfg)
+{
+    SimulationConfig handOnly = cfg;
+    handOnly.mdExtraParams = QJsonObject();
+    const json p = buildSimplemdParams(handOnly, /*singleStep=*/false);
+    QJsonObject out;
+    for (auto it = p.begin(); it != p.end(); ++it)
+        out.insert(QString::fromStdString(canonicalSimplemdName(it.key())), toQJson(it.value()));
+    return out;
+}
+
+QStringList SimulationWorker::handSimplemdKeys()
+{
+    // Every feature on, so every conditionally written key appears.
+    SimulationConfig all;
+    all.performanceAnalysis = true;
+    all.rmsdMtd = true;
+    all.rmsdMtdWtmtd = true;
+    all.rmsdMtdFreezeInherited = true;
+    all.wallEnabled = true;
+    all.tempRamp = true;
+    all.tempSchedule = QStringLiteral("300:steps:1");
+    all.tempRegions.push_back(TempRegion{});
+    return handSimplemdParams(all).keys();
+}
 
 SimulationWorker::SimulationWorker(QObject* parent)
     : QObject(parent)
@@ -380,6 +517,8 @@ void SimulationWorker::stepOnce()
             optimizer->LoadConfiguration(merged);
 
             Molecule mol = atomsToMolecule(m_initialAtoms);
+            mol.setCharge(m_config.charge);  // the optimizer's energy calculator reads them
+            mol.setSpin(m_config.spin);      // from the molecule (as curcumaopt does)
             emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), 0.0, 0.0, 0));
             if (!optimizer->InitializeOptimization(mol)) {
                 emit errorOccurred(tr("Optimizer initialization failed for single step."));
@@ -567,6 +706,7 @@ void SimulationWorker::startMD()
         return;
     }
     m_md->prepareRun();
+    emit runParameters(mdRunRecord(m_config, controller["simplemd"], m_initialAtoms.size()));
 
     // Reactive GFN-FF: the force field owns the bond topology, so its list (not a
     // geometric re-guess) is what the viewer should draw. Claude Generated 2026.
@@ -816,6 +956,8 @@ void SimulationWorker::runOptimization()
     json energy_controller = buildEnergyController(m_config);
 
     Molecule mol = atomsToMolecule(m_initialAtoms);
+    mol.setCharge(m_config.charge);  // read by the optimizer's energy calculator
+    mol.setSpin(m_config.spin);
 
     // Emit starting geometry so the viewer reflects the pre-opt state.
     emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), 0.0, 0.0, 0));
@@ -862,10 +1004,13 @@ void SimulationWorker::runOptimization()
 
         // Merge user config on top of driver defaults so subclass settings are preserved.
         {
-            json merged = optimizer->GetDefaultConfiguration();
+            const json defaults = optimizer->GetDefaultConfiguration();
+            json merged = defaults;
             for (auto it = opt_config.begin(); it != opt_config.end(); ++it)
                 merged[it.key()] = it.value();
             optimizer->LoadConfiguration(merged);
+            if (!m_config.optSingleShot)  // the builder's clean-up is not a user run
+                emit runParameters(optRunRecord(m_config, opt_config, defaults, m_initialAtoms.size()));
         }
 
         // Per-step callback: throttle-then-emit, same cadence model as runMD().

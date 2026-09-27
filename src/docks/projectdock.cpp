@@ -5,6 +5,7 @@
 // Claude Generated 2026 - Dock system restructuring.
 
 #include "projectdock.h"
+#include "widgets/collapsiblesection.h"
 
 #include "bookmarkwidget.h"
 #include "workspacepanel.h"
@@ -115,6 +116,65 @@ void ProjectDock::setupUI()
     QVBoxLayout* projectLayout = new QVBoxLayout(projectWidget);
     projectLayout->setContentsMargins(4, 4, 4, 4);
     projectLayout->setSpacing(4);
+
+    // Claude Generated 2026 - The lesson sits in its own section at the top of the panel,
+    // above the file browser: metadata, the lesson's structures, the detail editor.
+    // In Teaching mode it is open and comes first; the files stay usable below it.
+    // Elsewhere it appears once the lesson has structures. Molecule files dropped on
+    // it are added to the lesson (MainWindow::eventFilter).
+    m_lessonSection = new CollapsibleSection(tr("Lesson (0)"), projectWidget);
+    m_lessonSection->setAcceptDrops(true);
+    m_lessonSection->setToolTip(tr("The lesson's structures and metadata. "
+                                   "Drop molecule files here to add them to the lesson."));
+    // Lesson metadata: title, description, authors.
+    m_lessonMetaWidget = new QWidget;
+    QFormLayout* metaForm = new QFormLayout(m_lessonMetaWidget);
+    metaForm->setContentsMargins(2, 2, 2, 2);
+    m_lessonTitleEdit = new QLineEdit;
+    m_lessonTitleEdit->setPlaceholderText(tr("Lesson title"));
+    m_lessonDescEdit = new QLineEdit;
+    m_lessonDescEdit->setPlaceholderText(tr("Short description"));
+    QWidget* authorsRow = new QWidget;
+    QHBoxLayout* authorsRowLayout = new QHBoxLayout(authorsRow);
+    authorsRowLayout->setContentsMargins(0, 0, 0, 0);
+    m_lessonAuthorsLabel = new QLabel(tr("(none)"));
+    m_lessonAuthorsLabel->setWordWrap(true);
+    m_editAuthorsButton = new QToolButton;
+    m_editAuthorsButton->setText(tr("Authors / License…"));
+    m_editAuthorsButton->setToolTip(tr("Edit authors (ORCID/institution), license, keywords"));
+    authorsRowLayout->addWidget(m_lessonAuthorsLabel, 1);
+    authorsRowLayout->addWidget(m_editAuthorsButton);
+    metaForm->addRow(tr("Title:"), m_lessonTitleEdit);
+    metaForm->addRow(tr("Desc.:"), m_lessonDescEdit);
+    metaForm->addRow(tr("Authors:"), authorsRow);
+
+    // Per-structure inline detail editor, shown while a structure is selected.
+    m_lessonStructWidget = new QWidget;
+    QFormLayout* structForm = new QFormLayout(m_lessonStructWidget);
+    structForm->setContentsMargins(2, 2, 2, 2);
+    m_structNameEdit = new QLineEdit;
+    m_structNameEdit->setPlaceholderText(tr("Structure name"));
+    m_structDescEdit = new QLineEdit;
+    m_structDescEdit->setPlaceholderText(tr("Notes for this structure"));
+    m_structRoleCombo = new QComboBox;
+    m_structRoleCombo->addItems({ tr("(none)"), QStringLiteral("start"),
+        QStringLiteral("intermediate"), QStringLiteral("target") });
+    structForm->addRow(tr("Name:"), m_structNameEdit);
+    structForm->addRow(tr("Notes:"), m_structDescEdit);
+    structForm->addRow(tr("Role:"), m_structRoleCombo);
+    m_lessonStructWidget->setVisible(false);
+
+    m_lessonListView = new QListView;
+    m_lessonListView->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_lessonListView->setMaximumHeight(160);
+    auto* lessonLayout = new QVBoxLayout;
+    lessonLayout->setSpacing(2);
+    lessonLayout->addWidget(m_lessonMetaWidget);
+    lessonLayout->addWidget(m_lessonListView);
+    lessonLayout->addWidget(m_lessonStructWidget);
+    m_lessonSection->setContentLayout(lessonLayout);
+    m_lessonSection->setVisible(false);
+    projectLayout->addWidget(m_lessonSection);
 
     // Top row: choose directory + segment switcher
     QWidget* topRow = new QWidget;
@@ -258,31 +318,6 @@ void ProjectDock::setupUI()
     stateLayout->addWidget(m_stateIndicator);
     stateLayout->addStretch();
 
-    QButtonGroup* browserModeGroup = new QButtonGroup(this);
-    browserModeGroup->setExclusive(true);
-    m_filesModeBtn = new QToolButton;
-    m_filesModeBtn->setText(tr("Files"));
-    m_filesModeBtn->setCheckable(true);
-    m_filesModeBtn->setChecked(true);
-    m_lessonModeBtn = new QToolButton;
-    m_lessonModeBtn->setText(tr("Lesson (0)"));
-    m_lessonModeBtn->setCheckable(true);
-    m_lessonModeBtn->setToolTip(tr("Show the in-memory lesson structures and metadata.\n"
-                                   "Drop molecule files here to add them to the lesson."));
-    m_lessonModeBtn->setAcceptDrops(true); // drop molecule files to add them (handled by MainWindow)
-    browserModeGroup->addButton(m_filesModeBtn);
-    browserModeGroup->addButton(m_lessonModeBtn);
-    QWidget* browserModeWidget = new QWidget;
-    QHBoxLayout* bmLayout = new QHBoxLayout(browserModeWidget);
-    bmLayout->setContentsMargins(0, 0, 0, 0);
-    bmLayout->setSpacing(0);
-    bmLayout->addWidget(m_filesModeBtn);
-    bmLayout->addWidget(m_lessonModeBtn);
-    browserModeWidget->setStyleSheet(QStringLiteral(
-        "QToolButton { padding: 2px 10px; border: 1px solid palette(mid); }"
-        "QToolButton:checked { background: palette(highlight); color: palette(highlighted-text);"
-        " font-weight: bold; }"));
-    stateLayout->addWidget(browserModeWidget);
     calcFilesLayout->addWidget(stateWidget);
 
     // Filter / search panel above the content list (session-only, no persistence).
@@ -332,50 +367,8 @@ void ProjectDock::setupUI()
     m_directoryContentProxyModel->setSourceModel(m_directoryContentModel);
     m_directoryContentView->setModel(m_directoryContentProxyModel);
     m_directoryContentView->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_directoryContentView->setDragEnabled(true); // drag files onto the Lesson toggle to add them
+    m_directoryContentView->setDragEnabled(true); // drag files onto the Lesson section to add them
     calcFilesLayout->addWidget(m_directoryContentView);
-
-    // Lesson metadata widget — above the list, visible only in Lesson mode.
-    m_lessonMetaWidget = new QWidget;
-    QFormLayout* metaForm = new QFormLayout(m_lessonMetaWidget);
-    metaForm->setContentsMargins(2, 2, 2, 2);
-    m_lessonTitleEdit = new QLineEdit;
-    m_lessonTitleEdit->setPlaceholderText(tr("Lesson title"));
-    m_lessonDescEdit = new QLineEdit;
-    m_lessonDescEdit->setPlaceholderText(tr("Short description"));
-    QWidget* authorsRow = new QWidget;
-    QHBoxLayout* authorsRowLayout = new QHBoxLayout(authorsRow);
-    authorsRowLayout->setContentsMargins(0, 0, 0, 0);
-    m_lessonAuthorsLabel = new QLabel(tr("(none)"));
-    m_lessonAuthorsLabel->setWordWrap(true);
-    m_editAuthorsButton = new QToolButton;
-    m_editAuthorsButton->setText(tr("Authors / License…"));
-    m_editAuthorsButton->setToolTip(tr("Edit authors (ORCID/institution), license, keywords"));
-    authorsRowLayout->addWidget(m_lessonAuthorsLabel, 1);
-    authorsRowLayout->addWidget(m_editAuthorsButton);
-    metaForm->addRow(tr("Title:"), m_lessonTitleEdit);
-    metaForm->addRow(tr("Desc.:"), m_lessonDescEdit);
-    metaForm->addRow(tr("Authors:"), authorsRow);
-    m_lessonMetaWidget->setVisible(false);
-    calcFilesLayout->addWidget(m_lessonMetaWidget);
-
-    // Per-structure inline detail editor — below the list, visible only in Lesson
-    // mode while a structure is selected.
-    m_lessonStructWidget = new QWidget;
-    QFormLayout* structForm = new QFormLayout(m_lessonStructWidget);
-    structForm->setContentsMargins(2, 2, 2, 2);
-    m_structNameEdit = new QLineEdit;
-    m_structNameEdit->setPlaceholderText(tr("Structure name"));
-    m_structDescEdit = new QLineEdit;
-    m_structDescEdit->setPlaceholderText(tr("Notes for this structure"));
-    m_structRoleCombo = new QComboBox;
-    m_structRoleCombo->addItems({ tr("(none)"), QStringLiteral("start"),
-        QStringLiteral("intermediate"), QStringLiteral("target") });
-    structForm->addRow(tr("Name:"), m_structNameEdit);
-    structForm->addRow(tr("Notes:"), m_structDescEdit);
-    structForm->addRow(tr("Role:"), m_structRoleCombo);
-    m_lessonStructWidget->setVisible(false);
-    calcFilesLayout->addWidget(m_lessonStructWidget);
 
     // Wire up the filter / search panel (session-only).
     connect(m_directoryContentModel, &QFileSystemModel::directoryLoaded,
@@ -561,8 +554,36 @@ QLabel* ProjectDock::currentProjectLabel() const { return m_currentProjectLabel;
 QLabel* ProjectDock::stateIcon() const { return m_stateIcon; }
 QLabel* ProjectDock::stateIndicator() const { return m_stateIndicator; }
 QPushButton* ProjectDock::copyPathButton() const { return m_copyPathButton; }
-QToolButton* ProjectDock::filesModeButton() const { return m_filesModeBtn; }
-QToolButton* ProjectDock::lessonModeButton() const { return m_lessonModeBtn; }
+CollapsibleSection* ProjectDock::lessonSection() const { return m_lessonSection; }
+QListView* ProjectDock::lessonListView() const { return m_lessonListView; }
+
+// Claude Generated 2026 - The lesson section is shown in Teaching mode and whenever the
+// lesson has structures; entering Teaching opens it.
+void ProjectDock::setLessonTeaching(bool teaching)
+{
+    m_lessonTeaching = teaching;
+    updateLessonSection();
+    if (teaching)
+        m_lessonSection->setExpanded(true);
+}
+
+void ProjectDock::setLessonCount(int count)
+{
+    m_lessonCount = count;
+    m_lessonSection->setTitle(tr("Lesson (%1)").arg(count));
+    updateLessonSection();
+}
+
+void ProjectDock::revealLesson()
+{
+    m_lessonSection->setVisible(true);
+    m_lessonSection->setExpanded(true);
+}
+
+void ProjectDock::updateLessonSection()
+{
+    m_lessonSection->setVisible(m_lessonTeaching || m_lessonCount > 0);
+}
 QListView* ProjectDock::directoryContentView() const { return m_directoryContentView; }
 QFileSystemModel* ProjectDock::directoryContentModel() const { return m_directoryContentModel; }
 QSortFilterProxyModel* ProjectDock::directoryContentProxyModel() const { return m_directoryContentProxyModel; }

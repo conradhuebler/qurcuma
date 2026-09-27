@@ -10,7 +10,6 @@
 #include <QVector3D>
 #include <QString>
 
-#include "displaysettings.h"
 
 /** @brief How the stored camera distance is interpreted when loading a preset.
  *
@@ -25,8 +24,9 @@ enum class ZoomMode {
     Relative = 1
 };
 
-/** @brief A reproducible view preset: camera orientation plus the display
- *  settings that should be applied together for uniform figures.
+/** @brief A reproducible camera view ("View"): orientation, pan, field of view and
+ *  zoom. Since UX stage 3 it carries no display settings; how the scene looks is a
+ *  Look (look.h), chosen independently.
  *
  *  The camera distance is stored in two forms: `cameraDistance` (absolute)
  *  and `zoomFactor` (relative, = cameraDistance / sceneExtent at capture
@@ -34,7 +34,7 @@ enum class ZoomMode {
  *
  *  Claude Generated 2026.
  */
-struct ViewPreset : public DisplaySettings {
+struct ViewPreset {
     QString name;
 
     // --- camera (SceneController transform) ---
@@ -47,16 +47,24 @@ struct ViewPreset : public DisplaySettings {
     float zoomFactor = 3.0f;      // relative zoom = cameraDistance / sceneExtent
     ZoomMode zoomMode = ZoomMode::Absolute;
 
-    // --- display / appearance ---
-    // The shared appearance fields (rendering mode, colours, effects, walls, ...)
-    // are inherited from DisplaySettings. Only the preset-specific extras below
-    // are declared here. Claude Generated 2026.
-    float fogDistance = 0.2f;
-    QColor backgroundColor = QColor(32, 36, 44);
-    bool cornerLightEnabled[4] = { true, true, false, false };
-
     bool operator==(const ViewPreset& other) const
     {
         return name == other.name;
     }
 };
+
+/** @brief Camera orientation of the quick views: 0 = front (looking down -Z),
+ *  1 = top (down the Y axis), 2 = side (along the X axis). Any other value gives
+ *  the front view. Shared by the Appearance dock's buttons and View ▸ Views.
+ *  Claude Generated 2026. */
+inline QQuaternion quickViewOrientation(int axis)
+{
+    switch (axis) {
+    case 1:
+        return QQuaternion::fromEulerAngles(-90.0f, 0.0f, 0.0f);
+    case 2:
+        return QQuaternion::fromEulerAngles(0.0f, 90.0f, 0.0f);
+    default:
+        return QQuaternion();
+    }
+}

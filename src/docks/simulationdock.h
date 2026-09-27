@@ -13,10 +13,17 @@
 #include <QDockWidget>
 
 class ModifiableTextEdit;
+class MoleculeViewer;
+class QCheckBox;
+class QLabel;
 class QLineEdit;
+class QShowEvent;
+class QSlider;
+class QSpinBox;
 class RMSDWidget;
 class SimulationControlWidget;
 class SnapshotsWidget;
+class SimulationParametersWidget;
 class QTabWidget;
 
 class SimulationDock : public QDockWidget
@@ -38,6 +45,10 @@ public:
 
     void setCurrentTab(int index);
 
+    /// Claude Generated 2026 - Place the viewer options of a simulation (SimulationViewOptions)
+    /// in a collapsible "Show in viewer" section below the simulation controls.
+    void setViewOptions(QWidget* options);
+
 signals:
     // Claude Generated 2026 - Re-emitted SnapshotsWidget signals so MainWindow wires
     // the dock instead of the internal widget (same pattern as ProjectDock). Only the
@@ -56,8 +67,36 @@ private:
     SimulationControlWidget* m_simulationControlWidget = nullptr;
     SnapshotsWidget* m_snapshotsWidget = nullptr;
     RMSDWidget* m_rmsdWidget = nullptr;
+    SimulationParametersWidget* m_parametersWidget = nullptr;  // "All parameters" tab
 
     ModifiableTextEdit* m_inputView = nullptr;
     QLineEdit* m_inputFileEdit = nullptr;
     QLineEdit* m_inputFileEditExtension = nullptr;
+    class CollapsibleSection* m_viewOptionsSection = nullptr;
+};
+
+// Claude Generated 2026 - UX stage 4: what a simulation shows in the 3D view (confinement
+// walls, wall potential shells and force field, grab force vectors, dynamic bonds). These
+// were in the Display panel's former Tools section; they belong next to the simulation.
+// Writes go straight to the viewer setters; syncFromViewer() re-reads on every show.
+class SimulationViewOptions : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit SimulationViewOptions(MoleculeViewer* viewer, QWidget* parent = nullptr);
+    void syncFromViewer();
+
+protected:
+    void showEvent(QShowEvent* event) override;
+
+private:
+    MoleculeViewer* m_viewer = nullptr;
+    QCheckBox* m_forceVectorsCheck = nullptr;
+    QCheckBox* m_dynamicBondsCheck = nullptr;
+    QCheckBox* m_wallCheck = nullptr;
+    QSlider* m_wallOpacitySlider = nullptr;
+    QLabel* m_wallOpacityLabel = nullptr;
+    QCheckBox* m_potGradientCheck = nullptr;
+    QCheckBox* m_potArrowCheck = nullptr;
+    QSpinBox* m_potArrowResSpin = nullptr;
 };

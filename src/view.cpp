@@ -2,7 +2,7 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
 // The public API matches the former Qt3D MoleculeViewer exactly; internally the
-// scene is an embedded QQuickView (src/qml/viewer3d.qml) driven by SceneController.
+// scene is a QQuickWidget (src/qml/viewer3d.qml) driven by SceneController.
 // Mouse/picking/grab are handled in C++ (eventFilter) and applied to the controller.
 // Claude Generated 2026.
 #include "view.h"
@@ -28,6 +28,7 @@
 #include <QFileInfo>
 #include <algorithm>
 #include <QActionGroup>
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
@@ -52,6 +53,7 @@
 // Offscreen high-resolution image export (QQuickRenderControl + QRhi).
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <QQuickGraphicsConfiguration>
 #include <QQuickItem>
 #include <QQuickRenderControl>
 #include <QQuickRenderTarget>
@@ -65,10 +67,12 @@
 #include <QSet>
 #include <QQmlContext>
 #include <QQuickView>
+#include <QQuickWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QtMath>
 
 MoleculeViewer::MoleculeViewer(QWidget* parent)
@@ -97,24 +101,71 @@ MoleculeViewer::~MoleculeViewer()
     // controller.<prop> binding in viewer3d.qml logs a harmless "Cannot read
     // property ... of null" TypeError on exit. Unloading the QML root here drops
     // those bindings first.
-    if (m_quickView)
-        m_quickView->setSource(QUrl());
+    unloadQmlScene();
+}
+
+// Claude Generated 2026 - Drop the QML root (both embedding routes) so the
+// "controller" bindings are gone before SceneController is destroyed.
+void MoleculeViewer::unloadQmlScene()
+{
+    if (m_quickWidget)
+        m_quickWidget->setSource(QUrl());
+    else if (auto* view = qobject_cast<QQuickView*>(m_quickWindow))
+        view->setSource(QUrl());
+}
+
+// Claude Generated 2026 - Cursor for the 3D viewport. The widget carries the
+// cursor in both routes; the native QQuickView additionally needs it on the
+// QWindow (QQuickWidget's offscreen window has no platform cursor to set).
+void MoleculeViewer::setViewportCursor(Qt::CursorShape shape)
+{
+    if (m_container)
+        m_container->setCursor(shape);
+    if (!m_quickWidget && m_quickWindow)
+        m_quickWindow->setCursor(shape);
 }
 
 void MoleculeViewer::setupViewer()
 {
     m_scene = new SceneController(this);
 
-    m_quickView = new QQuickView();
-    m_quickView->setResizeMode(QQuickView::SizeRootObjectToView);
-    m_quickView->rootContext()->setContextProperty(QStringLiteral("controller"), m_scene);
-    m_quickView->setSource(QUrl(QStringLiteral("qrc:/qml/src/qml/viewer3d.qml")));
-    if (m_quickView->status() == QQuickView::Error) {
-        for (const QQmlError& e : m_quickView->errors())
-            qWarning() << "viewer3d.qml:" << e.toString();
+    // Claude Generated 2026 - Embedding route. The 3D scene is a QQuickWidget: a
+    // real QWidget that renders through QQuickRenderControl into a texture and is
+    // composited like any other widget. The former QQuickView +
+    // createWindowContainer() route embeds a NATIVE window, and Qt stacks native
+    // windows above every sibling widget. That is what made dock widgets
+    // "overlap" the viewer and swallowed clicks: while a dock resizes/animates,
+    // while the tab bar of a tabified group rebuilds, or on Wayland in general,
+    // the native window covered the dock panels and took the mouse events meant
+    // for them (see the QWidget::createWindowContainer stacking-order note).
+    //
+    // QURCUMA_NATIVE_VIEWPORT=1 restores the native route (threaded render loop,
+    // frameSwapped) for A/B comparison on a GPU where QQuickWidget misbehaves.
+    const QUrl sceneUrl(QStringLiteral("qrc:/qml/src/qml/viewer3d.qml"));
+    if (qEnvironmentVariableIntValue("QURCUMA_NATIVE_VIEWPORT") == 1) {
+        auto* view = new QQuickView();
+        view->setResizeMode(QQuickView::SizeRootObjectToView);
+        view->rootContext()->setContextProperty(QStringLiteral("controller"), m_scene);
+        view->setSource(sceneUrl);
+        if (view->status() == QQuickView::Error) {
+            for (const QQmlError& e : view->errors())
+                qWarning() << "viewer3d.qml:" << e.toString();
+        }
+        m_quickWindow = view;
+        m_container = QWidget::createWindowContainer(view, this);
+        qInfo("qurcuma: native window-container viewport (QURCUMA_NATIVE_VIEWPORT=1)");
+    } else {
+        m_quickWidget = new QQuickWidget(this);
+        m_quickWidget->setResizeMode(QQuickWidget::SizeRootObjectToView);
+        m_quickWidget->rootContext()->setContextProperty(QStringLiteral("controller"), m_scene);
+        m_quickWidget->setSource(sceneUrl);
+        if (m_quickWidget->status() == QQuickWidget::Error) {
+            for (const QQmlError& e : m_quickWidget->errors())
+                qWarning() << "viewer3d.qml:" << e.toString();
+        }
+        m_quickWindow = m_quickWidget->quickWindow();
+        m_container = m_quickWidget;
     }
-
-    m_container = QWidget::createWindowContainer(m_quickView, this);
     m_container->setMouseTracking(true);
     m_container->setFocusPolicy(Qt::StrongFocus);
 
@@ -128,8 +179,10 @@ void MoleculeViewer::setupViewer()
 
     applyAppearanceToController();
 
-    // Mouse events arrive on the QQuickView (a QWindow), like the former Qt3DWindow.
-    m_quickView->installEventFilter(this);
+    // Mouse/wheel/key events arrive on the QQuickWindow: directly for the native
+    // route, and re-sent by QQuickWidget to its offscreen window for the widget
+    // route (QCoreApplication::sendEvent runs the event filters either way).
+    m_quickWindow->installEventFilter(this);
 }
 
 void MoleculeViewer::applyAppearanceToController()
@@ -150,6 +203,7 @@ void MoleculeViewer::applyAppearanceToController()
     m_scene->setFogDistance(m_fogDistance);
     for (int i = 0; i < 4; ++i)
         m_scene->setCornerLight(i, m_cornerLightEnabled[i]);
+    pushVisibilityToScene();
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +211,7 @@ void MoleculeViewer::applyAppearanceToController()
 // ---------------------------------------------------------------------------
 bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
 {
-    if (watched == m_quickView) {
+    if (watched == m_quickWindow) {
         switch (event->type()) {
         case QEvent::MouseButtonPress: {
             auto* me = static_cast<QMouseEvent*>(event);
@@ -181,8 +235,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                         m_moveSnapshotTaken = false;  // snapshot lazily on first drag
                         m_moveRefLocal = selectionCentroidLocal();
                         m_dragAnchorGlobal = me->globalPosition().toPoint();  // cursor-lock pin
-                        if (m_quickView) m_quickView->setCursor(Qt::ClosedHandCursor);
-                        if (m_container) m_container->setCursor(Qt::ClosedHandCursor);
+                        setViewportCursor(Qt::ClosedHandCursor);
                     } else if (append) {
                         // Ctrl/Shift + drag on empty space = rubber-band (box) select.
                         m_rubberBanding = true;
@@ -221,8 +274,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     int picked = pickAtomAtScreenPos(m_lastMousePos);
                     if (picked >= 0) {
                         m_grabbedAtom = picked;
-                        if (m_quickView) m_quickView->setCursor(Qt::ClosedHandCursor);
-                        if (m_container) m_container->setCursor(Qt::ClosedHandCursor);
+                        setViewportCursor(Qt::ClosedHandCursor);
                     }
                 }
                 return true;
@@ -253,14 +305,13 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
             if (me->button() == Qt::LeftButton) {
                 m_leftMousePressed = false;
                 if (editMode() && !m_simulationActive) {
-                    if (m_quickView) m_quickView->setCursor(Qt::ArrowCursor);
-                    if (m_container) m_container->setCursor(Qt::ArrowCursor);
+                    setViewportCursor(Qt::ArrowCursor);
                     if (m_rubberBanding) {
                         m_rubberBanding = false;
                         if (m_scene) {
                             const QRectF r = QRectF(m_rubberStart, me->position().toPoint()).normalized();
-                            const float w = m_quickView ? m_quickView->width() : 1.0f;
-                            const float h = m_quickView ? m_quickView->height() : 1.0f;
+                            const float w = m_container ? m_container->width() : 1.0f;
+                            const float h = m_container ? m_container->height() : 1.0f;
                             const QVector<int> hits = m_scene->atomsInScreenRect(r, w, h);
                             if (!hits.isEmpty())
                                 selectAtoms(hits, /*append=*/true);  // box-select adds
@@ -352,8 +403,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                     emit atomGrabReleased();
                     if (m_scene) m_scene->setForceArrows({}); // clear arrows on release
                     Qt::CursorShape shape = m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor;
-                    if (m_quickView) m_quickView->setCursor(shape);
-                    if (m_container) m_container->setCursor(shape);
+                    setViewportCursor(shape);
                 } else if (!m_leftDragged) {
                     // A click (no drag): select / measure / bond-edit by mode.
                     const int picked = pickAtomAtScreenPos(me->position().toPoint());
@@ -445,8 +495,8 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 }
                 const bool depth = me->modifiers() & Qt::ShiftModifier;
                 if (m_scene) {
-                    const float w = m_quickView ? m_quickView->width() : 1.0f;
-                    const float h = m_quickView ? m_quickView->height() : 1.0f;
+                    const float w = m_container ? m_container->width() : 1.0f;
+                    const float h = m_container ? m_container->height() : 1.0f;
                     const QVector3D delta = depth
                         ? m_scene->screenDragToModelDelta(0, 0, d.y(), m_moveRefLocal, w, h)
                         : m_scene->screenDragToModelDelta(d.x(), d.y(), 0, m_moveRefLocal, w, h);
@@ -480,7 +530,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 // commits atom position and bond exactly as shown.
                 if ((pos - m_leftPressPos).manhattanLength() > kBuildDragThresholdPx)
                     m_leftDragged = true;
-                if (m_leftDragged && m_scene && m_quickView
+                if (m_leftDragged && m_scene && m_container
                     && m_currentFrame < m_trajectoryAtoms.size()
                     && m_buildDragFrom < m_trajectoryAtoms[m_currentFrame].size()) {
                     QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
@@ -493,11 +543,11 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                         const QPoint d = pos - m_lastMousePos;
                         atoms[m_buildDragFrom].position += m_scene->screenDragToModelDelta(
                             0, 0, d.y(), atoms[m_buildDragFrom].position,
-                            m_quickView->width(), m_quickView->height());
+                            m_container->width(), m_container->height());
                     } else {
                         atoms[m_buildDragFrom].position = m_scene->screenToModelPoint(
                             pos.x(), pos.y(), atoms[m_buildDragFrom].position,
-                            m_quickView->width(), m_quickView->height());
+                            m_container->width(), m_container->height());
                     }
                     // Sticky preview target (same reasoning as the carry preview:
                     // near-equidistant candidates must not flip per mouse move).
@@ -598,8 +648,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 const Qt::CursorShape shape = (hov >= 0)
                     ? Qt::PointingHandCursor
                     : (m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor);
-                if (m_quickView) m_quickView->setCursor(shape);
-                if (m_container) m_container->setCursor(shape);
+                setViewportCursor(shape);
             }
             break;
         }
@@ -676,8 +725,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 m_scene->setHoverAtom(-1); // drop hover highlight when leaving the view
             if (m_grabbedAtom < 0) {
                 Qt::CursorShape shape = m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor;
-                if (m_quickView) m_quickView->setCursor(shape);
-                if (m_container) m_container->setCursor(shape);
+                setViewportCursor(shape);
             }
             break;
         }
@@ -742,8 +790,8 @@ void MoleculeViewer::rotateSceneByKey(int key, bool nudge)
     case Qt::Key_D: applyModelRotation(step, 0, 0); break;   // yaw right
     case Qt::Key_W: applyModelRotation(0, step, 0); break;   // pitch up
     case Qt::Key_S: applyModelRotation(0, -step, 0); break;  // pitch down
-    case Qt::Key_Q: applyModelRotation(0, 0, -step); break;  // roll left
-    case Qt::Key_E: applyModelRotation(0, 0, step); break;   // roll right
+    case Qt::Key_Q: applyModelRotation(0, 0, step); break;   // roll (swapped with E, operator 2026-09-27)
+    case Qt::Key_E: applyModelRotation(0, 0, -step); break;  // roll the other way
     default: break;
     }
 }
@@ -769,18 +817,18 @@ void MoleculeViewer::handleMouseZoom(int delta)
 
 int MoleculeViewer::pickAtomAtScreenPos(const QPoint& screenPos, int excludeIndex) const
 {
-    if (!m_scene || !m_quickView)
+    if (!m_scene || !m_container)
         return -1;
     return m_scene->pickAtom(screenPos.x(), screenPos.y(),
-        m_quickView->width(), m_quickView->height(), excludeIndex);
+        m_container->width(), m_container->height(), excludeIndex);
 }
 
 QVector3D MoleculeViewer::computeGrabForce(const QPoint& mousePos, int atomIndex) const
 {
-    if (!m_scene || !m_quickView)
+    if (!m_scene || !m_container)
         return QVector3D();
     return m_scene->computeGrabForce(mousePos.x(), mousePos.y(), atomIndex,
-        m_quickView->width(), m_quickView->height(), m_grabStrength);
+        m_container->width(), m_container->height(), m_grabStrength);
 }
 
 QVector3D MoleculeViewer::modelToWorld(const QVector3D& localPos) const
@@ -896,6 +944,7 @@ void MoleculeViewer::setNciOptions(const nci::Options& options)
 {
     m_nciOptions = options;
     refreshNciOverlay();
+    emit nciOptionsChanged(m_nciOptions);
 }
 
 void MoleculeViewer::setNciLabelsVisible(bool on)
@@ -1167,6 +1216,8 @@ void MoleculeViewer::pushNciToScene()
                 continue;
             seg.a = centroid(c.ringA);
             seg.b = centroid(c.ringB);   // centroids: nothing to trim against
+            seg.ownerA = c.ringA.first();  // the rings' molecules, for hidden kinds
+            seg.ownerB = c.ringB.first();
         } else {
             const int from = c.bridge >= 0 ? c.bridge : c.donor;
             if (from < 0 || from >= atoms.size() || c.acceptor < 0 || c.acceptor >= atoms.size())
@@ -1343,11 +1394,12 @@ void MoleculeViewer::updateForceVectors()
 // ---------------------------------------------------------------------------
 // Measurement overlay (M2): distance (2), angle (3), dihedral (4)
 // ---------------------------------------------------------------------------
-void MoleculeViewer::updateMeasurement()
+void MoleculeViewer::updateMeasurement(int frameIndex)
 {
     if (!m_scene)
         return;
-    const int frame = (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) ? m_currentFrame : -1;
+    const int wanted = (frameIndex >= 0) ? frameIndex : m_currentFrame;
+    const int frame = (wanted >= 0 && wanted < m_trajectoryAtoms.size()) ? wanted : -1;
     if (m_measurementMode == 0 || frame < 0) {
         m_scene->setMeasurement({}, QString());
         return;
@@ -1625,8 +1677,8 @@ void MoleculeViewer::appendMolecule(const QVector<Atom>& newAtoms, const QVector
 }
 
 void MoleculeViewer::setOverlayWorkspace(const QVector<Atom>& refAtoms,
-    const QVector<Bond>& refBonds, bool refVisible, const QVector<OverlaySpec>& overlays,
-    bool resetView)
+    const QVector<Bond>& refBonds, bool refVisible, const QColor& refTint,
+    const QVector<OverlaySpec>& overlays, bool resetView)
 {
     if (!m_scene)
         return;
@@ -1643,6 +1695,7 @@ void MoleculeViewer::setOverlayWorkspace(const QVector<Atom>& refAtoms,
         clearOverlays();
     }
     setPrimaryVisible(refVisible);
+    setPrimaryTint(refTint);
     for (const OverlaySpec& o : overlays) {
         const int idx = addOverlay(o.atoms, o.tint, o.sizeScale);
         if (idx >= 0 && !o.visible)
@@ -1692,6 +1745,12 @@ void MoleculeViewer::setPrimaryVisible(bool visible)
         m_scene->setPrimaryVisible(visible);
 }
 
+void MoleculeViewer::setPrimaryTint(const QColor& tint)
+{
+    if (m_scene)
+        m_scene->setPrimaryTint(tint);
+}
+
 void MoleculeViewer::clearOverlays()
 {
     if (m_scene)
@@ -1709,6 +1768,12 @@ void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, cons
     m_frameCount = atoms.size();
     m_currentFrame = 0;
     m_moleculeDirty = false;
+    // Claude Generated 2026 - A new structure has its own molecule kinds.
+    if (!m_hiddenMoleculeKinds.isEmpty()) {
+        m_hiddenMoleculeKinds.clear();
+        pushVisibilityToScene();
+        emit hiddenMoleculeKindsChanged();
+    }
 
     m_trajectoryBonds.clear();
     if (bonds.isEmpty() || (bonds.size() == atoms.size() && bonds[0].isEmpty())) {
@@ -1720,7 +1785,9 @@ void MoleculeViewer::setTrajectoryData(const QVector<QVector<Atom>>& atoms, cons
 
     if (m_frameSlider && m_frameLabel && m_frameJumpBox && m_frameControlWidget) {
         m_frameSlider->setMaximum(m_frameCount - 1);
-        m_frameJumpBox->setMaximum(m_frameCount - 1);
+        m_frameJumpBox->blockSignals(true);  // a clamped value must not trigger a jump
+        m_frameJumpBox->setMaximum(qMax(1, m_frameCount));
+        m_frameJumpBox->blockSignals(false);
         m_frameLabel->setText(QString("1/%1").arg(m_frameCount));
         m_frameControlWidget->setVisible(m_frameCount > 1);
     }
@@ -1761,7 +1828,7 @@ void MoleculeViewer::showFrame(int frameIndex)
         m_frameSlider->setValue(m_currentFrame);
         m_frameSlider->blockSignals(false);
         m_frameJumpBox->blockSignals(true);
-        m_frameJumpBox->setValue(m_currentFrame);
+        m_frameJumpBox->setValue(m_currentFrame + 1);
         m_frameJumpBox->blockSignals(false);
         m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
     }
@@ -1783,10 +1850,12 @@ void MoleculeViewer::updateFramePositions(int frameIndex)
         m_frameSlider->setValue(m_currentFrame);
         m_frameSlider->blockSignals(false);
         m_frameJumpBox->blockSignals(true);
-        m_frameJumpBox->setValue(m_currentFrame);
+        m_frameJumpBox->setValue(m_currentFrame + 1);
         m_frameJumpBox->blockSignals(false);
         m_frameLabel->setText(QString("%1/%2").arg(m_currentFrame + 1).arg(m_frameCount));
     }
+    if (m_measurementMode != 0)
+        updateMeasurement();  // Claude Generated 2026 - playback: lines and values follow the frame
     emit frameChanged(m_currentFrame);
 }
 
@@ -1837,12 +1906,49 @@ bool bondSetEqual(const QVector<MoleculeViewer::Bond>& a, const QVector<Molecule
 }
 }  // namespace
 
+// Claude Generated 2026 - P3 frame coalescing (docs/WP-performance.md). See the
+// declaration in view.h for why: this is the worker connection target now, not
+// updateSimulationFrame directly.
+void MoleculeViewer::onWorkerFrameReady(SimulationFramePtr frame)
+{
+    m_pendingFrame = frame;
+    if (m_frameUpdateScheduled)
+        return;  // a pass is already queued; it will pick up whatever is latest
+    m_frameUpdateScheduled = true;
+    QMetaObject::invokeMethod(this, [this]() {
+        m_frameUpdateScheduled = false;
+        SimulationFramePtr toProcess = m_pendingFrame;
+        m_pendingFrame.reset();
+        if (toProcess)
+            updateSimulationFrame(toProcess);
+    }, Qt::QueuedConnection);
+}
+
+// Claude Generated 2026 - P0 GUI-side timing (docs/WP-performance.md). Wired from
+// the same "Performance" checkbox the worker's own step-timing summary uses.
+void MoleculeViewer::setPerformanceAnalysis(bool enabled, int interval)
+{
+    m_perfAnalysis = enabled;
+    m_perfInterval = qMax(1, interval);
+    m_perfFrameCount = 0;
+    m_perfBondTotalUs = m_perfBondMaxUs = 0;
+    m_perfRebuildTotalUs = m_perfRebuildMaxUs = 0;
+    if (enabled)
+        m_perfWindowTimer.start();
+}
+
 void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
 {
     if (!frame)
         return;
     const auto& positions = frame->positions;
     const int n = static_cast<int>(positions.size());
+
+    // Claude Generated 2026 - P0 timing; only started when enabled (checking the
+    // flag costs less than an unconditional QElapsedTimer::start()).
+    QElapsedTimer perfFrameClock;
+    if (m_perfAnalysis)
+        perfFrameClock.start();
 
     // Claude Generated 2026 - Live interaction overlay: while the GFN-FF source is
     // selected the contacts come from the running force field itself, so what is
@@ -1885,6 +1991,7 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
     // rebuild keeps the camera/bounds fixed so a reaction event does not jolt the view.
     // Claude Generated 2026.
     bool topologyChanged = false;
+    qint64 bondDetectUs = 0;  // Claude Generated 2026 - P0 timing
     if (!frame->bonds.empty()) {
         // Reactive GFN-FF: the force field's own bond list is the topology being
         // integrated, so it is drawn as-is (with its bond orders) and takes precedence
@@ -1904,7 +2011,12 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
             emit fragmentsChanged();  // a broken bond can split a fragment
         }
     } else if (m_dynamicBonds && !m_trajectoryBonds.isEmpty()) {
+        QElapsedTimer bondClock;
+        if (m_perfAnalysis)
+            bondClock.start();
         QVector<Bond> newBonds = detectBondsHysteresis(refAtoms, m_trajectoryBonds[0]);
+        if (m_perfAnalysis)
+            bondDetectUs = bondClock.nsecsElapsed() / 1000;
         if (!bondSetEqual(newBonds, m_trajectoryBonds[0])) {
             m_trajectoryBonds[0] = newBonds;
             topologyChanged = true;
@@ -1922,6 +2034,10 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
         m_scene->updateBonds(sb);
     }
     computeWallViolations();  // live MD: recolour box + status as atoms cross walls
+    // Claude Generated 2026 - Measurement lines and HUD values follow the running
+    // geometry (the live frame is written into frame 0, see refAtoms above).
+    if (m_measurementMode != 0)
+        updateMeasurement(0);
 
     // Reaction events (reactive GFN-FF): flash the atoms of every formed/broken bond
     // for half a second; a new event restarts the timer. Claude Generated 2026.
@@ -1955,6 +2071,36 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
         QVector3D modelLocalForce = computeGrabForce(m_lastMousePos, m_grabbedAtom);
         emit atomForceRequested(m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
         updateForceVectors();
+    }
+
+    // Claude Generated 2026 - P0 GUI-side timing summary (docs/WP-performance.md).
+    // "rebuild" = everything else in this function: scene sync (positions, bond
+    // instancing, NCI, walls) minus the bond-detection time already carved out
+    // above. Same reporting cadence/style as SimulationWorker's own step-time
+    // summary, so both can be read side by side in the console.
+    if (m_perfAnalysis) {
+        const qint64 totalUs = perfFrameClock.nsecsElapsed() / 1000;
+        const qint64 rebuildUs = qMax<qint64>(0, totalUs - bondDetectUs);
+        m_perfBondTotalUs += bondDetectUs;
+        m_perfBondMaxUs = qMax(m_perfBondMaxUs, bondDetectUs);
+        m_perfRebuildTotalUs += rebuildUs;
+        m_perfRebuildMaxUs = qMax(m_perfRebuildMaxUs, rebuildUs);
+        ++m_perfFrameCount;
+        if (m_perfFrameCount >= m_perfInterval) {
+            const qint64 avgBondUs = m_perfBondTotalUs / m_perfFrameCount;
+            const qint64 avgRebuildUs = m_perfRebuildTotalUs / m_perfFrameCount;
+            const double guiFps = 1000.0 * m_perfFrameCount
+                / std::max<qint64>(1, m_perfWindowTimer.elapsed());
+            qDebug() << "=== GUI Performance [last" << m_perfFrameCount << "frames] ==="
+                     << "atoms:" << n
+                     << "bonds_avg:" << avgBondUs << "us max:" << m_perfBondMaxUs << "us"
+                     << "rebuild_avg:" << avgRebuildUs << "us max:" << m_perfRebuildMaxUs << "us"
+                     << "gui_fps:" << guiFps;
+            m_perfFrameCount = 0;
+            m_perfBondTotalUs = m_perfBondMaxUs = 0;
+            m_perfRebuildTotalUs = m_perfRebuildMaxUs = 0;
+            m_perfWindowTimer.restart();
+        }
     }
 }
 
@@ -2091,6 +2237,46 @@ void MoleculeViewer::setLabelSelectionOnly(bool on)
         m_scene->setLabelSelectionOnly(on);
 }
 
+// Claude Generated 2026 - Hydrogen display quick toggle (All / Polar / None).
+void MoleculeViewer::setHydrogenDisplay(HydrogenDisplay mode)
+{
+    if (m_hydrogenDisplay == mode)
+        return;
+    m_hydrogenDisplay = mode;
+    pushVisibilityToScene();
+    emit hydrogenDisplayChanged(static_cast<int>(mode));
+}
+
+void MoleculeViewer::cycleHydrogenDisplay()
+{
+    setHydrogenDisplay(static_cast<HydrogenDisplay>((static_cast<int>(m_hydrogenDisplay) + 1) % 3));
+}
+
+// Build mode shows every atom regardless of the chosen H display and hidden molecule
+// kinds: the builder places, bonds and deletes atoms, and a hidden atom cannot be picked.
+void MoleculeViewer::pushVisibilityToScene()
+{
+    if (!m_scene)
+        return;
+    const bool build = (m_mode == InteractionMode::Build);
+    m_scene->setHydrogenDisplay(static_cast<int>(build ? HydrogenDisplay::All : m_hydrogenDisplay));
+    m_scene->setHiddenMoleculeKinds(build ? QSet<QString>() : m_hiddenMoleculeKinds);
+}
+
+QVector<QPair<QString, int>> MoleculeViewer::moleculeKinds() const
+{
+    return m_scene ? m_scene->moleculeKinds() : QVector<QPair<QString, int>>();
+}
+
+void MoleculeViewer::setHiddenMoleculeKinds(const QSet<QString>& formulas)
+{
+    if (formulas == m_hiddenMoleculeKinds)
+        return;
+    m_hiddenMoleculeKinds = formulas;
+    pushVisibilityToScene();
+    emit hiddenMoleculeKindsChanged();
+}
+
 void MoleculeViewer::setBackgroundColor(const QColor& color)
 {
     m_backgroundColor = color;
@@ -2217,8 +2403,7 @@ void MoleculeViewer::setSimulationActive(bool on)
     m_grabbedAtom = -1;
     if (m_scene) m_scene->setForceArrows({});
     Qt::CursorShape shape = on ? Qt::SizeAllCursor : Qt::ArrowCursor;
-    if (m_quickView) m_quickView->setCursor(shape);
-    if (m_container) m_container->setCursor(shape);
+    setViewportCursor(shape);
 }
 
 void MoleculeViewer::setPickingActive(bool /*active*/)
@@ -2373,6 +2558,8 @@ void MoleculeViewer::setInteractionMode(InteractionMode mode)
         break;
     }
 
+    pushVisibilityToScene();  // entering/leaving Build switches the H override
+
     if (wasEdit != (m_mode == InteractionMode::Edit))
         emit editModeChanged(m_mode == InteractionMode::Edit);
     emit interactionModeChanged(m_mode);
@@ -2416,6 +2603,12 @@ void MoleculeViewer::setBondEditMode(int mode)
             m_bondEditor->setEditMode(editorMode);
         }
         emit bondEditModeChanged(m_bondEditMode);
+    }
+    // Claude Generated 2026 - The bond tools had no on-screen hint.
+    if (m_scene) {
+        const QString what = (m_bondEditMode == 1) ? tr("add a bond")
+            : (m_bondEditMode == 2) ? tr("delete a bond") : tr("cycle the bond order");
+        m_scene->setEditHint(tr("Bonds  ·  click two atoms to %1  ·  Esc: back to View").arg(what));
     }
 }
 
@@ -2599,9 +2792,9 @@ void MoleculeViewer::placeAtomAtScreen(const QPoint& pos)
     if (haveAtoms)
         depthRef = m_selectedAtoms.isEmpty() ? m_moleculeCenter : selectionCentroidLocal();
     QVector3D p = depthRef;
-    if (m_scene && m_quickView)
+    if (m_scene && m_container)
         p = m_scene->screenToModelPoint(pos.x(), pos.y(), depthRef,
-            m_quickView->width(), m_quickView->height());
+            m_container->width(), m_container->height());
     addAtomAt(p, m_buildElement);
 }
 
@@ -3065,7 +3258,7 @@ void MoleculeViewer::startFragmentCarry(const build::Fragment& fragment)
 // the bond its attach atom would form with the nearest unbonded neighbour.
 void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
 {
-    if (!m_carryActive || !m_scene || !m_quickView
+    if (!m_carryActive || !m_scene || !m_container
         || m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size()
         || m_carryOffsets.size() != m_carryAtoms.size())
         return;
@@ -3078,7 +3271,7 @@ void MoleculeViewer::updateFragmentCarry(const QPoint& pos)
     }
     centroidNow /= float(m_carryAtoms.size());
     const QVector3D cursorPt = m_scene->screenToModelPoint(pos.x(), pos.y(), centroidNow,
-        m_quickView->width(), m_quickView->height());
+        m_container->width(), m_container->height());
 
     // Free-follow pose: library orientation with the centroid under the cursor.
     QVector3D centroidOffset;
@@ -3816,18 +4009,13 @@ ViewPreset MoleculeViewer::currentViewPreset(ZoomMode zoomMode) const
         p.zoomFactor = p.cameraDistance / extent;
     }
 
-    static_cast<DisplaySettings&>(p) = currentDisplaySettings();
-    p.fogDistance = m_fogDistance;
-    p.backgroundColor = m_backgroundColor;
-    for (int i = 0; i < 4; ++i)
-        p.cornerLightEnabled[i] = m_cornerLightEnabled[i];
-
     return p;
 }
 
-void MoleculeViewer::applyViewPreset(const ViewPreset& preset, bool applyCamera, bool applyDisplay)
+// Claude Generated 2026 - A view is camera only (UX stage 3); the look is separate.
+void MoleculeViewer::applyViewPreset(const ViewPreset& preset)
 {
-    if (applyCamera && m_scene) {
+    if (m_scene) {
         float distance = preset.cameraDistance;
         if (preset.zoomMode == ZoomMode::Relative) {
             const float extent = qMax(m_scene->sceneExtent(), 1e-3f);
@@ -3840,22 +4028,62 @@ void MoleculeViewer::applyViewPreset(const ViewPreset& preset, bool applyCamera,
             m_scene->setCameraTransform(preset.rootRotation, preset.pan, distance);
         else
             m_scene->resetView(); // no usable zoom -> frame molecule cleanly
-        if (m_quickView)
-            m_quickView->update();
+        if (m_quickWindow)
+            m_quickWindow->update();
     }
+    emit viewPresetApplied();
+}
 
-    if (!applyDisplay) {
-        emit viewPresetApplied();
-        return;
-    }
-
-    setFogDistance(preset.fogDistance);
-    setBackgroundColor(preset.backgroundColor);
+// Claude Generated 2026 - The current appearance as a Look (look.h).
+Look MoleculeViewer::currentLook() const
+{
+    Look l;
+    l.colorScheme = static_cast<int>(m_colorScheme);
+    l.atomTransparency = m_atomTransparency;
+    l.atomShininess = m_atomShininess;
+    l.fogEnabled = m_fogEnabled;
+    l.fogIntensity = m_fogIntensity;
+    l.fogDistance = m_fogDistance;
+    l.ssaoEnabled = m_ssaoEnabled;
+    l.ssaoIntensity = m_ssaoIntensity;
+    l.ssaoRadius = m_ssaoRadius;
+    l.ssaoBias = m_ssaoBias;
+    l.bloomEnabled = m_bloomEnabled;
+    l.bloomThreshold = m_bloomThreshold;
+    l.bloomIntensity = m_bloomIntensity;
+    l.hdrEnabled = m_hdrEnabled;
+    l.exposure = m_exposure;
     for (int i = 0; i < 4; ++i)
-        setCornerLightEnabled(i, preset.cornerLightEnabled[i]);
-    applyDisplaySettings(preset, /*allowComputedNciSource=*/true);
+        l.cornerLights[i] = m_cornerLightEnabled[i];
+    l.background = m_backgroundColor;
+    return l;
+}
 
-    emit viewPresetApplied(); // DisplayPanel re-syncs its controls (no dock raise)
+// Claude Generated 2026 - Apply a look. Only the look's own fields are set, so the
+// quick toggles (NCI, hydrogen display, hidden molecules, labels, render style) and
+// everything structure-specific keep their live values by construction.
+void MoleculeViewer::applyLook(const Look& look)
+{
+    setColorScheme(static_cast<ColorScheme>(look.colorScheme));
+    setAtomTransparency(look.atomTransparency);
+    setAtomShininess(look.atomShininess);
+    setFogEnabled(look.fogEnabled);
+    setFogIntensity(look.fogIntensity);
+    setFogDistance(look.fogDistance);
+    setSSAOEnabled(look.ssaoEnabled);
+    setSSAOIntensity(look.ssaoIntensity);
+    setSSAORadius(look.ssaoRadius);
+    setSSAOBias(look.ssaoBias);
+    setBloomEnabled(look.bloomEnabled);
+    setBloomThreshold(look.bloomThreshold);
+    setBloomIntensity(look.bloomIntensity);
+    setHDREnabled(look.hdrEnabled);
+    setExposure(look.exposure);
+    for (int i = 0; i < 4; ++i)
+        setCornerLightEnabled(i, look.cornerLights[i]);
+    setBackgroundColor(look.background);
+    applyAppearanceToController();
+    emit lookApplied(look.name);
 }
 
 // Claude Generated 2026 - The viewer's complete live display state. Single source
@@ -3898,6 +4126,11 @@ DisplaySettings MoleculeViewer::currentDisplaySettings() const
     s.fragmentTintStrength = m_fragmentTintStrength;
     s.fragmentScale = m_fragmentScale;
     s.buildDockPreview = m_dockPreviewEnabled;
+    s.hydrogenDisplay = static_cast<int>(m_hydrogenDisplay);
+    s.fogDistance = m_fogDistance;
+    s.backgroundColor = m_backgroundColor;
+    for (int i = 0; i < 4; ++i)
+        s.cornerLightEnabled[i] = m_cornerLightEnabled[i];
     return s;
 }
 
@@ -3941,6 +4174,13 @@ void MoleculeViewer::applyDisplaySettings(const DisplaySettings& s, bool allowCo
     setFragmentTint(s.fragmentTint, s.fragmentTintStrength);
     setFragmentScale(s.fragmentScale);
     m_dockPreviewEnabled = s.buildDockPreview;
+    if (s.hydrogenDisplay >= 0 && s.hydrogenDisplay <= 2)
+        setHydrogenDisplay(static_cast<HydrogenDisplay>(s.hydrogenDisplay));
+    setFogDistance(s.fogDistance);
+    if (s.backgroundColor.isValid())
+        setBackgroundColor(s.backgroundColor);
+    for (int i = 0; i < 4; ++i)
+        setCornerLightEnabled(i, s.cornerLightEnabled[i]);
     setNciLabelsVisible(s.nciLabels);
     m_nciLiveMd = s.nciLiveMd;
     // Calculated sources (>= 2) only make sense when analysis results follow.
@@ -3952,6 +4192,7 @@ void MoleculeViewer::applyDisplaySettings(const DisplaySettings& s, bool allowCo
 
     emit renderingModeChanged(m_renderingMode);
     emit colorSchemeChanged(m_colorScheme);
+    emit nciOptionsChanged(m_nciOptions);  // m_nciOptions was set directly above
 }
 
 void MoleculeViewer::setCameraOrientation(const QQuaternion& rotation)
@@ -3962,17 +4203,19 @@ void MoleculeViewer::setCameraOrientation(const QQuaternion& rotation)
     // orientation instead of snapping back to the previous one.
     m_modelRotation = rotation.normalized();
     m_scene->setRootRotationOnly(rotation);
-    if (m_quickView)
-        m_quickView->update();
+    if (m_quickWindow)
+        m_quickWindow->update();
 }
 
 void MoleculeViewer::saveScreenshot(const QString& filename, int scaleFactor)
 {
-    if (!m_quickView) {
+    if (!m_quickWindow) {
         qWarning() << "Cannot save screenshot: view not initialized";
         return;
     }
-    QImage shot = m_quickView->grabWindow();
+    // QQuickWidget renders through a render control: grab its framebuffer. The
+    // native route is a real window and grabs itself.
+    QImage shot = m_quickWidget ? m_quickWidget->grabFramebuffer() : m_quickWindow->grabWindow();
     if (scaleFactor > 1)
         shot = shot.scaled(shot.size() * scaleFactor, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     if (!shot.save(filename))
@@ -4023,10 +4266,32 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
     QQuickWindow quickWindow(&renderControl);
     quickWindow.setColor(transparent ? QColor(Qt::transparent) : ctrl.backgroundColor());
 #if QT_CONFIG(vulkan) && __has_include(<vulkan/vulkan.h>)
-    // Vulkan needs a QVulkanInstance; reuse the live view's so we don't create a second.
-    if (QQuickWindow::graphicsApi() == QSGRendererInterface::Vulkan && m_quickView
-        && m_quickView->vulkanInstance())
-        quickWindow.setVulkanInstance(m_quickView->vulkanInstance());
+    // Vulkan needs a QVulkanInstance. Prefer the live view's (native route) or the
+    // top-level window's (QQuickWidget shares the widget backing-store RHI); only
+    // create our own when neither carries one. Claude Generated 2026.
+    if (QQuickWindow::graphicsApi() == QSGRendererInterface::Vulkan) {
+        QVulkanInstance* inst = m_quickWindow ? m_quickWindow->vulkanInstance() : nullptr;
+        if (!inst && window() && window()->windowHandle())
+            inst = window()->windowHandle()->vulkanInstance();
+        if (!inst) {
+            // Kept alive for the process (a QVulkanInstance must outlive every
+            // QQuickWindow that used it; destroying it at exit after QApplication
+            // is gone is not safe either).
+            static QVulkanInstance* s_exportInstance = nullptr;
+            if (!s_exportInstance) {
+                s_exportInstance = new QVulkanInstance;
+                s_exportInstance->setExtensions(QQuickGraphicsConfiguration::preferredInstanceExtensions());
+                if (!s_exportInstance->create()) {
+                    qWarning() << "exportImage: QVulkanInstance::create() failed";
+                    delete s_exportInstance;
+                    s_exportInstance = nullptr;
+                }
+            }
+            inst = s_exportInstance;
+        }
+        if (inst)
+            quickWindow.setVulkanInstance(inst);
+    }
 #endif
 
     QQmlEngine engine;
@@ -4157,6 +4422,8 @@ bool MoleculeViewer::exportImage(const QString& path, int width, int height, int
 
         if (!metadata.viewPresetName.isEmpty())
             result.setText(QStringLiteral("ViewPreset"), metadata.viewPresetName);
+        if (!metadata.lookName.isEmpty())
+            result.setText(QStringLiteral("Look"), metadata.lookName);
     }
 
     return result.save(path);
@@ -4198,14 +4465,27 @@ void MoleculeViewer::exportImageDialog(const QString& startDir, Settings* settin
                               "authorship as PNG text chunks. JPEG/TIFF get no metadata (Qt6 cannot write EXIF)."));
     form->addRow(QString(), embedCheck);
 
+    // Claude Generated 2026 - Camera view and look are chosen separately (UX stage 3);
+    // the names of both are stored in the image metadata.
     auto* presetCombo = new QComboBox(&dlg);
-    presetCombo->addItem(tr("(none)"), QString());
+    presetCombo->addItem(tr("(current)"), QString());
     if (settings) {
         for (const ViewPreset& p : settings->viewPresets())
             presetCombo->addItem(p.name, p.name);
     }
-    presetCombo->setToolTip(tr("Apply a view preset before exporting; its name is stored in the image metadata."));
-    form->addRow(tr("View preset:"), presetCombo);
+    presetCombo->setToolTip(tr("Apply a saved camera view before exporting."));
+    form->addRow(tr("View:"), presetCombo);
+
+    QVector<Look> exportLooks = looks::builtIn();
+    if (settings)
+        exportLooks += settings->userLooks();
+    auto* lookCombo = new QComboBox(&dlg);
+    lookCombo->addItem(tr("(current)"), -1);
+    for (int i = 0; i < exportLooks.size(); ++i)
+        lookCombo->addItem(exportLooks[i].name, i);
+    lookCombo->setToolTip(tr("Apply a look (colours, lighting, effects, background) before "
+                             "exporting. It stays applied afterwards."));
+    form->addRow(tr("Look:"), lookCombo);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dlg);
     form->addRow(buttons);
@@ -4215,27 +4495,35 @@ void MoleculeViewer::exportImageDialog(const QString& startDir, Settings* settin
         return;
 
     const int bg = bgCombo->currentData().toInt();
-    // Apply an optional view preset before rendering so the figure matches it.
+    // Apply an optional camera view and look before rendering so the figure matches them.
     QString presetName;
     if (settings) {
         const QString sel = presetCombo->currentData().toString();
         if (!sel.isEmpty()) {
             for (const ViewPreset& p : settings->viewPresets()) {
                 if (p.name == sel) {
-                    applyViewPreset(p, true, true);
+                    applyViewPreset(p);
                     presetName = sel;
                     break;
                 }
             }
         }
     }
+    QString lookName;
+    const int lookIndex = lookCombo->currentData().toInt();
+    if (lookIndex >= 0 && lookIndex < exportLooks.size()) {
+        applyLook(exportLooks[lookIndex]);
+        lookName = exportLooks[lookIndex].name;
+    }
 
     // Build the metadata to embed.
     ImageMetadata meta;
-    if (embedCheck->isChecked())
+    if (embedCheck->isChecked()) {
         meta = buildImageMetadata(settings, presetName);
-    else
+        meta.lookName = lookName;  // Claude Generated 2026
+    } else {
         meta.embed = false;
+    }
 
     const QString filter = (bg == 2)
         ? tr("PNG Image (*.png)")  // alpha needs PNG
@@ -4560,6 +4848,73 @@ QIcon barIcon(const QString& kind, const QColor& color)
             p.drawLine(QPointF(10 + 5 * std::cos(a), 10 + 5 * std::sin(a)),
                 QPointF(10 + 7 * std::cos(a), 10 + 7 * std::sin(a)));
         }
+    } else if (kind == QLatin1String("view")) {
+        // Claude Generated 2026 - Plain viewing: a mouse pointer.
+        p.setBrush(color);
+        p.drawPolygon(QPolygonF({ QPointF(6, 3), QPointF(6, 15), QPointF(9, 12),
+            QPointF(11.5, 17), QPointF(13.5, 16), QPointF(11, 11), QPointF(15, 11) }));
+    } else if (kind == QLatin1String("first") || kind == QLatin1String("last")
+        || kind == QLatin1String("prev") || kind == QLatin1String("next")
+        || kind == QLatin1String("play")) {
+        // Claude Generated 2026 - Frame navigation: filled triangle, bar for first/last.
+        const bool left = (kind == QLatin1String("first") || kind == QLatin1String("prev"));
+        p.setBrush(color);
+        if (left)
+            p.drawPolygon(QPolygonF({ QPointF(14, 4), QPointF(14, 16), QPointF(6, 10) }));
+        else
+            p.drawPolygon(QPolygonF({ QPointF(6, 4), QPointF(6, 16), QPointF(14, 10) }));
+        if (kind == QLatin1String("first"))
+            p.drawLine(QPointF(5, 4), QPointF(5, 16));
+        if (kind == QLatin1String("last"))
+            p.drawLine(QPointF(15, 4), QPointF(15, 16));
+    } else if (kind == QLatin1String("pause")) {
+        p.setBrush(color);
+        p.drawRect(QRectF(6, 4.5, 2.5, 11));
+        p.drawRect(QRectF(11.5, 4.5, 2.5, 11));
+    } else if (kind == QLatin1String("hbond") || kind == QLatin1String("hydrogen")) {
+        // Claude Generated 2026 - A bold H; for hydrogen bonds with a dashed contact.
+        QFont f = p.font();
+        f.setBold(true);
+        f.setPixelSize(10);
+        p.setFont(f);
+        if (kind == QLatin1String("hbond")) {
+            p.drawText(QRectF(1, 4, 10, 12), Qt::AlignCenter, QStringLiteral("H"));
+            QPen dashed(color, 1.6, Qt::DashLine);
+            dashed.setDashPattern({ 1.5, 1.5 });
+            p.setPen(dashed);
+            p.drawLine(QPointF(11, 10), QPointF(16, 10));
+            p.setPen(pen);
+            p.setBrush(color);
+            p.drawEllipse(QPointF(17.5, 10), 1.8, 1.8);
+        } else {
+            p.drawEllipse(QPointF(10, 10), 7, 7);
+            p.drawText(QRectF(4, 4, 12, 12), Qt::AlignCenter, QStringLiteral("H"));
+        }
+    } else if (kind == QLatin1String("molecules")) {
+        // Claude Generated 2026 - Small molecules (solvent): two bent triatomics.
+        const auto water = [&](qreal x, qreal y) {
+            p.drawLine(QPointF(x, y), QPointF(x - 3, y + 3));
+            p.drawLine(QPointF(x, y), QPointF(x + 3, y + 3));
+            p.setBrush(color);
+            p.drawEllipse(QPointF(x, y), 2, 2);
+            p.setBrush(Qt::NoBrush);
+        };
+        water(6, 5);
+        water(14, 11);
+    } else if (kind == QLatin1String("style")) {
+        // Claude Generated 2026 - Render style: ball and stick.
+        p.drawLine(QPointF(7, 13), QPointF(13, 7));
+        p.setBrush(color);
+        p.drawEllipse(QPointF(6, 14), 3, 3);
+        p.drawEllipse(QPointF(14, 6), 3, 3);
+    } else if (kind == QLatin1String("look")) {
+        // Claude Generated 2026 - Look (colours, lighting, effects): a half-lit sphere.
+        p.drawEllipse(QPointF(10, 10), 7, 7);
+        QPainterPath lit;
+        lit.moveTo(10, 3);
+        lit.arcTo(QRectF(3, 3, 14, 14), 90, 180);
+        lit.closeSubpath();
+        p.fillPath(lit, color);
     }
     return QIcon(pm);
 }
@@ -4567,7 +4922,7 @@ QIcon barIcon(const QString& kind, const QColor& color)
 } // namespace
 
 // Claude Generated 2026 - Attach MainWindow's shared NCI source menu to the bar
-// button's dropdown, so bar, Display menu and palette use one action set.
+// button's dropdown, so bar, View menu and palette use one action set.
 void MoleculeViewer::setNciQuickMenu(QMenu* menu)
 {
     if (m_nciButton)
@@ -4597,30 +4952,20 @@ void MoleculeViewer::setupControlPanel()
     frameLayout->setSpacing(3);
 
     // Claude Generated 2026 - first/prev/next/last; Left/Right and Ctrl+Left/Right
-    // shortcuts are handled in MainWindow's app event filter.
-    QPushButton* firstButton = new QPushButton("⏮");
-    firstButton->setMaximumWidth(30);
-    firstButton->setToolTip(tr("First Frame (Ctrl+Left)"));
-    connect(firstButton, &QPushButton::clicked, this, &MoleculeViewer::firstFrame);
-    frameLayout->addWidget(firstButton);
-
-    QPushButton* prevButton = new QPushButton("◀");
-    prevButton->setMaximumWidth(30);
-    prevButton->setToolTip(tr("Previous Frame (Left)"));
-    connect(prevButton, &QPushButton::clicked, this, &MoleculeViewer::previousFrame);
-    frameLayout->addWidget(prevButton);
-
-    QPushButton* nextButton = new QPushButton("▶");
-    nextButton->setMaximumWidth(30);
-    nextButton->setToolTip(tr("Next Frame (Right)"));
-    connect(nextButton, &QPushButton::clicked, this, &MoleculeViewer::nextFrame);
-    frameLayout->addWidget(nextButton);
-
-    QPushButton* lastButton = new QPushButton("⏭");
-    lastButton->setMaximumWidth(30);
-    lastButton->setToolTip(tr("Last Frame (Ctrl+Right)"));
-    connect(lastButton, &QPushButton::clicked, this, &MoleculeViewer::lastFrame);
-    frameLayout->addWidget(lastButton);
+    // shortcuts are handled in MainWindow's app event filter. Drawn icons like the
+    // rest of the bar (were Unicode glyphs on push buttons).
+    auto addNavButton = [&](const QString& icon, const QString& tip, void (MoleculeViewer::*slot)()) {
+        auto* b = new QToolButton;
+        b->setIcon(barIcon(icon, iconColor));
+        b->setToolTip(tip);
+        b->setAutoRaise(true);
+        connect(b, &QToolButton::clicked, this, slot);
+        frameLayout->addWidget(b);
+    };
+    addNavButton(QStringLiteral("first"), tr("First Frame (Ctrl+Left)"), &MoleculeViewer::firstFrame);
+    addNavButton(QStringLiteral("prev"), tr("Previous Frame (Left)"), &MoleculeViewer::previousFrame);
+    addNavButton(QStringLiteral("next"), tr("Next Frame (Right)"), &MoleculeViewer::nextFrame);
+    addNavButton(QStringLiteral("last"), tr("Last Frame (Ctrl+Right)"), &MoleculeViewer::lastFrame);
 
     m_frameSlider = new QSlider(Qt::Horizontal);
     m_frameSlider->setMinimum(0);
@@ -4634,23 +4979,24 @@ void MoleculeViewer::setupControlPanel()
     m_frameLabel->setAlignment(Qt::AlignCenter);
     frameLayout->addWidget(m_frameLabel);
 
+    // Claude Generated 2026 - Counts from 1 like the "n/N" label next to it. Jumping calls
+    // showFrame(), which updates slider and box itself with their signals blocked (the old
+    // handler only moved the slider with signals blocked, so the frame never changed).
     m_frameJumpBox = new QSpinBox;
-    m_frameJumpBox->setMinimum(0);
-    m_frameJumpBox->setMaximum(0);
+    m_frameJumpBox->setMinimum(1);
+    m_frameJumpBox->setMaximum(1);
     m_frameJumpBox->setMaximumWidth(60);
     m_frameJumpBox->setToolTip(tr("Jump to frame number"));
-    connect(m_frameJumpBox, QOverload<int>::of(&QSpinBox::valueChanged), [this](int value) {
-        if (value != m_frameSlider->value()) {
-            m_frameSlider->blockSignals(true);
-            m_frameSlider->setValue(value);
-            m_frameSlider->blockSignals(false);
-        }
+    connect(m_frameJumpBox, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int value) {
+        if (value - 1 != m_currentFrame)
+            showFrame(value - 1);
     });
     frameLayout->addWidget(m_frameJumpBox);
+    // The separator lives inside the group, so it hides with it for single structures.
+    frameLayout->addWidget(createSeparator());
 
     m_frameControlWidget->setVisible(false);
     panelLayout->addWidget(m_frameControlWidget, 1);
-    panelLayout->addWidget(createSeparator());
 
     // Playback — only shown for multi-frame files (hidden for a single structure).
     m_playbackWidget = new QWidget;
@@ -4660,15 +5006,13 @@ void MoleculeViewer::setupControlPanel()
 
     // Claude Generated 2026 - One play/pause toggle whose icon shows the state
     // (was two separate buttons with no running indication). Space toggles too.
-    QPushButton* playButton = new QPushButton;
-    playButton->setIcon(QIcon::fromTheme("media-playback-start"));
+    auto* playButton = new QToolButton;
+    playButton->setIcon(barIcon(QStringLiteral("play"), iconColor));
     playButton->setToolTip(tr("Play/Pause Animation (Space)"));
-    playButton->setMaximumWidth(30);
-    connect(playButton, &QPushButton::clicked, this, &MoleculeViewer::toggleAnimation);
-    connect(this, &MoleculeViewer::animationStateChanged, playButton, [playButton](bool running) {
-        playButton->setIcon(QIcon::fromTheme(running
-            ? QStringLiteral("media-playback-pause")
-            : QStringLiteral("media-playback-start")));
+    playButton->setAutoRaise(true);
+    connect(playButton, &QToolButton::clicked, this, &MoleculeViewer::toggleAnimation);
+    connect(this, &MoleculeViewer::animationStateChanged, playButton, [playButton, iconColor](bool running) {
+        playButton->setIcon(barIcon(running ? QStringLiteral("pause") : QStringLiteral("play"), iconColor));
     });
     playbackLayout->addWidget(playButton);
 
@@ -4686,92 +5030,113 @@ void MoleculeViewer::setupControlPanel()
     loopCheckbox->setChecked(true);
     connect(loopCheckbox, &QCheckBox::toggled, this, &MoleculeViewer::setAnimationLoop);
     playbackLayout->addWidget(loopCheckbox);
+    playbackLayout->addWidget(createSeparator());
 
     m_playbackWidget->setVisible(false);
     panelLayout->addWidget(m_playbackWidget);
-    panelLayout->addWidget(createSeparator());
 
-    // Measurement toggle — type is auto-detected from the number of picked atoms
-    // (2 = distance, 3 = angle, 4 = dihedral). Quick access; rendering style lives in the dock.
-    QToolButton* measureBtn = new QToolButton;
-    measureBtn->setText(tr("Measure"));
-    measureBtn->setCheckable(true);
-    measureBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    measureBtn->setIcon(barIcon(QStringLiteral("measure"), iconColor));
-    measureBtn->setToolTip(tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral. "
-                              "Click a marked atom again to deselect; Esc clears."));
-    connect(measureBtn, &QToolButton::toggled, this, [this](bool on) { setMeasurementMode(on ? 1 : 0); });
-    connect(this, &MoleculeViewer::measurementModeChanged, measureBtn, [measureBtn](int mode) {
-        const bool on = (mode != 0);
-        if (measureBtn->isChecked() != on) {
-            measureBtn->blockSignals(true);
-            measureBtn->setChecked(on);
-            measureBtn->blockSignals(false);
+    // Claude Generated 2026 - Tool selector: one exclusive group View · Measure · Edit ·
+    // Build over setInteractionMode(), mirrored from interactionModeChanged whatever
+    // changed the mode (menu, key, Esc). Bond editing is a Build sub-tool in its dropdown.
+    auto* toolGroup = new QButtonGroup(m_controlPanel);
+    toolGroup->setExclusive(true);
+    auto makeToolButton = [&](const QString& text, const QString& icon, const QString& tip) {
+        auto* b = new QToolButton;
+        b->setText(text);
+        b->setCheckable(true);
+        b->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        b->setIcon(barIcon(icon, iconColor));
+        b->setToolTip(tip);
+        panelLayout->addWidget(b);
+        return b;
+    };
+    QToolButton* viewBtn = makeToolButton(tr("View"), QStringLiteral("view"),
+        tr("Plain viewing: drag rotates, click selects an atom, W A S D Q E rotate (W/S tilt, "
+           "A/D turn, Q/E roll) while the 3D view has the focus. Esc returns here from every tool."));
+    viewBtn->setChecked(true);
+    QToolButton* measureBtn = makeToolButton(tr("Measure"), QStringLiteral("measure"),
+        tr("Click atoms to measure: 2 = distance, 3 = angle, 4 = dihedral. "
+           "Click a marked atom again to deselect; Esc clears. W A S D Q E rotate while "
+           "the 3D view has the focus."));
+    QToolButton* editBtn = makeToolButton(tr("Edit"), QStringLiteral("edit"),
+        tr("Edit mode: click to select an atom, double-click for the whole molecule, "
+           "drag to move (Shift = depth). W A S D Q E rotate the scene, with Shift they "
+           "nudge the selection (Q/E = depth). Overlapping atoms turn red."));
+    QToolButton* buildBtn = makeToolButton(tr("Build"), QStringLiteral("build"),
+        tr("Molecule builder: click empty space to place an atom, click an "
+           "atom to change its element, middle-click an atom to attach one, "
+           "right-click an atom to delete it, drag atom to atom to bond, "
+           "drag an atom onto empty space to move it. "
+           "Keys H C N O S P F L(Cl) R(Br) pick the element. "
+           "Arrow: fragments (dock onto a single selected atom) and bond tools."));
+    toolGroup->addButton(viewBtn, int(InteractionMode::None));
+    toolGroup->addButton(measureBtn, int(InteractionMode::Measure));
+    toolGroup->addButton(editBtn, int(InteractionMode::Edit));
+    toolGroup->addButton(buildBtn, int(InteractionMode::Build));
+    connect(toolGroup, &QButtonGroup::idClicked, this, [this](int id) {
+        switch (static_cast<InteractionMode>(id)) {
+        case InteractionMode::Measure: setMeasurementMode(1); break;
+        case InteractionMode::Edit:    setEditMode(true); break;
+        case InteractionMode::Build:   setBuildMode(true); break;
+        default:                       setInteractionMode(InteractionMode::None); break;
         }
     });
-    panelLayout->addWidget(measureBtn);
-
-    // Edit toggle — structure editing: select/move atoms & molecules, copy/paste, merge,
-    // with collision feedback (Claude Generated 2026). Sibling of the Measure toggle.
-    QToolButton* editBtn = new QToolButton;
-    editBtn->setText(tr("Edit"));
-    editBtn->setCheckable(true);
-    editBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    editBtn->setIcon(barIcon(QStringLiteral("edit"), iconColor));
-    editBtn->setToolTip(tr("Edit mode: click to select an atom, double-click for the whole molecule, "
-                           "drag to move (Shift = depth, arrow keys = nudge). Overlapping atoms turn red."));
-    connect(editBtn, &QToolButton::toggled, this, [this](bool on) { setEditMode(on); });
-    connect(this, &MoleculeViewer::editModeChanged, editBtn, [editBtn](bool on) {
-        if (editBtn->isChecked() != on) {
-            editBtn->blockSignals(true);
-            editBtn->setChecked(on);
-            editBtn->blockSignals(false);
-        }
+    // setChecked() does not emit idClicked, so mirroring cannot loop back.
+    connect(this, &MoleculeViewer::interactionModeChanged, toolGroup, [toolGroup](InteractionMode m) {
+        const InteractionMode shown = (m == InteractionMode::BondEdit) ? InteractionMode::Build : m;
+        if (QAbstractButton* b = toolGroup->button(int(shown)))
+            b->setChecked(true);
     });
-    panelLayout->addWidget(editBtn);
 
-    // Build toggle — molecule builder (Claude Generated 2026). Sibling of
-    // Measure/Edit; the element strip and dropdown arrive with the element picker.
-    QToolButton* buildBtn = new QToolButton;
-    buildBtn->setText(tr("Build"));
-    buildBtn->setCheckable(true);
-    buildBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    buildBtn->setIcon(barIcon(QStringLiteral("build"), iconColor));
-    buildBtn->setToolTip(tr("Molecule builder: click empty space to place an atom, click an "
-                            "atom to change its element, middle-click an atom to attach one, "
-                            "right-click an atom to delete it, drag atom to atom to bond, "
-                            "drag an atom onto empty space to move it. "
-                            "Keys H C N O S P F L(Cl) R(Br) pick the element. "
-                            "Arrow: insert a fragment (docks onto a single selected atom)."));
-    connect(buildBtn, &QToolButton::toggled, this, [this](bool on) { setBuildMode(on); });
-    // Claude Generated 2026 - Fragment dropdown: with exactly one selected atom a
-    // substituent docks onto it, otherwise the fragment lands standalone.
+    // Build dropdown: fragments (the fragment hangs on the mouse until a click drops it,
+    // Shift+click drops a copy; with one selected atom a substituent docks onto it), then
+    // the bond tools (formerly only in the Display panel's collapsed Tools section).
     buildBtn->setPopupMode(QToolButton::MenuButtonPopup);
-    QMenu* fragmentMenu = new QMenu(buildBtn);
+    QMenu* buildMenu = new QMenu(buildBtn);
     const auto& library = build::fragmentLibrary();
     QString lastCategory;
     for (int i = 0; i < library.size(); ++i) {
         if (library[i].category != lastCategory) {
             lastCategory = library[i].category;
-            fragmentMenu->addSection(lastCategory);
+            buildMenu->addSection(lastCategory);
         }
-        QAction* a = fragmentMenu->addAction(library[i].name);
+        QAction* a = buildMenu->addAction(library[i].name);
         connect(a, &QAction::triggered, this, [this, i]() {
-            // Claude Generated 2026 - The fragment hangs on the mouse (carry mode):
-            // move it into place, click drops it, Shift+click drops a copy.
             startFragmentCarry(build::fragmentLibrary()[i]);
         });
     }
-    buildBtn->setMenu(fragmentMenu);
-    connect(this, &MoleculeViewer::interactionModeChanged, buildBtn, [buildBtn](InteractionMode m) {
-        const bool on = (m == InteractionMode::Build);
-        if (buildBtn->isChecked() != on) {
-            buildBtn->blockSignals(true);
-            buildBtn->setChecked(on);
-            buildBtn->blockSignals(false);
-        }
+    buildMenu->addSection(tr("Bonds"));
+    auto* bondGroup = new QActionGroup(buildMenu);
+    bondGroup->setExclusionPolicy(QActionGroup::ExclusionPolicy::ExclusiveOptional);
+    const QVector<QPair<int, QString>> bondTools = {
+        { 1, tr("Add Bond (click two atoms)") },
+        { 2, tr("Delete Bond (click two atoms)") },
+        { 3, tr("Cycle Bond Order (click two atoms)") },
+    };
+    for (const auto& t : bondTools) {
+        QAction* a = buildMenu->addAction(t.second);
+        a->setCheckable(true);
+        a->setData(t.first);
+        bondGroup->addAction(a);
+        connect(a, &QAction::triggered, this, [this, mode = t.first]() { setBondEditMode(mode); });
+    }
+    connect(this, &MoleculeViewer::bondEditModeChanged, bondGroup, [bondGroup](int mode) {
+        for (QAction* a : bondGroup->actions())
+            a->setChecked(a->data().toInt() == mode);
     });
-    panelLayout->addWidget(buildBtn);
+    // Claude Generated 2026 - Builder preference (formerly in the Display panel's Tools
+    // section). Read on open: the last session restores it after the bar is built.
+    buildMenu->addSeparator();
+    QAction* dockPreviewAct = buildMenu->addAction(tr("Live Docking Preview"));
+    dockPreviewAct->setCheckable(true);
+    dockPreviewAct->setToolTip(tr("While carrying a fragment near a bonding partner, show the "
+                                  "final docked pose live instead of only on drop."));
+    connect(dockPreviewAct, &QAction::toggled, this, [this](bool on) { setDockPreviewEnabled(on); });
+    connect(buildMenu, &QMenu::aboutToShow, this, [this, dockPreviewAct]() {
+        const QSignalBlocker block(dockPreviewAct);
+        dockPreviewAct->setChecked(m_dockPreviewEnabled);
+    });
+    buildBtn->setMenu(buildMenu);
 
     // Element strip — visible only while Build mode is on (Claude Generated 2026).
     // Two-way sync with the viewer's build element (hotkeys move the highlight).
@@ -4867,6 +5232,8 @@ void MoleculeViewer::setupControlPanel()
         [updateValenceLabel](const QVector<MoleculeViewer::Atom>&,
             const QVector<MoleculeViewer::Bond>&) { updateValenceLabel(); });
 
+    panelLayout->addWidget(createSeparator());
+
     // NCI toggle — quick access to the non-covalent interaction overlay (Claude
     // Generated 2026). Click toggles; the dropdown arrow picks the source. The
     // source menu is injected by MainWindow (setNciQuickMenu), which owns the
@@ -4890,6 +5257,38 @@ void MoleculeViewer::setupControlPanel()
         }
     });
     panelLayout->addWidget(m_nciButton);
+
+    // Claude Generated 2026 - Quick toggles next to NCI, icon only; the host attaches the
+    // shared actions/menus in setQuickAccess() (tooltips name the keys).
+    auto makeQuickButton = [&](const QString& icon, const QString& tip, bool checkable) {
+        auto* b = new QToolButton;
+        b->setIcon(barIcon(icon, iconColor));
+        b->setToolTip(tip);
+        b->setCheckable(checkable);
+        if (!checkable)
+            b->setPopupMode(QToolButton::InstantPopup);
+        panelLayout->addWidget(b);
+        return b;
+    };
+    m_hbondButton = makeQuickButton(QStringLiteral("hbond"),
+        tr("Hydrogen bonds in the NCI overlay (switches the overlay on). Shortcut: Shift+N"), true);
+    m_hydrogenButton = makeQuickButton(QStringLiteral("hydrogen"),
+        tr("Hydrogens: all, polar only (C-H hidden) or none. Display only. Shortcut: H"), false);
+    m_moleculesButton = makeQuickButton(QStringLiteral("molecules"),
+        tr("Hide molecules by kind (solvent etc.). Display only."), false);
+    m_styleButton = makeQuickButton(QStringLiteral("style"),
+        tr("Render style: ball and stick, space filling, wireframe, sticks. Keys 1-4"), false);
+
+    panelLayout->addWidget(createSeparator());
+
+    // Look: colour scheme and the way into the detailed display settings.
+    m_lookButton = new QToolButton;
+    m_lookButton->setText(tr("Look"));
+    m_lookButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_lookButton->setIcon(barIcon(QStringLiteral("look"), iconColor));
+    m_lookButton->setPopupMode(QToolButton::InstantPopup);
+    m_lookButton->setToolTip(tr("Colour scheme and detailed display settings"));
+    panelLayout->addWidget(m_lookButton);
 
     // Photo — one-click image export (no dialog). Sibling of Measure/Edit; the host
     // supplies the working dir + operator settings via quickExportRequested.
@@ -4934,25 +5333,6 @@ void MoleculeViewer::setupControlPanel()
     photoBtn->setMenu(photoMenu);
     panelLayout->addWidget(photoBtn);
 
-    QComboBox* colorCombo = new QComboBox;
-    colorCombo->addItem(tr("CPK"), static_cast<int>(ColorScheme::CPK));
-    colorCombo->addItem(tr("Monochrome"), static_cast<int>(ColorScheme::Monochrome));
-    colorCombo->addItem(tr("By Charge"), static_cast<int>(ColorScheme::ByCharge));
-    colorCombo->addItem(tr("By Type"), static_cast<int>(ColorScheme::ByType));
-    colorCombo->addItem(tr("Custom"), static_cast<int>(ColorScheme::Custom));
-    colorCombo->setMaximumWidth(100);
-    connect(colorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, colorCombo](int index) {
-        setColorScheme(static_cast<ColorScheme>(colorCombo->itemData(index).toInt()));
-    });
-    connect(this, &MoleculeViewer::colorSchemeChanged, colorCombo, [colorCombo](ColorScheme s) {
-        const int i = colorCombo->findData(static_cast<int>(s));
-        if (i >= 0 && i != colorCombo->currentIndex()) {
-            colorCombo->blockSignals(true);
-            colorCombo->setCurrentIndex(i);
-            colorCombo->blockSignals(false);
-        }
-    });
-    panelLayout->addWidget(colorCombo);
 
     // Clash status + auto-resolve (visible only in Edit mode). Claude Generated 2026.
     QLabel* clashLabel = new QLabel;
@@ -4965,9 +5345,11 @@ void MoleculeViewer::setupControlPanel()
     connect(resolveBtn, &QPushButton::clicked, this, [this] { resolveClashes(); });
     panelLayout->addWidget(resolveBtn);
 
+    // Claude Generated 2026 - Clashes are computed in Edit and Build (red atoms), so the
+    // count shows in both; resolving moves the selection, which only Edit has.
     connect(this, &MoleculeViewer::collisionCountChanged, this,
         [this, clashLabel, resolveBtn](int n) {
-            clashLabel->setVisible(editMode());
+            clashLabel->setVisible(editMode() || buildMode());
             resolveBtn->setVisible(editMode() && n > 0);
             if (n > 0) {
                 clashLabel->setText(tr("⚠ %1 clash%2").arg(n).arg(n == 1 ? QString() : tr("es")));
@@ -4977,20 +5359,34 @@ void MoleculeViewer::setupControlPanel()
                 clashLabel->setStyleSheet(QStringLiteral("QLabel { color: #4caf50; border: none; }"));
             }
         });
-    connect(this, &MoleculeViewer::editModeChanged, this,
-        [clashLabel, resolveBtn](bool on) {
-            clashLabel->setVisible(on);
-            if (!on)
+    connect(this, &MoleculeViewer::interactionModeChanged, this,
+        [clashLabel, resolveBtn](InteractionMode m) {
+            clashLabel->setVisible(m == InteractionMode::Edit || m == InteractionMode::Build);
+            if (m != InteractionMode::Edit)
                 resolveBtn->setVisible(false);
         });
 
+    // The detailed display settings are reached through Look ▸ Details… (the former
+    // "Display" button at this end of the bar).
     panelLayout->addStretch();
+}
 
-    // Everything else (material, glow, measure, bond-edit, force, fog, lights,
-    // background, …) now lives in the "Display" dock — opened by this button.
-    QPushButton* displayBtn = new QPushButton(tr("Display"));
-    displayBtn->setIcon(barIcon(QStringLiteral("gear"), iconColor));
-    displayBtn->setToolTip(tr("Open the Display panel (style, effects, lighting, tools)"));
-    connect(displayBtn, &QPushButton::clicked, this, &MoleculeViewer::displayOptionsRequested);
-    panelLayout->addWidget(displayBtn);
+// Claude Generated 2026 - Attach the host's shared hydrogen-bond action and the
+// hydrogen / render-style / look menus to the bar's quick-access buttons.
+void MoleculeViewer::setQuickAccess(QAction* hbondToggle, QMenu* hydrogenMenu, QMenu* moleculesMenu,
+    QMenu* styleMenu, QMenu* lookMenu)
+{
+    if (m_moleculesButton)
+        m_moleculesButton->setMenu(moleculesMenu);
+    if (m_hbondButton && hbondToggle) {
+        m_hbondButton->setChecked(hbondToggle->isChecked());
+        connect(m_hbondButton, &QToolButton::clicked, hbondToggle, &QAction::trigger);
+        connect(hbondToggle, &QAction::toggled, m_hbondButton, &QToolButton::setChecked);
+    }
+    if (m_hydrogenButton)
+        m_hydrogenButton->setMenu(hydrogenMenu);
+    if (m_styleButton)
+        m_styleButton->setMenu(styleMenu);
+    if (m_lookButton)
+        m_lookButton->setMenu(lookMenu);
 }

@@ -50,5 +50,6 @@ struct ImageMetadata {
     QString exportTimestamp;  // ISO-8601
     int width = 0;
     int height = 0;
-    QString viewPresetName;   // empty when no preset was applied
+    QString viewPresetName;   // camera view applied for the export; empty = none
+    QString lookName;         // Claude Generated 2026 - look applied for the export; empty = none
 };

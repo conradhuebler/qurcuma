@@ -1,7 +1,7 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
-// DockManager implementation. Owns all QDockWidget shells, their initial placement,
-// layout presets and the Explore/Compute application mode.
+// DockManager implementation. Owns all QDockWidget shells, their initial placement
+// and the dock side of the application mode (Explore/Compute/Teaching).
 //
 // Claude Generated 2026 - Dock system restructuring.
 
@@ -10,7 +10,8 @@
 #include "outputdock.h"
 #include "projectdock.h"
 #include "simulationdock.h"
-#include "displaydock.h"
+#include "structuredock.h"
+#include "appearancedock.h"
 #include "imagegallerydock.h"
 #include "chartdock.h"
 #include "ncidock.h"
@@ -20,6 +21,8 @@
 #include <QSettings>
 #include <QTabWidget>
 
+#include <utility>
+
 DockManager::DockManager(QMainWindow* mainWindow, QObject* parent)
     : QObject(parent)
     , m_mainWindow(mainWindow)
@@ -27,7 +30,8 @@ DockManager::DockManager(QMainWindow* mainWindow, QObject* parent)
 }
 
 QDockWidget* DockManager::projectDock() const { return m_projectDock; }
-QDockWidget* DockManager::displayDock() const { return m_displayDock; }
+QDockWidget* DockManager::structureDock() const { return m_structureDock; }
+QDockWidget* DockManager::appearanceDock() const { return m_appearanceDock; }
 QDockWidget* DockManager::simulationDock() const { return m_simulationDock; }
 QDockWidget* DockManager::outputDock() const { return m_outputViewDock; }
 QDockWidget* DockManager::imageGalleryDock() const { return m_imageGalleryDock; }
@@ -46,29 +50,82 @@ bool DockManager::dockVisible(QDockWidget* dock) const
     return dock && dock->isVisible();
 }
 
-// Return every QDockWidget that is tabified with the given dock, including the
-// dock itself. Used to keep Qt's shared tab bar stable: tab group members must
-// always be toggled together, never individually.
-static QList<QDockWidget*> tabGroup(QMainWindow* mainWindow, QDockWidget* dock)
+// Claude Generated 2026 - Show or hide ONE dock, exactly like its
+// QDockWidget::toggleViewAction() does. Tab partners are left alone: QMainWindow
+// rebuilds the shared tab bar by itself when a member appears or disappears.
+//
+// The previous helper toggled the whole tabified group (tabifiedDockWidgets()).
+// With Display, Simulation and Interactions sharing one tab bar on the right
+// (and Output + Images at the bottom) that was wrong in both directions:
+// hiding Simulation for Explore mode also hid
+// Display, and showing Display pulled the hidden-by-default Interactions and
+// Images docks into the tab bar. The "tab-bar collapse" it was meant to avoid
+// was the native 3D window (createWindowContainer) painting over the freshly
+// rebuilt tab bar; the viewer is a QQuickWidget now, so plain per-dock
+// visibility is the correct, drift-free path.
+static void setDockVisible(QDockWidget* dock, bool visible)
 {
-    QList<QDockWidget*> group;
-    if (!dock)
-        return group;
-    group.append(dock);
-    if (mainWindow)
-        group.append(mainWindow->tabifiedDockWidgets(dock));
-    return group;
+    // isHidden() is the explicit flag (isVisible() is false for every dock while
+    // the main window itself is not shown yet).
+    if (dock && dock->isHidden() == visible)
+        dock->setVisible(visible);
 }
 
-// Set visibility of a dock and all of its tab partners at once. This prevents
-// the Qt tab-bar collapse bug when one member of a tabified group is hidden
-// while the others stay visible.
-static void setDockGroupVisible(QMainWindow* mainWindow, QDockWidget* dock, bool visible)
+QList<QDockWidget*> DockManager::allDocks() const
 {
-    if (!dock)
-        return;
-    for (QDockWidget* member : tabGroup(mainWindow, dock))
-        member->setVisible(visible);
+    QList<QDockWidget*> docks;
+    for (QDockWidget* d : { m_projectDock, m_structureDock, m_appearanceDock, m_simulationDock,
+                            m_outputViewDock, m_nciDock, m_imageGalleryDock, m_chartDock })
+        if (d)
+            docks.append(d);
+    return docks;
+}
+
+QStringList DockManager::openPanels() const
+{
+    QStringList names;
+    for (QDockWidget* d : allDocks())
+        if (!d->isHidden())
+            names << d->objectName();
+    return names;
+}
+
+// Hides first, then shows, so a tab bar never briefly holds only docks that are
+// about to disappear; then brings @p front to the front of its tab group.
+void DockManager::showPanels(const QStringList& panels, QDockWidget* front)
+{
+    const QList<QDockWidget*> docks = allDocks();
+    for (QDockWidget* d : docks)
+        if (!panels.contains(d->objectName()))
+            setDockVisible(d, false);
+    for (QDockWidget* d : docks)
+        if (panels.contains(d->objectName()))
+            setDockVisible(d, true);
+    if (front && !front->isHidden())
+        front->raise();
+}
+
+QStringList DockManager::defaultPanels(DockConfig::AppMode mode)
+{
+    QStringList panels = { DockConfig::ProjectDockObjectName, DockConfig::StructureDockObjectName };
+    if (mode != DockConfig::AppMode::Explore)
+        panels << DockConfig::SimulationDockObjectName;
+    if (mode == DockConfig::AppMode::Compute)
+        panels << DockConfig::OutputViewDockObjectName;
+    return panels;
+}
+
+void DockManager::rememberPanels(DockConfig::AppMode mode)
+{
+    QSettings().setValue(QStringLiteral("%1/%2").arg(DockConfig::UiModePanelsGroup).arg(int(mode)),
+                         openPanels());
+}
+
+QStringList DockManager::rememberedPanels(DockConfig::AppMode mode) const
+{
+    const QVariant stored = QSettings().value(
+        QStringLiteral("%1/%2").arg(DockConfig::UiModePanelsGroup).arg(int(mode)));
+    return stored.isValid() ? stored.toStringList() : defaultPanels(mode);
 }
 
 OutputDock* DockManager::outputDockImpl() const
@@ -76,9 +133,14 @@ OutputDock* DockManager::outputDockImpl() const
     return qobject_cast<OutputDock*>(m_outputViewDock);
 }
 
-DisplayDock* DockManager::displayDockImpl() const
+StructureDock* DockManager::structureDockImpl() const
 {
-    return qobject_cast<DisplayDock*>(m_displayDock);
+    return qobject_cast<StructureDock*>(m_structureDock);
+}
+
+AppearanceDock* DockManager::appearanceDockImpl() const
+{
+    return qobject_cast<AppearanceDock*>(m_appearanceDock);
 }
 
 SimulationDock* DockManager::simulationDockImpl() const
@@ -106,105 +168,26 @@ NciDock* DockManager::nciDockImpl() const
     return qobject_cast<NciDock*>(m_nciDock);
 }
 
-namespace {
-// Claude Generated 2026 - Data-driven layout presets. Each preset is a set of
-// dock-group visibility flags plus optional resize fractions; the five previous
-// near-identical applyXxxLayout() methods collapsed into this table + the single
-// applyPreset() below. Row order matches DockConfig::LayoutPreset.
-struct PresetSpec {
-    bool project;      // dock-group visibility
-    bool display;
-    bool simulation;
-    bool output;
-    double projectW;   // horizontal resize as fraction of window width (0 = skip)
-    double displayW;
-    double outputH;    // vertical resize as fraction of window height (0 = skip)
-};
-const PresetSpec kPresetSpecs[] = {
-    /* Visualization */ { true,  true,  false, false, 0.18, 0.22, 0.00 },
-    /* Editing       */ { true,  true,  false, false, 0.22, 0.32, 0.00 },
-    /* Calculation   */ { true,  false, true,  true,  0.00, 0.00, 0.35 },
-    /* Analysis      */ { true,  true,  true,  true,  0.22, 0.28, 0.22 },
-    /* Teaching      */ { true,  true,  true,  true,  0.18, 0.26, 0.25 },
-};
-}  // namespace
-
-void DockManager::applyPreset(DockConfig::LayoutPreset preset)
-{
-    if (!m_mainWindow)
-        return;
-
-    const int key = static_cast<int>(preset);
-
-    // Repeated tabify/split drifts Qt's layout, so once a preset has been built
-    // we restore its exact saved state instead of rebuilding it.
-    auto it = m_presetStates.find(key);
-    if (it != m_presetStates.end()) {
-        m_mainWindow->restoreState(*it);
-        emit presetApplied(preset);
-        return;
-    }
-
-    const PresetSpec& s = kPresetSpecs[key];
-    setDockGroupVisible(m_mainWindow, m_projectDock, s.project);
-    setDockGroupVisible(m_mainWindow, m_displayDock, s.display);
-    setDockGroupVisible(m_mainWindow, m_simulationDock, s.simulation);
-    setDockGroupVisible(m_mainWindow, m_outputViewDock, s.output);
-
-    // Preset-specific content selection (which tab/segment to show).
-    switch (preset) {
-    case DockConfig::LayoutPreset::Editing:
-        if (auto* sdd = displayDockImpl())
-            sdd->setCurrentTopSegment(DisplayDock::TopSegment::Structure);
-        break;
-    case DockConfig::LayoutPreset::Calculation:
-        if (auto* sd = simulationDockImpl())
-            sd->setCurrentTab(0);  // Simulation tab
-        break;
-    case DockConfig::LayoutPreset::Teaching:
-        if (auto* tabs = simulationTabs())
-            tabs->setCurrentIndex(0);
-        break;
-    default:
-        break;
-    }
-
-    if (s.displayW > 0.0 && m_mainWindow->width() > 0) {
-        m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
-            { int(m_mainWindow->width() * s.projectW), int(m_mainWindow->width() * s.displayW) },
-            Qt::Horizontal);
-    }
-    if (s.outputH > 0.0 && m_mainWindow->height() > 0) {
-        m_mainWindow->resizeDocks({ m_outputViewDock },
-            { int(m_mainWindow->height() * s.outputH) }, Qt::Vertical);
-    }
-
-    m_presetStates.insert(key, m_mainWindow->saveState());
-    emit presetApplied(preset);
-}
-
 void DockManager::setAppMode(DockConfig::AppMode mode, bool reflow)
 {
     if (!m_mainWindow)
         return;
 
+    // Claude Generated 2026 - Every mode keeps its own panels: the open ones are stored
+    // for the mode being left, and the target mode gets back what it had (defaults:
+    // Explore = Project + Structure, Teaching adds Simulation, Compute also Output).
+    // Teaching additionally switches the Project panel's browser (MainWindow).
+    if (m_modeApplied)
+        rememberPanels(m_currentMode);
     const bool explore = (mode == DockConfig::AppMode::Explore);
-
-    // Phase 6 fix, extended: tabified dock groups must be toggled together,
-    // otherwise Qt's shared tab bar can collapse when one member is hidden.
-    setDockGroupVisible(m_mainWindow, m_projectDock, true);
-    setDockGroupVisible(m_mainWindow, m_displayDock, true);
-    setDockGroupVisible(m_mainWindow, m_simulationDock, !explore);
-    setDockGroupVisible(m_mainWindow, m_outputViewDock, !explore);
-    if (explore && m_displayDock)
-        m_displayDock->raise();
-    if (!explore && m_simulationDock)
-        m_simulationDock->raise();
+    showPanels(rememberedPanels(mode), explore ? m_structureDock : m_simulationDock);
+    m_currentMode = mode;
+    m_modeApplied = true;
 
     if (reflow) {
-        if (explore) {
+        if (mode != DockConfig::AppMode::Compute) {
             if (m_mainWindow->width() > 0)
-                m_mainWindow->resizeDocks({ m_projectDock, m_displayDock },
+                m_mainWindow->resizeDocks({ m_projectDock, m_structureDock },
                                           { int(m_mainWindow->width() * 0.16),
                                             int(m_mainWindow->width() * 0.22) },
                                           Qt::Horizontal);
@@ -237,37 +220,68 @@ void DockManager::saveLayout()
     QSettings uiSettings;
     uiSettings.setValue(DockConfig::UiGeometryKey, m_mainWindow->saveGeometry());
     uiSettings.setValue(DockConfig::UiDockStateKey, m_mainWindow->saveState());
+    if (m_modeApplied)
+        rememberPanels(m_currentMode);
 }
 
-void DockManager::restoreSavedLayout()
+bool DockManager::restoreSavedLayout()
 {
     if (!m_mainWindow)
-        return;
+        return false;
     QSettings uiSettings;
     const QByteArray savedGeometry = uiSettings.value(DockConfig::UiGeometryKey).toByteArray();
     const QByteArray savedState = uiSettings.value(DockConfig::UiDockStateKey).toByteArray();
     if (!savedGeometry.isEmpty())
         m_mainWindow->restoreGeometry(savedGeometry);
-    if (!savedState.isEmpty())
-        m_mainWindow->restoreState(savedState);
-    else
-        applyPreset(DockConfig::LayoutPreset::Analysis);
+    // Claude Generated 2026 - A layout saved for an older dock set is dropped once
+    // (operator decision for UX stage 4) instead of being restored half-matching.
+    const bool current = uiSettings.value(DockConfig::UiLayoutVersionKey, 0).toInt() >= DockConfig::UiLayoutVersion;
+    const bool restored = !savedState.isEmpty() && current && m_mainWindow->restoreState(savedState);
+    uiSettings.setValue(DockConfig::UiLayoutVersionKey, DockConfig::UiLayoutVersion);
+    return restored;
 }
 
 void DockManager::resetToBaseline()
 {
     if (!m_mainWindow || m_defaultState.isEmpty())
         return;
-    m_presetStates.clear();
     m_mainWindow->restoreState(m_defaultState);
+    QSettings().remove(DockConfig::UiModePanelsGroup);
+    m_modeApplied = false;  // the next setAppMode opens the defaults without storing this state
 }
 
 void DockManager::toggleLeftPanel()
 {
     if (!m_projectDock)
         return;
-    const bool show = !m_projectDock->isVisible();
-    setDockGroupVisible(m_mainWindow, m_projectDock, show);
+    setDockVisible(m_projectDock, !m_projectDock->isVisible());
+}
+
+void DockManager::redockFloating()
+{
+    if (!m_mainWindow)
+        return;
+
+    // addDockWidget() docks (and un-floats) in one call; it is a plain API call
+    // that computes nothing from the cursor or window positions, so it works
+    // regardless of platform. Order matters: Display must be re-docked before
+    // Simulation/Interactions try to tabify onto it.
+    auto redock = [this](QDockWidget* dock, Qt::DockWidgetArea area, QDockWidget* tabWith) {
+        if (!dock || !dock->isFloating())
+            return;
+        m_mainWindow->addDockWidget(area, dock);
+        if (tabWith)
+            m_mainWindow->tabifyDockWidget(tabWith, dock);
+    };
+
+    redock(m_projectDock, DockConfig::ProjectDockArea, nullptr);
+    redock(m_structureDock, DockConfig::StructureDockArea, nullptr);
+    redock(m_appearanceDock, DockConfig::AppearanceDockArea, m_structureDock);
+    redock(m_simulationDock, DockConfig::SimulationDockArea, m_structureDock);
+    redock(m_nciDock, DockConfig::NciDockArea, m_structureDock);
+    redock(m_outputViewDock, DockConfig::OutputViewDockArea, nullptr);
+    redock(m_imageGalleryDock, DockConfig::ImageGalleryDockArea, m_outputViewDock);
+    redock(m_chartDock, DockConfig::ChartDockArea, m_outputViewDock);
 }
 
 void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
@@ -276,7 +290,8 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
         return;
 
     m_outputViewDock = new OutputDock(m_mainWindow);
-    m_displayDock = new DisplayDock(viewer, settings, m_mainWindow);
+    m_structureDock = new StructureDock(m_mainWindow);
+    m_appearanceDock = new AppearanceDock(viewer, settings, m_mainWindow);
     m_simulationDock = new SimulationDock(m_mainWindow);
     m_projectDock = new ProjectDock(settings, m_mainWindow);
     m_imageGalleryDock = new ImageGalleryDock(m_mainWindow);
@@ -295,9 +310,9 @@ void DockManager::placeDocks()
         m_projectDock->raise();
     }
 
-    if (m_displayDock) {
-        m_displayDock->setAllowedAreas(Qt::RightDockWidgetArea);
-        m_mainWindow->addDockWidget(DockConfig::DisplayDockArea, m_displayDock);
+    if (m_structureDock) {
+        m_structureDock->setAllowedAreas(Qt::RightDockWidgetArea);
+        m_mainWindow->addDockWidget(DockConfig::StructureDockArea, m_structureDock);
     }
 
     if (m_simulationDock) {
@@ -305,22 +320,32 @@ void DockManager::placeDocks()
         m_mainWindow->addDockWidget(DockConfig::SimulationDockArea, m_simulationDock);
     }
 
-    // The two right-side docks (Structure&Display and Simulation) are tabified
+    // The two right-side docks (Structure and Simulation) are tabified
     // so the user can switch between them via a single tab bar.
-    if (m_simulationDock && m_displayDock)
-        m_mainWindow->tabifyDockWidget(m_displayDock, m_simulationDock);
+    if (m_simulationDock && m_structureDock)
+        m_mainWindow->tabifyDockWidget(m_structureDock, m_simulationDock);
+
+    // Claude Generated 2026 - UX stage 4: the detailed display settings join the right
+    // tab group but start closed (Look ▸ Details… or View ▸ Panels opens them).
+    if (m_appearanceDock) {
+        m_appearanceDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+        m_mainWindow->addDockWidget(DockConfig::AppearanceDockArea, m_appearanceDock);
+        if (m_structureDock)
+            m_mainWindow->tabifyDockWidget(m_structureDock, m_appearanceDock);
+        m_appearanceDock->hide();
+    }
 
     if (m_outputViewDock)
         m_mainWindow->addDockWidget(DockConfig::OutputViewDockArea, m_outputViewDock);
 
     // The interaction dock joins the right-hand tab group (Display / Simulation)
     // and starts hidden: the NCI overlay is off by default, so an empty contact
-    // table would only take space. View > Dock Panels brings it up.
+    // table would only take space. View ▸ Panels brings it up.
     // Claude Generated 2026.
     if (m_nciDock) {
         m_mainWindow->addDockWidget(DockConfig::NciDockArea, m_nciDock);
-        if (m_displayDock)
-            m_mainWindow->tabifyDockWidget(m_displayDock, m_nciDock);
+        if (m_structureDock)
+            m_mainWindow->tabifyDockWidget(m_structureDock, m_nciDock);
         m_nciDock->hide();
     }
 

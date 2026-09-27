@@ -11,6 +11,8 @@
 #include <Eigen/Dense>
 #include <QAtomicInt>
 #include <QElapsedTimer>
+#include <QJsonObject>
+#include <QStringList>
 #include <QMutex>
 #include <QObject>
 #include <QString>
@@ -45,10 +47,14 @@ struct SimulationConfig {
     Mode mode = Mode::MolecularDynamics;
     QString method = "gfnff";     // Energy method: gfnff / uff / gfn2 / gfn1
     QString optimizer = "auto";   // Opt algorithm: auto / lbfgspp / native_lbfgs / diis / rfo / ancopt
-    double temperature = 300.0;   // K (MD only)
+    // Claude Generated 2026 - curcuma primary parameters "charge" and "spin" (MD + Opt).
+    // curcuma's spin counts unpaired electrons: 0 = singlet, 1 = doublet, 2 = triplet.
+    int charge = 0;
+    int spin = 0;
+    double temperature = 298.15;  // K (MD only); curcuma's default
     double timestep = 1.0;        // fs (MD only)
     int steps = 1000;             // Total MD steps or max opt iterations
-    double convergence = 1e-6;    // Gradient convergence threshold (opt only)
+    double convergence = 5e-4;    // Gradient norm threshold, Eh/Bohr (opt only); curcuma's default
     // Interactive Opt: keep the force-field parameters/topology fixed across the
     // keep-alive restarts (no rebuild from grab-distorted geometry). Default ON —
     // rebuilding GFN-FF from a heavily distorted geometry is slow and can crash.
@@ -107,8 +113,9 @@ struct SimulationConfig {
     QString rmsdMtdRefFile      = "none"; // rmsd_mtd_ref_file: reference structures file
     int    rmsdMtdMaxGaussians  = -1;     // rmsd_mtd_max_gaussians: cap stored bias structs (-1=unlimited)
     int    rmsdMtdMaxHeight     = 0;      // rmsd_mtd_max_height: cap per-struct counter (0=unbounded)
-    double rmsdMtdEconv        = 1e8;    // rmsd_econv: bias-deposition convergence threshold (gates when a region is considered biased enough)
-    int    rmsdMtdPace          = 1;      // rmsd_mtd_pace: unused in counter scheme (kept for compat)
+    // Claude Generated 2026 - curcuma's default "strided" deposition scheme (UX stage 6 S1).
+    double rmsdMtdDepositStride = 10.0;   // rmsd_mtd_deposit_stride: deposition cadence (fs)
+    double rmsdMtdRdep          = -1.0;   // rmsd_mtd_r_dep: hill spacing in RMSD space (Å), -1 = auto FWHM(α)
     bool   rmsdMtdWtmtd         = false;  // wtmtd: well-tempered reporting (gates rmsdMtdDt)
     double rmsdMtdDt            = 2000.0; // rmsd_mtd_dt: well-tempered bias temp ΔT (K)
     bool   rmsdMtdFreezeInherited = false;// rmsd_mtd_freeze_inherited: freeze inherited hill heights
@@ -137,6 +144,11 @@ struct SimulationConfig {
     bool    tempRamp = false;        // temp_ramp: enable the global multi-stage ramp
     QString tempSchedule;            // temp_schedule: "T:mode:val;..." (mode=steps|reach)
     QVector<TempRegion> tempRegions; // temp_regions: per-atom-subset thermostats (empty = none)
+
+    // Claude Generated 2026 - UX stage 6 S3: simplemd parameters set in the "All parameters"
+    // tab, i.e. those without a control in the Simulation tab. Canonical curcuma names;
+    // only values that differ from curcuma's default are kept, so its defaults survive.
+    QJsonObject mdExtraParams;
 };
 
 /**
@@ -181,6 +193,14 @@ public:
 
     /** @brief Set simulation parameters before calling run(). */
     void setConfig(const SimulationConfig& config) { m_config = config; }
+
+    /** @brief The simplemd block the Simulation tab and qurcuma's fixed settings produce
+     *  for @p cfg (mdExtraParams left out), keyed by canonical curcuma names.
+     *  Claude Generated 2026 (UX stage 6 S3, "All parameters" tab). */
+    static QJsonObject handSimplemdParams(const SimulationConfig& cfg);
+    /** @brief Canonical names of every simplemd parameter that block can contain, with
+     *  every feature switched on. The All parameters tab shows them read-only. */
+    static QStringList handSimplemdKeys();
 
     /** @brief Enable the live non-covalent interaction overlay for this run.
      *
@@ -252,6 +272,10 @@ signals:
 
     /** @brief Emitted on fatal error (method unavailable, convergence failure, etc.). */
     void errorOccurred(QString message);
+    /** @brief At the start of an MD run or an optimization: the parameters sent with a
+     *  value different from curcuma's default and their source (runlog.h record).
+     *  Not emitted for single steps or the builder's clean-up. Claude Generated 2026. */
+    void runParameters(const QJsonObject& record);
 
     /** @brief Emitted when simulation enters paused state. */
     void paused();

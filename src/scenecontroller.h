@@ -11,6 +11,7 @@
 #include <QHash>
 #include <QObject>
 #include <QPair>
+#include <QSet>
 #include <QQuaternion>
 #include <QRectF>
 #include <QVariant>
@@ -215,6 +216,11 @@ public:
         QColor color{ 200, 200, 205 };
         float radius = 0.05f;
         QString label;   // empty = no label
+        // Claude Generated 2026 - One atom of each end's molecule, for hiding the line
+        // with a hidden molecule kind. atomA/atomB for atom-to-atom contacts, a ring
+        // atom for pi-stacking (whose ends are centroids, atomA/atomB = -1).
+        int ownerA = -1;
+        int ownerB = -1;
     };
     QQuick3DInstancing* nciInstancing() const;
     bool nciVisible() const { return m_nciVisible && !m_nciSegments.isEmpty(); }
@@ -266,6 +272,12 @@ public:
     void setColorScheme(int scheme);
     void setMonochromeColor(const QColor& c);
     void setPrimaryVisible(bool on);   // hide/show the primary (reference) structure
+    /** @brief Claude Generated 2026 - Tint the primary (reference) structure the same
+     *  way an RMSD overlay is tinted (same colour family, element identity kept). An
+     *  invalid QColor() (the default) means "no tint": the primary renders via the
+     *  plain colour scheme, as before this existed. Used by the RMSD workspace so a
+     *  structure keeps the colour it had as an overlay once it becomes the reference. */
+    void setPrimaryTint(const QColor& tint);
     void setHighQualityAA(bool on);          // SSAA VeryHigh (image export)
     void setTransparentBackground(bool on);  // transparent clear (image export)
     /// Deep-copy the render state from @p src (geometry, overlays, appearance, effects,
@@ -293,6 +305,19 @@ public:
         QString formula;   ///< Hill notation, or bead-type composition for CG beads
         int atomCount = 0;
     };
+    /// Claude Generated 2026 - Connected components of the bond graph, largest first
+    /// (ties in file order), each with its formula. A pure function of atoms and bonds:
+    /// ensureFragments() caches it for the primary structure, RMSD overlays compute
+    /// their own (tested in test_fragments).
+    struct FragmentSplit {
+        QVector<int> fragmentOf;        ///< atom index -> fragment index
+        QVector<FragmentInfo> info;     ///< per fragment
+    };
+    static FragmentSplit computeFragments(const QVector<AtomDatum>& atoms,
+        const QVector<BondDatum>& bonds);
+    /// Per atom: does it belong to a molecule whose formula is in @p kinds?
+    static QVector<bool> computeMoleculeKindMask(const QVector<AtomDatum>& atoms,
+        const QVector<BondDatum>& bonds, const QSet<QString>& kinds);
     /// Fragments of the current structure, largest first. Fewer than two means
     /// there is nothing to distinguish.
     QVector<FragmentInfo> fragments() const;
@@ -335,6 +360,36 @@ public:
     QVariantList atomLabels() const { return m_atomLabels; }
     void setLabelMode(int mode);          // MoleculeViewer::AtomLabel as int
     void setLabelSelectionOnly(bool on);
+
+    // Claude Generated 2026 - Hydrogen display, visual only (the structure keeps its H).
+    // Modes: 0 = All, 1 = Polar, 2 = None. Polar follows the skeletal-formula convention
+    // of organic chemistry: an H bonded only to carbon is hidden, an H on N, O, S or any
+    // other non-carbon atom stays. Hidden atoms are not drawn, labelled or pickable,
+    // their bonds are skipped, and an NCI line ending on a hidden H starts at the atom
+    // that H is bonded to.
+    enum HydrogenDisplay { AllHydrogens = 0, PolarHydrogens = 1, NoHydrogens = 2 };
+    struct HydrogenMask {
+        QVector<bool> hidden;   // per atom
+        QVector<int> parent;    // per hidden H: first bonded atom, -1 if it has none
+        int hiddenCount = 0;
+    };
+    /// The rule itself, a pure function of elements and bonds (tested in test_fragments).
+    static HydrogenMask computeHydrogenMask(const QVector<AtomDatum>& atoms,
+        const QVector<BondDatum>& bonds, int mode);
+    void setHydrogenDisplay(int mode);
+    int hydrogenDisplay() const { return m_hydrogenDisplay; }
+    bool isAtomHidden(int index) const;   // hidden H or atom of a hidden molecule kind
+    int hiddenAtomCount() const;
+
+    // Claude Generated 2026 - Hide molecules by kind (solvent etc.). A kind is a fragment
+    // formula (fragments(), Hill notation); every fragment with a hidden formula is hidden
+    // like a hidden H, except that NCI contacts to it are dropped instead of rerouted
+    // (pi-stacking lines included, via NciSegment::ownerA/ownerB). RMSD overlays hide
+    // their own molecules of the same kinds.
+    /// Distinct fragment formulas with their molecule count, most numerous first.
+    QVector<QPair<QString, int>> moleculeKinds() const;
+    void setHiddenMoleculeKinds(const QSet<QString>& formulas);
+    QSet<QString> hiddenMoleculeKinds() const { return m_hiddenMoleculeKinds; }
     // Claude Generated 2026 - Structure editing: atoms that currently clash with a
     // moved/placed selection. Drawn RED (priority above the magenta selection) so the
     // user sees what to push apart. Empty = no clashes.
@@ -472,6 +527,17 @@ private:
     bool m_labelSelectionOnly = false;
     QVariantList m_atomLabels;
     void rebuildLabels();
+    // Claude Generated 2026 - Visibility state (hydrogen display + hidden molecule kinds);
+    // the mask is rebuilt lazily after every structure or bond change (same invalidation
+    // points as the fragments).
+    int m_hydrogenDisplay = AllHydrogens;
+    mutable HydrogenMask m_hydrogenMask;
+    mutable bool m_visibilityMaskDirty = true;
+    void ensureVisibilityMask() const;
+    QSet<QString> m_hiddenMoleculeKinds;
+    mutable QVector<bool> m_moleculeHidden;   // per atom, from m_hiddenMoleculeKinds
+    mutable int m_hiddenTotal = 0;            // union of hidden H and hidden molecules
+    bool isInHiddenMolecule(int index) const;
     // Claude Generated 2026 - Fragment (connected component) state. Recomputed
     // lazily because every structure and bond change invalidates it.
     mutable QVector<int> m_fragmentOf;          // atom index -> fragment index
@@ -511,6 +577,7 @@ private:
     bool m_atomsVisible = true;
     bool m_bondsVisible = true;
     bool m_primaryVisible = true;   // primary (reference) structure shown? (RMSD workspace)
+    QColor m_primaryTint;           // invalid = no tint (RMSD workspace, see setPrimaryTint)
     bool m_highQualityAA = false;        // SSAA VeryHigh (export) vs MSAA High (interactive)
     bool m_transparentBackground = false; // transparent clear colour (export/compositing)
 

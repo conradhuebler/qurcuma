@@ -7,8 +7,12 @@
 // The workspace is a table of structures. Exactly one is flagged the reference
 // (radio button) and shown as the primary molecule; every other structure is
 // aligned to it and drawn as a tinted overlay. Per structure the table shows the
-// plain and the permutation RMSD and offers a colour tint, a size and a
-// visibility toggle, plus removal. Changing the reference re-aligns all others.
+// plain and the permutation RMSD and offers a colour, a size and a visibility
+// toggle, plus removal. Changing the reference re-aligns all others; every
+// structure's colour is assigned once (from a shared palette, at creation) and
+// only ever changes via its own swatch, never automatically on a reference switch
+// (Claude Generated 2026 - the reference is tinted the same way an overlay is,
+// via SceneController::setPrimaryTint()).
 //
 // The widget stays decoupled from the viewer: it emits overlayWorkspaceChanged()
 // (full rebuild) plus cheap per-overlay live-edit signals, and MainWindow drives
@@ -75,7 +79,8 @@ signals:
      */
     void overlayWorkspaceChanged(const QVector<MoleculeViewer::Atom>& refAtoms,
         const QVector<MoleculeViewer::Bond>& refBonds, bool refVisible,
-        const QVector<MoleculeViewer::OverlaySpec>& overlays, bool resetView);
+        const QColor& refTint, const QVector<MoleculeViewer::OverlaySpec>& overlays,
+        bool resetView);
 
     /** Cheap per-overlay live edits (index into the current overlay set). */
     void overlayTintChanged(int overlayIndex, const QColor& tint);
@@ -83,6 +88,11 @@ signals:
     void overlayVisibilityChanged(int overlayIndex, bool visible);
     /** Reference (primary) structure visibility toggled. */
     void referenceVisibilityChanged(bool visible);
+    /** Claude Generated 2026 - Reference (primary) structure colour edited. The
+     *  reference keeps whatever tint it already had (assigned at creation, same as
+     *  any other structure; see addStructure()) - this only fires from the colour
+     *  dialog, never automatically on a reference switch. */
+    void referenceTintChanged(const QColor& tint);
 
     /** A target was aligned + added to the workspace (status-bar feedback). */
     void structureAligned(const QString& name, double rmsd);

@@ -83,6 +83,8 @@ QJsonObject simConfigToJson(const SimulationConfig& cfg)
     o["reactExchangeScans"] = cfg.reactExchangeScans;
 
     // Thermostat
+    o["charge"] = cfg.charge;
+    o["spin"] = cfg.spin;
     o["thermostat"] = cfg.thermostat;
     o["thermostatCoupling"] = cfg.thermostatCoupling;
     o["andersenProbability"] = cfg.andersenProbability;
@@ -96,8 +98,8 @@ QJsonObject simConfigToJson(const SimulationConfig& cfg)
     o["rmsdMtdRefFile"] = cfg.rmsdMtdRefFile;
     o["rmsdMtdMaxGaussians"] = cfg.rmsdMtdMaxGaussians;
     o["rmsdMtdMaxHeight"] = cfg.rmsdMtdMaxHeight;
-    o["rmsdMtdEconv"] = cfg.rmsdMtdEconv;
-    o["rmsdMtdPace"] = cfg.rmsdMtdPace;
+    o["rmsdMtdDepositStride"] = cfg.rmsdMtdDepositStride;
+    o["rmsdMtdRdep"] = cfg.rmsdMtdRdep;
     o["rmsdMtdWtmtd"] = cfg.rmsdMtdWtmtd;
     o["rmsdMtdDt"] = cfg.rmsdMtdDt;
     o["rmsdMtdFreezeInherited"] = cfg.rmsdMtdFreezeInherited;
@@ -125,6 +127,9 @@ QJsonObject simConfigToJson(const SimulationConfig& cfg)
         regions.append(ro);
     }
     o["tempRegions"] = regions;
+    // Claude Generated 2026 - simplemd parameters from the All parameters tab (canonical
+    // curcuma names, non-default values only).
+    o["mdExtraParams"] = cfg.mdExtraParams;
     return o;
 }
 
@@ -161,6 +166,8 @@ SimulationConfig simConfigFromJson(const QJsonObject& o)
     cfg.reactValenceCap = o.value("reactValenceCap").toBool(cfg.reactValenceCap);
     cfg.reactExchangeScans = o.value("reactExchangeScans").toInt(cfg.reactExchangeScans);
 
+    cfg.charge = o.value("charge").toInt(cfg.charge);
+    cfg.spin = o.value("spin").toInt(cfg.spin);
     cfg.thermostat = o.value("thermostat").toString(cfg.thermostat);
     cfg.thermostatCoupling = o.value("thermostatCoupling").toDouble(cfg.thermostatCoupling);
     cfg.andersenProbability = o.value("andersenProbability").toDouble(cfg.andersenProbability);
@@ -173,8 +180,8 @@ SimulationConfig simConfigFromJson(const QJsonObject& o)
     cfg.rmsdMtdRefFile = o.value("rmsdMtdRefFile").toString(cfg.rmsdMtdRefFile);
     cfg.rmsdMtdMaxGaussians = o.value("rmsdMtdMaxGaussians").toInt(cfg.rmsdMtdMaxGaussians);
     cfg.rmsdMtdMaxHeight = o.value("rmsdMtdMaxHeight").toInt(cfg.rmsdMtdMaxHeight);
-    cfg.rmsdMtdEconv = o.value("rmsdMtdEconv").toDouble(cfg.rmsdMtdEconv);
-    cfg.rmsdMtdPace = o.value("rmsdMtdPace").toInt(cfg.rmsdMtdPace);
+    cfg.rmsdMtdDepositStride = o.value("rmsdMtdDepositStride").toDouble(cfg.rmsdMtdDepositStride);
+    cfg.rmsdMtdRdep = o.value("rmsdMtdRdep").toDouble(cfg.rmsdMtdRdep);
     cfg.rmsdMtdWtmtd = o.value("rmsdMtdWtmtd").toBool(cfg.rmsdMtdWtmtd);
     cfg.rmsdMtdDt = o.value("rmsdMtdDt").toDouble(cfg.rmsdMtdDt);
     cfg.rmsdMtdFreezeInherited = o.value("rmsdMtdFreezeInherited").toBool(cfg.rmsdMtdFreezeInherited);
@@ -209,6 +216,7 @@ SimulationConfig simConfigFromJson(const QJsonObject& o)
         r.schedule = ro.value("schedule").toString(r.schedule);
         cfg.tempRegions.push_back(r);
     }
+    cfg.mdExtraParams = o.value("mdExtraParams").toObject();
     return cfg;
 }
 
@@ -255,6 +263,13 @@ QJsonObject lessonToJson(const Lesson& lesson, bool inlineXyz)
         structures.append(so);
     }
     root["structures"] = structures;
+
+    // Optional (older files have none): which panels the lesson opens.
+    if (!lesson.panels.isEmpty()) {
+        QJsonObject layout;
+        layout["panels"] = QJsonArray::fromStringList(lesson.panels);
+        root["layout"] = layout;
+    }
     return root;
 }
 
@@ -298,6 +313,8 @@ Lesson lessonFromJson(const QJsonObject& obj, QString* error)
         s.sim = simConfigFromJson(so.value("sim").toObject());
         lesson.structures.push_back(s);
     }
+    for (const QJsonValue& v : obj.value("layout").toObject().value("panels").toArray())
+        lesson.panels << v.toString();
     return lesson;
 }
 

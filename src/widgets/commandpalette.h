@@ -1,7 +1,7 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
 // CommandPalette — a searchable Ctrl+K popup that lists and runs the app's
-// commands (collected from the menus + a few curated viewer commands).
+// commands (every leaf action of the menu bar).
 // Claude Generated 2026.
 #pragma once
 

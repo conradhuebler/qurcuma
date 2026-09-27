@@ -1,10 +1,9 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
-// DisplayPanel — the docked "Display" panel: single home for all 3D-viewer
-// appearance/effects/lighting/tools, organized as collapsible sections. Replaces
-// the former modal VisualizationSettingsDialog (its wiring/presets/persistence are
-// ported here verbatim). All controls drive MoleculeViewer's public setters live.
-// Claude Generated 2026.
+// DisplayPanel — the detailed display options inside the Appearance dock. Style
+// (mode, colours, sizes, labels, background), fragment and bead-type colours sit at
+// the top; material, lighting and effects in a collapsed "Advanced" section. All
+// controls drive MoleculeViewer's public setters live. Claude Generated 2026.
 #pragma once
 
 #include <QWidget>
@@ -20,8 +19,6 @@ class QPushButton;
 class QToolButton;
 class QCheckBox;
 class QDoubleSpinBox;
-class QSpinBox;
-class QListWidget;
 class QVBoxLayout;
 class QScrollArea;
 class CollapsibleSection;
@@ -32,28 +29,14 @@ class DisplayPanel : public QWidget
 public:
     explicit DisplayPanel(MoleculeViewer* viewer, Settings* settings = nullptr, QWidget* parent = nullptr);
 
-    /// Re-read all control values from the viewer (called after shortcuts, presets
+    /// Re-read all control values from the viewer (called after shortcuts, looks
     /// or external changes so the panel stays in sync). Read-only: the viewer is
     /// the single source of truth, this never writes viewer state.
     void syncFromViewer();
 
-    /// Expand one accordion section by its stable key ("style", "nci", "effects",
-    /// "lighting", "tools", "presets") and scroll it into view. Claude Generated 2026.
+    /// Expand one collapsible section by its stable key (today only "advanced")
+    /// and scroll it into view. Claude Generated 2026.
     void expandSection(const QString& key);
-
-signals:
-    void centerOnLoadChanged(bool enabled);
-    /** Emitted when the "Show potential gradient" checkbox changes. */
-    void potGradientChanged(bool enabled);
-    /** Emitted when the "Show force vectors" checkbox or resolution spinbox changes. */
-    void potVectorFieldChanged(bool enabled, int resolution);
-    /** Emitted when the NCI overlay source changes (0=off, 1=geometry,
-     *  2=GFN-FF parameters, 3=population analysis). The calculated sources need a
-     *  run of the analysis worker, which MainWindow owns. */
-    void nciSourceChanged(int source);
-    /** Emitted when the live-during-MD option changes; MainWindow forwards it to
-     *  the simulation worker (it has to force GFN-FF's HB/XB list refresh). */
-    void nciLiveMdChanged(bool enabled);
 
 private slots:
     // Style
@@ -75,41 +58,24 @@ private slots:
     void onBloomIntensityChanged(int value);
     void onHDREnabledChanged(bool enabled);
     void onExposureChanged(double value);
-    // Tools / interaction
-    void onRotationModeChanged(int index);
-    // Footer / presets
+    // Footer
     void onResetDefaults();
-    void onSaveAsDefault();
-    void onLoadDefaults();
-    void onLoadPreset(int index);
-    void onSavePreset();
-    void onDeletePreset();
-    void loadQuickPreset(const QString& presetName);
 
 private:
     void setupUI();
-    void refreshPresetList();
-    // Section content builders (reused from the former dialog).
-    void createRenderingGroup(QVBoxLayout* layout);
+    // Group builders.
+    void createStyleGroup(QVBoxLayout* layout);     // mode, colours, sizes, labels, background
     void createMaterialGroup(QVBoxLayout* layout);
-    void createSizeGroup(QVBoxLayout* layout);
-    void createAppearanceGroup(QVBoxLayout* layout); // SSAO/Bloom/HDR/Fog
-    void createLightingGroup(QVBoxLayout* layout);   // corner lights + background (new)
-    void createToolsGroup(QVBoxLayout* layout);      // measure/bond-edit/force + interaction (new)
+    void createEffectsGroup(QVBoxLayout* layout);   // fog, SSAO, bloom, HDR
+    void createLightingGroup(QVBoxLayout* layout);  // corner lights
     void createBeadTypeGroup(QVBoxLayout* layout);  // per-bead-type colours (CG beads)
     void createFragmentGroup(QVBoxLayout* layout);  // per-fragment tint (host-guest)
-    void createNciGroup(QVBoxLayout* layout);       // non-covalent interaction overlay
     /// Rebuild the bead-type selector from the loaded structure.
     void refreshBeadTypes();
-    /// Re-read the interaction colours from the viewer into the selector.
-    void refreshNciPalette();
     /// Rebuild the fragment selector from the loaded structure.
     void refreshFragments();
     /// Load the selected fragment's own values into the per-fragment controls.
     void refreshSelectedFragment();
-    /// Collect the NCI widgets into nci::Options and push them to the viewer.
-    void applyNciOptions();
-    void createPresetsGroup(QVBoxLayout* layout);
 
     // Style
     QComboBox* m_renderingModeCombo = nullptr;
@@ -119,6 +85,7 @@ private:
     QDoubleSpinBox* m_shininessSpinBox = nullptr;
     QDoubleSpinBox* m_atomScaleSpinBox = nullptr;
     QDoubleSpinBox* m_bondThicknessSpinBox = nullptr;
+    QPushButton* m_bgColorButton = nullptr;
 
     // Effects
     QCheckBox* m_fogEnabledCheckBox = nullptr;
@@ -139,35 +106,6 @@ private:
 
     // Lighting
     QToolButton* m_cornerLightButtons[4] = { nullptr, nullptr, nullptr, nullptr };
-    QPushButton* m_bgColorButton = nullptr;
-
-    // Tools / interaction
-    QCheckBox* m_measureCheck = nullptr;  // measurement on/off (type auto-detected by atom count)
-    QComboBox* m_bondEditCombo = nullptr;
-    QCheckBox* m_forceVectorsCheck = nullptr;
-    QCheckBox* m_wallCheck = nullptr;          // confinement-wall wireframe show/hide
-    QSlider* m_wallOpacitySlider = nullptr;    // confinement-wall wireframe transparency
-    QLabel* m_wallOpacityLabel = nullptr;
-    QCheckBox* m_potGradientCheck = nullptr;   // iso-potential shell overlay show/hide
-    QCheckBox* m_potArrowCheck = nullptr;      // wall force vector field show/hide
-    QSpinBox*  m_potArrowResSpin = nullptr;    // vector field resolution (points per axis)
-    QComboBox* m_rotationModeCombo = nullptr;
-    QCheckBox* m_dockPreviewCheck = nullptr;   // builder: live docking preview (opt-out)
-
-    // Non-covalent interactions
-    QComboBox* m_nciSourceCombo = nullptr;
-    QCheckBox* m_nciHBondCheck = nullptr;
-    QCheckBox* m_nciXBondCheck = nullptr;
-    QCheckBox* m_nciPiCheck = nullptr;
-    QCheckBox* m_nciContactCheck = nullptr;
-    QCheckBox* m_nciElectrostaticCheck = nullptr;  // GFN-FF source only
-    QCheckBox* m_nciDispersionCheck = nullptr;     // GFN-FF source only
-    QDoubleSpinBox* m_nciHbDistanceSpin = nullptr;
-    QSpinBox* m_nciHbAngleSpin = nullptr;
-    QCheckBox* m_nciLabelCheck = nullptr;
-    QCheckBox* m_nciLiveMdCheck = nullptr;
-    QComboBox* m_nciKindCombo = nullptr;
-    QPushButton* m_nciKindColorButton = nullptr;
 
     // Coarse-grained bead types
     QGroupBox* m_beadTypeGroup = nullptr;
@@ -188,10 +126,7 @@ private:
     QLabel* m_fragmentScaleLabel = nullptr;
     QGroupBox* m_fragmentSelectedGroup = nullptr;
 
-    // Presets
-    QListWidget* m_presetList = nullptr;
-
-    // Accordion sections by stable key (expand-state persistence, expandSection).
+    // Collapsible sections by stable key (expand-state persistence, expandSection).
     QHash<QString, CollapsibleSection*> m_sections;
     QScrollArea* m_scroll = nullptr;
 
