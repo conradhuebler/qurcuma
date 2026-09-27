@@ -40,7 +40,6 @@ private:
     Settings* m_settings = nullptr;
 
     QListWidget* m_presetList = nullptr;
-    QCheckBox* m_includeDisplayCheckBox = nullptr;
     QPushButton* m_saveButton = nullptr;
     QPushButton* m_loadButton = nullptr;
     QPushButton* m_deleteButton = nullptr;

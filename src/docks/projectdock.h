@@ -19,6 +19,7 @@ class QMenu;
 class QLabel;
 class QLineEdit;
 class QListView;
+class CollapsibleSection;
 class QListWidget;
 class QPushButton;
 class QSortFilterProxyModel;
@@ -62,23 +63,28 @@ public:
     QLabel* stateIndicator() const;
     QPushButton* copyPathButton() const;
 
-    // Files / Lesson browser toggle
-    QToolButton* filesModeButton() const;
-    QToolButton* lessonModeButton() const;
+    // Claude Generated 2026 - Lesson section at the top of the panel (metadata, the
+    // lesson's structure list, detail editor). Shown in Teaching mode (open) and
+    // whenever the lesson has structures.
+    CollapsibleSection* lessonSection() const;
+    QListView* lessonListView() const;
+    void setLessonTeaching(bool teaching);
+    void setLessonCount(int count);
+    void revealLesson();  // show and open it, e.g. after a structure was added
 
     // Content list and its filesystem model
     QListView* directoryContentView() const;
     QFileSystemModel* directoryContentModel() const;
     QSortFilterProxyModel* directoryContentProxyModel() const;
 
-    // Lesson metadata widget (visible in Lesson mode)
+    // Lesson metadata widget (inside the lesson section)
     QWidget* lessonMetaWidget() const;
     QLineEdit* lessonTitleEdit() const;
     QLineEdit* lessonDescEdit() const;
     QLabel* lessonAuthorsLabel() const;
     QToolButton* editAuthorsButton() const;
 
-    // Per-structure detail editor (visible in Lesson mode with selection)
+    // Per-structure detail editor (inside the lesson section, with a selection)
     QWidget* lessonStructWidget() const;
     QLineEdit* structNameEdit() const;
     QLineEdit* structDescEdit() const;
@@ -129,8 +135,11 @@ private:
     QLabel* m_stateIcon = nullptr;
     QLabel* m_stateIndicator = nullptr;
     QPushButton* m_copyPathButton = nullptr;
-    QToolButton* m_filesModeBtn = nullptr;
-    QToolButton* m_lessonModeBtn = nullptr;
+    CollapsibleSection* m_lessonSection = nullptr;
+    QListView* m_lessonListView = nullptr;
+    bool m_lessonTeaching = false;
+    int m_lessonCount = 0;
+    void updateLessonSection();
     QListView* m_directoryContentView = nullptr;
     QFileSystemModel* m_directoryContentModel = nullptr;
     QSortFilterProxyModel* m_directoryContentProxyModel = nullptr;

@@ -200,7 +200,11 @@ void TemperatureSlider::setRange(double mn, double mx)
 void TemperatureSlider::onTrackChanged(double v)
 {
     const QColor c = m_track->colorAt(v);
-    m_valueLabel->setText(QStringLiteral("%1 K").arg(v, 0, 'f', 0));
+    // Up to two decimals, trailing zeros dropped: 298.15 K, 300 K.
+    QString text = QString::number(v, 'f', 2);
+    while (text.contains(QLatin1Char('.')) && (text.endsWith(QLatin1Char('0')) || text.endsWith(QLatin1Char('.'))))
+        text.chop(1);
+    m_valueLabel->setText(QStringLiteral("%1 K").arg(text));
     m_valueLabel->setStyleSheet(QStringLiteral("font-weight:bold; color:%1;").arg(c.darker(140).name()));
     emit valueChanged(v);
 }

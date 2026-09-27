@@ -49,6 +49,7 @@ Charts
 Qml
 Quick
 Quick3D
+QuickWidgets  # Claude Generated 2026 - QQuickWidget viewport (no native-window stacking over docks)
 REQUIRED
 )
 
@@ -211,12 +212,14 @@ set(SOURCES
     #src/dialogs/nmrstructuremodel.cpp
     src/simulationworker.cpp  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.cpp  # Claude Generated - Interactive Simulation Integration
+    src/simulationparameterswidget.cpp  # Claude Generated 2026 - All parameters tab (registry-generated)
     src/snapshotswidget.cpp  # Claude Generated 2026 - Snapshot history foundation
     src/rmsdwidget.cpp  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/docks/dockmanager.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/outputdock.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/simulationdock.cpp  # Claude Generated 2026 - Dock system restructuring
-    src/docks/displaydock.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/structuredock.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/appearancedock.cpp  # Claude Generated 2026 - UX stage 4
     src/docks/bookmarkwidget.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/workspacepanel.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/remotedirectoriespanel.cpp  # Claude Generated 2026 - Dock system restructuring
@@ -283,6 +286,7 @@ set(HEADERS
     src/mol2parser.h  # Claude Generated Phase 5C
     src/simulationworker.h  # Claude Generated - Interactive Simulation Integration
     src/simulationcontrolwidget.h  # Claude Generated - Interactive Simulation Integration
+    src/simulationparameterswidget.h  # Claude Generated 2026 - All parameters tab (Q_OBJECT)
     src/snapshotswidget.h  # Claude Generated 2026 - Snapshot history foundation
     src/rmsdwidget.h  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/forceinjector.h  # Claude Generated 2026 - Topological force distribution (Phase 4)
@@ -453,6 +457,7 @@ Qt6::Charts
 Qt6::Qml
 Qt6::Quick
 Qt6::Quick3D
+Qt6::QuickWidgets
 cutechart
 $<$<BOOL:${USE_SFTP}>:${LIBSSH_LIBRARIES}>
 curcuma_core  # Claude Generated - Curcuma simulation backend
@@ -553,6 +558,33 @@ Qt6::Widgets
 Qt6::Quick3D
 )
 target_include_directories(test_fragments PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+
+# Look round-trip test - Claude Generated 2026 (look.h is header-only).
+add_executable(test_looks test_looks.cpp)
+target_link_libraries(test_looks PRIVATE
+Qt6::Core
+Qt6::Gui
+)
+target_include_directories(test_looks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# Simulation settings JSON + recipes test - Claude Generated 2026 (UX stage 6).
+# lesson.cpp needs only Qt; the worker/viewer types it names come from headers.
+add_executable(test_recipes test_recipes.cpp src/lesson.cpp)
+target_link_libraries(test_recipes PRIVATE
+Qt6::Core
+Qt6::Gui
+Qt6::Widgets
+)
+target_include_directories(test_recipes PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/external/

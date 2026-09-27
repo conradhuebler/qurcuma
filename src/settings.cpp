@@ -1,5 +1,6 @@
 // m_settings.cpp
 #include "settings.h"
+#include "recipe.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
@@ -390,6 +391,11 @@ void writeVizSettings(QSettings& s, const QString& prefix, const Settings::Visua
     s.setValue(prefix + "fragmentTintStrength", v.fragmentTintStrength);
     s.setValue(prefix + "fragmentScale", v.fragmentScale);
     s.setValue(prefix + "buildDockPreview", v.buildDockPreview);
+    s.setValue(prefix + "hydrogenDisplay", v.hydrogenDisplay);
+    s.setValue(prefix + "fogDistance", v.fogDistance);
+    s.setValue(prefix + "backgroundColor", v.backgroundColor.name());
+    for (int i = 0; i < 4; ++i)
+        s.setValue(prefix + QStringLiteral("cornerLight%1").arg(i), v.cornerLightEnabled[i]);
 }
 
 Settings::VisualizationSettings readVizSettings(const QSettings& s, const QString& prefix)
@@ -432,6 +438,14 @@ Settings::VisualizationSettings readVizSettings(const QSettings& s, const QStrin
     v.fragmentTintStrength = s.value(prefix + "fragmentTintStrength", v.fragmentTintStrength).toFloat();
     v.fragmentScale = s.value(prefix + "fragmentScale", v.fragmentScale).toFloat();
     v.buildDockPreview = s.value(prefix + "buildDockPreview", v.buildDockPreview).toBool();
+    v.hydrogenDisplay = s.value(prefix + "hydrogenDisplay", v.hydrogenDisplay).toInt();
+    v.fogDistance = s.value(prefix + "fogDistance", v.fogDistance).toFloat();
+    const QColor bg(s.value(prefix + "backgroundColor").toString());
+    if (bg.isValid())
+        v.backgroundColor = bg;
+    for (int i = 0; i < 4; ++i)
+        v.cornerLightEnabled[i] = s.value(prefix + QStringLiteral("cornerLight%1").arg(i),
+                                          v.cornerLightEnabled[i]).toBool();
     return v;
 }
 }  // namespace
@@ -504,83 +518,108 @@ void Settings::setNciPalette(const QHash<int, QColor>& palette)
     m_settings.sync();
 }
 
-// Claude Generated - Visualization Preset Management
-QVector<Settings::VisualizationPreset> Settings::getVisualizationPresets()
+// Claude Generated 2026 - Looks (UX stage 3). User looks are one JSON array; the
+// built-in looks live in code (look.h) and are never stored.
+QVector<Look> Settings::userLooks() const
 {
-    QVector<VisualizationPreset> presets;
-
-    m_settings.beginGroup(VIZ_SETTINGS_PREFIX + "presets");
-    const QStringList presetNames = m_settings.childGroups();
-    m_settings.endGroup();
-
-    for (const QString& presetName : presetNames) {
-        VisualizationPreset preset;
-        preset.name = presetName;
-        preset.settings = readVizSettings(m_settings, VIZ_SETTINGS_PREFIX + "presets/" + presetName + "/");
-        presets.append(preset);
+    QVector<Look> out;
+    const QJsonArray arr =
+        QJsonDocument::fromJson(m_settings.value(VIZ_SETTINGS_PREFIX + "looks").toByteArray()).array();
+    for (const QJsonValue& v : arr) {
+        const Look l = looks::fromJson(v.toObject());
+        if (!l.name.isEmpty())
+            out.append(l);
     }
-    return presets;
+    return out;
 }
 
-void Settings::savePreset(const QString& name, const VisualizationSettings& settings)
+void Settings::writeUserLooks(const QVector<Look>& all)
 {
-    writeVizSettings(m_settings, VIZ_SETTINGS_PREFIX + "presets/" + name + "/", settings);
+    QJsonArray arr;
+    for (const Look& l : all)
+        arr.append(looks::toJson(l));
+    m_settings.setValue(VIZ_SETTINGS_PREFIX + "looks", QJsonDocument(arr).toJson(QJsonDocument::Compact));
     m_settings.sync();
 }
 
-void Settings::deletePreset(const QString& name)
+void Settings::saveUserLook(const Look& look)
 {
-    m_settings.remove(VIZ_SETTINGS_PREFIX + "presets/" + name);
+    QVector<Look> all = userLooks();
+    auto it = std::find_if(all.begin(), all.end(), [&look](const Look& l) {
+        return l.name.compare(look.name, Qt::CaseInsensitive) == 0;
+    });
+    if (it != all.end())
+        *it = look;
+    else
+        all.append(look);
+    writeUserLooks(all);
+}
+
+void Settings::deleteUserLook(const QString& name)
+{
+    QVector<Look> all = userLooks();
+    all.erase(std::remove_if(all.begin(), all.end(), [&name](const Look& l) {
+        return l.name.compare(name, Qt::CaseInsensitive) == 0;
+    }), all.end());
+    writeUserLooks(all);
+}
+
+// Claude Generated 2026 - User simulation recipes, one JSON array (recipes::toJson).
+QVector<SimulationRecipe> Settings::userRecipes() const
+{
+    QVector<SimulationRecipe> out;
+    const QJsonArray arr =
+        QJsonDocument::fromJson(m_settings.value(QStringLiteral("simulation/recipes")).toByteArray()).array();
+    for (const QJsonValue& v : arr) {
+        const SimulationRecipe r = recipes::fromJson(v.toObject());
+        if (!r.name.isEmpty())
+            out.append(r);
+    }
+    return out;
+}
+
+void Settings::writeUserRecipes(const QVector<SimulationRecipe>& all)
+{
+    QJsonArray arr;
+    for (const SimulationRecipe& r : all)
+        arr.append(recipes::toJson(r));
+    m_settings.setValue(QStringLiteral("simulation/recipes"),
+                        QJsonDocument(arr).toJson(QJsonDocument::Compact));
     m_settings.sync();
 }
 
-bool Settings::presetExists(const QString& name) const
+void Settings::saveUserRecipe(const SimulationRecipe& recipe)
 {
-    return m_settings.contains(VIZ_SETTINGS_PREFIX + "presets/" + name + "/renderingMode");
+    QVector<SimulationRecipe> all = userRecipes();
+    auto it = std::find_if(all.begin(), all.end(), [&recipe](const SimulationRecipe& r) {
+        return r.name.compare(recipe.name, Qt::CaseInsensitive) == 0;
+    });
+    if (it != all.end())
+        *it = recipe;
+    else
+        all.append(recipe);
+    writeUserRecipes(all);
 }
 
-void Settings::initializeDefaultPresets()
+void Settings::deleteUserRecipe(const QString& name)
 {
-    // Only create defaults if no presets exist
-    auto presets = getVisualizationPresets();
-    if (!presets.isEmpty()) {
+    QVector<SimulationRecipe> all = userRecipes();
+    all.erase(std::remove_if(all.begin(), all.end(), [&name](const SimulationRecipe& r) {
+        return r.name.compare(name, Qt::CaseInsensitive) == 0;
+    }), all.end());
+    writeUserRecipes(all);
+}
+
+// The display presets before 2026-09 carried render style, sizes and NCI along with the
+// look; the operator chose a one-time reset instead of a migration.
+void Settings::dropLegacyDisplayPresetsOnce()
+{
+    const QString marker = VIZ_SETTINGS_PREFIX + "looksVersion";
+    if (m_settings.value(marker, 0).toInt() >= 1)
         return;
-    }
-
-    // Publication: Professional look - CPK colors, Ball-and-stick, high shininess
-    VisualizationSettings pubSettings;
-    pubSettings.renderingMode = 0;      // BallAndStick
-    pubSettings.colorScheme = 0;        // CPK
-    pubSettings.atomTransparency = 1.0f;
-    pubSettings.atomShininess = 120.0f;
-    pubSettings.atomScaleFactor = 1.0f;
-    pubSettings.bondThickness = 0.15f;
-    pubSettings.fogEnabled = false;
-    savePreset("Publication", pubSettings);
-
-    // Analysis: Space-filling with monochrome - good for electron density
-    VisualizationSettings analysisSettings;
-    analysisSettings.renderingMode = 2;     // SpaceFilling
-    analysisSettings.colorScheme = 1;       // Monochrome
-    analysisSettings.atomTransparency = 0.8f;
-    analysisSettings.atomShininess = 60.0f;
-    analysisSettings.atomScaleFactor = 1.0f;
-    analysisSettings.bondThickness = 0.1f;
-    analysisSettings.fogEnabled = true;
-    analysisSettings.fogIntensity = 0.5f;
-    savePreset("Analysis", analysisSettings);
-
-    // Presentation: Bright, high transparency, fog for depth
-    VisualizationSettings presentSettings;
-    presentSettings.renderingMode = 0;      // BallAndStick
-    presentSettings.colorScheme = 0;        // CPK
-    presentSettings.atomTransparency = 0.7f;
-    presentSettings.atomShininess = 100.0f;
-    presentSettings.atomScaleFactor = 1.2f;
-    presentSettings.bondThickness = 0.18f;
-    presentSettings.fogEnabled = true;
-    presentSettings.fogIntensity = 0.3f;
-    savePreset("Presentation", presentSettings);
+    m_settings.remove(VIZ_SETTINGS_PREFIX + "presets");
+    m_settings.setValue(marker, 1);
+    m_settings.sync();
 }
 
 namespace {
@@ -607,20 +646,9 @@ QQuaternion quatFromString(const QString& s)
         return QQuaternion(parts[0].toFloat(), parts[1].toFloat(), parts[2].toFloat(), parts[3].toFloat());
     return QQuaternion();
 }
-QString colorToString(const QColor& c)
-{
-    return QStringLiteral("%1,%2,%3,%4").arg(c.red()).arg(c.green()).arg(c.blue()).arg(c.alpha());
-}
-QColor colorFromString(const QString& s)
-{
-    const QStringList parts = s.split(QLatin1Char(','));
-    if (parts.size() >= 3)
-        return QColor(parts[0].toInt(), parts[1].toInt(), parts[2].toInt(), parts.value(3, QStringLiteral("255")).toInt());
-    return QColor(32, 36, 44);
-}
 }
 
-// Claude Generated 2026 - Reproducible camera + display view presets
+// Claude Generated 2026 - Reproducible camera views (camera only since UX stage 3)
 QVector<ViewPreset> Settings::viewPresets()
 {
     QVector<ViewPreset> presets;
@@ -637,31 +665,6 @@ QVector<ViewPreset> Settings::viewPresets()
         p.sceneExtent = m_settings.value(QStringLiteral("sceneExtent"), 0.0f).toFloat();
         p.zoomFactor = m_settings.value(QStringLiteral("zoomFactor"), 3.0f).toFloat();
         p.zoomMode = static_cast<ZoomMode>(m_settings.value(QStringLiteral("zoomMode"), 0).toInt());
-
-        p.renderingMode = m_settings.value(QStringLiteral("renderingMode"), 0).toInt();
-        p.colorScheme = m_settings.value(QStringLiteral("colorScheme"), 0).toInt();
-        p.atomTransparency = m_settings.value(QStringLiteral("atomTransparency"), 1.0f).toFloat();
-        p.atomShininess = m_settings.value(QStringLiteral("atomShininess"), 80.0f).toFloat();
-        p.atomScaleFactor = m_settings.value(QStringLiteral("atomScaleFactor"), 1.0f).toFloat();
-        p.bondThickness = m_settings.value(QStringLiteral("bondThickness"), 0.15f).toFloat();
-        p.fogEnabled = m_settings.value(QStringLiteral("fogEnabled"), false).toBool();
-        p.fogIntensity = m_settings.value(QStringLiteral("fogIntensity"), 0.5f).toFloat();
-        p.fogDistance = m_settings.value(QStringLiteral("fogDistance"), 0.2f).toFloat();
-        p.ssaoEnabled = m_settings.value(QStringLiteral("ssaoEnabled"), true).toBool();
-        p.ssaoIntensity = m_settings.value(QStringLiteral("ssaoIntensity"), 1.0f).toFloat();
-        p.ssaoRadius = m_settings.value(QStringLiteral("ssaoRadius"), 0.05f).toFloat();
-        p.ssaoBias = m_settings.value(QStringLiteral("ssaoBias"), 0.025f).toFloat();
-        p.bloomEnabled = m_settings.value(QStringLiteral("bloomEnabled"), true).toBool();
-        p.bloomThreshold = m_settings.value(QStringLiteral("bloomThreshold"), 0.8f).toFloat();
-        p.bloomIntensity = m_settings.value(QStringLiteral("bloomIntensity"), 1.0f).toFloat();
-        p.hdrEnabled = m_settings.value(QStringLiteral("hdrEnabled"), true).toBool();
-        p.exposure = m_settings.value(QStringLiteral("exposure"), 1.0f).toFloat();
-        p.rotationMode = m_settings.value(QStringLiteral("rotationMode"), 0).toInt();
-        p.wallVisible = m_settings.value(QStringLiteral("wallVisible"), true).toBool();
-        p.wallOpacity = m_settings.value(QStringLiteral("wallOpacity"), 0.6).toDouble();
-        p.backgroundColor = colorFromString(m_settings.value(QStringLiteral("backgroundColor")).toString());
-        for (int i = 0; i < 4; ++i)
-            p.cornerLightEnabled[i] = m_settings.value(QStringLiteral("cornerLight%1").arg(i), i < 2).toBool();
 
         presets.append(p);
         m_settings.endGroup();
@@ -683,30 +686,6 @@ void Settings::saveViewPreset(const ViewPreset& preset)
     m_settings.setValue(path + QStringLiteral("zoomFactor"), preset.zoomFactor);
     m_settings.setValue(path + QStringLiteral("zoomMode"), static_cast<int>(preset.zoomMode));
 
-    m_settings.setValue(path + QStringLiteral("renderingMode"), preset.renderingMode);
-    m_settings.setValue(path + QStringLiteral("colorScheme"), preset.colorScheme);
-    m_settings.setValue(path + QStringLiteral("atomTransparency"), preset.atomTransparency);
-    m_settings.setValue(path + QStringLiteral("atomShininess"), preset.atomShininess);
-    m_settings.setValue(path + QStringLiteral("atomScaleFactor"), preset.atomScaleFactor);
-    m_settings.setValue(path + QStringLiteral("bondThickness"), preset.bondThickness);
-    m_settings.setValue(path + QStringLiteral("fogEnabled"), preset.fogEnabled);
-    m_settings.setValue(path + QStringLiteral("fogIntensity"), preset.fogIntensity);
-    m_settings.setValue(path + QStringLiteral("fogDistance"), preset.fogDistance);
-    m_settings.setValue(path + QStringLiteral("ssaoEnabled"), preset.ssaoEnabled);
-    m_settings.setValue(path + QStringLiteral("ssaoIntensity"), preset.ssaoIntensity);
-    m_settings.setValue(path + QStringLiteral("ssaoRadius"), preset.ssaoRadius);
-    m_settings.setValue(path + QStringLiteral("ssaoBias"), preset.ssaoBias);
-    m_settings.setValue(path + QStringLiteral("bloomEnabled"), preset.bloomEnabled);
-    m_settings.setValue(path + QStringLiteral("bloomThreshold"), preset.bloomThreshold);
-    m_settings.setValue(path + QStringLiteral("bloomIntensity"), preset.bloomIntensity);
-    m_settings.setValue(path + QStringLiteral("hdrEnabled"), preset.hdrEnabled);
-    m_settings.setValue(path + QStringLiteral("exposure"), preset.exposure);
-    m_settings.setValue(path + QStringLiteral("rotationMode"), preset.rotationMode);
-    m_settings.setValue(path + QStringLiteral("wallVisible"), preset.wallVisible);
-    m_settings.setValue(path + QStringLiteral("wallOpacity"), preset.wallOpacity);
-    m_settings.setValue(path + QStringLiteral("backgroundColor"), colorToString(preset.backgroundColor));
-    for (int i = 0; i < 4; ++i)
-        m_settings.setValue(path + QStringLiteral("cornerLight%1").arg(i), preset.cornerLightEnabled[i]);
 
     m_settings.sync();
 }

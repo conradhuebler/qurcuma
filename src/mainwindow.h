@@ -66,7 +66,8 @@ class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table 
 class DockManager;          // Claude Generated 2026 - owns all docks and layout presets
 class OutputDock;           // Claude Generated 2026 - Output dock wrapper
 class SimulationDock;       // Claude Generated 2026 - Simulation dock wrapper
-class DisplayDock; // Claude Generated 2026 - Structure & Display dock wrapper
+class StructureDock; // Claude Generated 2026 - Structure dock wrapper
+class AppearanceDock; // Claude Generated 2026 - UX stage 4: display settings + camera views
 class ProjectDock;            // Claude Generated 2026 - Project dock wrapper
 class ImageGalleryDock;       // Claude Generated 2026 - batch border-trim gallery (bottom)
 class NciDock;                // Claude Generated 2026 - non-covalent interaction dock
@@ -163,13 +164,10 @@ private slots:
     void configurePrograms();
     void configureOperatorMetadata();  // Claude Generated 2026 - operator name/ORCID/institution/license
     void runSimulation();
-    void startNewCalculation();  // Neue Funktion
 
 
     // Keyboard shortcuts - Claude Generated Phase 1.2
     void cancelCalculation();
-    void switchEditorTab();
-    void saveCurrentEditor();
 
     // Claude Generated 2026 - Save the (possibly MD/Opt-modified) molecule.
     // Empty path → overwrite the current XYZ source if it's a .xyz file,
@@ -177,8 +175,6 @@ private slots:
     bool saveCurrentStructure();
     void saveCurrentStructureAs();
 
-    // Claude Generated 2026 - Reload the current file to discard simulation changes.
-    void reloadCurrentFile();
 
     // Claude Generated - Visualization settings
     void openVisualizationSettings();
@@ -224,8 +220,6 @@ private slots:
     void addMoleculeToScene();
     void mergeFileIntoScene(const QString& filePath);
 
-    // Claude Generated - Quick Win: Zoom to fit molecule (moved from private to slots)
-    void zoomToMolecule();
 
     // Claude Generated - Quick Fix: Clear output view (moved from private to slots)
     void clearOutputView();
@@ -282,7 +276,7 @@ private:
 
     void setupUI();
     void createToolbars();
-    void createModeBar();                       // Claude Generated 2026 - P2 Explore/Compute switch
+    void createModeBar();                       // Claude Generated 2026 - Explore/Compute/Teaching switch
     void setAppMode(DockConfig::AppMode mode, bool reflow = true);  // apply mode (toolbar + dock visibility)
     void showCommandPalette();
     /// Show a tool's answer in the Output dock and the status bar. Claude Generated 2026.
@@ -318,7 +312,7 @@ private:
     void loadMoleculeFile(QString filePath, const MoleculeFileLoader::CifOptions* cifOptions = nullptr);
 
     // Claude Generated 2026 - WP T4: the OER-lesson feature (open/save/add/apply +
-    // Files|Lesson browse mode + metadata/detail editors) lives in LessonController.
+    // the lesson list + metadata/detail editors) lives in LessonController.
     // This handles the MainWindow bookkeeping after an in-memory lesson structure is
     // loaded into the viewer (clear file path, reset modified state, snapshot).
     void onLessonStructureLoaded(const QString& name);
@@ -374,8 +368,6 @@ private:
     void restoreWorkspaceState(const Settings::Workspace& ws);
     void updateWorkspaceList();
 
-    // Claude Generated - UI Restructuring: Layout preset management
-    void applyLayoutPreset(DockConfig::LayoutPreset preset);
     void createDockWidgets();  // Helper to create all dock widgets
 
     QTreeWidget* m_bookmarkTreeView;  // Claude Generated Phase 3.2 - Replaced QListWidget
@@ -471,12 +463,9 @@ private:
     QString filePathFromContentIndex(const QModelIndex& viewIndex) const;
 
     // Claude Generated 2026 - WP T4: the OER-lesson feature (data + open/save/add/apply
-    // + Files|Lesson browse mode + the metadata/detail editors) is owned by
-    // LessonController. MainWindow keeps only the two mode buttons — the eventFilter
-    // drop-target compares against m_lessonModeBtn — and delegates the rest.
+    // + the lesson list and the metadata/detail editors) is owned by LessonController;
+    // the Lesson section it fills sits at the top of the Project dock.
     LessonController* m_lessonController = nullptr;
-    QToolButton* m_filesModeBtn = nullptr;
-    QToolButton* m_lessonModeBtn = nullptr;
     bool m_centerOnLoad = true;  // shift COM to origin after loading (from VisualizationSettings)
     // Claude Generated 2026 - the loaded cif, its bar, and the repeats it is read with.
     CellDock* m_cellDock = nullptr;
@@ -545,20 +534,21 @@ private:
     // Claude Generated - Dock architecture rewrite (2026-04): 5 docks rahmen MoleculeViewer (CentralWidget)
     // NOTE: these are being migrated into DockManager / src/docks/ wrappers.
     ProjectDock* m_projectDock = nullptr;           // Left: Project dock with Files/Bookmarks/Workspaces/Remote segments
-    DisplayDock* m_displayDock = nullptr; // Right: [Structure | Atoms] segment + Display panel
-    SimulationDock* m_simulationDock = nullptr;     // Right: Simulation/Snapshots/RMSD/Input tabs (tabified with Structure&Display)
+    StructureDock* m_structureDock = nullptr; // Right: [Structure | Atoms] segment
+    AppearanceDock* m_appearanceDock = nullptr; // Right (tabified, closed): display settings + views
+    SimulationDock* m_simulationDock = nullptr;     // Right: Simulation/All parameters/Snapshots/RMSD/Input tabs
     OutputDock* m_outputViewDock = nullptr;         // Bottom: output log
     ImageGalleryDock* m_imageGalleryDock = nullptr; // Bottom (tabified): batch border-trim gallery
     NciDock* m_nciDock = nullptr;                   // Right (tabified): non-covalent interaction contacts
     ChartDock* m_chartDock = nullptr;               // Live charts (owned by DockManager)
     QTabWidget* m_simulationTabs = nullptr;         // Internal tabs inside m_simulationDock
 
-    // Claude Generated 2026 - P2: Explore/Compute mode switch
+    // Claude Generated 2026 - Explore/Compute/Teaching mode switch
     DockConfig::AppMode m_appMode = DockConfig::AppMode::Explore;
-    QToolBar* m_modeToolbar = nullptr;          // top row: [Explore | Compute]
     QToolBar* m_calculationToolbar = nullptr;   // 2nd row: program/command/threads (Compute only)
     QToolButton* m_exploreButton = nullptr;
     QToolButton* m_computeButton = nullptr;
+    QToolButton* m_teachingButton = nullptr;
     SimulationControlWidget* m_simulationControlWidget = nullptr;  // Claude Generated
     SimulationConfig m_simulationConfig;             // Claude Generated - Shared config, edited from dock
 
@@ -579,7 +569,7 @@ private:
     bool m_nciLiveMd = false;          // keep the GFN-FF contact list live during MD
     bool m_nciSelectionSyncing = false; // guards table <-> viewer selection feedback
     // Claude Generated 2026 - NCI quick access: one shared action set feeds the
-    // Display menu, the viewer-bar button dropdown and the command palette.
+    // View menu, the viewer-bar button dropdown and the command palette.
     QAction* m_nciToggleAction = nullptr;   // checkable, shortcut N
     QMenu* m_nciSourceMenu = nullptr;       // Off/Geometry/GFN-FF/GFN2 radio group
     QActionGroup* m_nciSourceGroup = nullptr;
@@ -588,18 +578,42 @@ private:
     void toggleNciOverlay();
     /// Apply a source picked in the menu/bar dropdown (>= 2 starts the analysis).
     void setNciSourceFromUi(int source);
-    // Claude Generated 2026 - Shared display actions (Display menu + viewport
+    // Claude Generated 2026 - Shared display actions (View menu + viewport
     // context menu); checked states mirror the viewer's signals.
     QActionGroup* m_renderStyleGroup = nullptr;
     QActionGroup* m_colorSchemeGroup = nullptr;
     QActionGroup* m_labelModeGroup = nullptr;
+    QActionGroup* m_hydrogenDisplayGroup = nullptr;  // Claude Generated 2026 - All/Polar/None
+    QAction* m_hbondToggleAction = nullptr;          // Claude Generated 2026 - Shift+N
+    QMenu* m_renderStyleMenu = nullptr;               // Claude Generated 2026 - shared with the viewer bar
+    QMenu* m_hydrogenMenu = nullptr;                  //   (Style, H and Look buttons)
+    QMenu* m_lookMenu = nullptr;
+    QMenu* m_moleculeKindsMenu = nullptr;             // Claude Generated 2026 - filled on aboutToShow
+    void populateMoleculeKindsMenu();
+    QMenu* m_colorSchemeMenu = nullptr;               // Claude Generated 2026 - also inside the Look menu
+    void populateLookMenu();                          // Claude Generated 2026 - filled on aboutToShow
     QAction* m_fitViewAction = nullptr;
-    QMenu* m_displayMenu = nullptr;         // reused as the viewport context menu
+    // Claude Generated 2026 - UX stage 5: shared with the viewport context menu.
+    QAction* m_centerSelectionAction = nullptr;
+    QAction* m_deselectAction = nullptr;
+    QAction* m_quickPhotoAction = nullptr;
+    QActionGroup* m_appModeGroup = nullptr;           // View ▸ Mode radio items
+    QMenu* m_viewsMenu = nullptr;                     // View ▸ Views, filled on aboutToShow
+    QMenu* m_recipeMenu = nullptr;                    // Simulation ▸ Recipe, also the dock's button
+    /// Built-in and user simulation recipes, save/delete. Claude Generated 2026 (UX stage 6 S2).
+    void populateRecipeMenu();
+    /// Quick camera views plus the saved views. Claude Generated 2026.
+    void populateViewsMenu();
+    /// Help ▸ Keyboard Shortcuts: table built from the menu-bar actions. Claude Generated 2026.
+    void showKeyboardShortcuts();
+    /// Tools ▸ Parameter Usage: how often each parameter differed from curcuma's default
+    /// over the logged runs (runlog.h). Claude Generated 2026 (UX stage 6 S4).
+    void showParameterUsage();
     /// Esc: cancel a running calculation, else clear selection/measurement.
     void handleEscape();
-    /// Build/show the viewport context menu from the shared display actions.
+    /// Viewport context menu: atom actions on an atom, view actions elsewhere.
     void showViewportContextMenu(const QPoint& globalPos, int atomIndex);
-    /// One-click PNG export (viewer-bar Photo button, context menu).
+    /// One-click PNG export (viewer-bar Photo button, File menu, context menu).
     void quickExportPhoto();
     /// File ▸ New Scene: clear the scene and enter Build mode. Claude Generated 2026.
     void newScene();
@@ -631,4 +645,12 @@ protected:
     // viewer's Edit mode, so the keys stay free everywhere else; also skipped while a
     // text-entry widget has focus or Ctrl/Alt/Meta is held. Installed on qApp.
     bool eventFilter(QObject* obj, QEvent* event) override;
+
+private:
+    // Claude Generated 2026 - Wayland dock re-docking: redirects the drag events of a
+    // dock-panel drag from any child widget to this QMainWindow, whose event() places the
+    // drop gap (see the definition). Returns true when the event was consumed.
+    bool forwardDockDragEvent(QObject* obj, QEvent* event);
+    bool m_dockDragActive = false;        // a dock drag is currently over this window
+    bool m_dockDragLeavePending = false;  // a child's DragLeave awaits forwarding
 };

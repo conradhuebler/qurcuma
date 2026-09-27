@@ -42,7 +42,7 @@ NMRSpectrumDialog::NMRSpectrumDialog(QWidget* parent)
     m_structureModel = new NMRStructureProxyModel(m_dataStore, this);
 
     // Setup UI
-    setWindowTitle(tr("NMR Spektren Analyse"));
+    setWindowTitle(tr("NMR Spectra"));
     setMinimumSize(800, 600);
 
     setupUI();
@@ -61,7 +61,7 @@ void NMRSpectrumDialog::setupUI()
     auto bottomLayout = new QHBoxLayout();
 
     // Structure section
-    auto structureGroupBox = new QGroupBox(tr("Strukturen"), this);
+    auto structureGroupBox = new QGroupBox(tr("Structures"), this);
     auto structureLayout = new QVBoxLayout(structureGroupBox);
 
     // Structure tree model and view
@@ -79,14 +79,14 @@ void NMRSpectrumDialog::setupUI()
 
     // Structure buttons
     auto buttonLayout = new QHBoxLayout();
-    m_addStructureButton = new QPushButton(tr("Struktur hinzufügen..."), this);
-    m_setReferenceButton = new QPushButton(tr("Als Referenz setzen"), this);
+    m_addStructureButton = new QPushButton(tr("Add Structure..."), this);
+    m_setReferenceButton = new QPushButton(tr("Set as Reference"), this);
     m_setReferenceButton->setEnabled(false); // Enable only when a structure is selected
     buttonLayout->addWidget(m_addStructureButton);
     buttonLayout->addWidget(m_setReferenceButton);
 
     // Element filter
-    m_elementFilterBox = new QGroupBox(tr("Elementfilter"), this);
+    m_elementFilterBox = new QGroupBox(tr("Element Filter"), this);
     auto filterLayout = new QHBoxLayout(m_elementFilterBox);
     // We'll populate this later as structures are added
 
@@ -109,7 +109,7 @@ void NMRSpectrumDialog::setupUI()
     m_maxPoints = new QSpinBox(this);
     m_maxPoints->setRange(10, 1000000);
     m_maxPoints->setValue(m_plotPoints);
-    configLayout->addWidget(new QLabel(tr("Max. Punkte: "), this));
+    configLayout->addWidget(new QLabel(tr("Max. points: "), this));
     configLayout->addWidget(m_maxPoints);
 
     // Line width spinner
@@ -117,14 +117,14 @@ void NMRSpectrumDialog::setupUI()
     m_lineWidthBox->setRange(0.01, 10.0);
     m_lineWidthBox->setSingleStep(0.05);
     m_lineWidthBox->setValue(m_lineWidth);
-    configLayout->addWidget(new QLabel(tr("Linienbreite: "), this));
+    configLayout->addWidget(new QLabel(tr("Line width: "), this));
     configLayout->addWidget(m_lineWidthBox);
 
     // Buttons
     auto actionButtonLayout = new QHBoxLayout();
-    m_generateButton = new QPushButton(tr("Spektrum generieren"), this);
-    m_exportButton = new QPushButton(tr("Exportieren"), this);
-    m_clearButton = new QPushButton(tr("Daten löschen"), this);
+    m_generateButton = new QPushButton(tr("Generate Spectrum"), this);
+    m_exportButton = new QPushButton(tr("Export"), this);
+    m_clearButton = new QPushButton(tr("Clear Data"), this);
     actionButtonLayout->addWidget(m_clearButton);
     actionButtonLayout->addWidget(m_generateButton);
     actionButtonLayout->addWidget(m_exportButton);
@@ -197,7 +197,7 @@ void NMRSpectrumDialog::setupElementFilters()
     NMR_DIALOG_LOG("Setting up element filters with " << elements.size() << " elements");
 
     if (elements.isEmpty()) {
-        auto label = new QLabel(tr("Keine Elemente verfügbar"), m_elementFilterBox);
+        auto label = new QLabel(tr("No elements available"), m_elementFilterBox);
         m_elementFilterBox->layout()->addWidget(label);
         return;
     }
@@ -324,11 +324,11 @@ void NMRSpectrumDialog::setupTable()
 {
     m_shiftTable->setColumnCount(6);
     m_shiftTable->setHorizontalHeaderLabels({ tr("Element"),
-        tr("Kern"),
-        tr("Referenz-Abschirmung"),
-        tr("Abschirmung"),
-        tr("Chem. Verschiebung"),
-        tr("Gewicht") });
+        tr("Nucleus"),
+        tr("Reference Shielding"),
+        tr("Shielding"),
+        tr("Chem. Shift"),
+        tr("Weight") });
     m_shiftTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 
     NMR_DIALOG_LOG("Table setup completed");
@@ -348,9 +348,9 @@ void NMRSpectrumDialog::selectStructureFiles()
 {
     QStringList filenames = QFileDialog::getOpenFileNames(
         this,
-        tr("Strukturen wählen"),
+        tr("Select Structures"),
         QString(),
-        tr("ORCA Output (*.out);;Alle Dateien (*)"));
+        tr("ORCA Output (*.out);;All Files (*)"));
 
     for (const QString& filename : filenames) {
         m_controller->loadStructure(filename, QFileInfo(filename).fileName());
@@ -394,7 +394,7 @@ void NMRSpectrumDialog::handleSpectrumGenerationFailed(const QString& message)
 {
     NMR_DIALOG_LOG("Spectrum generation failed: " << message);
 
-    QMessageBox::warning(this, tr("Fehler"), message);
+    QMessageBox::warning(this, tr("Error"), message);
 }
 
 /**
@@ -532,8 +532,8 @@ void NMRSpectrumDialog::exportData()
 {
     QString filename = QFileDialog::getSaveFileName(
         this,
-        tr("Spektrum exportieren"), "",
-        tr("CSV Dateien (*.csv);;Alle Dateien (*)"));
+        tr("Export Spectrum"), "",
+        tr("CSV Files (*.csv);;All Files (*)"));
 
     if (filename.isEmpty())
         return;
@@ -548,8 +548,8 @@ void NMRSpectrumDialog::clearData()
 {
     if (QMessageBox::question(
             this,
-            tr("Daten löschen"),
-            tr("Möchten Sie wirklich alle Daten löschen?"),
+            tr("Clear Data"),
+            tr("Clear all loaded data?"),
             QMessageBox::Yes | QMessageBox::No)
         == QMessageBox::No) {
         return;

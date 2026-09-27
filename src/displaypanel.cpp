@@ -1,11 +1,10 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
-// DisplayPanel — docked viewer display options. Ported from the former
-// VisualizationSettingsDialog (wiring/presets/persistence preserved). Claude Generated 2026.
+// DisplayPanel — the detailed viewer display options in the Appearance dock.
+// Claude Generated 2026.
 #include "displaypanel.h"
+#include "widgets/colorswatch.h"
 
 #include "widgets/collapsiblesection.h"
-
-#include "ncianalysis.h"
 
 #include <QCheckBox>
 #include <QColorDialog>
@@ -15,17 +14,12 @@
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QLabel>
-#include <QLineEdit>
-#include <QListWidget>
-#include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSettings>
 #include <QTimer>
 #include <QSlider>
-#include <QSpinBox>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <functional>
@@ -36,44 +30,22 @@ DisplayPanel::DisplayPanel(MoleculeViewer* viewer, Settings* settings, QWidget* 
     , m_settings(settings)
 {
     setupUI();
-    if (m_settings)
-        m_settings->initializeDefaultPresets();
     syncFromViewer();
-    refreshPresetList();
 
     // Claude Generated 2026 - re-sync controls after a view preset is applied
     // (camera+display) without the dock being raised.
     if (m_viewer)
         connect(m_viewer, &MoleculeViewer::viewPresetApplied,
                 this, [this]() { syncFromViewer(); });
+    // Claude Generated 2026 - Looks (Look menu) change the appearance from outside.
+    if (m_viewer)
+        connect(m_viewer, &MoleculeViewer::lookApplied, this, [this]() { syncFromViewer(); });
 }
 
 namespace {
-// Claude Generated 2026 - Paint a colour button so the button itself is the swatch.
-// Used by both colour selectors (bead types, interaction classes).
-void applySwatch(QPushButton* button, const QColor& color)
-{
-    if (!button)
-        return;
-    const QString text = color.isValid() ? color.name(QColor::HexRgb) : QString();
-    button->setText(text);
-    if (!color.isValid()) {
-        button->setStyleSheet(QString());
-        return;
-    }
-    // Readable label on both light and dark swatches.
-    const bool dark = color.lightness() < 128;
-    button->setStyleSheet(QStringLiteral("background-color: %1; color: %2;")
-                              .arg(color.name(QColor::HexRgb), dark ? "#ffffff" : "#000000"));
-}
-
-// Small colour square for a combo-box entry, so the whole palette is visible at a glance.
-QIcon swatchIcon(const QColor& color)
-{
-    QPixmap pm(14, 14);
-    pm.fill(color.isValid() ? color : QColor(Qt::transparent));
-    return QIcon(pm);
-}
+// Claude Generated 2026 - Colour selectors use the shared helpers (widgets/colorswatch.h).
+void applySwatch(QPushButton* button, const QColor& color) { swatch::apply(button, color); }
+QIcon swatchIcon(const QColor& color) { return swatch::icon(color); }
 } // namespace
 
 void DisplayPanel::setupUI()
@@ -90,9 +62,15 @@ void DisplayPanel::setupUI()
     col->setContentsMargins(4, 4, 4, 4);
     col->setSpacing(4);
 
-    // Claude Generated 2026 - Sections carry a stable key so their expand state
-    // survives restarts (ui/displayPanel/<key>Expanded) and expandSection() can
-    // surface one programmatically (e.g. the Display menu's NCI entry).
+    // Claude Generated 2026 - UX stage 4a-4: the everyday options sit flat at the top
+    // (Style, then Fragments and Bead types when the structure has them). Material,
+    // Lighting and Effects are Look fields, tuned rarely, and wait in one collapsed
+    // "Advanced" section. Sections carry a stable key so their expand state survives
+    // restarts (ui/displayPanel/<key>Expanded) and expandSection() can surface one.
+    createStyleGroup(col);
+    createFragmentGroup(col);
+    createBeadTypeGroup(col);
+
     QSettings uiSettings;
     auto addSection = [&](const QString& key, const QString& title,
                           std::function<void(QVBoxLayout*)> build, bool expandedDefault) {
@@ -111,54 +89,38 @@ void DisplayPanel::setupUI()
         return sec;
     };
 
-    addSection(QStringLiteral("style"), tr("Style"), [this](QVBoxLayout* l) {
-        createRenderingGroup(l);
-        createFragmentGroup(l);
-        createBeadTypeGroup(l);
+    addSection(QStringLiteral("advanced"), tr("Advanced"), [this](QVBoxLayout* l) {
         createMaterialGroup(l);
-        createSizeGroup(l);
-    }, true);
-    addSection(QStringLiteral("nci"), tr("Interactions (NCI)"),
-        [this](QVBoxLayout* l) { createNciGroup(l); }, false);
-    addSection(QStringLiteral("effects"), tr("Effects"),
-        [this](QVBoxLayout* l) { createAppearanceGroup(l); }, false);
-    addSection(QStringLiteral("lighting"), tr("Lighting"),
-        [this](QVBoxLayout* l) { createLightingGroup(l); }, false);
-    addSection(QStringLiteral("tools"), tr("Tools"),
-        [this](QVBoxLayout* l) { createToolsGroup(l); }, false);
-    addSection(QStringLiteral("presets"), tr("Presets"),
-        [this](QVBoxLayout* l) { createPresetsGroup(l); }, false);
+        createLightingGroup(l);
+        createEffectsGroup(l);
+    }, false);
 
     col->addStretch();
     scroll->setWidget(content);
     m_scroll = scroll;
     root->addWidget(scroll, 1);
 
-    // Footer: live changes apply instantly; these manage defaults.
+    // Claude Generated 2026 - Footer: only the factory reset. Changes apply live and the
+    // last session is restored at startup (saved on exit); looks live in the Look menu.
     auto* footer = new QHBoxLayout;
     footer->setContentsMargins(4, 4, 4, 4);
-    auto* resetBtn = new QPushButton(tr("Reset"), this);
-    resetBtn->setToolTip(tr("Reset all display options to the built-in defaults"));
+    auto* resetBtn = new QPushButton(tr("Reset to Factory Settings"), this);
+    resetBtn->setToolTip(tr("Reset every display option, including NCI and the hydrogen "
+                            "display, to the built-in defaults"));
     connect(resetBtn, &QPushButton::clicked, this, &DisplayPanel::onResetDefaults);
-    auto* loadBtn = new QPushButton(tr("Load Defaults"), this);
-    loadBtn->setToolTip(tr("Apply the display options saved with \"Save as Default\""));
-    connect(loadBtn, &QPushButton::clicked, this, &DisplayPanel::onLoadDefaults);
-    auto* saveBtn = new QPushButton(tr("Save as Default"), this);
-    saveBtn->setToolTip(tr("Remember the current display options for future launches"));
-    connect(saveBtn, &QPushButton::clicked, this, &DisplayPanel::onSaveAsDefault);
-    footer->addWidget(resetBtn);
-    footer->addWidget(loadBtn);
     footer->addStretch();
-    footer->addWidget(saveBtn);
+    footer->addWidget(resetBtn);
     root->addLayout(footer);
 }
 
 // ---------------------------------------------------------------------------
-// Section builders (Rendering/Material/Size/Appearance reused from the dialog)
+// Section builders
 // ---------------------------------------------------------------------------
-void DisplayPanel::createRenderingGroup(QVBoxLayout* mainLayout)
+// Claude Generated 2026 - One flat "Style" group: drawing mode, colours, sizes,
+// labels and background (the former Rendering and Size groups).
+void DisplayPanel::createStyleGroup(QVBoxLayout* mainLayout)
 {
-    QGroupBox* g = new QGroupBox(tr("Rendering"), this);
+    QGroupBox* g = new QGroupBox(tr("Style"), this);
     QFormLayout* f = new QFormLayout(g);
 
     m_renderingModeCombo = new QComboBox(this);
@@ -180,8 +142,25 @@ void DisplayPanel::createRenderingGroup(QVBoxLayout* mainLayout)
         this, &DisplayPanel::onColorSchemeChanged);
     f->addRow(tr("Colors:"), m_colorSchemeCombo);
 
+    m_atomScaleSpinBox = new QDoubleSpinBox(this);
+    m_atomScaleSpinBox->setRange(0.1, 3.0);
+    m_atomScaleSpinBox->setValue(1.0);
+    m_atomScaleSpinBox->setSingleStep(0.1);
+    m_atomScaleSpinBox->setSuffix("x");
+    connect(m_atomScaleSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+        this, &DisplayPanel::onAtomScaleChanged);
+    f->addRow(tr("Atom Size:"), m_atomScaleSpinBox);
+
+    m_bondThicknessSpinBox = new QDoubleSpinBox(this);
+    m_bondThicknessSpinBox->setRange(0.05, 0.5);
+    m_bondThicknessSpinBox->setValue(0.15);
+    m_bondThicknessSpinBox->setSingleStep(0.05);
+    m_bondThicknessSpinBox->setDecimals(2);
+    connect(m_bondThicknessSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+        this, &DisplayPanel::onBondThicknessChanged);
+    f->addRow(tr("Bond Thickness:"), m_bondThicknessSpinBox);
+
     // Claude Generated 2026 - Per-atom overlay labels (element / bead type / index).
-    // Everyday viewing option, so it lives under Style rather than Tools.
     auto* labelCombo = new QComboBox(this);
     labelCombo->addItem(tr("No labels"), int(MoleculeViewer::AtomLabel::None));
     labelCombo->addItem(tr("Element"), int(MoleculeViewer::AtomLabel::Element));
@@ -211,6 +190,19 @@ void DisplayPanel::createRenderingGroup(QVBoxLayout* mainLayout)
         if (m_viewer) m_viewer->setLabelSelectionOnly(on);
     });
     f->addRow(QString(), labelSelOnly);
+
+    // The button is the swatch of the current background (synced in syncFromViewer).
+    m_bgColorButton = new QPushButton(this);
+    m_bgColorButton->setToolTip(tr("Pick the viewer background colour."));
+    connect(m_bgColorButton, &QPushButton::clicked, this, [this]() {
+        if (!m_viewer) return;
+        QColor c = QColorDialog::getColor(m_viewer->getBackgroundColor(), this, tr("Background Color"));
+        if (c.isValid()) {
+            m_viewer->setBackgroundColor(c);
+            applySwatch(m_bgColorButton, c);
+        }
+    });
+    f->addRow(tr("Background:"), m_bgColorButton);
 
     mainLayout->addWidget(g);
 }
@@ -242,35 +234,10 @@ void DisplayPanel::createMaterialGroup(QVBoxLayout* mainLayout)
     mainLayout->addWidget(g);
 }
 
-void DisplayPanel::createSizeGroup(QVBoxLayout* mainLayout)
+// Claude Generated 2026 - Post-processing effects: fog, SSAO, bloom, HDR/exposure.
+void DisplayPanel::createEffectsGroup(QVBoxLayout* mainLayout)
 {
-    QGroupBox* g = new QGroupBox(tr("Size"), this);
-    QFormLayout* f = new QFormLayout(g);
-
-    m_atomScaleSpinBox = new QDoubleSpinBox(this);
-    m_atomScaleSpinBox->setRange(0.1, 3.0);
-    m_atomScaleSpinBox->setValue(1.0);
-    m_atomScaleSpinBox->setSingleStep(0.1);
-    m_atomScaleSpinBox->setSuffix("x");
-    connect(m_atomScaleSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-        this, &DisplayPanel::onAtomScaleChanged);
-    f->addRow(tr("Atom Size:"), m_atomScaleSpinBox);
-
-    m_bondThicknessSpinBox = new QDoubleSpinBox(this);
-    m_bondThicknessSpinBox->setRange(0.05, 0.5);
-    m_bondThicknessSpinBox->setValue(0.15);
-    m_bondThicknessSpinBox->setSingleStep(0.05);
-    m_bondThicknessSpinBox->setDecimals(2);
-    connect(m_bondThicknessSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-        this, &DisplayPanel::onBondThicknessChanged);
-    f->addRow(tr("Bond Thickness:"), m_bondThicknessSpinBox);
-
-    mainLayout->addWidget(g);
-}
-
-void DisplayPanel::createAppearanceGroup(QVBoxLayout* mainLayout)
-{
-    QGroupBox* g = new QGroupBox(tr("Post-processing"), this);
+    QGroupBox* g = new QGroupBox(tr("Effects"), this);
     QFormLayout* f = new QFormLayout(g);
 
     // Fog
@@ -416,186 +383,9 @@ void DisplayPanel::createLightingGroup(QVBoxLayout* mainLayout)
     lightsRow->addStretch();
     v->addLayout(lightsRow);
 
-    m_bgColorButton = new QPushButton(tr("Background Color…"), this);
-    connect(m_bgColorButton, &QPushButton::clicked, this, [this]() {
-        if (!m_viewer) return;
-        QColor c = QColorDialog::getColor(m_viewer->getBackgroundColor(), this, tr("Background Color"));
-        if (c.isValid())
-            m_viewer->setBackgroundColor(c);
-    });
-    v->addWidget(m_bgColorButton);
-
     mainLayout->addWidget(g);
 }
 
-void DisplayPanel::createToolsGroup(QVBoxLayout* mainLayout)
-{
-    QGroupBox* g = new QGroupBox(tr("Tools"), this);
-    QFormLayout* f = new QFormLayout(g);
-
-    m_measureCheck = new QCheckBox(tr("on — click atoms (2=dist, 3=angle, 4=dihedral)"), this);
-    m_measureCheck->setToolTip(tr("Type is auto-detected from the number of picked atoms. "
-                                  "Click a marked atom again to deselect; Esc clears."));
-    connect(m_measureCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setMeasurementMode(on ? 1 : 0);
-    });
-    // Stay in sync with the viewer-bar measurement toggle.
-    if (m_viewer)
-        connect(m_viewer, &MoleculeViewer::measurementModeChanged, m_measureCheck, [this](int mode) {
-            const bool on = (mode != 0);
-            if (m_measureCheck->isChecked() != on) {
-                m_measureCheck->blockSignals(true);
-                m_measureCheck->setChecked(on);
-                m_measureCheck->blockSignals(false);
-            }
-        });
-    f->addRow(tr("Measure:"), m_measureCheck);
-
-    m_bondEditCombo = new QComboBox(this);
-    m_bondEditCombo->addItem(tr("No Bond Edit"), 0);
-    m_bondEditCombo->addItem(tr("Add Bond"), 1);
-    m_bondEditCombo->addItem(tr("Delete Bond"), 2);
-    m_bondEditCombo->addItem(tr("Cycle Order"), 3);
-    connect(m_bondEditCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int i) {
-        if (m_viewer) m_viewer->setBondEditMode(m_bondEditCombo->itemData(i).toInt());
-    });
-    // Claude Generated 2026 - Follow external mode switches (e.g. Edit mode turning
-    // bond-edit off), so the combo no longer shows a stale "Add Bond".
-    if (m_viewer)
-        connect(m_viewer, &MoleculeViewer::bondEditModeChanged, this, [this](int mode) {
-            const int i = m_bondEditCombo->findData(mode);
-            if (i >= 0 && i != m_bondEditCombo->currentIndex()) {
-                m_bondEditCombo->blockSignals(true);
-                m_bondEditCombo->setCurrentIndex(i);
-                m_bondEditCombo->blockSignals(false);
-            }
-        });
-    f->addRow(tr("Bond Edit:"), m_bondEditCombo);
-
-    m_forceVectorsCheck = new QCheckBox(tr("Show force vectors while grabbing"), this);
-    connect(m_forceVectorsCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setForceVectorsVisible(on);
-    });
-    f->addRow(QString(), m_forceVectorsCheck);
-
-    // Claude Generated 2026 - Dynamic bonds: re-detect the bond graph each live MD/Opt frame so
-    // bond breaking/formation in reactions is drawn. Default on (matches MoleculeViewer).
-    auto* dynamicBondsCheck = new QCheckBox(tr("Dynamic bonds (live MD/Opt reactions)"), this);
-    dynamicBondsCheck->setToolTip(tr("Re-detect bonds from the geometry every simulation frame so "
-        "bonds break and form as the structure reacts. Turn off to keep the initial topology fixed. "
-        "In reactive GFN-FF runs the force field's own bond list is drawn instead."));
-    dynamicBondsCheck->setChecked(m_viewer ? m_viewer->dynamicBonds() : true);
-    connect(dynamicBondsCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setDynamicBonds(on);
-    });
-    f->addRow(QString(), dynamicBondsCheck);
-
-    // Claude Generated 2026 - Builder: live docked pose while carrying a fragment.
-    m_dockPreviewCheck = new QCheckBox(tr("Live docking preview (fragments)"), this);
-    m_dockPreviewCheck->setToolTip(tr("While carrying a fragment near a bonding partner, show "
-        "the final docked pose (orientation and clash-avoiding roll) live instead of only "
-        "on drop."));
-    m_dockPreviewCheck->setChecked(true);
-    connect(m_dockPreviewCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setDockPreviewEnabled(on);
-    });
-    f->addRow(QString(), m_dockPreviewCheck);
-
-    // Claude Generated 2026 - Auto-center on load: shift COM to origin when a file is opened.
-    auto* centerOnLoadCheck = new QCheckBox(tr("Center molecule at origin on load"), this);
-    centerOnLoadCheck->setToolTip(tr("When opening a file, translate all frames so the "
-        "mass-weighted centre-of-mass is at the coordinate origin."));
-    const bool currentCenterOnLoad = m_settings
-        ? m_settings->getVisualizationSettings().centerOnLoad : true;
-    centerOnLoadCheck->setChecked(currentCenterOnLoad);
-    connect(centerOnLoadCheck, &QCheckBox::toggled, this, [this](bool on) {
-        emit centerOnLoadChanged(on);
-    });
-    f->addRow(QString(), centerOnLoadCheck);
-
-    // Claude Generated 2026 - Confinement-wall wireframe toggle. The wall geometry
-    // itself is driven by the Simulation config (auto-show when walls are enabled);
-    // this checkbox is an independent show/hide override for the wireframe.
-    m_wallCheck = new QCheckBox(tr("Show confinement walls"), this);
-    m_wallCheck->setToolTip(tr("Show/hide the harmonic confinement-wall wireframe. "
-        "The wall geometry and activation come from the Simulation dock; this only "
-        "toggles whether the box/sphere is drawn."));
-    connect(m_wallCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setWallVisibleOverride(on);
-    });
-    f->addRow(QString(), m_wallCheck);
-
-    // Claude Generated 2026 - Variable wall-wireframe transparency. The RGB
-    // (grey/red on violations) comes from the instance colour; this slider sets
-    // the material alpha via MoleculeViewer::setWallOpacity.
-    QHBoxLayout* wol = new QHBoxLayout;
-    m_wallOpacitySlider = new QSlider(Qt::Horizontal, this);
-    m_wallOpacitySlider->setRange(0, 100);
-    m_wallOpacitySlider->setValue(60);
-    m_wallOpacitySlider->setToolTip(tr("Transparency of the confinement-wall wireframe"));
-    m_wallOpacityLabel = new QLabel("60%", this);
-    m_wallOpacityLabel->setMinimumWidth(40);
-    wol->addWidget(m_wallOpacitySlider);
-    wol->addWidget(m_wallOpacityLabel);
-    connect(m_wallOpacitySlider, &QSlider::valueChanged, this, [this](int v) {
-        if (m_wallOpacityLabel)
-            m_wallOpacityLabel->setText(QString("%1%").arg(v));
-        if (m_viewer)
-            m_viewer->setWallOpacity(v / 100.0);
-    });
-    f->addRow(tr("Wall opacity:"), wol);
-
-    // Iso-potential gradient shell overlay. 3 inside shells (blue->teal) +
-    // 3 outside shells (yellow->red) at force-contour distances from the boundary.
-    m_potGradientCheck = new QCheckBox(tr("Show potential gradient"), this);
-    m_potGradientCheck->setToolTip(tr("Overlay concentric iso-potential wireframe shells:\n"
-        "Blue/teal (inside boundary, approach zone), yellow/red (outside, force zone).\n"
-        "Shell spacing scales with 1/beta for LogFermi walls."));
-    m_potGradientCheck->setChecked(false);
-    connect(m_potGradientCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setWallPotentialViz(on);
-        emit potGradientChanged(on);
-    });
-    f->addRow(QString(), m_potGradientCheck);
-
-    // Wall force vector field: arrows sampled on a grid around the boundary.
-    m_potArrowCheck = new QCheckBox(tr("Show force vectors"), this);
-    m_potArrowCheck->setToolTip(tr("Draw force arrows at grid points around the wall boundary.\n"
-        "Length = force magnitude; colour = distance level.\n"
-        "LogFermi: also shows arrows inside (bell-shaped force profile)."));
-    m_potArrowCheck->setChecked(false);
-    QHBoxLayout* arrowResLay = new QHBoxLayout;
-    m_potArrowResSpin = new QSpinBox(this);
-    m_potArrowResSpin->setRange(2, 8);
-    m_potArrowResSpin->setValue(4);
-    m_potArrowResSpin->setToolTip(tr("Sample points per axis (box face) or per latitude ring (sphere)."));
-    arrowResLay->addWidget(m_potArrowCheck);
-    arrowResLay->addWidget(new QLabel(tr("Res:"), this));
-    arrowResLay->addWidget(m_potArrowResSpin);
-    arrowResLay->addStretch();
-    auto emitArrows = [this]() {
-        const bool on  = m_potArrowCheck   && m_potArrowCheck->isChecked();
-        const int  res = m_potArrowResSpin ? m_potArrowResSpin->value() : 4;
-        if (m_viewer) m_viewer->setWallVectorField(on, res);
-        emit potVectorFieldChanged(on, res);
-    };
-    connect(m_potArrowCheck,   &QCheckBox::toggled,
-            this, [emitArrows](bool) { emitArrows(); });
-    connect(m_potArrowResSpin, QOverload<int>::of(&QSpinBox::valueChanged),
-            this, [emitArrows](int)  { emitArrows(); });
-    f->addRow(QString(), arrowResLay);
-
-    f->addRow(new QLabel(""));
-
-    m_rotationModeCombo = new QComboBox(this);
-    m_rotationModeCombo->addItem(tr("Rotate molecule (camera fixed)"), static_cast<int>(MoleculeViewer::RotationMode::Model));
-    m_rotationModeCombo->addItem(tr("Rotate camera (orbit)"), static_cast<int>(MoleculeViewer::RotationMode::CameraOrbit));
-    connect(m_rotationModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-        this, &DisplayPanel::onRotationModeChanged);
-    f->addRow(tr("Rotation:"), m_rotationModeCombo);
-
-    mainLayout->addWidget(g);
-}
 
 // Claude Generated 2026 - Fragment tinting for host-guest systems.
 //
@@ -945,227 +735,6 @@ void DisplayPanel::refreshBeadTypes()
         m_viewer->getColorScheme() != MoleculeViewer::ColorScheme::ByType);
 }
 
-// Claude Generated 2026 - Non-covalent interaction overlay.
-//
-// Only the two hydrogen-bond numbers are exposed: they are the ones worth moving
-// when looking at a structure. The halogen-bond and van-der-Waals fractions keep
-// their literature defaults (see nci::detectGeometric) rather than adding a wall
-// of spin boxes.
-void DisplayPanel::createNciGroup(QVBoxLayout* mainLayout)
-{
-    QGroupBox* g = new QGroupBox(tr("Non-covalent interactions"), this);
-    QFormLayout* f = new QFormLayout(g);
-
-    m_nciSourceCombo = new QComboBox(this);
-    m_nciSourceCombo->addItem(tr("Off"), 0);
-    m_nciSourceCombo->addItem(tr("Geometry (distance/angle)"), 1);
-    m_nciSourceCombo->addItem(tr("GFN-FF parameters"), 2);
-    m_nciSourceCombo->addItem(tr("Population analysis (GFN2)"), 3);
-    m_nciSourceCombo->setToolTip(tr(
-        "Geometry evaluates distance and angle criteria on the displayed frame. "
-        "GFN-FF reads the hydrogen- and halogen-bond terms of the force field, "
-        "population analysis the charges of a GFN2 calculation."));
-    connect(m_nciSourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this](int i) {
-            const int source = m_nciSourceCombo->itemData(i).toInt();
-            if (m_viewer && source <= 1)
-                m_viewer->setNciSource(source);
-            emit nciSourceChanged(source);
-        });
-    f->addRow(tr("Overlay:"), m_nciSourceCombo);
-
-    auto* kinds = new QWidget(this);
-    auto* kindRow = new QHBoxLayout(kinds);
-    kindRow->setContentsMargins(0, 0, 0, 0);
-    m_nciHBondCheck = new QCheckBox(tr("H"), this);
-    m_nciHBondCheck->setToolTip(tr("Hydrogen bonds D-H...A with D, A from N, O, F, S"));
-    m_nciXBondCheck = new QCheckBox(tr("X"), this);
-    m_nciXBondCheck->setToolTip(tr("Halogen bonds C-X...A with X = Cl, Br, I"));
-    m_nciPiCheck = new QCheckBox(QString::fromUtf8("\xcf\x80"), this);
-    m_nciPiCheck->setToolTip(tr("Pi stacking between planar five- and six-rings"));
-    m_nciContactCheck = new QCheckBox(tr("vdW"), this);
-    m_nciContactCheck->setToolTip(tr("Undirected close contacts below 0.9 times the sum of "
-                                     "the van der Waals radii. Can produce many lines."));
-    m_nciElectrostaticCheck = new QCheckBox(tr("q"), this);
-    m_nciElectrostaticCheck->setToolTip(tr("GFN-FF source only: electrostatic atom pairs with "
-                                           "their Coulomb pair energy, coloured by sign."));
-    m_nciDispersionCheck = new QCheckBox(tr("disp"), this);
-    m_nciDispersionCheck->setToolTip(tr("GFN-FF source only: dispersion atom pairs with their "
-                                        "D4 pair energy."));
-    for (QCheckBox* c : { m_nciHBondCheck, m_nciXBondCheck, m_nciPiCheck, m_nciContactCheck,
-             m_nciElectrostaticCheck, m_nciDispersionCheck }) {
-        kindRow->addWidget(c);
-        connect(c, &QCheckBox::toggled, this, [this]() { applyNciOptions(); });
-    }
-    kindRow->addStretch();
-    f->addRow(tr("Show:"), kinds);
-
-    // The two pair terms exist only in the force-field parameter set.
-    const auto updatePairKindState = [this]() {
-        const bool gfnff = m_nciSourceCombo->currentData().toInt() == 2;
-        m_nciElectrostaticCheck->setEnabled(gfnff);
-        m_nciDispersionCheck->setEnabled(gfnff);
-    };
-    connect(m_nciSourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [updatePairKindState](int) { updatePairKindState(); });
-    updatePairKindState();
-
-    auto* gate = new QWidget(this);
-    auto* gateRow = new QHBoxLayout(gate);
-    gateRow->setContentsMargins(0, 0, 0, 0);
-    m_nciHbDistanceSpin = new QDoubleSpinBox(this);
-    m_nciHbDistanceSpin->setRange(2.0, 3.5);
-    m_nciHbDistanceSpin->setSingleStep(0.05);
-    m_nciHbDistanceSpin->setDecimals(2);
-    m_nciHbDistanceSpin->setSuffix(QString::fromUtf8(" \xc3\x85"));
-    m_nciHbDistanceSpin->setToolTip(tr(
-        "Maximum H...A distance. 2.50 A covers the strong and moderate bands and the "
-        "top of the weak band (Jeffrey, An Introduction to Hydrogen Bonding, 1997)."));
-    m_nciHbAngleSpin = new QSpinBox(this);
-    m_nciHbAngleSpin->setRange(90, 180);
-    m_nciHbAngleSpin->setSuffix(QString::fromUtf8(" \xc2\xb0"));
-    m_nciHbAngleSpin->setToolTip(tr(
-        "Minimum D-H...A angle. The IUPAC definition requires the angle to tend "
-        "towards linearity (Arunan et al., Pure Appl. Chem. 2011, 83, 1637)."));
-    gateRow->addWidget(m_nciHbDistanceSpin);
-    gateRow->addWidget(m_nciHbAngleSpin);
-    gateRow->addStretch();
-    connect(m_nciHbDistanceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-        [this]() { applyNciOptions(); });
-    connect(m_nciHbAngleSpin, QOverload<int>::of(&QSpinBox::valueChanged), this,
-        [this]() { applyNciOptions(); });
-    f->addRow(tr("H...A / angle:"), gate);
-
-    // Colours per interaction class. Same selector shape as the bead types: pick a
-    // class, pick its colour. The electrostatic term is listed twice because the
-    // default palette splits it by sign (attractive vs repulsive).
-    auto* colourRow = new QWidget(this);
-    auto* colourLayout = new QHBoxLayout(colourRow);
-    colourLayout->setContentsMargins(0, 0, 0, 0);
-
-    m_nciKindCombo = new QComboBox(this);
-    for (const auto& entry : nci::paletteEntries())
-        m_nciKindCombo->addItem(entry.second, entry.first);
-    m_nciKindCombo->setToolTip(tr("Interaction class whose overlay colour you want to change."));
-    colourLayout->addWidget(m_nciKindCombo, 1);
-
-    m_nciKindColorButton = new QPushButton(this);
-    m_nciKindColorButton->setMinimumWidth(80);
-    m_nciKindColorButton->setToolTip(tr("Colour of this interaction class in the 3D overlay "
-                                        "and in the contact table."));
-    colourLayout->addWidget(m_nciKindColorButton);
-
-    auto* nciColourReset = new QPushButton(tr("Auto"), this);
-    nciColourReset->setToolTip(tr("Drop all custom interaction colours."));
-    colourLayout->addWidget(nciColourReset);
-    f->addRow(tr("Colour:"), colourRow);
-
-    connect(m_nciKindCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this](int i) {
-            if (m_viewer && i >= 0)
-                applySwatch(m_nciKindColorButton,
-                    m_viewer->getNciKindColor(m_nciKindCombo->itemData(i).toInt()));
-        });
-    connect(m_nciKindColorButton, &QPushButton::clicked, this, [this]() {
-        if (!m_viewer)
-            return;
-        const int key = m_nciKindCombo->currentData().toInt();
-        const QColor chosen = QColorDialog::getColor(m_viewer->getNciKindColor(key), this,
-            tr("Colour for %1").arg(m_nciKindCombo->currentText()));
-        if (!chosen.isValid())
-            return;
-        m_viewer->setNciKindColor(key, chosen);
-        if (m_settings)
-            m_settings->setNciPalette(m_viewer->getNciPalette());
-        refreshNciPalette();
-    });
-    connect(nciColourReset, &QPushButton::clicked, this, [this]() {
-        if (!m_viewer)
-            return;
-        m_viewer->resetNciKindColors();
-        if (m_settings)
-            m_settings->setNciPalette({});
-        refreshNciPalette();
-    });
-
-    m_nciLabelCheck = new QCheckBox(tr("Label contacts with the distance"), this);
-    connect(m_nciLabelCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setNciLabelsVisible(on);
-    });
-    f->addRow(QString(), m_nciLabelCheck);
-
-    m_nciLiveMdCheck = new QCheckBox(tr("Live from GFN-FF during MD"), this);
-    m_nciLiveMdCheck->setToolTip(tr(
-        "Take the contact list from the running GFN-FF force field on every step "
-        "instead of from the geometry. The force field then rebuilds its hydrogen- "
-        "and halogen-bond lists every step, which costs simulation speed."));
-    connect(m_nciLiveMdCheck, &QCheckBox::toggled, this, [this](bool on) {
-        if (m_viewer) m_viewer->setNciLiveMd(on);
-        emit nciLiveMdChanged(on);
-    });
-    f->addRow(QString(), m_nciLiveMdCheck);
-
-    mainLayout->addWidget(g);
-}
-
-void DisplayPanel::refreshNciPalette()
-{
-    if (!m_viewer || !m_nciKindCombo)
-        return;
-    for (int i = 0; i < m_nciKindCombo->count(); ++i) {
-        const int key = m_nciKindCombo->itemData(i).toInt();
-        m_nciKindCombo->setItemIcon(i, swatchIcon(m_viewer->getNciKindColor(key)));
-    }
-    applySwatch(m_nciKindColorButton,
-        m_viewer->getNciKindColor(m_nciKindCombo->currentData().toInt()));
-}
-
-void DisplayPanel::applyNciOptions()
-{
-    if (!m_viewer)
-        return;
-    nci::Options o = m_viewer->getNciOptions();
-    if (m_nciHBondCheck) o.hydrogenBonds = m_nciHBondCheck->isChecked();
-    if (m_nciXBondCheck) o.halogenBonds = m_nciXBondCheck->isChecked();
-    if (m_nciPiCheck) o.piStacking = m_nciPiCheck->isChecked();
-    if (m_nciContactCheck) o.closeContacts = m_nciContactCheck->isChecked();
-    if (m_nciElectrostaticCheck) o.electrostatics = m_nciElectrostaticCheck->isChecked();
-    if (m_nciDispersionCheck) o.dispersion = m_nciDispersionCheck->isChecked();
-    if (m_nciHbDistanceSpin) o.hbMaxDistance = float(m_nciHbDistanceSpin->value());
-    if (m_nciHbAngleSpin) o.hbMinAngle = float(m_nciHbAngleSpin->value());
-    m_viewer->setNciOptions(o);
-}
-
-void DisplayPanel::createPresetsGroup(QVBoxLayout* mainLayout)
-{
-    QGroupBox* quick = new QGroupBox(tr("Quick Presets"), this);
-    QHBoxLayout* ql = new QHBoxLayout(quick);
-    for (const char* name : { "Publication", "Analysis", "Presentation" }) {
-        QString n = QString::fromLatin1(name);
-        QPushButton* b = new QPushButton(tr(name), this);
-        connect(b, &QPushButton::clicked, this, [this, n]() { loadQuickPreset(n); });
-        ql->addWidget(b);
-    }
-    mainLayout->addWidget(quick);
-
-    QGroupBox* custom = new QGroupBox(tr("Custom Presets"), this);
-    QVBoxLayout* cl = new QVBoxLayout(custom);
-    m_presetList = new QListWidget(this);
-    m_presetList->setMaximumHeight(110);
-    cl->addWidget(m_presetList);
-    QHBoxLayout* bl = new QHBoxLayout;
-    QPushButton* loadB = new QPushButton(tr("Load"), this);
-    QPushButton* saveB = new QPushButton(tr("Save As…"), this);
-    QPushButton* delB = new QPushButton(tr("Delete"), this);
-    bl->addWidget(loadB);
-    bl->addWidget(saveB);
-    bl->addWidget(delB);
-    cl->addLayout(bl);
-    connect(loadB, &QPushButton::clicked, this, [this]() { onLoadPreset(m_presetList->currentRow()); });
-    connect(saveB, &QPushButton::clicked, this, &DisplayPanel::onSavePreset);
-    connect(delB, &QPushButton::clicked, this, &DisplayPanel::onDeletePreset);
-    mainLayout->addWidget(custom);
-}
 
 // Claude Generated 2026 - Expand one accordion section and scroll it into view
 // (queued so the layout has settled after the expand).
@@ -1194,13 +763,9 @@ void DisplayPanel::syncFromViewer()
         m_shininessSpinBox, m_atomScaleSpinBox, m_bondThicknessSpinBox, m_fogEnabledCheckBox,
         m_fogIntensitySlider, m_fogDistanceSlider, m_ssaoEnabledCheckBox, m_ssaoIntensitySlider,
         m_ssaoRadiusSpinBox, m_ssaoBiasSpinBox, m_bloomEnabledCheckBox, m_bloomThresholdSpinBox,
-        m_bloomIntensitySlider, m_hdrEnabledCheckBox, m_exposureSpinBox, m_rotationModeCombo,
-        m_forceVectorsCheck, m_wallCheck, m_wallOpacitySlider, m_measureCheck, m_bondEditCombo,
-        m_dockPreviewCheck,
+        m_bloomIntensitySlider, m_hdrEnabledCheckBox, m_exposureSpinBox,
         m_cornerLightButtons[0], m_cornerLightButtons[1], m_cornerLightButtons[2], m_cornerLightButtons[3],
-        m_nciSourceCombo, m_nciHBondCheck, m_nciXBondCheck, m_nciPiCheck, m_nciContactCheck,
-        m_nciHbDistanceSpin, m_nciHbAngleSpin, m_nciLabelCheck, m_nciLiveMdCheck,
-        m_nciElectrostaticCheck, m_nciDispersionCheck, m_nciKindCombo, m_beadTypeCombo,
+        m_beadTypeCombo,
         m_fragmentTintCheck, m_fragmentStrengthSlider, m_fragmentCombo,
         m_fragmentScaleSlider };
     for (const QWidget* w : all)
@@ -1240,46 +805,17 @@ void DisplayPanel::syncFromViewer()
     m_exposureSpinBox->setValue(m_viewer->getExposure());
     m_exposureSpinBox->setEnabled(hdrOn);
 
-    setComboData(m_rotationModeCombo, m_viewer->getRotationMode());
-    m_wallCheck->setChecked(m_viewer->getWallVisibleOverride());
-    const qreal wallOpacity = m_viewer->getWallOpacity();
-    m_wallOpacitySlider->setValue(int(wallOpacity * 100));
-    m_wallOpacityLabel->setText(QString("%1%").arg(int(wallOpacity * 100)));
 
-    const nci::Options o = m_viewer->getNciOptions();
-    m_nciHBondCheck->setChecked(o.hydrogenBonds);
-    m_nciXBondCheck->setChecked(o.halogenBonds);
-    m_nciPiCheck->setChecked(o.piStacking);
-    m_nciContactCheck->setChecked(o.closeContacts);
-    m_nciElectrostaticCheck->setChecked(o.electrostatics);
-    m_nciDispersionCheck->setChecked(o.dispersion);
-    m_nciHbDistanceSpin->setValue(o.hbMaxDistance);
-    m_nciHbAngleSpin->setValue(int(o.hbMinAngle));
-    m_nciLabelCheck->setChecked(m_viewer->getNciLabelsVisible());
-    m_nciLiveMdCheck->setChecked(m_viewer->getNciLiveMd());
     m_fragmentTintCheck->setChecked(m_viewer->getFragmentTint());
-    setComboData(m_nciSourceCombo, m_viewer->getNciSource());
-    const bool gfnff = m_viewer->getNciSource() == 2;
-    m_nciElectrostaticCheck->setEnabled(gfnff);
-    m_nciDispersionCheck->setEnabled(gfnff);
 
     refreshBeadTypes();
-    refreshNciPalette();
     refreshFragments();
 
     m_fogIntensitySlider->setEnabled(m_fogEnabledCheckBox->isChecked());
     m_fogDistanceSlider->setValue(int(m_viewer->getFogDistance() * 100.0f));
-    m_forceVectorsCheck->setChecked(m_viewer->getForceVectorsVisible());
-    m_measureCheck->setChecked(m_viewer->getMeasurementMode() != 0);
-    if (m_dockPreviewCheck)
-        m_dockPreviewCheck->setChecked(m_viewer->dockPreviewEnabled());
-    if (m_bondEditCombo) {
-        const int i = m_bondEditCombo->findData(m_viewer->getBondEditMode());
-        if (i >= 0)
-            m_bondEditCombo->setCurrentIndex(i);
-    }
     for (int i = 0; i < 4; ++i)
         m_cornerLightButtons[i]->setChecked(m_viewer->isCornerLightEnabled(i));
+    applySwatch(m_bgColorButton, m_viewer->getBackgroundColor());
 
     for (const QWidget* w : all)
         if (w) const_cast<QWidget*>(w)->blockSignals(false);
@@ -1353,10 +889,6 @@ void DisplayPanel::onHDREnabledChanged(bool enabled)
     m_exposureSpinBox->setEnabled(enabled);
 }
 void DisplayPanel::onExposureChanged(double value) { if (m_viewer) m_viewer->setExposure(float(value)); }
-void DisplayPanel::onRotationModeChanged(int index)
-{
-    if (m_viewer) m_viewer->setRotationMode(m_rotationModeCombo->itemData(index).toInt());
-}
 
 // ---------------------------------------------------------------------------
 // Footer + presets
@@ -1371,82 +903,3 @@ void DisplayPanel::onResetDefaults()
     syncFromViewer();
 }
 
-void DisplayPanel::onSaveAsDefault()
-{
-    if (!m_settings || !m_viewer)
-        return;
-    // Read-modify-write: centerOnLoad persists on toggle and stays untouched here.
-    Settings::VisualizationSettings c = m_settings->getVisualizationSettings();
-    static_cast<DisplaySettings&>(c) = m_viewer->currentDisplaySettings();
-    c.instancingThreshold = m_viewer->getInstancingThreshold();
-    m_settings->setVisualizationSettings(c);
-}
-
-void DisplayPanel::onLoadDefaults()
-{
-    if (!m_settings || !m_viewer)
-        return;
-    m_viewer->applyDisplaySettings(m_settings->getVisualizationSettings());
-    syncFromViewer();
-}
-
-void DisplayPanel::refreshPresetList()
-{
-    if (!m_settings || !m_presetList)
-        return;
-    m_presetList->clear();
-    for (const auto& preset : m_settings->getVisualizationPresets())
-        m_presetList->addItem(preset.name);
-}
-
-void DisplayPanel::onLoadPreset(int index)
-{
-    if (!m_settings || index < 0 || !m_viewer)
-        return;
-    auto presets = m_settings->getVisualizationPresets();
-    if (index >= presets.size())
-        return;
-    m_viewer->applyDisplaySettings(presets[index].settings);
-    syncFromViewer();
-}
-
-void DisplayPanel::onSavePreset()
-{
-    if (!m_settings || !m_viewer)
-        return;
-    bool ok = false;
-    QString name = QInputDialog::getText(this, tr("Save Preset"), tr("Preset name:"),
-        QLineEdit::Normal, "", &ok);
-    if (!ok || name.isEmpty())
-        return;
-    Settings::VisualizationSettings c;
-    static_cast<DisplaySettings&>(c) = m_viewer->currentDisplaySettings();
-    c.instancingThreshold = m_viewer->getInstancingThreshold();
-    m_settings->savePreset(name, c);
-    refreshPresetList();
-}
-
-void DisplayPanel::onDeletePreset()
-{
-    if (!m_settings || !m_presetList || m_presetList->currentRow() < 0)
-        return;
-    QString name = m_presetList->currentItem()->text();
-    if (name == "Publication" || name == "Analysis" || name == "Presentation") {
-        QMessageBox::warning(this, tr("Cannot Delete"), tr("Built-in presets cannot be deleted."));
-        return;
-    }
-    m_settings->deletePreset(name);
-    refreshPresetList();
-}
-
-void DisplayPanel::loadQuickPreset(const QString& presetName)
-{
-    if (!m_settings || !m_viewer)
-        return;
-    auto presets = m_settings->getVisualizationPresets();
-    for (int i = 0; i < presets.size(); ++i)
-        if (presets[i].name == presetName) {
-            onLoadPreset(i);
-            return;
-        }
-}

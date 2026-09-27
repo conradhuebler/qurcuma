@@ -21,8 +21,9 @@
 #include <QWidget>
 
 class QTableWidget;
-
-class QTableWidget;
+class QMenu;
+class QFormLayout;
+class CollapsibleSection;
 class TemperatureSlider;  // Claude Generated 2026 - vertical temperature-colored slider
 
 /**
@@ -126,6 +127,16 @@ public:
      *  (-md / -opt). Claude Generated 2026. */
     void setMode(SimulationConfig::Mode mode);
 
+    /** @brief Attach the shared recipe menu (MainWindow's Simulation ▸ Recipe) to the
+     *  Recipe button next to the mode. Claude Generated 2026 (UX stage 6 S2). */
+    void setRecipeMenu(QMenu* menu);
+
+public slots:
+    /** @brief Take the non-default simplemd values of the All parameters tab
+     *  (SimulationConfig::mdExtraParams). Claude Generated 2026 (UX stage 6 S3). */
+    void setMdExtraParams(const QJsonObject& params);
+
+public:
     /** @brief Bounded geometry optimization with the current method — the
      *  builder's "Clean up" (refuses while a run is active). Claude Generated 2026. */
     void startQuickOptimization(int maxSteps = 50);
@@ -221,24 +232,29 @@ private:
     // Claude Generated 2026 - WP T1 rest: signal wiring extracted from setupUI() so
     // the latter stays at composition altitude. All connect() targets are m_* members.
     void setupConnections();
-    // Claude Generated 2026 - per-QGroupBox builders extracted from setupUI().
-    // Each creates its group (populating the m_* members it owns) and returns it
-    // for setupUI() to add to the scroll layout.
-    QGroupBox* createPotentialGroup();
+    // Claude Generated 2026 - builders extracted from setupUI(). Each creates its group
+    // or section (populating the m_* members it owns) and returns it for setupUI() to
+    // add to the scroll layout. UX stage 6 S1: the basic parameters (curcuma tier
+    // "primary") sit in the Method and MD groups; every optional feature is a
+    // CollapsibleSection with a switch in its header; the rest is in "Advanced".
+    QGroupBox* createMethodGroup();
     QGroupBox* createReactEventsGroup();   // Claude Generated 2026 - reactive GFN-FF event log
     QGroupBox* createReactiveGroup();      // Claude Generated 2026 - reactive GFN-FF parameters
     /// Show/hide everything that only applies to a reactive GFN-FF MD run, and
     /// lock RATTLE while it is selected. Claude Generated 2026.
     void updateReactEventsVisibility();
     QGroupBox* createMdGroup();
-    QGroupBox* createTempRampGroup();
-    QGroupBox* createTempRegionGroup();
-    QGroupBox* createRattleGroup();
-    QGroupBox* createRmsdMtdGroup();
-    QGroupBox* createWallGroup();
-    QGroupBox* createOptGroup();
-    QGroupBox* createOutputGroup();
-    QGroupBox* createGrabGroup();
+    CollapsibleSection* createTempRampSection();
+    CollapsibleSection* createTempRegionSection();
+    CollapsibleSection* createRattleSection();
+    CollapsibleSection* createRmsdMtdSection();
+    CollapsibleSection* createWallSection();
+    CollapsibleSection* createAdvancedSection();
+    CollapsibleSection* createGrabSection();
+    /// Show only the thermostat fields the chosen thermostat reads.
+    void updateThermostatRows();
+    /// Show the GFN-FF topology row only for GFN-FF.
+    void updateMethodRows();
     /// Stop and join the worker thread, without ever leaving a running QThread to
     /// be destroyed. Claude Generated 2026.
     void stopWorkerThread();
@@ -254,7 +270,13 @@ private:
 
     // --- Mode / method ---
     QComboBox* m_modeCombo = nullptr;
+    QToolButton* m_recipeButton = nullptr;  // Claude Generated 2026 - shared recipe menu
+    QFormLayout* m_methodForm = nullptr;    // Method group (method, optimizer, charge, spin)
+    QFormLayout* m_mdForm = nullptr;        // MD group (thermostat rows, time step, steps)
+    QFormLayout* m_advancedForm = nullptr;  // Advanced section (mode-specific rows)
     QComboBox* m_methodCombo = nullptr;
+    QSpinBox* m_chargeSpin = nullptr;   // curcuma "charge" (Claude Generated 2026)
+    QSpinBox* m_spinSpin = nullptr;     // curcuma "spin": unpaired electrons
     QComboBox* m_optimizerCombo = nullptr;  // Claude Generated 2026 - opt algorithm picker
 
     // --- Common (visible in both modes) ---
@@ -270,7 +292,8 @@ private:
     QDoubleSpinBox* m_andersenProbSpin = nullptr;  // Andersen collision probability
     QSpinBox*       m_noseChainSpin = nullptr;     // Nosé-Hoover chain length
     QDoubleSpinBox* m_timestepSpin = nullptr;
-    QSpinBox* m_stepsSpin = nullptr;
+    QSpinBox* m_stepsSpin = nullptr;        // MD: total steps
+    QSpinBox* m_maxIterSpin = nullptr;      // Opt: max iterations (same config field, cfg.steps)
     QDoubleSpinBox* m_hmassSpin = nullptr;  // Hydrogen mass scaling
     QComboBox* m_gpuCombo = nullptr;
     QCheckBox* m_writeTrjCheck = nullptr;
@@ -287,7 +310,6 @@ private:
     QSpinBox* m_reactRefractorySpin = nullptr;
     QCheckBox* m_reactValenceCapCheck = nullptr;
     QSpinBox* m_reactExchangeSpin = nullptr;
-    QWidget* m_topologyLabel = nullptr;   // label of the Topology row (visibility)
 
     // --- Reactive GFN-FF event log (Claude Generated 2026) ---
     QGroupBox* m_reactEventsGroup = nullptr;
@@ -303,10 +325,9 @@ private:
 
     // --- MD/Opt specific groups (shown/hidden based on mode) ---
     QGroupBox*      m_mdGroup = nullptr;       // MD parameters
-    QGroupBox*      m_rattleGroup = nullptr;   // RATTLE constraints
-    QGroupBox*      m_optGroup = nullptr;      // Optimization parameters
-    QWidget*        m_rattleDetails = nullptr;  // hidden when mode=off
-    QComboBox*      m_rattleCombo = nullptr;
+    CollapsibleSection* m_rattleSection = nullptr;  // RATTLE constraints (switch = on/off)
+    QCheckBox*      m_rattleEnableCheck = nullptr;  // the section's switch
+    QComboBox*      m_rattleCombo = nullptr;        // 1 = all bonds, 2 = bonds to H only
     QCheckBox*      m_rattle12Check = nullptr;
     QCheckBox*      m_rattle13Check = nullptr;
     QDoubleSpinBox* m_rattleTol12Spin = nullptr;
@@ -314,25 +335,23 @@ private:
     QSpinBox*       m_rattleMaxIterSpin = nullptr;
 
     // --- RMSD metadynamics (MD bias, curcuma SimpleMD rmsd_mtd) ---
-    QGroupBox*      m_rmsdMtdGroup = nullptr;
-    QCheckBox*      m_rmsdMtdEnableCheck = nullptr;
-    QWidget*        m_rmsdMtdDetails = nullptr;
+    CollapsibleSection* m_rmsdMtdSection = nullptr;
+    QCheckBox*      m_rmsdMtdEnableCheck = nullptr;  // the section's switch
     QDoubleSpinBox* m_rmsdMtdKSpin = nullptr;
     QDoubleSpinBox* m_rmsdMtdAlphaSpin = nullptr;
     QLineEdit*      m_rmsdMtdAtomsEdit = nullptr;
     QLineEdit*      m_rmsdMtdRefFileEdit = nullptr;
     QSpinBox*       m_rmsdMtdMaxGaussiansSpin = nullptr;
     QSpinBox*       m_rmsdMtdMaxHeightSpin = nullptr;
-    QDoubleSpinBox* m_rmsdMtdEconvSpin = nullptr;
-    QSpinBox*       m_rmsdMtdPaceSpin = nullptr;
+    QDoubleSpinBox* m_rmsdMtdStrideSpin = nullptr;   // rmsd_mtd_deposit_stride (fs)
+    QDoubleSpinBox* m_rmsdMtdRdepSpin = nullptr;     // rmsd_mtd_r_dep (Å, -1 = auto)
     QCheckBox*      m_rmsdMtdWtmtdCheck = nullptr;
     QDoubleSpinBox* m_rmsdMtdDtSpin = nullptr;
     QCheckBox*      m_rmsdMtdFreezeCheck = nullptr;
 
     // --- Confinement walls (curcuma SimpleMD wall_* params) ---
-    QGroupBox*       m_wallGroup = nullptr;
-    QCheckBox*       m_wallEnableCheck = nullptr;
-    QWidget*         m_wallDetails = nullptr;
+    CollapsibleSection* m_wallSection = nullptr;
+    QCheckBox*       m_wallEnableCheck = nullptr;  // the section's switch
     QComboBox*       m_wallTypeCombo = nullptr;   // 0=None, 1=Spheric, 2=Rectangular
     QComboBox*       m_wallPotentialCombo = nullptr; // 0=Harmonic, 1=LogFermi
     QDoubleSpinBox*  m_wallRadiusSpin = nullptr;
@@ -347,11 +366,11 @@ private:
     TemperatureSlider* m_wallBetaSlider = nullptr; // wall_beta: steepness (β), live during run
 
     // --- Temperature ramp (global) + regions (curcuma SimpleMD temp_* params) ---
-    QGroupBox*    m_tempRampGroup = nullptr;
-    QCheckBox*    m_tempRampEnableCheck = nullptr;
-    QWidget*      m_tempRampDetails = nullptr;
+    CollapsibleSection* m_tempRampSection = nullptr;
+    QCheckBox*    m_tempRampEnableCheck = nullptr;  // the section's switch
     QTableWidget* m_tempRampTable = nullptr;     // columns: Target(K) | Mode | Value
-    QGroupBox*    m_tempRegionGroup = nullptr;
+    CollapsibleSection* m_tempRegionSection = nullptr;
+    QCheckBox*    m_tempRegionEnableCheck = nullptr;  // the section's switch (off = no regions sent)
     QTableWidget* m_tempRegionTable = nullptr;   // columns: Atoms | Start T(K) | Schedule
     QLabel*       m_tempOverrideLabel = nullptr; // "ramp overridden" badge after a live drag
 
@@ -360,8 +379,6 @@ private:
     QDoubleSpinBox* m_grabAlphaSpin = nullptr;
     QSpinBox* m_grabMaxShellsSpin = nullptr;
     QComboBox* m_grabPresetCombo = nullptr;
-    QCheckBox* m_grabAdvancedCheck = nullptr;
-    QWidget* m_grabAdvancedWidget = nullptr;
 
     // --- Buttons / status ---
     QToolButton* m_startBtn = nullptr;
@@ -382,6 +399,7 @@ private:
     QVector<MoleculeViewer::Atom> m_atoms;
     QVector<MoleculeViewer::Bond> m_bonds;
     SimulationConfig m_config;
+    QJsonObject m_mdExtraParams;  // Claude Generated 2026 - from the All parameters tab
     SimulationWorker* m_worker = nullptr;
     QThread* m_thread = nullptr;
     bool m_paused = false;

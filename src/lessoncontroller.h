@@ -2,14 +2,14 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
 // Claude Generated 2026 - WP T4. Owns the authored Lesson (data + open/save/add/
-// apply-conditions workflow), the in-memory LessonStructureModel and the
-// Files|Lesson browse mode. The lesson *model* (Lesson/LessonStructure + JSON) lives
+// apply-conditions workflow), the in-memory LessonStructureModel and the lesson list
+// of the Project panel's Lesson section. The lesson *model* (Lesson/LessonStructure + JSON) lives
 // in lesson.h; this class is the workflow that binds it to the viewer, the
 // simulation dock and the ProjectDock lesson widgets. Because that workflow is
 // genuinely host-coupled, the controller holds its collaborators by pointer
 // (injected once after the docks are built) and emits signals for the few actions
-// that remain MainWindow's job (switch working dir, window title, dir refresh,
-// status bar, post-load bookkeeping).
+// that remain MainWindow's job (switch working dir, window title, the Lesson
+// section's count and visibility, status bar, post-load bookkeeping).
 
 #pragma once
 
@@ -23,6 +23,7 @@
 
 class MoleculeViewer;
 class SimulationControlWidget;
+class DockManager;
 class LessonStructureModel;
 class QAbstractItemModel;
 class QListView;
@@ -41,9 +42,11 @@ public:
     // --- Collaborator injection (call once, after ProjectDock is built) ---------
     void setViewer(MoleculeViewer* v) { m_viewer = v; }
     void setSimulationWidget(SimulationControlWidget* w) { m_simWidget = w; }
-    /// @p filesModel is the model to restore when leaving Lesson mode (proxy or plain).
-    void setContentView(QListView* view, QAbstractItemModel* filesModel);
-    void setModeButtons(QToolButton* filesBtn, QToolButton* lessonBtn);
+    /// Saving a lesson records the open panels (restored via lessonOpened). Claude Generated 2026.
+    void setDockManager(DockManager* d) { m_dockManager = d; }
+    /// The lesson's own structure list (Project panel ▸ Lesson section): click loads a
+    /// structure, the context menu loads or removes it. Claude Generated 2026.
+    void setLessonView(QListView* view);
     void setMetaWidgets(QWidget* metaWidget, QLineEdit* title, QLineEdit* desc, QLabel* authors);
     void setStructWidgets(QWidget* structWidget, QLineEdit* name, QLineEdit* desc, QComboBox* role);
     /// Wire the metadata/per-structure editor lambdas and build the structure model.
@@ -56,7 +59,6 @@ public:
 
     // --- Accessors --------------------------------------------------------------
     LessonStructureModel* structureModel() const { return m_structureModel; }
-    bool browseMode() const { return m_browseMode; }
     int structureCount() const { return static_cast<int>(m_lesson.structures.size()); }
 
     // --- Workflow (moved verbatim from MainWindow) ------------------------------
@@ -69,7 +71,6 @@ public:
     void addFiles(const QStringList& paths);          // batch (drag & drop)
     void editMetadata();
     void applyConditions(const QString& filePath);
-    void setBrowserMode(bool lessonMode);
     void refreshStructureView(bool autoShow = false);
     void loadStructureFromIndex(const QModelIndex& index);
     void removeStructure(int row);
@@ -77,11 +78,18 @@ public:
 signals:
     void workingDirectoryChangeRequested(const QString& dir);
     void windowTitleChangeRequested(const QString& title);
-    void directoryContentRefreshRequested();
+    /// The number of lesson structures changed (Lesson section title and visibility).
+    void structureCountChanged(int count);
+    /// Show and open the Lesson section, e.g. after a structure was added.
+    void revealRequested();
     void statusMessage(const QString& msg, int timeoutMs);
     /// An in-memory lesson structure was loaded into the viewer: MainWindow clears
     /// the current file path, resets modified state, enables Save and snapshots it.
     void inMemoryStructureLoaded(const QString& name);
+    /// A lesson file was opened and unpacked. MainWindow switches to Teaching (if the
+    /// preference is on) and then opens @p panels, the panels the lesson was saved with
+    /// (empty for lessons that store none). Claude Generated 2026.
+    void lessonOpened(const QStringList& panels);
 
 private:
     int appendStructureFromAtoms(const QString& name, const QVector<MoleculeViewer::Atom>& atoms);
@@ -92,17 +100,14 @@ private:
     Lesson m_lesson;
     QString m_lessonFilePath;
     int m_currentRow = -1;
-    bool m_browseMode = false;
     LessonStructureModel* m_structureModel = nullptr;
 
     // injected collaborators (not owned)
     QWidget* m_dialogParent = nullptr;
     MoleculeViewer* m_viewer = nullptr;
     SimulationControlWidget* m_simWidget = nullptr;
-    QListView* m_dirView = nullptr;
-    QAbstractItemModel* m_filesModel = nullptr;
-    QToolButton* m_filesModeBtn = nullptr;
-    QToolButton* m_lessonModeBtn = nullptr;
+    DockManager* m_dockManager = nullptr;
+    QListView* m_lessonView = nullptr;
     QWidget* m_metaWidget = nullptr;
     QLineEdit* m_titleEdit = nullptr;
     QLineEdit* m_descEdit = nullptr;

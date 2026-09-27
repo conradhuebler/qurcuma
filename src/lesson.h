@@ -65,6 +65,11 @@ struct LessonStructure {
 struct Lesson {
     LessonMetadata meta;
     QVector<LessonStructure> structures;
+    /// Panels open when the lesson was saved, as dock objectNames (DockConfig), so a
+    /// lesson can bring up e.g. the Simulation dock. Only which panels are open, not
+    /// their sizes or positions. Empty = the lesson leaves the panels as they are.
+    /// Claude Generated 2026.
+    QStringList panels;
 };
 
 // --- Serialization (free functions) -----------------------------------------

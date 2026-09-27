@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <QColor>
+
 #include <QtGlobal>  // qreal
 
 /** @brief The display/appearance state common to the live viewer settings and to
@@ -56,4 +58,11 @@ struct DisplaySettings {
     float fragmentScale = 1.0f;   // draw scale of the non-reference fragments
     // Claude Generated 2026 - Molecule builder.
     bool buildDockPreview = true; // carried fragments show the docked pose live
+    // Claude Generated 2026 - Hydrogen display: 0 = All, 1 = Polar (hide C-H), 2 = None.
+    int hydrogenDisplay = 0;
+    // Claude Generated 2026 - The rest of the look (see look.h), so the last session's
+    // appearance survives a restart (saved on exit, MainWindow::closeEvent).
+    float fogDistance = 0.2f;
+    QColor backgroundColor { 32, 36, 44 };
+    bool cornerLightEnabled[4] = { true, true, false, false };
 };

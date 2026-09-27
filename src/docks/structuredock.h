@@ -1,7 +1,8 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
-// DisplayDock — right-side dock with a segmented top area
-// [Structure | Atoms] and a bottom Display panel.
+// StructureDock — right-side dock with a segmented [Structure | Atoms] area: the
+// XYZ text editor (Apply → Viewer) and the editable atom table. The display
+// settings moved to AppearanceDock in UX stage 4.
 //
 // Claude Generated 2026 - Dock system restructuring.
 
@@ -12,22 +13,18 @@
 #include <QDockWidget>
 
 class AtomListPanel;
-class DisplayPanel;
 class ModifiableTextEdit;
 class QLineEdit;
 class QPushButton;
 class QStackedWidget;
 class QToolButton;
-class MoleculeViewer;
-class Settings;
-class ViewPresetWidget;
 
-class DisplayDock : public QDockWidget
+class StructureDock : public QDockWidget
 {
     Q_OBJECT
 
 public:
-    explicit DisplayDock(MoleculeViewer* viewer, Settings* settings, QWidget* parent = nullptr);
+    explicit StructureDock(QWidget* parent = nullptr);
 
     enum class TopSegment {
         Structure,
@@ -49,18 +46,14 @@ public:
     // Atom table
     AtomListPanel* atomListPanel() const;
 
-    // Display panel
-    DisplayPanel* displayPanel() const;
 
-    // Camera + display preset widget
-    ViewPresetWidget* viewPresetWidget() const;
 
 signals:
     /// "Apply → Viewer" was clicked in the structure editor.
     void structureApplyRequested();
 
 private:
-    void setupUI(MoleculeViewer* viewer, Settings* settings);
+    void setupUI();
     QWidget* createStructurePage();
     QWidget* createAtomsPage();
 
@@ -73,6 +66,4 @@ private:
     QLineEdit* m_structureFileEditExtension = nullptr;
 
     AtomListPanel* m_atomListPanel = nullptr;
-    DisplayPanel* m_displayPanel = nullptr;
-    ViewPresetWidget* m_viewPresetWidget = nullptr;
 };

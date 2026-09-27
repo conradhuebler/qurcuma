@@ -49,7 +49,7 @@ void NMRController::loadStructure(const QString& filename, const QString& name)
 
     } catch (const std::exception& e) {
         NMR_CONTROLLER_LOG("Error loading structure: " << e.what());
-        emit spectrumGenerationFailed(tr("Fehler beim Laden der Struktur: %1").arg(e.what()));
+        emit spectrumGenerationFailed(tr("Could not load structure: %1").arg(e.what()));
     }
 }
 
@@ -121,13 +121,13 @@ bool NMRController::generateSpectrum(int plotPoints, double lineWidth)
 
     if (!hasReference()) {
         NMR_CONTROLLER_LOG("Failed to generate spectrum: No reference structure");
-        emit spectrumGenerationFailed(tr("Bitte wählen Sie eine Referenzstruktur."));
+        emit spectrumGenerationFailed(tr("Select a reference structure first."));
         return false;
     }
 
     if (!hasVisibleStructures()) {
         NMR_CONTROLLER_LOG("Failed to generate spectrum: No visible structures");
-        emit spectrumGenerationFailed(tr("Keine sichtbaren Strukturen vorhanden."));
+        emit spectrumGenerationFailed(tr("No visible structures."));
         return false;
     }
 
@@ -137,7 +137,7 @@ bool NMRController::generateSpectrum(int plotPoints, double lineWidth)
 
     if (m_compoundElementShifts.empty()) {
         NMR_CONTROLLER_LOG("Failed to generate spectrum: No shifts");
-        emit spectrumGenerationFailed(tr("Keine chemischen Verschiebungen gefunden."));
+        emit spectrumGenerationFailed(tr("No chemical shifts found."));
         return false;
     }
 

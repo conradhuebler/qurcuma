@@ -4,6 +4,7 @@
 
 #include "simulationcontrolwidget.h"
 
+#include "widgets/collapsiblesection.h"
 #include "widgets/temperatureslider.h"
 
 #include <src/core/energy_calculators/gpu_plugin.h>
@@ -76,7 +77,7 @@ QGroupBox* SimulationControlWidget::createMdGroup()
     // Vertical temperature-colored slider, live-adjustable during a run. Claude Generated 2026.
     m_tempSlider = new TemperatureSlider(this);
     m_tempSlider->setRange(1.0, 1000.0);
-    m_tempSlider->setValue(300.0);
+    m_tempSlider->setValue(298.15);  // curcuma's default temperature
     m_tempSlider->setToolTip(tr("Thermostat target temperature. Editable min/max; the handle stays\n"
                                 "live during a run — drag it to change the temperature on the fly\n"
                                 "(a drag cancels an active global ramp)."));
@@ -89,6 +90,7 @@ QGroupBox* SimulationControlWidget::createMdGroup()
     mdOuter->addLayout(tempCol);
 
     auto* mdForm = new QFormLayout;
+    m_mdForm = mdForm;
     mdForm->setContentsMargins(0, 0, 0, 0);
     mdOuter->addLayout(mdForm, 1);
 
@@ -140,41 +142,19 @@ QGroupBox* SimulationControlWidget::createMdGroup()
     m_stepsSpin->setSuffix(tr(" steps"));
     mdForm->addRow(tr("Total steps:"), m_stepsSpin);
 
-    // Claude Generated 2026 - Speed (fpsLimit) is now a top-level control visible
-    // in both MD and Opt modes; the in-MD-group copy has been removed.
-
-    m_hmassSpin = new QDoubleSpinBox(this);
-    m_hmassSpin->setRange(1.0, 5.0);
-    m_hmassSpin->setValue(1.0);
-    m_hmassSpin->setDecimals(1);
-    m_hmassSpin->setSingleStep(0.5);
-    m_hmassSpin->setSuffix(" amu");
-    m_hmassSpin->setToolTip(tr("Hydrogen mass scaling: increases H mass to allow larger time steps\n"
-                               "1.0 = normal mass, 2.0-3.0 = common values for faster MD"));
-    mdForm->addRow(tr("H mass:"), m_hmassSpin);
-
     return m_mdGroup;
 }
 
 // Claude Generated 2026 - RMSD Metadynamics group (extracted from setupUI).
 // Exposes curcuma's RMSD-MTD bias (external/curcuma/src/capabilities/simplemd.h,
-// "RMSD-MTD" PARAM category). Shown only in MD mode; details reveal on enable.
-QGroupBox* SimulationControlWidget::createRmsdMtdGroup()
+// "RMSD-MTD" PARAM category). Shown only in MD mode; the header switch enables it.
+CollapsibleSection* SimulationControlWidget::createRmsdMtdSection()
 {
-    m_rmsdMtdGroup = new QGroupBox(tr("RMSD Metadynamics"), this);
-    auto* rmsdOuterLayout = new QVBoxLayout(m_rmsdMtdGroup);
-    rmsdOuterLayout->setSpacing(4);
-    rmsdOuterLayout->setContentsMargins(4, 4, 4, 4);
-
-    m_rmsdMtdEnableCheck = new QCheckBox(tr("Enable RMSD-MTD bias"), this);
-    m_rmsdMtdEnableCheck->setToolTip(tr("Add a bias potential in RMSD-to-reference space "
-        "during the MD run, driving exploration away from already-sampled geometries "
-        "(curcuma SimpleMD rmsd_mtd)."));
-    rmsdOuterLayout->addWidget(m_rmsdMtdEnableCheck);
-
-    m_rmsdMtdDetails = new QWidget(m_rmsdMtdGroup);
-    auto* rmsdForm = new QFormLayout(m_rmsdMtdDetails);
-    rmsdForm->setContentsMargins(0, 0, 0, 0);
+    m_rmsdMtdSection = new CollapsibleSection(tr("RMSD Metadynamics"), this);
+    m_rmsdMtdEnableCheck = m_rmsdMtdSection->addSwitch(tr("Add a bias potential in "
+        "RMSD-to-reference space during the MD run, driving exploration away from "
+        "already-sampled geometries (curcuma SimpleMD rmsd_mtd)."));
+    auto* rmsdForm = new QFormLayout;
 
     m_rmsdMtdKSpin = new QDoubleSpinBox(this);
     m_rmsdMtdKSpin->setRange(0.0, 1000.0);
@@ -182,9 +162,8 @@ QGroupBox* SimulationControlWidget::createRmsdMtdGroup()
     m_rmsdMtdKSpin->setSingleStep(0.01);
     m_rmsdMtdKSpin->setValue(0.01);
     m_rmsdMtdKSpin->setSuffix(" Eh");
-    m_rmsdMtdKSpin->setToolTip(tr("Hill height constant: W_i = k * counter_i (Eh). "
-        "Force is the exact gradient of the bias, so k is ~100x smaller than the "
-        "pre-2026 value."));
+    m_rmsdMtdKSpin->setToolTip(tr("Hill height constant: W_i = k · counter_i (Eh). "
+        "The bias force is the exact gradient of the bias."));
     rmsdForm->addRow(tr("k (height):"), m_rmsdMtdKSpin);
 
     m_rmsdMtdAlphaSpin = new QDoubleSpinBox(this);
@@ -232,25 +211,33 @@ QGroupBox* SimulationControlWidget::createRmsdMtdGroup()
     m_rmsdMtdMaxHeightSpin->setRange(0, 1000000);
     m_rmsdMtdMaxHeightSpin->setValue(0);
     m_rmsdMtdMaxHeightSpin->setToolTip(tr("Cap on per-structure hill counter: "
-        "W_i = k * min(counter_i, cap). 0 = unbounded (legacy)."));
+        "W_i = k · min(counter_i, cap). 0 = unbounded."));
     rmsdForm->addRow(tr("Max height cap:"), m_rmsdMtdMaxHeightSpin);
 
-    m_rmsdMtdEconvSpin = new QDoubleSpinBox(this);
-    m_rmsdMtdEconvSpin->setRange(0.0, 1e12);
-    m_rmsdMtdEconvSpin->setDecimals(0);
-    m_rmsdMtdEconvSpin->setSingleStep(1e7);
-    m_rmsdMtdEconvSpin->setValue(1e8);
-    m_rmsdMtdEconvSpin->setToolTip(tr("Bias-deposition convergence threshold (rmsd_econv). "
-        "Gates when a region is considered biased enough to stop depositing hills; "
-        "passed to curcuma via setEnergyConv()."));
-    rmsdForm->addRow(tr("Conv. threshold:"), m_rmsdMtdEconvSpin);
+    // Claude Generated 2026 - curcuma's default deposition scheme (rmsd_mtd_scheme=strided):
+    // a hill may be deposited every deposit_stride fs, spaced r_dep apart in RMSD space.
+    m_rmsdMtdStrideSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdStrideSpin->setRange(0.1, 1e6);
+    m_rmsdMtdStrideSpin->setDecimals(1);
+    m_rmsdMtdStrideSpin->setSingleStep(5.0);
+    m_rmsdMtdStrideSpin->setValue(10.0);
+    m_rmsdMtdStrideSpin->setSuffix(" fs");
+    m_rmsdMtdStrideSpin->setToolTip(tr("Deposition cadence (rmsd_mtd_deposit_stride): a new hill "
+        "can be deposited every this many fs, converted to steps with the time step. "
+        "The bias force acts every step."));
+    rmsdForm->addRow(tr("Deposit every:"), m_rmsdMtdStrideSpin);
 
-    m_rmsdMtdPaceSpin = new QSpinBox(this);
-    m_rmsdMtdPaceSpin->setRange(1, 1000000);
-    m_rmsdMtdPaceSpin->setValue(1);
-    m_rmsdMtdPaceSpin->setToolTip(tr("Deposition pace. UNUSED in the counter-based "
-        "scheme (kept for compatibility) — deposition is gated by bias level."));
-    rmsdForm->addRow(tr("Pace (unused):"), m_rmsdMtdPaceSpin);
+    m_rmsdMtdRdepSpin = new QDoubleSpinBox(this);
+    m_rmsdMtdRdepSpin->setRange(-1.0, 100.0);
+    m_rmsdMtdRdepSpin->setDecimals(3);
+    m_rmsdMtdRdepSpin->setSingleStep(0.05);
+    m_rmsdMtdRdepSpin->setValue(-1.0);
+    m_rmsdMtdRdepSpin->setSuffix(QStringLiteral(" Å"));
+    m_rmsdMtdRdepSpin->setSpecialValueText(tr("auto"));
+    m_rmsdMtdRdepSpin->setToolTip(tr("Hill spacing in RMSD space (rmsd_mtd_r_dep). It sets the "
+        "smallest hill height V_min = k · exp(−α · r_dep²). auto = full width at half maximum "
+        "of the Gaussian, 2.3548 / √(2α), about 0.53 Å at α = 10."));
+    rmsdForm->addRow(tr("Hill spacing:"), m_rmsdMtdRdepSpin);
 
     m_rmsdMtdWtmtdCheck = new QCheckBox(tr("Well-tempered reporting"), this);
     m_rmsdMtdWtmtdCheck->setToolTip(tr("Switch on well-tempered reporting. Only then "
@@ -275,32 +262,23 @@ QGroupBox* SimulationControlWidget::createRmsdMtdGroup()
         "Bounds cumulative bias force across successive shared-pool runs."));
     rmsdForm->addRow(QString(), m_rmsdMtdFreezeCheck);
 
-    rmsdOuterLayout->addWidget(m_rmsdMtdDetails);
-    m_rmsdMtdDetails->setVisible(false);  // hidden until enabled
-    return m_rmsdMtdGroup;
+    m_rmsdMtdSection->setContentLayout(rmsdForm);
+    return m_rmsdMtdSection;
 }
 
 // Claude Generated 2026 - Confinement Walls group (extracted from setupUI).
 // Exposes curcuma's confinement walls (wall_type/wall_potential/wall_*_min|max/
-// wall_radius, "Walls" PARAM category). MD only; details reveal on enable. The
+// wall_radius, "Walls" PARAM category). MD only; the header switch enables it. The
 // box wireframe is drawn live in the 3D viewer as bounds are typed (MainWindow
 // forwards configChanged to MoleculeViewer::setConfinementBox).
-QGroupBox* SimulationControlWidget::createWallGroup()
+CollapsibleSection* SimulationControlWidget::createWallSection()
 {
-    m_wallGroup = new QGroupBox(tr("Confinement Walls"), this);
-    auto* wallOuterLayout = new QVBoxLayout(m_wallGroup);
-    wallOuterLayout->setSpacing(4);
-    wallOuterLayout->setContentsMargins(4, 4, 4, 4);
-
-    m_wallEnableCheck = new QCheckBox(tr("Enable confinement walls"), this);
-    m_wallEnableCheck->setToolTip(tr("Add a harmonic/logfermi confinement potential "
-        "that pushes atoms back inside the defined region during MD. The wall "
+    m_wallSection = new CollapsibleSection(tr("Confinement Walls"), this);
+    m_wallEnableCheck = m_wallSection->addSwitch(tr("Add a harmonic/logfermi confinement "
+        "potential that pushes atoms back inside the defined region during MD. The wall "
         "geometry is drawn live in the 3D viewer; explicit bounds are required for "
         "the preview (zeros = curcuma auto-size, not previewable)."));
-    wallOuterLayout->addWidget(m_wallEnableCheck);
-
-    m_wallDetails = new QWidget(m_wallGroup);
-    auto* wallForm = new QFormLayout(m_wallDetails);
+    auto* wallForm = new QFormLayout;
 
     m_wallTypeCombo = new QComboBox(this);
     m_wallTypeCombo->addItem(tr("None"), 0);
@@ -404,67 +382,64 @@ QGroupBox* SimulationControlWidget::createWallGroup()
         "0 = curcuma auto-size from molecule geometry (not previewable)."));
     wallForm->addRow(tr("Sphere radius:"), m_wallRadiusSpin);
 
-    wallOuterLayout->addWidget(m_wallDetails);
-    m_wallDetails->setVisible(false);  // hidden until enabled
-
-    // Claude Generated 2026 - Live boundary-violation feedback: shown when walls
-    // are enabled; updated from MoleculeViewer::wallViolationChanged via
-    // MainWindow. The 3D wireframe also turns red when any atom is outside.
-    m_wallStatusLabel = new QLabel(m_wallGroup);
+    // Claude Generated 2026 - Live boundary-violation feedback, updated from
+    // MoleculeViewer::wallViolationChanged via MainWindow. The 3D wireframe also
+    // turns red when any atom is outside.
+    m_wallStatusLabel = new QLabel(this);
     m_wallStatusLabel->setWordWrap(true);
-    m_wallStatusLabel->setVisible(false);
-    wallOuterLayout->addWidget(m_wallStatusLabel);
+    wallForm->addRow(m_wallStatusLabel);
 
-    return m_wallGroup;
+    m_wallSection->setContentLayout(wallForm);
+    return m_wallSection;
 }
 
-// Claude Generated 2026 - Potential / Method group (extracted from setupUI).
-QGroupBox* SimulationControlWidget::createPotentialGroup()
+// Claude Generated 2026 - Method group: the basic parameters shared by MD and
+// optimization (curcuma tier "primary": method, optimizer, charge, spin).
+QGroupBox* SimulationControlWidget::createMethodGroup()
 {
-    auto* potentialGroup = new QGroupBox(tr("Potential / Method"), this);
-    auto* potentialForm = new QFormLayout(potentialGroup);
+    auto* methodGroup = new QGroupBox(tr("Method"), this);
+    auto* methodForm = new QFormLayout(methodGroup);
+    m_methodForm = methodForm;
 
     m_methodCombo = new QComboBox(this);
     m_methodCombo->addItem("GFN-FF", "gfnff");
     m_methodCombo->addItem("UFF", "uff");
     m_methodCombo->addItem("GFN2", "gfn2");
     m_methodCombo->addItem("GFN1", "gfn1");
-    potentialForm->addRow(tr("Method:"), m_methodCombo);
+    methodForm->addRow(tr("Method:"), m_methodCombo);
 
-    m_gpuCombo = new QComboBox(this);
-    m_gpuCombo->addItem(tr("CPU (none)"), "none");
-    // Claude Generated 2026 - GPU backends are runtime-loaded curcuma plugins
-    // (libcurcuma_<backend>.so next to the executable); USE_CUDA/USE_ROCM/USE_VULKAN
-    // are no longer visible outside the plugin targets. List what can actually be
-    // loaded. available() dlopens the plugin (silent on failure, result cached).
-    for (const std::string& backend : gpu_plugin::knownBackends()) {
-        if (!gpu_plugin::available(backend))
-            continue;
-        const QString name = backend == "cuda" ? tr("CUDA")
-            : backend == "rocm"                ? tr("ROCm")
-            : backend == "vulkan"              ? tr("Vulkan")
-                                               : QString::fromStdString(backend);
-        m_gpuCombo->addItem(name, QString::fromStdString(backend));
-    }
-    m_gpuCombo->addItem(tr("Auto"), "auto");
-    m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
-    potentialForm->addRow(tr("GPU:"), m_gpuCombo);
+    m_optimizerCombo = new QComboBox(this);
+    m_optimizerCombo->addItem(tr("Auto"), "auto");
+    m_optimizerCombo->addItem(tr("LBFGS++"), "lbfgspp");
+    m_optimizerCombo->addItem(tr("Native L-BFGS"), "native_lbfgs");
+    m_optimizerCombo->addItem(tr("DIIS"), "native_diis");
+    m_optimizerCombo->addItem(tr("RFO"), "native_rfo");
+    m_optimizerCombo->addItem(tr("ANCOpt"), "ancopt");
+    m_optimizerCombo->setToolTip(tr("Optimization algorithm (geometry optimization only)"));
+    methodForm->addRow(tr("Optimizer:"), m_optimizerCombo);
 
-    // GFN-FF topology mode selector
-    m_topologyModeCombo = new QComboBox(this);
-    m_topologyModeCombo->addItem(tr("Default (adaptive)"), "auto");
-    m_topologyModeCombo->addItem(tr("Constant (fixed)"), "constant");
-    m_topologyModeCombo->addItem(tr("Reactive (bonds form and break)"), "react");
-    m_topologyModeCombo->setToolTip(tr("GFN-FF topology mode: Default recalculates topology when needed, "
-                                       "Constant keeps the initial topology fixed (faster for MD), "
-                                       "Reactive re-detects bonds during MD and rebuilds the bonded terms "
-                                       "when bonds form or break (NVT only)"));
-    potentialForm->addRow(tr("Topology:"), m_topologyModeCombo);
-    // Keep a handle on the row's label so its visibility can follow the combo's
-    // without counting rows (the old code hard-coded index 2). Claude Generated 2026.
-    m_topologyLabel = potentialForm->labelForField(m_topologyModeCombo);
+    // Claude Generated 2026 - The optimizer's iteration limit. It shares cfg.steps with
+    // the MD step count; buildConfig reads the field of the current mode.
+    m_maxIterSpin = new QSpinBox(this);
+    m_maxIterSpin->setRange(1, 10000000);
+    m_maxIterSpin->setValue(10000);
+    m_maxIterSpin->setToolTip(tr("Maximum number of optimizer iterations per run "
+                                 "(curcuma max_iterations)."));
+    methodForm->addRow(tr("Max iterations:"), m_maxIterSpin);
 
-    return potentialGroup;
+    // Claude Generated 2026 - curcuma primary parameters, used by MD and optimization.
+    m_chargeSpin = new QSpinBox(this);
+    m_chargeSpin->setRange(-20, 20);
+    m_chargeSpin->setToolTip(tr("Total charge of the system (curcuma charge)."));
+    methodForm->addRow(tr("Charge:"), m_chargeSpin);
+
+    m_spinSpin = new QSpinBox(this);
+    m_spinSpin->setRange(0, 20);
+    m_spinSpin->setToolTip(tr("Number of unpaired electrons (curcuma spin): 0 = singlet, "
+                              "1 = doublet, 2 = triplet."));
+    methodForm->addRow(tr("Unpaired electrons:"), m_spinSpin);
+
+    return methodGroup;
 }
 
 // Claude Generated 2026 - Reactive GFN-FF parameters (curcuma "Reactive" PARAM
@@ -550,24 +525,17 @@ QGroupBox* SimulationControlWidget::createReactiveGroup()
 
 // Claude Generated 2026 - Temperature Ramp group (extracted from setupUI). Drives
 // the global setpoint through a multi-stage schedule; owns its +/- segment wiring.
-QGroupBox* SimulationControlWidget::createTempRampGroup()
+CollapsibleSection* SimulationControlWidget::createTempRampSection()
 {
-    m_tempRampGroup = new QGroupBox(tr("Temperature Ramp"), this);
-    auto* rampOuter = new QVBoxLayout(m_tempRampGroup);
-    rampOuter->setSpacing(4);
-    rampOuter->setContentsMargins(4, 4, 4, 4);
+    m_tempRampSection = new CollapsibleSection(tr("Temperature Ramp"), this);
+    m_tempRampEnableCheck = m_tempRampSection->addSwitch(tr("Drive the global thermostat setpoint "
+        "through a multi-stage schedule. Each segment ramps to a target either over N steps or "
+        "until the measured temperature reaches it. Dragging the temperature slider during a run "
+        "overrides the ramp."));
+    auto* rampLay = new QVBoxLayout;
+    rampLay->setSpacing(4);
 
-    m_tempRampEnableCheck = new QCheckBox(tr("Enable temperature ramp"), this);
-    m_tempRampEnableCheck->setToolTip(tr("Drive the global thermostat setpoint through a multi-stage "
-        "schedule. Each segment ramps to a target either over N steps or until the measured temperature "
-        "reaches it. Dragging the temperature slider during a run overrides the ramp."));
-    rampOuter->addWidget(m_tempRampEnableCheck);
-
-    m_tempRampDetails = new QWidget(m_tempRampGroup);
-    auto* rampLay = new QVBoxLayout(m_tempRampDetails);
-    rampLay->setContentsMargins(0, 0, 0, 0);
-
-    m_tempRampTable = new QTableWidget(0, 3, m_tempRampDetails);
+    m_tempRampTable = new QTableWidget(0, 3, this);
     m_tempRampTable->setHorizontalHeaderLabels({ tr("Target (K)"), tr("Mode"), tr("Value") });
     m_tempRampTable->horizontalHeader()->setStretchLastSection(true);
     m_tempRampTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -579,20 +547,19 @@ QGroupBox* SimulationControlWidget::createTempRampGroup()
     rampLay->addWidget(m_tempRampTable);
 
     auto* rampBtnRow = new QHBoxLayout;
-    auto* rampAddBtn = new QPushButton(tr("+ Segment"), m_tempRampDetails);
-    auto* rampDelBtn = new QPushButton(tr("− Segment"), m_tempRampDetails);
+    auto* rampAddBtn = new QPushButton(tr("+ Segment"), this);
+    auto* rampDelBtn = new QPushButton(tr("− Segment"), this);
     rampBtnRow->addWidget(rampAddBtn);
     rampBtnRow->addWidget(rampDelBtn);
     rampBtnRow->addStretch(1);
     rampLay->addLayout(rampBtnRow);
 
-    m_tempOverrideLabel = new QLabel(tr("⚠ ramp overridden by manual temperature"), m_tempRampDetails);
+    m_tempOverrideLabel = new QLabel(tr("⚠ ramp overridden by manual temperature"), this);
     m_tempOverrideLabel->setStyleSheet(QStringLiteral("color:#c47f00;"));
     m_tempOverrideLabel->setVisible(false);
     rampLay->addWidget(m_tempOverrideLabel);
 
-    rampOuter->addWidget(m_tempRampDetails);
-    m_tempRampDetails->setVisible(false);  // hidden until enabled
+    m_tempRampSection->setContentLayout(rampLay);
 
     connect(rampAddBtn, &QPushButton::clicked, this, [this]() {
         addRampSegmentRow(500.0, QStringLiteral("steps"), 5000.0);
@@ -607,31 +574,31 @@ QGroupBox* SimulationControlWidget::createTempRampGroup()
     });
     connect(m_tempRampEnableCheck, &QCheckBox::toggled, this,
         [this](bool on) {
-            m_tempRampDetails->setVisible(on);
             if (on && m_tempRampTable->rowCount() == 0)
                 addRampSegmentRow(500.0, QStringLiteral("steps"), 5000.0);
         });
     connect(m_tempRampTable, &QTableWidget::cellChanged, this,
         [this](int, int) { emit configChanged(buildConfig()); });
 
-    return m_tempRampGroup;
+    return m_tempRampSection;
 }
 
 // Claude Generated 2026 - Temperature Regions group (extracted from setupUI).
 // Per-atom-subset thermostats; owns its +/- region wiring.
-QGroupBox* SimulationControlWidget::createTempRegionGroup()
+CollapsibleSection* SimulationControlWidget::createTempRegionSection()
 {
-    m_tempRegionGroup = new QGroupBox(tr("Temperature Regions"), this);
-    auto* regOuter = new QVBoxLayout(m_tempRegionGroup);
+    m_tempRegionSection = new CollapsibleSection(tr("Temperature Regions"), this);
+    m_tempRegionEnableCheck = m_tempRegionSection->addSwitch(tr("Give atom subsets their own "
+        "thermostat temperature. Off: every atom follows the global temperature."));
+    auto* regOuter = new QVBoxLayout;
     regOuter->setSpacing(4);
-    regOuter->setContentsMargins(4, 4, 4, 4);
 
     auto* regHelp = new QLabel(tr("Atom subsets with their own temperature. Atoms in no region "
-        "follow the global temperature."), m_tempRegionGroup);
+        "follow the global temperature."), this);
     regHelp->setWordWrap(true);
     regOuter->addWidget(regHelp);
 
-    m_tempRegionTable = new QTableWidget(0, 3, m_tempRegionGroup);
+    m_tempRegionTable = new QTableWidget(0, 3, this);
     m_tempRegionTable->setHorizontalHeaderLabels({ tr("Atoms"), tr("Start T (K)"), tr("Schedule") });
     m_tempRegionTable->horizontalHeader()->setStretchLastSection(true);
     m_tempRegionTable->verticalHeader()->setVisible(false);
@@ -642,8 +609,8 @@ QGroupBox* SimulationControlWidget::createTempRegionGroup()
     regOuter->addWidget(m_tempRegionTable);
 
     auto* regBtnRow = new QHBoxLayout;
-    auto* regAddBtn = new QPushButton(tr("+ Region"), m_tempRegionGroup);
-    auto* regDelBtn = new QPushButton(tr("− Region"), m_tempRegionGroup);
+    auto* regAddBtn = new QPushButton(tr("+ Region"), this);
+    auto* regDelBtn = new QPushButton(tr("− Region"), this);
     regBtnRow->addWidget(regAddBtn);
     regBtnRow->addWidget(regDelBtn);
     regBtnRow->addStretch(1);
@@ -662,31 +629,30 @@ QGroupBox* SimulationControlWidget::createTempRegionGroup()
     });
     connect(m_tempRegionTable, &QTableWidget::cellChanged, this,
         [this](int, int) { emit configChanged(buildConfig()); });
+    connect(m_tempRegionEnableCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (on && m_tempRegionTable->rowCount() == 0)
+            addRegionRow(QStringLiteral("-1"), 300.0, QString());
+        emit configChanged(buildConfig());
+    });
 
-    return m_tempRegionGroup;
+    m_tempRegionSection->setContentLayout(regOuter);
+    return m_tempRegionSection;
 }
 
-// Claude Generated 2026 - RATTLE constraints group (extracted from setupUI).
-QGroupBox* SimulationControlWidget::createRattleGroup()
+// Claude Generated 2026 - RATTLE constraints (curcuma rattle: 0 off, 1 all bonds,
+// 2 bonds to hydrogen only). The header switch is "off"; the combo picks 1 or 2.
+CollapsibleSection* SimulationControlWidget::createRattleSection()
 {
-    m_rattleGroup = new QGroupBox(tr("RATTLE Constraints"), this);
-    auto* rattleOuterLayout = new QVBoxLayout(m_rattleGroup);
-    rattleOuterLayout->setSpacing(4);
-    rattleOuterLayout->setContentsMargins(4, 4, 4, 4);
+    m_rattleSection = new CollapsibleSection(tr("RATTLE Constraints"), this);
+    m_rattleEnableCheck = m_rattleSection->addSwitch(tr("Constrain bond lengths (and optionally "
+        "1-3 distances) with the RATTLE algorithm."));
+    auto* rattleForm = new QFormLayout;
 
-    auto* rattleModeForm = new QFormLayout;
     m_rattleCombo = new QComboBox(this);
-    m_rattleCombo->addItem(tr("Off"), 0);
-    m_rattleCombo->addItem(tr("RATTLE"), 1);
-    m_rattleCombo->addItem(tr("RATTLE (H-only)"), 2);
-    m_rattleCombo->setToolTip(tr("Bond-length constraint algorithm (RATTLE)"));
-    rattleModeForm->addRow(tr("Mode:"), m_rattleCombo);
-    rattleOuterLayout->addLayout(rattleModeForm);
-
-    // Detail controls — shown only when RATTLE is active
-    m_rattleDetails = new QWidget(m_rattleGroup);
-    auto* rattleForm = new QFormLayout(m_rattleDetails);
-    rattleForm->setContentsMargins(0, 0, 0, 0);
+    m_rattleCombo->addItem(tr("All bonds"), 1);
+    m_rattleCombo->addItem(tr("Bonds to hydrogen only"), 2);
+    m_rattleCombo->setToolTip(tr("Which bonds are constrained (curcuma rattle 1 or 2)."));
+    rattleForm->addRow(tr("Bonds:"), m_rattleCombo);
 
     m_rattle12Check = new QCheckBox(tr("Constrain 1-2 bonds"), this);
     m_rattle12Check->setChecked(true);
@@ -718,26 +684,60 @@ QGroupBox* SimulationControlWidget::createRattleGroup()
     m_rattleMaxIterSpin->setToolTip(tr("Maximum RATTLE iterations per MD step"));
     rattleForm->addRow(tr("Max iter:"), m_rattleMaxIterSpin);
 
-    rattleOuterLayout->addWidget(m_rattleDetails);
-    m_rattleDetails->setVisible(false);  // hidden until mode != off
-    return m_rattleGroup;
+    m_rattleSection->setContentLayout(rattleForm);
+    return m_rattleSection;
 }
 
-// Claude Generated 2026 - Optimization group (extracted from setupUI).
-QGroupBox* SimulationControlWidget::createOptGroup()
+// Claude Generated 2026 - Advanced (UX stage 6 S1): the parameters below curcuma's
+// "primary" tier that are not an optional feature of their own. Collapsed by default;
+// the mode-specific rows are shown by onModeChanged, the topology row by updateMethodRows.
+CollapsibleSection* SimulationControlWidget::createAdvancedSection()
 {
-    m_optGroup = new QGroupBox(tr("Optimization"), this);
-    auto* optForm = new QFormLayout(m_optGroup);
+    auto* section = new CollapsibleSection(tr("Advanced"), this);
+    auto* form = new QFormLayout;
+    m_advancedForm = form;
 
-    m_optimizerCombo = new QComboBox(this);
-    m_optimizerCombo->addItem(tr("Auto"), "auto");
-    m_optimizerCombo->addItem(tr("LBFGS++"), "lbfgspp");
-    m_optimizerCombo->addItem(tr("Native L-BFGS"), "native_lbfgs");
-    m_optimizerCombo->addItem(tr("DIIS"), "native_diis");
-    m_optimizerCombo->addItem(tr("RFO"), "native_rfo");
-    m_optimizerCombo->addItem(tr("ANCOpt"), "ancopt");
-    m_optimizerCombo->setToolTip(tr("Optimization algorithm (geometry optimization only)"));
-    optForm->addRow(tr("Algorithm:"), m_optimizerCombo);
+    m_gpuCombo = new QComboBox(this);
+    m_gpuCombo->addItem(tr("CPU (none)"), "none");
+    // Claude Generated 2026 - GPU backends are runtime-loaded curcuma plugins
+    // (libcurcuma_<backend>.so next to the executable); USE_CUDA/USE_ROCM/USE_VULKAN
+    // are no longer visible outside the plugin targets. List what can actually be
+    // loaded. available() dlopens the plugin (silent on failure, result cached).
+    for (const std::string& backend : gpu_plugin::knownBackends()) {
+        if (!gpu_plugin::available(backend))
+            continue;
+        const QString name = backend == "cuda" ? tr("CUDA")
+            : backend == "rocm"                ? tr("ROCm")
+            : backend == "vulkan"              ? tr("Vulkan")
+                                               : QString::fromStdString(backend);
+        m_gpuCombo->addItem(name, QString::fromStdString(backend));
+    }
+    m_gpuCombo->addItem(tr("Auto"), "auto");
+    m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
+    form->addRow(tr("GPU:"), m_gpuCombo);
+
+    // GFN-FF topology mode selector
+    m_topologyModeCombo = new QComboBox(this);
+    m_topologyModeCombo->addItem(tr("Default (adaptive)"), "auto");
+    m_topologyModeCombo->addItem(tr("Constant (fixed)"), "constant");
+    m_topologyModeCombo->addItem(tr("Reactive (bonds form and break)"), "react");
+    m_topologyModeCombo->setToolTip(tr("GFN-FF topology mode: Default recalculates topology when needed, "
+                                       "Constant keeps the initial topology fixed (faster for MD), "
+                                       "Reactive re-detects bonds during MD and rebuilds the bonded terms "
+                                       "when bonds form or break (NVT only)"));
+    form->addRow(tr("Topology:"), m_topologyModeCombo);
+
+    // curcuma reads hydrogen_mass as an integer factor, so the control only offers those.
+    m_hmassSpin = new QDoubleSpinBox(this);
+    m_hmassSpin->setRange(1.0, 5.0);
+    m_hmassSpin->setValue(1.0);
+    m_hmassSpin->setDecimals(0);
+    m_hmassSpin->setSingleStep(1.0);
+    m_hmassSpin->setSuffix(QStringLiteral(" ×"));
+    m_hmassSpin->setToolTip(tr("Hydrogen mass repartitioning (curcuma hydrogen_mass): scales the "
+                               "H mass so larger time steps stay stable. 1 = normal mass, 2-3 are "
+                               "common for faster MD."));
+    form->addRow(tr("H mass factor:"), m_hmassSpin);
 
     m_convergenceSpin = new QDoubleSpinBox(this);
     m_convergenceSpin->setRange(1e-8, 1e-1);
@@ -748,7 +748,7 @@ QGroupBox* SimulationControlWidget::createOptGroup()
                                      "curcuma's own default is 5e-4; markedly tighter values are "
                                      "below what the methods resolve, and the run then goes to "
                                      "its iteration ceiling with the energy long flat."));
-    optForm->addRow(tr("Gradient tol [Eh/Bohr]:"), m_convergenceSpin);
+    form->addRow(tr("Gradient tol [Eh/Bohr]:"), m_convergenceSpin);
 
     // Claude Generated 2026 - The criterion that matches "nothing is changing any
     // more". It was never written into the controller at all, so it sat at the
@@ -760,7 +760,7 @@ QGroupBox* SimulationControlWidget::createOptGroup()
     m_energyConvergenceSpin->setValue(0.1);   // curcuma's own default
     m_energyConvergenceSpin->setToolTip(tr("Energy change between iterations below which the "
                                            "optimisation is converged."));
-    optForm->addRow(tr("Energy tol [kJ/mol]:"), m_energyConvergenceSpin);
+    form->addRow(tr("Energy tol [kJ/mol]:"), m_energyConvergenceSpin);
 
     // Claude Generated 2026 - Atoms held in place. "Heavy atoms" relaxes only the
     // hydrogens: the usual way to bring an X-ray structure to a method's minimum
@@ -772,13 +772,13 @@ QGroupBox* SimulationControlWidget::createOptGroup()
     m_freezeCombo->addItem(tr("Hydrogens"), QStringLiteral("hydrogens"));
     m_freezeCombo->addItem(tr("Selection"), QStringLiteral("selection"));
     m_freezeCombo->setToolTip(tr("Atoms that keep their position during the optimisation"));
-    optForm->addRow(tr("Hold atoms:"), m_freezeCombo);
+    form->addRow(tr("Hold atoms:"), m_freezeCombo);
     m_freezeEdit = new QLineEdit(this);
     m_freezeEdit->setPlaceholderText(tr("e.g. 1:20,F2 (one-based)"));
     m_freezeEdit->setToolTip(tr("Atoms to hold, in curcuma's selection grammar: 1:20 is the first "
                                 "twenty atoms, F2 the second fragment"));
     m_freezeEdit->setEnabled(false);
-    optForm->addRow(QString(), m_freezeEdit);
+    form->addRow(QString(), m_freezeEdit);
     connect(m_freezeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
         m_freezeEdit->setEnabled(m_freezeCombo->currentData().toString() == QLatin1String("selection"));
     });
@@ -793,35 +793,25 @@ QGroupBox* SimulationControlWidget::createOptGroup()
     m_optKeepParamsCheck->setToolTip(tr("Interactive Opt: keep the force-field parameters/topology fixed "
                                         "across keep-alive restarts instead of rebuilding them from the "
                                         "(grab-distorted) geometry. Recommended on."));
-    optForm->addRow("", m_optKeepParamsCheck);
-
-    return m_optGroup;
-}
-
-// Claude Generated 2026 - Output Options group (extracted from setupUI).
-QGroupBox* SimulationControlWidget::createOutputGroup()
-{
-    auto* outputGroup = new QGroupBox(tr("Output"), this);
-    auto* outputLayout = new QVBoxLayout(outputGroup);
-    outputLayout->setSpacing(4);
-    outputLayout->setContentsMargins(4, 4, 4, 4);
+    form->addRow(QString(), m_optKeepParamsCheck);
 
     m_writeTrjCheck = new QCheckBox(tr("Write .trj.xyz"), this);
-    outputLayout->addWidget(m_writeTrjCheck);
+    form->addRow(QString(), m_writeTrjCheck);
 
     m_perfCheck = new QCheckBox(tr("Performance analysis"), this);
-    outputLayout->addWidget(m_perfCheck);
+    form->addRow(QString(), m_perfCheck);
 
-    return outputGroup;
+    section->setContentLayout(form);
+    section->setExpanded(false);
+    return section;
 }
 
-// Claude Generated 2026 - Interactive Grab group (extracted from setupUI).
-QGroupBox* SimulationControlWidget::createGrabGroup()
+// Claude Generated 2026 - Interactive grab (viewer-side force on dragged atoms).
+// Collapsed by default; the stiffness preset sets α and the shell depth.
+CollapsibleSection* SimulationControlWidget::createGrabSection()
 {
-    auto* grabGroup = new QGroupBox(tr("Interactive Grab"), this);
-    auto* grabOuter = new QVBoxLayout(grabGroup);
-    grabOuter->setContentsMargins(4, 4, 4, 4);
-    grabOuter->setSpacing(4);
+    auto* section = new CollapsibleSection(tr("Interactive Grab"), this);
+    auto* grabForm = new QFormLayout;
 
     m_grabStrengthSpin = new QDoubleSpinBox(this);
     m_grabStrengthSpin->setRange(1e-4, 10.0);
@@ -829,14 +819,11 @@ QGroupBox* SimulationControlWidget::createGrabGroup()
     m_grabStrengthSpin->setSingleStep(0.01);
     m_grabStrengthSpin->setValue(0.1);
     m_grabStrengthSpin->setToolTip(tr("World-space force per screen pixel (Eh/Bohr), Angstrom-to-Bohr corrected"));
-
-    auto* grabForm = new QFormLayout;
     grabForm->addRow(tr("Strength:"), m_grabStrengthSpin);
-    grabOuter->addLayout(grabForm);
 
     // Stiffness presets — map coupled α + maxShells to physical behaviour
     m_grabPresetCombo = new QComboBox(this);
-    m_grabPresetCombo->addItem(tr("Soft (local drag)"), 0);   // α=0.2, shells=5
+    m_grabPresetCombo->addItem(tr("Soft (local drag)"), 0);   // α=0.2, shells=unlimited
     m_grabPresetCombo->addItem(tr("Balanced"), 1);           // α=0.4, shells=3
     m_grabPresetCombo->addItem(tr("Stiff (rigid pull)"), 2);  // α=0.8, shells=1
     m_grabPresetCombo->setCurrentIndex(1);  // Balanced default
@@ -844,33 +831,24 @@ QGroupBox* SimulationControlWidget::createGrabGroup()
                                      "Stiff pulls the whole fragment as a unit"));
     grabForm->addRow(tr("Stiffness:"), m_grabPresetCombo);
 
-    // Advanced controls — hidden by default
-    m_grabAdvancedCheck = new QCheckBox(tr("Advanced"), this);
-    grabForm->addRow("", m_grabAdvancedCheck);
-
-    m_grabAdvancedWidget = new QWidget(this);
-    auto* advLayout = new QFormLayout(m_grabAdvancedWidget);
-    advLayout->setContentsMargins(0, 0, 0, 0);
-
     m_grabAlphaSpin = new QDoubleSpinBox(this);
     m_grabAlphaSpin->setRange(0.0, 1.0);
     m_grabAlphaSpin->setDecimals(2);
     m_grabAlphaSpin->setSingleStep(0.05);
     m_grabAlphaSpin->setValue(0.4);
     m_grabAlphaSpin->setToolTip(tr("Shell decay factor α^depth (0 = only grabbed atom, 1 = uniform)"));
-    advLayout->addRow(tr("α decay:"), m_grabAlphaSpin);
+    grabForm->addRow(tr("α decay:"), m_grabAlphaSpin);
 
     m_grabMaxShellsSpin = new QSpinBox(this);
     m_grabMaxShellsSpin->setRange(-1, 20);
     m_grabMaxShellsSpin->setValue(3);
     m_grabMaxShellsSpin->setSpecialValueText(tr("∞"));
     m_grabMaxShellsSpin->setToolTip(tr("Max BFS depth for force propagation (-1 = unlimited)"));
-    advLayout->addRow(tr("Max shells:"), m_grabMaxShellsSpin);
+    grabForm->addRow(tr("Max shells:"), m_grabMaxShellsSpin);
 
-    m_grabAdvancedWidget->setVisible(false);
-    grabOuter->addWidget(m_grabAdvancedWidget);
-
-    return grabGroup;
+    section->setContentLayout(grabForm);
+    section->setExpanded(false);
+    return section;
 }
 
 void SimulationControlWidget::setupUI()
@@ -895,7 +873,19 @@ void SimulationControlWidget::setupUI()
         static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
     m_modeCombo->addItem(tr("Geometry Optimization"),
         static_cast<int>(SimulationConfig::Mode::GeometryOptimization));
-    simForm->addRow(tr("Mode:"), m_modeCombo);
+    // Claude Generated 2026 - Recipe ▾ next to the mode: named protocols (recipe.h); the
+    // menu is MainWindow's (setRecipeMenu), shared with Simulation ▸ Recipe.
+    m_recipeButton = new QToolButton(this);
+    m_recipeButton->setText(tr("Recipe"));
+    m_recipeButton->setPopupMode(QToolButton::InstantPopup);
+    m_recipeButton->setToolTip(tr("Apply a named simulation protocol (mode, temperature control, "
+                                  "time step, run length, constraints, bias, walls). Method, "
+                                  "charge and unpaired electrons stay as they are."));
+    auto* modeRow = new QHBoxLayout;
+    modeRow->setContentsMargins(0, 0, 0, 0);
+    modeRow->addWidget(m_modeCombo, 1);
+    modeRow->addWidget(m_recipeButton);
+    simForm->addRow(tr("Mode:"), modeRow);
     innerLayout->addLayout(simForm);
 
     // ---- Compact icon button bar + state pill (Claude Generated 2026) ----
@@ -1012,39 +1002,24 @@ void SimulationControlWidget::setupUI()
     connect(m_resetBtn, &QToolButton::clicked,
             this, [this]() { emit resetStructureRequested(0); });
 
-    // ---- Potential / Methode ----
-    innerLayout->addWidget(createPotentialGroup());
+    // ---- Basic parameters (curcuma tier "primary") ----
+    innerLayout->addWidget(createMethodGroup());
+    innerLayout->addWidget(createMdGroup());
 
-    // ---- Reactive topology parameters + event log (reactive GFN-FF only) ----
+    // ---- Reactive GFN-FF: parameters + event log (MD, GFN-FF, Topology = Reactive) ----
     innerLayout->addWidget(createReactiveGroup());
     innerLayout->addWidget(createReactEventsGroup());
 
-    // ---- MD Parameters ----
-    innerLayout->addWidget(createMdGroup());
+    // ---- Optional MD features: one section each, switched in its header ----
+    innerLayout->addWidget(createTempRampSection());     // curcuma temp_ramp/temp_schedule
+    innerLayout->addWidget(createTempRegionSection());   // curcuma temp_regions
+    innerLayout->addWidget(createRattleSection());       // curcuma rattle
+    innerLayout->addWidget(createRmsdMtdSection());      // curcuma rmsd_mtd
+    innerLayout->addWidget(createWallSection());         // curcuma wall_*
 
-    // ---- Temperature Ramp (global setpoint schedule, curcuma temp_ramp/temp_schedule) ----
-    innerLayout->addWidget(createTempRampGroup());
-
-    // ---- Temperature Regions (per-atom-subset thermostats, curcuma temp_regions) ----
-    innerLayout->addWidget(createTempRegionGroup());
-
-    // ---- RATTLE constraints (MD only) ----
-    innerLayout->addWidget(createRattleGroup());
-
-    // ---- RMSD Metadynamics (MD bias, curcuma SimpleMD rmsd_mtd) ----
-    innerLayout->addWidget(createRmsdMtdGroup());
-
-    // ---- Confinement Walls (curcuma SimpleMD wall_* params) ----
-    innerLayout->addWidget(createWallGroup());
-
-    // ---- Optimization Parameters ----
-    innerLayout->addWidget(createOptGroup());
-
-    // ---- Output Options ----
-    innerLayout->addWidget(createOutputGroup());
-
-    // ---- Interactive grab ----
-    innerLayout->addWidget(createGrabGroup());
+    // ---- Interactive grab, then everything else (collapsed) ----
+    innerLayout->addWidget(createGrabSection());
+    innerLayout->addWidget(createAdvancedSection());
 
     innerLayout->addStretch();
 
@@ -1071,6 +1046,8 @@ void SimulationControlWidget::setupConnections()
     auto notifyConfig = [this]() { emit configChanged(buildConfig()); };
     connect(m_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_chargeSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_spinSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_topologyModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     for (QDoubleSpinBox* s : { m_reactFormSpin, m_reactBreakSpin })
         connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
@@ -1087,21 +1064,16 @@ void SimulationControlWidget::setupConnections()
             m_tempOverrideLabel->setVisible(true);
         emit configChanged(buildConfig());
     });
-    // Thermostat: enable only the params relevant to the chosen type. Claude Generated 2026.
-    auto updateThermostatRows = [this]() {
-        const QString t = m_thermostatCombo->currentData().toString();
-        m_couplingSpin->setEnabled(t != "none");
-        m_andersenProbSpin->setEnabled(t == "andersen");
-        m_noseChainSpin->setEnabled(t == "nosehover");
-    };
+    // Thermostat: show only the params the chosen type reads. Claude Generated 2026.
     connect(m_thermostatCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this, updateThermostatRows](int) { updateThermostatRows(); emit configChanged(buildConfig()); });
+        [this](int) { updateThermostatRows(); emit configChanged(buildConfig()); });
     connect(m_couplingSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_andersenProbSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_noseChainSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     updateThermostatRows();
     connect(m_timestepSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_stepsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_maxIterSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_fpsLimitSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_hmassSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_gpuCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
@@ -1112,6 +1084,7 @@ void SimulationControlWidget::setupConnections()
     connect(m_optKeepParamsCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_freezeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_freezeEdit, &QLineEdit::editingFinished, this, notifyConfig);
+    connect(m_rattleEnableCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_rattle12Check, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rattle13Check, &QCheckBox::toggled, this, notifyConfig);
@@ -1127,20 +1100,20 @@ void SimulationControlWidget::setupConnections()
     connect(m_rmsdMtdRefFileEdit, &QLineEdit::textChanged, this, notifyConfig);
     connect(m_rmsdMtdMaxGaussiansSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
     connect(m_rmsdMtdMaxHeightSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
-    connect(m_rmsdMtdEconvSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
-    connect(m_rmsdMtdPaceSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rmsdMtdStrideSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_rmsdMtdRdepSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_rmsdMtdWtmtdCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rmsdMtdDtSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_rmsdMtdFreezeCheck, &QCheckBox::toggled, this, notifyConfig);
 
     // Claude Generated 2026 - Confinement walls: notify on every parameter change.
     connect(m_wallEnableCheck, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_tempRampEnableCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_wallTypeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_wallPotentialCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_wallRadiusSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallXminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallXmaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
-    connect(m_wallYminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallYminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallYmaxSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_wallZminSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
@@ -1155,26 +1128,16 @@ void SimulationControlWidget::setupConnections()
         emit configChanged(buildConfig());
     });
 
-    // Show/hide groups based on mode and RATTLE selection
-    connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        [this](int index) { m_rattleDetails->setVisible(index > 0); });
-
-    // Claude Generated 2026 - RMSD-MTD: reveal details on enable; gate ΔT by wtmtd.
-    connect(m_rmsdMtdEnableCheck, &QCheckBox::toggled, this,
-        [this](bool on) { m_rmsdMtdDetails->setVisible(on); });
+    // Claude Generated 2026 - RMSD-MTD: ΔT only counts with well-tempered reporting.
     connect(m_rmsdMtdWtmtdCheck, &QCheckBox::toggled, this,
         [this](bool on) { m_rmsdMtdDtSpin->setEnabled(on); });
 
-    // Claude Generated 2026 - Confinement walls: reveal details on enable.
-    // All rows stay visible regardless of geometry — the geometry combo decides
-    // which curcuma actually uses (rect bounds vs spheric radius) and which the
-    // 3D viewer draws; greying/visibility swaps here would leave half-empty rows.
+    // Claude Generated 2026 - Confinement walls: all rows stay visible regardless of
+    // geometry — the geometry combo decides which curcuma actually uses (rect bounds
+    // vs spheric radius) and which the 3D viewer draws. The violation line is only
+    // meaningful while walls are on.
     connect(m_wallEnableCheck, &QCheckBox::toggled, this,
-        [this](bool on) {
-            m_wallDetails->setVisible(on);
-            m_wallStatusLabel->setVisible(on);
-            if (!on) m_wallStatusLabel->clear();
-        });
+        [this](bool on) { if (!on) m_wallStatusLabel->clear(); });
 
     auto notifyGrab = [this]() {
         emit grabSettingsChanged(m_grabStrengthSpin->value(),
@@ -1195,10 +1158,6 @@ void SimulationControlWidget::setupConnections()
             }
         });
 
-    // Advanced toggle
-    connect(m_grabAdvancedCheck, &QCheckBox::toggled, this,
-        [this](bool on) { m_grabAdvancedWidget->setVisible(on); });
-
     // Spinbox manual change → switch preset to "custom" (deselect)
     auto markCustom = [this]() {
         m_grabPresetCombo->blockSignals(true);
@@ -1208,13 +1167,39 @@ void SimulationControlWidget::setupConnections()
     connect(m_grabAlphaSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, markCustom);
     connect(m_grabMaxShellsSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, markCustom);
 
-    // Show/hide topology mode only for GFN-FF
+    // Show the topology mode only for GFN-FF (the row, label included), and the
+    // reactive groups only for a reactive GFN-FF MD run.
     connect(m_methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-        &SimulationControlWidget::updateReactEventsVisibility);
+        [this](int /*index*/) {
+            updateMethodRows();
+            updateReactEventsVisibility();
+        });
     connect(m_topologyModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
         &SimulationControlWidget::updateReactEventsVisibility);
 
+    updateThermostatRows();
+    updateMethodRows();
     onModeChanged(0);
+}
+
+// Claude Generated 2026 - Only the fields the chosen thermostat reads are shown:
+// coupling time for every thermostat except "none", the collision probability for
+// Andersen, the chain length for Nosé-Hoover.
+void SimulationControlWidget::updateThermostatRows()
+{
+    if (!m_mdForm || !m_thermostatCombo)
+        return;
+    const QString t = m_thermostatCombo->currentData().toString();
+    m_mdForm->setRowVisible(m_couplingSpin, t != "none");
+    m_mdForm->setRowVisible(m_andersenProbSpin, t == "andersen");
+    m_mdForm->setRowVisible(m_noseChainSpin, t == "nosehover");
+}
+
+void SimulationControlWidget::updateMethodRows()
+{
+    if (m_advancedForm && m_topologyModeCombo)
+        m_advancedForm->setRowVisible(m_topologyModeCombo,
+                                      m_methodCombo->currentData().toString() == "gfnff");
 }
 
 SimulationConfig SimulationControlWidget::buildConfig() const
@@ -1222,10 +1207,13 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     SimulationConfig cfg;
     cfg.mode = static_cast<SimulationConfig::Mode>(m_modeCombo->currentData().toInt());
     cfg.method = m_methodCombo->currentData().toString();
+    cfg.charge = m_chargeSpin->value();
+    cfg.spin = m_spinSpin->value();
     cfg.optimizer = m_optimizerCombo->currentData().toString();
     cfg.temperature = m_tempSlider->value();
     cfg.timestep = m_timestepSpin->value();
-    cfg.steps = m_stepsSpin->value();
+    cfg.steps = (cfg.mode == SimulationConfig::Mode::MolecularDynamics)
+        ? m_stepsSpin->value() : m_maxIterSpin->value();
     cfg.fpsLimit = m_fpsLimitSpin->value();
     cfg.hmass = m_hmassSpin->value();
     // Thermostat (Claude Generated 2026)
@@ -1241,7 +1229,7 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.optKeepParameters = m_optKeepParamsCheck->isChecked();
     cfg.freezeMode = m_freezeCombo->currentData().toString();
     cfg.freezeSelection = m_freezeEdit->text().trimmed();
-    cfg.rattleMode    = m_rattleCombo->currentData().toInt();
+    cfg.rattleMode    = m_rattleEnableCheck->isChecked() ? m_rattleCombo->currentData().toInt() : 0;
     cfg.rattle12      = m_rattle12Check->isChecked();
     cfg.rattle13      = m_rattle13Check->isChecked();
     cfg.rattleTol12   = m_rattleTol12Spin->value();
@@ -1271,8 +1259,8 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.rmsdMtdRefFile       = m_rmsdMtdRefFileEdit->text().trimmed();
     cfg.rmsdMtdMaxGaussians  = m_rmsdMtdMaxGaussiansSpin->value();
     cfg.rmsdMtdMaxHeight     = m_rmsdMtdMaxHeightSpin->value();
-    cfg.rmsdMtdEconv         = m_rmsdMtdEconvSpin->value();
-    cfg.rmsdMtdPace          = m_rmsdMtdPaceSpin->value();
+    cfg.rmsdMtdDepositStride = m_rmsdMtdStrideSpin->value();
+    cfg.rmsdMtdRdep          = m_rmsdMtdRdepSpin->value();
     cfg.rmsdMtdWtmtd         = m_rmsdMtdWtmtdCheck->isChecked();
     cfg.rmsdMtdDt            = m_rmsdMtdDtSpin->value();
     cfg.rmsdMtdFreezeInherited = m_rmsdMtdFreezeCheck->isChecked();
@@ -1307,8 +1295,11 @@ SimulationConfig SimulationControlWidget::buildConfig() const
         cfg.tempSchedule = segs.join(QLatin1Char(';'));
     }
 
+    cfg.mdExtraParams = m_mdExtraParams;  // All parameters tab (UX stage 6 S3)
+
     cfg.tempRegions.clear();
-    for (int r = 0; r < m_tempRegionTable->rowCount(); ++r) {
+    const int regionRows = m_tempRegionEnableCheck->isChecked() ? m_tempRegionTable->rowCount() : 0;
+    for (int r = 0; r < regionRows; ++r) {
         const QTableWidgetItem* atomsItem = m_tempRegionTable->item(r, 0);
         const QTableWidgetItem* tItem = m_tempRegionTable->item(r, 1);
         const QTableWidgetItem* schedItem = m_tempRegionTable->item(r, 2);
@@ -1342,8 +1333,8 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     };
 
     const QList<QWidget*> guarded = {
-        m_modeCombo, m_methodCombo, m_optimizerCombo, m_tempSlider, m_timestepSpin,
-        m_stepsSpin, m_fpsLimitSpin, m_hmassSpin, m_thermostatCombo, m_couplingSpin,
+        m_modeCombo, m_methodCombo, m_chargeSpin, m_spinSpin, m_optimizerCombo, m_tempSlider, m_timestepSpin,
+        m_stepsSpin, m_maxIterSpin, m_fpsLimitSpin, m_hmassSpin, m_thermostatCombo, m_couplingSpin,
         m_andersenProbSpin, m_noseChainSpin, m_gpuCombo, m_writeTrjCheck, m_perfCheck,
         m_convergenceSpin, m_energyConvergenceSpin, m_optKeepParamsCheck, m_freezeCombo, m_freezeEdit,
         m_rattleCombo, m_rattle12Check,
@@ -1352,21 +1343,27 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
         m_reactRefractorySpin, m_reactValenceCapCheck, m_reactExchangeSpin,
         m_rmsdMtdEnableCheck, m_rmsdMtdKSpin, m_rmsdMtdAlphaSpin,
         m_rmsdMtdAtomsEdit, m_rmsdMtdRefFileEdit, m_rmsdMtdMaxGaussiansSpin,
-        m_rmsdMtdMaxHeightSpin, m_rmsdMtdEconvSpin, m_rmsdMtdPaceSpin, m_rmsdMtdWtmtdCheck,
+        m_rmsdMtdMaxHeightSpin, m_rmsdMtdStrideSpin, m_rmsdMtdRdepSpin, m_rmsdMtdWtmtdCheck,
         m_rmsdMtdDtSpin, m_rmsdMtdFreezeCheck, m_wallEnableCheck, m_wallTypeCombo,
         m_wallPotentialCombo, m_wallRadiusSpin, m_wallXminSpin, m_wallXmaxSpin,
         m_wallYminSpin, m_wallYmaxSpin, m_wallZminSpin, m_wallZmaxSpin, m_wallTempSlider,
-        m_wallBetaSlider, m_tempRampEnableCheck, m_tempRampTable, m_tempRegionTable
+        m_wallBetaSlider, m_tempRampEnableCheck, m_tempRampTable, m_tempRegionTable,
+        m_rattleEnableCheck, m_tempRegionEnableCheck
     };
     for (QWidget* w : guarded)
         if (w) w->blockSignals(true);
 
     selectData(m_modeCombo, static_cast<int>(cfg.mode));
     selectData(m_methodCombo, cfg.method);
+    m_chargeSpin->setValue(cfg.charge);
+    m_spinSpin->setValue(cfg.spin);
     selectData(m_optimizerCombo, cfg.optimizer);
     if (m_tempSlider) m_tempSlider->setValue(cfg.temperature);
     m_timestepSpin->setValue(cfg.timestep);
-    m_stepsSpin->setValue(cfg.steps);
+    if (cfg.mode == SimulationConfig::Mode::MolecularDynamics)
+        m_stepsSpin->setValue(cfg.steps);
+    else
+        m_maxIterSpin->setValue(cfg.steps);
     m_fpsLimitSpin->setValue(cfg.fpsLimit);
     m_hmassSpin->setValue(cfg.hmass);
     selectData(m_thermostatCombo, cfg.thermostat);
@@ -1383,6 +1380,8 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     m_freezeEdit->setText(cfg.freezeSelection);
     m_freezeEdit->setEnabled(cfg.freezeMode == QLatin1String("selection"));
     selectData(m_rattleCombo, cfg.rattleMode);
+    if (cfg.rattleMode != 0)
+        selectData(m_rattleCombo, cfg.rattleMode);
     m_rattle12Check->setChecked(cfg.rattle12);
     m_rattle13Check->setChecked(cfg.rattle13);
     m_rattleTol12Spin->setValue(cfg.rattleTol12);
@@ -1408,8 +1407,8 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     m_rmsdMtdRefFileEdit->setText(cfg.rmsdMtdRefFile);
     m_rmsdMtdMaxGaussiansSpin->setValue(cfg.rmsdMtdMaxGaussians);
     m_rmsdMtdMaxHeightSpin->setValue(cfg.rmsdMtdMaxHeight);
-    m_rmsdMtdEconvSpin->setValue(cfg.rmsdMtdEconv);
-    m_rmsdMtdPaceSpin->setValue(cfg.rmsdMtdPace);
+    m_rmsdMtdStrideSpin->setValue(cfg.rmsdMtdDepositStride);
+    m_rmsdMtdRdepSpin->setValue(cfg.rmsdMtdRdep);
     m_rmsdMtdWtmtdCheck->setChecked(cfg.rmsdMtdWtmtd);
     m_rmsdMtdDtSpin->setValue(cfg.rmsdMtdDt);
     m_rmsdMtdFreezeCheck->setChecked(cfg.rmsdMtdFreezeInherited);
@@ -1441,18 +1440,30 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     for (QWidget* w : guarded)
         if (w) w->blockSignals(false);
 
-    // Replicate the primary visibility decisions of the enable-toggle handlers
-    // (those connections were suppressed above). Secondary thermostat sub-field
-    // visibility is left as-is; the stored values are correct regardless.
+    // Replicate what the suppressed handlers would have done: row visibility and the
+    // section switches (setSwitchedOn also expands/enables the section content).
     onModeChanged(m_modeCombo->currentIndex());
-    updateReactEventsVisibility();
-    if (m_rattleDetails) m_rattleDetails->setVisible(cfg.rattleMode != 0);
-    if (m_wallDetails) m_wallDetails->setVisible(cfg.wallEnabled);
-    if (m_rmsdMtdDetails) m_rmsdMtdDetails->setVisible(cfg.rmsdMtd);
-    if (m_tempRampDetails) m_tempRampDetails->setVisible(cfg.tempRamp);
+    updateThermostatRows();
+    updateMethodRows();
+    m_rmsdMtdDtSpin->setEnabled(cfg.rmsdMtdWtmtd && !m_running);
+    m_rattleSection->setSwitchedOn(cfg.rattleMode != 0);
+    m_wallSection->setSwitchedOn(cfg.wallEnabled);
+    m_rmsdMtdSection->setSwitchedOn(cfg.rmsdMtd);
+    m_tempRampSection->setSwitchedOn(cfg.tempRamp);
+    m_tempRegionSection->setSwitchedOn(!cfg.tempRegions.isEmpty());
+    updateReactEventsVisibility();  // after the switches: reactive mode locks RATTLE off
 
+    m_mdExtraParams = cfg.mdExtraParams;
     m_config = cfg;
     emit configChanged(cfg);
+}
+
+void SimulationControlWidget::setMdExtraParams(const QJsonObject& params)
+{
+    if (params == m_mdExtraParams)
+        return;
+    m_mdExtraParams = params;
+    emit configChanged(buildConfig());
 }
 
 // Claude Generated 2026 - append a row to the global ramp table (Target | Mode combo | Value).
@@ -1898,9 +1909,7 @@ void SimulationControlWidget::updateReactEventsVisibility()
     const bool isReact = isGFNFF
         && m_topologyModeCombo->currentData().toString() == QLatin1String("react");
 
-    m_topologyModeCombo->setVisible(isGFNFF);
-    if (m_topologyLabel)
-        m_topologyLabel->setVisible(isGFNFF);
+    updateMethodRows();  // the Topology row itself (Advanced, GFN-FF only)
     if (m_reactGroup)
         m_reactGroup->setVisible(isMD && isReact);
     if (m_reactEventsGroup)
@@ -1909,17 +1918,13 @@ void SimulationControlWidget::updateReactEventsVisibility()
     // RATTLE builds its constraint list once at initialisation, so it would keep
     // constraining bonds that have since broken; curcuma refuses the combination at
     // start-up. Take the choice away here rather than let the run fail.
-    if (m_rattleGroup) {
-        if (isReact && m_rattleCombo && m_rattleCombo->currentData().toInt() != 0) {
-            const QSignalBlocker block(m_rattleCombo);
-            const int off = m_rattleCombo->findData(0);
-            if (off >= 0)
-                m_rattleCombo->setCurrentIndex(off);
-            if (m_rattleDetails)
-                m_rattleDetails->setVisible(false);
+    if (m_rattleSection) {
+        if (isReact && m_rattleSection->isSwitchedOn()) {
+            m_rattleSection->setSwitchedOn(false);
+            emit configChanged(buildConfig());
         }
-        m_rattleGroup->setEnabled(!isReact);
-        m_rattleGroup->setToolTip(isReact
+        m_rattleSection->setEnabled(!isReact);
+        m_rattleSection->setToolTip(isReact
             ? tr("RATTLE is unavailable in reactive mode: the constraint list is built once at "
                  "initialisation and cannot follow bonds that form or break.")
             : QString());
@@ -1971,15 +1976,23 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
     bool isMD = (m_modeCombo->currentData().toInt()
         == static_cast<int>(SimulationConfig::Mode::MolecularDynamics));
 
-    // Show/hide mode-specific groups
+    // Show/hide mode-specific groups, sections and rows (all MD features are curcuma
+    // SimpleMD parameters; the optimizer rows belong to curcumaopt).
     m_mdGroup->setVisible(isMD);
-    m_rattleGroup->setVisible(isMD);
-    m_rmsdMtdGroup->setVisible(isMD);
-    m_wallGroup->setVisible(isMD);  // walls are MD-only (curcuma SimpleMD)
-    m_tempRampGroup->setVisible(isMD);    // temperature ramp is MD-only
-    m_tempRegionGroup->setVisible(isMD);  // temperature regions are MD-only
-    m_optGroup->setVisible(!isMD);
-    updateReactEventsVisibility();        // reactive event log is MD + gfnff + react only
+    m_rattleSection->setVisible(isMD);
+    m_rmsdMtdSection->setVisible(isMD);
+    m_wallSection->setVisible(isMD);
+    m_tempRampSection->setVisible(isMD);
+    m_tempRegionSection->setVisible(isMD);
+    m_methodForm->setRowVisible(m_optimizerCombo, !isMD);
+    m_methodForm->setRowVisible(m_maxIterSpin, !isMD);
+    m_advancedForm->setRowVisible(m_hmassSpin, isMD);
+    m_advancedForm->setRowVisible(m_convergenceSpin, !isMD);
+    m_advancedForm->setRowVisible(m_energyConvergenceSpin, !isMD);
+    m_advancedForm->setRowVisible(m_freezeCombo, !isMD);
+    m_advancedForm->setRowVisible(m_freezeEdit, !isMD);
+    m_advancedForm->setRowVisible(m_optKeepParamsCheck, !isMD);
+    updateReactEventsVisibility();        // reactive groups are MD + gfnff + react only
 
     // Speed is visible in both modes (single-step optimisation uses it as a
     // click-rate cap; MD uses it as the auto-run emit cadence cap).
@@ -2018,11 +2031,19 @@ void SimulationControlWidget::setMode(SimulationConfig::Mode mode)
     m_modeCombo->setCurrentIndex(idx);
 }
 
+void SimulationControlWidget::setRecipeMenu(QMenu* menu)
+{
+    if (m_recipeButton)
+        m_recipeButton->setMenu(menu);
+}
+
 void SimulationControlWidget::setRunning(bool running)
 {
     m_running = running;
     if (!running)
         m_paused = false;
+    if (m_recipeButton)
+        m_recipeButton->setEnabled(!running);
     m_startBtn->setEnabled(!running);
     m_pauseBtn->setEnabled(running);
     m_stopBtn->setEnabled(running);
@@ -2033,25 +2054,27 @@ void SimulationControlWidget::setRunning(bool running)
     // time. Its own availability is controlled by setResetEnabled().
     m_modeCombo->setEnabled(!running);
     m_methodCombo->setEnabled(!running);
+    m_chargeSpin->setEnabled(!running);
+    m_spinSpin->setEnabled(!running);
     m_optimizerCombo->setEnabled(!running);
     // Temperature slider stays editable during a run — that is the whole point of the live
     // setpoint; a drag is forwarded to the worker (temperatureChanged). Claude Generated 2026.
     // The ramp/region configuration is fixed at start, so those lock while running.
     m_tempRampEnableCheck->setEnabled(!running);
     m_tempRampTable->setEnabled(!running);
+    m_tempRegionEnableCheck->setEnabled(!running);
     m_tempRegionTable->setEnabled(!running);
     if (!running && m_tempOverrideLabel)
         m_tempOverrideLabel->setVisible(false);  // clear the override badge on (re)start
     m_timestepSpin->setEnabled(!running);
     m_stepsSpin->setEnabled(!running);
-    // Thermostat type/params are fixed for the duration of a run (Claude Generated 2026).
-    if (m_thermostatCombo) {
-        const QString t = m_thermostatCombo->currentData().toString();
-        m_thermostatCombo->setEnabled(!running);
-        m_couplingSpin->setEnabled(!running && t != "none");
-        m_andersenProbSpin->setEnabled(!running && t == "andersen");
-        m_noseChainSpin->setEnabled(!running && t == "nosehover");
-    }
+    m_maxIterSpin->setEnabled(!running);
+    // Thermostat type/params are fixed for the duration of a run (Claude Generated 2026);
+    // which of them are shown is updateThermostatRows' job.
+    m_thermostatCombo->setEnabled(!running);
+    m_couplingSpin->setEnabled(!running);
+    m_andersenProbSpin->setEnabled(!running);
+    m_noseChainSpin->setEnabled(!running);
     // Speed stays editable during a run — the user often wants to slow down
     // or speed up a live MD/Opt without stopping it.
     // m_fpsLimitSpin->setEnabled(!running);
@@ -2063,6 +2086,7 @@ void SimulationControlWidget::setRunning(bool running)
     m_energyConvergenceSpin->setEnabled(!running);
     if (m_optKeepParamsCheck)
         m_optKeepParamsCheck->setEnabled(!running);
+    m_rattleEnableCheck->setEnabled(!running);
     m_rattleCombo->setEnabled(!running);
     m_rattle12Check->setEnabled(!running);
     m_rattle13Check->setEnabled(!running);
@@ -2078,8 +2102,8 @@ void SimulationControlWidget::setRunning(bool running)
     m_rmsdMtdRefFileEdit->setEnabled(!running);
     m_rmsdMtdMaxGaussiansSpin->setEnabled(!running);
     m_rmsdMtdMaxHeightSpin->setEnabled(!running);
-    m_rmsdMtdEconvSpin->setEnabled(!running);
-    m_rmsdMtdPaceSpin->setEnabled(!running);
+    m_rmsdMtdStrideSpin->setEnabled(!running);
+    m_rmsdMtdRdepSpin->setEnabled(!running);
     m_rmsdMtdWtmtdCheck->setEnabled(!running);
     m_rmsdMtdFreezeCheck->setEnabled(!running);
     // ΔT stays gated by wtmtd; re-apply that constraint after the run-state pass.
