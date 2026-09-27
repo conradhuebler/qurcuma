@@ -788,8 +788,8 @@ void MoleculeViewer::rotateSceneByKey(int key, bool nudge)
     case Qt::Key_D: applyModelRotation(step, 0, 0); break;   // yaw right
     case Qt::Key_W: applyModelRotation(0, step, 0); break;   // pitch up
     case Qt::Key_S: applyModelRotation(0, -step, 0); break;  // pitch down
-    case Qt::Key_Q: applyModelRotation(0, 0, -step); break;  // roll left
-    case Qt::Key_E: applyModelRotation(0, 0, step); break;   // roll right
+    case Qt::Key_Q: applyModelRotation(0, 0, step); break;   // roll (swapped with E, operator 2026-09-27)
+    case Qt::Key_E: applyModelRotation(0, 0, -step); break;  // roll the other way
     default: break;
     }
 }
