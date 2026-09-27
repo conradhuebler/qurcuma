@@ -324,6 +324,16 @@ public slots:
     /// overlays and NCI state but KEEPS the camera, so the first placed atom
     /// appears under the cursor. Undoable via the snapshot. Claude Generated 2026.
     void newScene();
+    /// Claude Generated 2026 - Draw the unit cell of a loaded cif (see
+    /// SceneController::setUnitCell); @p origin in the atoms' current frame.
+    void setUnitCell(const QVector3D& origin, const QVector3D& a, const QVector3D& b,
+        const QVector3D& c, int na, int nb, int nc);
+    void clearUnitCell();
+    void setUnitCellShown(bool on);
+    /// Claude Generated 2026 - Thermal ellipsoids per atom of the current frame
+    /// (empty = none), and whether to draw them at @p probability (0..1).
+    void setAtomEllipsoids(const QVector<moldata::Ellipsoid>& ellipsoids);
+    void setEllipsoidDisplay(bool on, double probability);
     /// Insert a library fragment as a standalone molecule next to the current
     /// structure (selected, movable). Claude Generated 2026.
     void insertFragment(const build::Fragment& fragment);

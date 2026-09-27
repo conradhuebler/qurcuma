@@ -6,6 +6,8 @@
 
 #include "widgets/temperatureslider.h"
 
+#include <src/core/energy_calculators/gpu_plugin.h>
+
 #include <QComboBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -431,15 +433,19 @@ QGroupBox* SimulationControlWidget::createPotentialGroup()
 
     m_gpuCombo = new QComboBox(this);
     m_gpuCombo->addItem(tr("CPU (none)"), "none");
-#if defined(USE_CUDA)
-    m_gpuCombo->addItem(tr("CUDA"), "cuda");
-#endif
-#if defined(USE_ROCM)
-    m_gpuCombo->addItem(tr("ROCm"), "rocm");
-#endif
-#if defined(USE_VULKAN)
-    m_gpuCombo->addItem(tr("Vulkan"), "vulkan");
-#endif
+    // Claude Generated 2026 - GPU backends are runtime-loaded curcuma plugins
+    // (libcurcuma_<backend>.so next to the executable); USE_CUDA/USE_ROCM/USE_VULKAN
+    // are no longer visible outside the plugin targets. List what can actually be
+    // loaded. available() dlopens the plugin (silent on failure, result cached).
+    for (const std::string& backend : gpu_plugin::knownBackends()) {
+        if (!gpu_plugin::available(backend))
+            continue;
+        const QString name = backend == "cuda" ? tr("CUDA")
+            : backend == "rocm"                ? tr("ROCm")
+            : backend == "vulkan"              ? tr("Vulkan")
+                                               : QString::fromStdString(backend);
+        m_gpuCombo->addItem(name, QString::fromStdString(backend));
+    }
     m_gpuCombo->addItem(tr("Auto"), "auto");
     m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
     potentialForm->addRow(tr("GPU:"), m_gpuCombo);
@@ -755,6 +761,27 @@ QGroupBox* SimulationControlWidget::createOptGroup()
     m_energyConvergenceSpin->setToolTip(tr("Energy change between iterations below which the "
                                            "optimisation is converged."));
     optForm->addRow(tr("Energy tol [kJ/mol]:"), m_energyConvergenceSpin);
+
+    // Claude Generated 2026 - Atoms held in place. "Heavy atoms" relaxes only the
+    // hydrogens: the usual way to bring an X-ray structure to a method's minimum
+    // without moving what the diffraction determined (X-H bonds from X-ray are
+    // systematically short).
+    m_freezeCombo = new QComboBox(this);
+    m_freezeCombo->addItem(tr("None"), QStringLiteral("none"));
+    m_freezeCombo->addItem(tr("Heavy atoms (relax H only)"), QStringLiteral("heavy"));
+    m_freezeCombo->addItem(tr("Hydrogens"), QStringLiteral("hydrogens"));
+    m_freezeCombo->addItem(tr("Selection"), QStringLiteral("selection"));
+    m_freezeCombo->setToolTip(tr("Atoms that keep their position during the optimisation"));
+    optForm->addRow(tr("Hold atoms:"), m_freezeCombo);
+    m_freezeEdit = new QLineEdit(this);
+    m_freezeEdit->setPlaceholderText(tr("e.g. 1:20,F2 (one-based)"));
+    m_freezeEdit->setToolTip(tr("Atoms to hold, in curcuma's selection grammar: 1:20 is the first "
+                                "twenty atoms, F2 the second fragment"));
+    m_freezeEdit->setEnabled(false);
+    optForm->addRow(QString(), m_freezeEdit);
+    connect(m_freezeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+        m_freezeEdit->setEnabled(m_freezeCombo->currentData().toString() == QLatin1String("selection"));
+    });
 
     // Claude Generated 2026 - Opt-in: keep the force-field parameters/topology
     // fixed while interactively dragging atoms during a geometry optimization.
@@ -1083,6 +1110,8 @@ void SimulationControlWidget::setupConnections()
     connect(m_convergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_energyConvergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_optKeepParamsCheck, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_freezeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_freezeEdit, &QLineEdit::editingFinished, this, notifyConfig);
     connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_rattle12Check, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rattle13Check, &QCheckBox::toggled, this, notifyConfig);
@@ -1210,6 +1239,8 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.convergence = m_convergenceSpin->value();
     cfg.energyConvergence = m_energyConvergenceSpin->value();
     cfg.optKeepParameters = m_optKeepParamsCheck->isChecked();
+    cfg.freezeMode = m_freezeCombo->currentData().toString();
+    cfg.freezeSelection = m_freezeEdit->text().trimmed();
     cfg.rattleMode    = m_rattleCombo->currentData().toInt();
     cfg.rattle12      = m_rattle12Check->isChecked();
     cfg.rattle13      = m_rattle13Check->isChecked();
@@ -1314,7 +1345,8 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
         m_modeCombo, m_methodCombo, m_optimizerCombo, m_tempSlider, m_timestepSpin,
         m_stepsSpin, m_fpsLimitSpin, m_hmassSpin, m_thermostatCombo, m_couplingSpin,
         m_andersenProbSpin, m_noseChainSpin, m_gpuCombo, m_writeTrjCheck, m_perfCheck,
-        m_convergenceSpin, m_energyConvergenceSpin, m_optKeepParamsCheck, m_rattleCombo, m_rattle12Check,
+        m_convergenceSpin, m_energyConvergenceSpin, m_optKeepParamsCheck, m_freezeCombo, m_freezeEdit,
+        m_rattleCombo, m_rattle12Check,
         m_rattle13Check, m_rattleTol12Spin, m_rattleTol13Spin, m_rattleMaxIterSpin,
         m_topologyModeCombo, m_reactFormSpin, m_reactBreakSpin, m_reactCheckEverySpin,
         m_reactRefractorySpin, m_reactValenceCapCheck, m_reactExchangeSpin,
@@ -1347,6 +1379,9 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     m_convergenceSpin->setValue(cfg.convergence);
     m_energyConvergenceSpin->setValue(cfg.energyConvergence);
     m_optKeepParamsCheck->setChecked(cfg.optKeepParameters);
+    selectData(m_freezeCombo, cfg.freezeMode);
+    m_freezeEdit->setText(cfg.freezeSelection);
+    m_freezeEdit->setEnabled(cfg.freezeMode == QLatin1String("selection"));
     selectData(m_rattleCombo, cfg.rattleMode);
     m_rattle12Check->setChecked(cfg.rattle12);
     m_rattle13Check->setChecked(cfg.rattle13);
@@ -1654,6 +1689,8 @@ void SimulationControlWidget::requestExternalPotentials(const QJsonArray& potent
 QStringList SimulationControlWidget::methodValues() const { return comboValues(m_methodCombo); }
 QStringList SimulationControlWidget::optimizerValues() const { return comboValues(m_optimizerCombo); }
 QStringList SimulationControlWidget::thermostatValues() const { return comboValues(m_thermostatCombo); }
+QStringList SimulationControlWidget::gpuValues() const { return comboValues(m_gpuCombo); }
+QStringList SimulationControlWidget::topologyValues() const { return comboValues(m_topologyModeCombo); }
 
 void SimulationControlWidget::setLiveTemperature(double kelvin)
 {
@@ -1712,19 +1749,7 @@ void SimulationControlWidget::publishLiveState()
     // without reaching into the config from another thread. Auto-sized walls
     // (all bounds zero) have no volume to report -- curcuma picks those at run
     // time. Claude Generated 2026.
-    m_liveState.containerVolume = 0.0;
-    if (m_config.wallEnabled) {
-        if (m_config.wallType == 1 && m_config.wallRadius > 0.0) {
-            m_liveState.containerVolume =
-                4.0 / 3.0 * M_PI * m_config.wallRadius * m_config.wallRadius * m_config.wallRadius;
-        } else if (m_config.wallType == 2) {
-            const double dx = m_config.wallXmax - m_config.wallXmin;
-            const double dy = m_config.wallYmax - m_config.wallYmin;
-            const double dz = m_config.wallZmax - m_config.wallZmin;
-            if (dx > 0.0 && dy > 0.0 && dz > 0.0)
-                m_liveState.containerVolume = dx * dy * dz;
-        }
-    }
+    m_liveState.containerVolume = m_config.containerVolume();
     if (!m_liveState.running) {
         m_liveState.paused = false;
     }

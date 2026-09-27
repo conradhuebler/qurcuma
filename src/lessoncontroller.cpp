@@ -279,9 +279,7 @@ void LessonController::addFiles(const QStringList& paths)
 {
     int added = 0;
     for (const QString& path : paths) {
-        const QString suf = QFileInfo(path).suffix().toLower();
-        if (suf != QLatin1String("xyz") && suf != QLatin1String("vtf")
-            && suf != QLatin1String("pdb") && suf != QLatin1String("mol2"))
+        if (!MoleculeFileLoader::isSupported(path))
             continue;
         const MoleculeFileLoader::Result r = MoleculeFileLoader::load(path);
         const QVector<MoleculeViewer::Atom> atoms = r.frames.isEmpty()

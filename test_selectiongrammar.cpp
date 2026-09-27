@@ -151,7 +151,13 @@ int main(int argc, char** argv)
                 && error.contains(QLatin1String("outside")),
             "an index past the end is refused by name, not passed through");
 
-        check(!resolveAtomSet(atoms, QStringLiteral("F1"), QJsonArray({ 0 }), got, error),
+        // Claude Generated 2026 - a bare 0 here is a null-pointer literal as well as
+        // an int, and with a single-element list that makes the braced-init call
+        // ambiguous between the initializer_list<QJsonValue> constructor and
+        // QJsonArray's private QCborContainerPrivate* one; GCC picked the intended
+        // overload, Apple Clang/libc++ the private one ("calling a private
+        // constructor"). QJsonValue(0) removes the ambiguity for every compiler.
+        check(!resolveAtomSet(atoms, QStringLiteral("F1"), QJsonArray({ QJsonValue(0) }), got, error),
             "an expression and explicit indices together are refused");
 
         check(subsetAtoms(atoms, QVector<int>({ 3, 4 })).size() == 2

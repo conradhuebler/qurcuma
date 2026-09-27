@@ -90,6 +90,8 @@ public:
     QStringList methodValues() const;
     QStringList optimizerValues() const;
     QStringList thermostatValues() const;
+    QStringList gpuValues() const;        ///< only backends whose plugin loads
+    QStringList topologyValues() const;   ///< GFN-FF topology modes
 
     /// Pull on atoms while the run continues: @p forces[i] (Eh/Bohr, model space)
     /// acts on @p atoms[i], each spread through the bond graph with exponential
@@ -295,6 +297,8 @@ private:
     // --- Optimization parameters ---
     QDoubleSpinBox* m_convergenceSpin = nullptr;
     QDoubleSpinBox* m_energyConvergenceSpin = nullptr;   // Claude Generated 2026
+    QComboBox* m_freezeCombo = nullptr;       // Claude Generated 2026 - atoms held during Opt
+    QLineEdit* m_freezeEdit = nullptr;
     QCheckBox* m_optKeepParamsCheck = nullptr;  // Claude Generated 2026 - keep FF params across interactive Opt restarts
 
     // --- MD/Opt specific groups (shown/hidden based on mode) ---

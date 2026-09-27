@@ -2627,6 +2627,51 @@ void MoleculeViewer::buildAttachAtom(int atomIndex)
     addAtomAt(atoms[atomIndex].position + dir * dist, m_buildElement, atomIndex);
 }
 
+void MoleculeViewer::setUnitCell(const QVector3D& origin, const QVector3D& a,
+    const QVector3D& b, const QVector3D& c, int na, int nb, int nc)
+{
+    if (m_scene)
+        m_scene->setUnitCell(origin, a, b, c, na, nb, nc);
+}
+
+void MoleculeViewer::clearUnitCell()
+{
+    if (m_scene)
+        m_scene->clearUnitCell();
+}
+
+void MoleculeViewer::setUnitCellShown(bool on)
+{
+    if (m_scene)
+        m_scene->setUnitCellShown(on);
+}
+
+void MoleculeViewer::setAtomEllipsoids(const QVector<moldata::Ellipsoid>& ellipsoids)
+{
+    if (m_scene)
+        m_scene->setAtomEllipsoids(ellipsoids);
+}
+
+// Claude Generated 2026 - A displacement ellipsoid at probability p encloses the
+// atom's position with probability p. For a 3D Gaussian that is the surface at
+// Mahalanobis radius c with P(chi^2_3 <= c^2) = p, i.e.
+//   p = erf(c / sqrt 2) - sqrt(2/pi) c exp(-c^2 / 2)
+// (c = 1.5382 for the usual 50 %). Solved by bisection; the RMS axes are scaled
+// by c.
+void MoleculeViewer::setEllipsoidDisplay(bool on, double probability)
+{
+    const double p = qBound(0.01, probability, 0.999);
+    double lo = 0.0, hi = 6.0;
+    for (int i = 0; i < 60; ++i) {
+        const double c = 0.5 * (lo + hi);
+        const double cdf = std::erf(c / std::sqrt(2.0))
+            - std::sqrt(2.0 / M_PI) * c * std::exp(-0.5 * c * c);
+        (cdf < p ? lo : hi) = c;
+    }
+    if (m_scene)
+        m_scene->setEllipsoidDisplay(on, float(0.5 * (lo + hi)));
+}
+
 // Claude Generated 2026 - Empty the scene for a fresh build. The camera is left
 // alone deliberately: the next placed atom then lands under the cursor.
 void MoleculeViewer::newScene()

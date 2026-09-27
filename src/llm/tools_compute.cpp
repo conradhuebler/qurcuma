@@ -9,7 +9,11 @@
 #include "core/toolregistry.h"
 #include "curcumajob.h"
 #include "curcuma_schemas.h"
+#include "moleculefileloader.h"
+#include "tools_files.h"         // resolveToolPath, cifOptionsFromArgs
 #include "view.h"
+
+#include <QFileInfo>
 
 #include <QElapsedTimer>
 #include <QHash>
@@ -40,6 +44,13 @@ struct JobStore {
 /// before the controller is handed over.
 const QLatin1String kSelection("atoms");
 const QLatin1String kSelectionIndices("atom_indices");
+/// Claude Generated 2026 - Read the atoms from a cif instead of the scene. With the
+/// disorder group chosen per call, two calls and a subtraction compare two
+/// conformations of one crystal without touching what the viewer shows.
+const QLatin1String kCifPath("cif_path");
+const QLatin1String kCifContent("cif_content");
+const QLatin1String kDisorderGroup("disorder_group");
+const QLatin1String kCompleteMolecules("complete_molecules");
 
 /// curcuma's generated schema plus the selection keys. The registry rejects
 /// unknown keys, so a parameter the tool understands has to be in the schema.
@@ -63,15 +74,51 @@ QJsonObject withSelection(QJsonObject schema)
         "Zero-based atom indices, as an alternative to atoms. Not both."));
     properties.insert(kSelectionIndices, explicitIndices);
 
+    QJsonObject cifPath;
+    cifPath.insert(QStringLiteral("type"), QStringLiteral("string"));
+    cifPath.insert(QStringLiteral("description"), QStringLiteral(
+        "Calculate a structure read from this cif (relative to the working directory) "
+        "instead of the scene; the scene is left alone. atoms/atom_indices then select "
+        "within the cif's atoms."));
+    properties.insert(kCifPath, cifPath);
+
+    QJsonObject cifContent;
+    cifContent.insert(QStringLiteral("type"), QStringLiteral("string"));
+    cifContent.insert(QStringLiteral("enum"), QJsonArray { QStringLiteral("asymmetric_unit"),
+                                                           QStringLiteral("unit_cell") });
+    cifContent.insert(QStringLiteral("description"), QStringLiteral(
+        "With cif_path: the sites as written (default; one formula unit when Z' = 1) or "
+        "the unit cell. A unit cell is calculated as a cluster, without periodicity."));
+    properties.insert(kCifContent, cifContent);
+
+    QJsonObject disorder;
+    disorder.insert(QStringLiteral("type"), QStringLiteral("integer"));
+    disorder.insert(QStringLiteral("minimum"), 0);
+    disorder.insert(QStringLiteral("description"), QStringLiteral(
+        "With cif_path: which disorder group (SHELX PART) to use; 0 = all alternatives "
+        "at once (overlapping atoms, not a real structure). Default: the major group. "
+        "describe_cif lists the groups."));
+    properties.insert(kDisorderGroup, disorder);
+
+    QJsonObject complete;
+    complete.insert(QStringLiteral("type"), QStringLiteral("boolean"));
+    complete.insert(QStringLiteral("description"), QStringLiteral(
+        "With cif_path and cif_content unit_cell: reassemble molecules cut by the cell faces."));
+    properties.insert(kCompleteMolecules, complete);
+
     schema.insert(QStringLiteral("properties"), properties);
     return schema;
 }
 
-/// The arguments curcuma should see: everything except qurcuma's selection keys.
+/// The arguments curcuma should see: everything except qurcuma's selection and cif keys.
 QJsonObject withoutSelection(QJsonObject args)
 {
     args.remove(kSelection);
     args.remove(kSelectionIndices);
+    args.remove(kCifPath);
+    args.remove(kCifContent);
+    args.remove(kDisorderGroup);
+    args.remove(kCompleteMolecules);
     return args;
 }
 
@@ -130,16 +177,43 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
             "Calculate the energy of the loaded structure, or of part of it, with curcuma, "
             "in process. Returns immediately with a job_id; ask job_status for the answer. "
             "For an interaction energy, run it three times -- whole, \"F1\", \"F2\" -- and "
-            "subtract. The parameters come from curcuma's own registry; describe_job(\"sp\") "
+            "subtract. With cif_path it reads the atoms from a cif instead, built as asked "
+            "(disorder_group picks one conformation), and leaves the scene alone. Note that "
+            "X-ray hydrogens sit on riding positions with C-H near 0.96 A: compare conformations "
+            "after an optimisation with the heavy atoms held (run_simulation hold_atoms), not "
+            "as read. The parameters come from curcuma's own registry; describe_job(\"sp\") "
             "lists all of them.");
         spec.effect = ToolEffect::Compute;   // asks before it runs
         spec.affinity = ToolAffinity::Gui;   // reads the viewer's atoms
         spec.paramSchema = withSelection(curcumaJobSchema(QStringLiteral("sp")));
 
-        spec.handler = [viewer, job](const QJsonObject& args) {
-            const QVector<moldata::Atom> all = viewer->getCurrentFrameAtoms();
+        const std::function<QString()> workingDirectory = context.workingDirectory;
+        spec.handler = [viewer, job, workingDirectory](const QJsonObject& args) {
+            // The atoms: the scene's, or a cif's built as asked.
+            QVector<moldata::Atom> all;
+            QString cifSource;
+            const QString cifArgument = args.value(kCifPath).toString();
+            if (!cifArgument.isEmpty()) {
+                cifSource = resolveToolPath(cifArgument, workingDirectory);
+                if (!cifSource.endsWith(QLatin1String(".cif"), Qt::CaseInsensitive))
+                    return ToolResult::failure(QStringLiteral("cif_path is not a .cif file: %1").arg(cifSource));
+                if (!QFileInfo::exists(cifSource))
+                    return ToolResult::failure(QStringLiteral("no such file: %1").arg(cifSource));
+                const MoleculeFileLoader::CifOptions options = cifOptionsFromArgs(args, /*unitCellByDefault=*/false);
+                const MoleculeFileLoader::Result loaded = MoleculeFileLoader::load(cifSource, options);
+                if (!loaded.ok || loaded.frames.isEmpty())
+                    return ToolResult::failure(loaded.error.isEmpty()
+                            ? QStringLiteral("could not read %1").arg(cifSource) : loaded.error);
+                all = loaded.frames.first();
+            } else {
+                if (args.contains(kCifContent) || args.contains(kDisorderGroup) || args.contains(kCompleteMolecules))
+                    return ToolResult::failure(QStringLiteral(
+                        "cif_content, disorder_group and complete_molecules need cif_path"));
+                all = viewer->getCurrentFrameAtoms();
+            }
             if (all.isEmpty())
-                return ToolResult::failure(QStringLiteral("no structure is loaded"));
+                return ToolResult::failure(cifSource.isEmpty() ? QStringLiteral("no structure is loaded")
+                                                               : QStringLiteral("the cif built no atoms"));
 
             QVector<moldata::Atom> atoms = all;
             int severed = 0;
@@ -171,6 +245,14 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
                 position == 0 ? QStringLiteral("started") : QStringLiteral("queued"));
             data.insert(QStringLiteral("job_id"), jobId);
             data.insert(QStringLiteral("atom_count"), atoms.size());
+            if (!cifSource.isEmpty()) {
+                const MoleculeFileLoader::CifOptions options = cifOptionsFromArgs(args, false);
+                data.insert(QStringLiteral("source"), cifSource);
+                data.insert(kCifContent, options.unitCell ? QStringLiteral("unit_cell")
+                                                          : QStringLiteral("asymmetric_unit"));
+                data.insert(kDisorderGroup, options.disorderGroup == MoleculeFileLoader::CifOptions::kMajorGroup
+                        ? QJsonValue(QStringLiteral("major")) : QJsonValue(options.disorderGroup));
+            }
             if (position > 0)
                 data.insert(QStringLiteral("queue_position"), position);
 

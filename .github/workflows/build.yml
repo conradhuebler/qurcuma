@@ -2,15 +2,25 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - main
+    # Claude Generated 2026 - same scheme as curcuma's ccpp.yml: main publishes the
+    # nightly prerelease; every feature/** and fix/** branch publishes its own
+    # ci-<branch> prerelease, so branch builds never overwrite the nightly assets.
+    # A branch outside that naming scheme has to be added here (or run by hand).
+    branches: [ main, "feature/**", "fix/**" ]
+    # Documentation-only commits cannot change the binaries; the consequence is
+    # that a markdown-only push does not refresh the release assets.
+    paths-ignore: [ '**.md' ]
+  pull_request:
+    branches: [ main ]
+    paths-ignore: [ '**.md' ]
+  # Any branch can be built and published on demand.
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: nightly-${{ github.ref }}
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -24,14 +34,14 @@ jobs:
         include:
           - name: linux
             os: ubuntu-22.04
-            artifact_name: qurcuma-nightly-linux-x86_64.AppImage
+            artifact_name: qurcuma-linux-x86_64.AppImage
           - name: windows
             os: windows-latest
-            artifact_name: qurcuma-nightly-windows.zip
+            artifact_name: qurcuma-windows.zip
             cpack_generator: ZIP
           - name: macos
             os: macos-latest
-            artifact_name: qurcuma-nightly-macos.zip
+            artifact_name: qurcuma-macos.zip
             cpack_generator: ZIP
 
     steps:
@@ -158,20 +168,18 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Publish nightly prerelease
+    name: Publish prerelease
     runs-on: ubuntu-latest
     needs: build
     # Claude Generated 2026 - by default a failing matrix entry (e.g. Windows,
     # which has known unported portability issues) would skip this job entirely
     # even though Linux/macOS built successfully. Publish whatever artifacts did
-    # get produced instead of blocking the whole nightly release on one platform.
-    if: ${{ !cancelled() }}
+    # get produced instead of blocking the whole release on one platform.
+    # Pull requests build but never publish.
+    if: ${{ github.event_name != 'pull_request' && !cancelled() }}
 
     steps:
-      # Claude Generated 2026 - this job never had a checkout step, so the later
-      # git tag/push commands failed with "fatal: not in a git directory". Never
-      # caught before because the release job was always previously skipped (some
-      # platform always failed, and needs:build skips on any failure by default).
+      # Claude Generated 2026 - the tag push below needs a git directory.
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -180,32 +188,60 @@ jobs:
         with:
           path: dist
 
-      - name: Ensure nightly tag exists
+      # Claude Generated 2026 - main keeps its fixed "nightly" prerelease; any other
+      # branch gets one prerelease per branch whose tag follows the branch head.
+      # The asset names carry no run number, so each run replaces the previous
+      # assets of its release instead of piling up next to them.
+      - name: Compute release identity
+        id: rel
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch --tags
-          if git rev-parse nightly >/dev/null 2>&1; then
-            git tag -f nightly "${GITHUB_SHA}"
-            git push origin refs/tags/nightly --force
+          set -eu
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            echo "tag=nightly" >> "$GITHUB_OUTPUT"
+            echo "name=Nightly Build" >> "$GITHUB_OUTPUT"
+            echo "version=nightly" >> "$GITHUB_OUTPUT"
           else
-            git tag nightly "${GITHUB_SHA}"
-            git push origin refs/tags/nightly
+            slug="$(echo "${GITHUB_REF_NAME}" | tr '/' '-' | tr -cd 'A-Za-z0-9._-')"
+            echo "tag=ci-${slug}" >> "$GITHUB_OUTPUT"
+            echo "name=Qurcuma CI (${GITHUB_REF_NAME})" >> "$GITHUB_OUTPUT"
+            echo "version=ci-${slug}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish to fixed prerelease
+      - name: Move the release tag to this commit
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f "${{ steps.rel.outputs.tag }}" "${GITHUB_SHA}"
+          git push origin "refs/tags/${{ steps.rel.outputs.tag }}" --force
+
+      - name: Name the assets after the release
+        run: |
+          set -eu
+          mkdir -p upload
+          v="${{ steps.rel.outputs.version }}"
+          if [ -f dist/linux/qurcuma-linux-x86_64.AppImage ]; then
+            cp dist/linux/qurcuma-linux-x86_64.AppImage "upload/qurcuma-${v}-linux-x86_64.AppImage"
+          fi
+          if [ -f dist/windows/qurcuma-windows.zip ]; then
+            cp dist/windows/qurcuma-windows.zip "upload/qurcuma-${v}-windows.zip"
+          fi
+          if [ -f dist/macos/qurcuma-macos.zip ]; then
+            cp dist/macos/qurcuma-macos.zip "upload/qurcuma-${v}-macos.zip"
+          fi
+          ls -l upload
+
+      - name: Publish prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: nightly
-          name: Nightly Build
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: ${{ steps.rel.outputs.name }}
           prerelease: true
           make_latest: false
           target_commitish: ${{ github.sha }}
-          files: |
-            dist/**/*.AppImage
-            dist/**/*.zip
+          files: upload/*
           body: |
-            Automated nightly build.
+            Automated build from `${{ github.ref_name }}`.
             - Repository: ${{ github.repository }}
             - Commit: ${{ github.sha }}
             - Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

@@ -18,6 +18,7 @@
 #include "chatdock.h"  // Claude Generated 2026
 #endif
 #include "ncidock.h"
+#include "celldock.h"
 
 #include <QDockWidget>
 #include <QMainWindow>
@@ -117,6 +118,11 @@ ChatDock* DockManager::chatDockImpl() const
 ScriptDock* DockManager::scriptDockImpl() const
 {
     return m_scriptDock;
+}
+
+CellDock* DockManager::cellDockImpl() const
+{
+    return qobject_cast<CellDock*>(m_cellDock);
 }
 
 NciDock* DockManager::nciDockImpl() const
@@ -299,6 +305,7 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
     m_projectDock = new ProjectDock(settings, m_mainWindow);
     m_imageGalleryDock = new ImageGalleryDock(m_mainWindow);
     m_nciDock = new NciDock(m_mainWindow);
+    m_cellDock = new CellDock(m_mainWindow);
     m_chartDock = new ChartDock(m_mainWindow);
     // Claude Generated 2026 - The script dock is not USE_LLM-gated: it is a place to
     // compute, and it is registered with the tool layer later (MainWindow creates the
@@ -349,6 +356,15 @@ void DockManager::placeDocks()
         if (m_displayDock)
             m_mainWindow->tabifyDockWidget(m_displayDock, m_nciDock);
         m_nciDock->hide();
+    }
+
+    // The unit-cell dock joins the same right-hand group and starts hidden; it
+    // shows itself when a cif is loaded. Claude Generated 2026.
+    if (m_cellDock) {
+        m_mainWindow->addDockWidget(DockConfig::CellDockArea, m_cellDock);
+        if (m_displayDock)
+            m_mainWindow->tabifyDockWidget(m_displayDock, m_cellDock);
+        m_cellDock->hide();
     }
 
     // The charts join the bottom area next to the output log and start hidden:

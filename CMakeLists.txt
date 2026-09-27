@@ -113,9 +113,14 @@ set(USE_VULKAN_XTB ${USE_VULKAN} CACHE BOOL "" FORCE)
 set(USE_PCH OFF CACHE BOOL "" FORCE)
 set(Helper OFF CACHE BOOL "" FORCE)
 
+# Claude Generated 2026 - this branch needs curcuma's reactff2-llm (GPU plugins,
+# CIF reader, react topology API, held atoms in ANCOpt); master lacks them and a
+# fresh CI checkout would not compile. Only a fresh clone reads this line: with the
+# local checkout present FetchContent is disconnected below. Back to master once
+# reactff2-llm is merged there.
 FetchContent_Declare(curcuma
     GIT_REPOSITORY https://github.com/conradhuebler/curcuma
-    GIT_TAG        master
+    GIT_TAG        reactff2-llm
     SOURCE_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma
 )
 
@@ -220,6 +225,7 @@ set(SOURCES
     src/docks/chartdock.cpp  # Claude Generated 2026 - live charts dock
     src/docks/scriptdock.cpp  # Claude Generated 2026 - script editor + run (not USE_LLM-gated)
     src/docks/ncidock.cpp  # Claude Generated 2026 - non-covalent interaction dock
+    src/docks/celldock.cpp  # Claude Generated 2026 - cif unit cell + repeats dock
     src/nciwidget.cpp  # Claude Generated 2026 - non-covalent interaction contact table
     src/ncianalysisworker.cpp  # Claude Generated 2026 - off-thread NCI analysis (GFN-FF/GFN2)
     src/imagecrop.cpp  # Claude Generated 2026 - image border-trim analysis (metadata-preserving)
@@ -453,6 +459,12 @@ curcuma_core  # Claude Generated - Curcuma simulation backend
 curcuma_cap   # Claude Generated - Curcuma capabilities (MD, Opt)
 $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>  # Claude Generated - OpenMP for curcuma
 )
+
+# Claude Generated 2026 - curcuma's GPU backends are dlopen plugins
+# (libcurcuma_<backend>.so) whose core symbols (NativeXtbMethod, GFNFF,
+# CurcumaLogger, ...) resolve against the host executable. curcuma adds
+# -rdynamic only for its own binary, so export them from qurcuma as well.
+set_target_properties(qurcuma PROPERTIES ENABLE_EXPORTS ON)
 
 # Include directories — curcuma deps fetched by curcuma's FetchContent into external/
 target_include_directories(qurcuma PRIVATE

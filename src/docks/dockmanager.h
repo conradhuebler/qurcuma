@@ -20,6 +20,7 @@ class OutputDock;
 class ProjectDock;
 class ImageGalleryDock;
 class NciDock;
+class CellDock;  // Claude Generated 2026 - cif cell info + repeats
 class ChartDock;
 class ChatDock;  // Claude Generated 2026
 class ScriptDock;  // Claude Generated 2026
@@ -45,6 +46,7 @@ public:
     ProjectDock* projectDockImpl() const;
     ImageGalleryDock* imageGalleryDockImpl() const;
     NciDock* nciDockImpl() const;
+    CellDock* cellDockImpl() const;
     ChartDock* chartDockImpl() const;
     /// Claude Generated 2026 - the assistant dock (null when built without USE_LLM).
     ChatDock* chatDockImpl() const;
@@ -107,6 +109,7 @@ private:
     QDockWidget* m_outputViewDock = nullptr;
     QDockWidget* m_imageGalleryDock = nullptr;
     QDockWidget* m_nciDock = nullptr;
+    QDockWidget* m_cellDock = nullptr;
     QDockWidget* m_chartDock = nullptr;
     QDockWidget* m_chatDock = nullptr;  // Claude Generated 2026
     ScriptDock* m_scriptDock = nullptr;  // Claude Generated 2026

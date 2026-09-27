@@ -122,6 +122,8 @@ SceneController::SceneController(QObject* parent)
     m_measureLines->setParent(this);
     m_wallLines = new BondInstancing(nullptr);
     m_wallLines->setParent(this);
+    m_cellLines = new BondInstancing(nullptr);
+    m_cellLines->setParent(this);
     m_potShells = new BondInstancing(nullptr);
     m_potShells->setParent(this);
     m_wallForceShafts = new BondInstancing(nullptr);
@@ -145,6 +147,7 @@ QQuick3DInstancing* SceneController::measureLineInstancing() const { return m_me
 QQuick3DInstancing* SceneController::overlayAtomInstancing() const { return m_overlayAtoms; }
 QQuick3DInstancing* SceneController::overlayBondInstancing() const { return m_overlayBonds; }
 QQuick3DInstancing* SceneController::wallInstancing() const { return m_wallLines; }
+QQuick3DInstancing* SceneController::cellInstancing() const { return m_cellLines; }
 QQuick3DInstancing* SceneController::wallPotShellsInstancing() const { return m_potShells; }
 QQuick3DInstancing* SceneController::wallForceShaftsInstancing() const { return m_wallForceShafts; }
 QQuick3DInstancing* SceneController::wallForceTipsInstancing() const { return m_wallForceTips; }
@@ -459,6 +462,110 @@ void SceneController::setWallOpacity(qreal opacity)
     if (m_wallVisible && m_wallGeom != 0)
         rebuildWall();
     emit wallChanged();
+}
+
+// Claude Generated 2026 - Unit cell wireframe. A cell is a parallelepiped, not
+// a cuboid: the eight corners are origin + {0,1} combinations of a, b and c, so
+// monoclinic and triclinic cells come out right with the same twelve edges.
+void SceneController::setUnitCell(const QVector3D& origin, const QVector3D& a,
+    const QVector3D& b, const QVector3D& c, int na, int nb, int nc)
+{
+    m_cellPresent = true;
+    m_cellOrigin = origin;
+    m_cellA = a;
+    m_cellB = b;
+    m_cellC = c;
+    m_cellRepeats[0] = qMax(1, na);
+    m_cellRepeats[1] = qMax(1, nb);
+    m_cellRepeats[2] = qMax(1, nc);
+    rebuildCell();
+    // Set right after a cif is read, when the camera has just been reset to the
+    // atoms: frame again with the cell in it.
+    recomputeBounds();
+    resetView();
+    emit cellChanged();
+}
+
+void SceneController::clearUnitCell()
+{
+    if (!m_cellPresent)
+        return;
+    m_cellPresent = false;
+    rebuildCell();
+    recomputeBounds();
+    emit cellChanged();
+}
+
+void SceneController::setUnitCellShown(bool on)
+{
+    if (m_cellShown == on)
+        return;
+    m_cellShown = on;
+    rebuildCell();
+    recomputeBounds();   // the next fit or reset frames what is shown; no camera jump now
+    emit cellChanged();
+}
+
+float SceneController::effectiveBondRadius() const
+{
+    if (m_renderingMode == Wireframe)
+        return qMin(m_bondRadius, 0.06f);
+    if (ellipsoidsActive())
+        return qMin(m_bondRadius, 0.07f);
+    return m_bondRadius;
+}
+
+// Both rebuild the bonds too: whether ellipsoids are drawn sets their radius.
+void SceneController::setAtomEllipsoids(const QVector<moldata::Ellipsoid>& ellipsoids)
+{
+    m_ellipsoids = ellipsoids;
+    rebuildGeometry();
+    emit appearanceChanged();   // atomsVisible may have flipped (wireframe + ellipsoids)
+}
+
+void SceneController::setEllipsoidDisplay(bool on, float scale)
+{
+    if (m_ellipsoidsShown == on && qFuzzyCompare(m_ellipsoidScale, scale))
+        return;
+    m_ellipsoidsShown = on;
+    m_ellipsoidScale = scale;
+    rebuildGeometry();
+    emit appearanceChanged();   // atomsVisible may have flipped (wireframe + ellipsoids)
+}
+
+void SceneController::rebuildCell()
+{
+    QVector<BondInstancing::Segment> segs;
+    if (m_cellPresent && m_cellShown) {
+        const QVector3D& o = m_cellOrigin;
+        const auto box = [&segs](const QVector3D& o, const QVector3D& a, const QVector3D& b,
+                             const QVector3D& c, float r, const QColor& rest,
+                             const QColor& colorA, const QColor& colorB, const QColor& colorC) {
+            appendWallEdge(segs, o, o + a, r, colorA);
+            appendWallEdge(segs, o, o + b, r, colorB);
+            appendWallEdge(segs, o, o + c, r, colorC);
+            appendWallEdge(segs, o + a, o + a + b, r, rest);
+            appendWallEdge(segs, o + a, o + a + c, r, rest);
+            appendWallEdge(segs, o + b, o + a + b, r, rest);
+            appendWallEdge(segs, o + b, o + b + c, r, rest);
+            appendWallEdge(segs, o + c, o + a + c, r, rest);
+            appendWallEdge(segs, o + c, o + b + c, r, rest);
+            appendWallEdge(segs, o + a + b, o + a + b + c, r, rest);
+            appendWallEdge(segs, o + a + c, o + a + b + c, r, rest);
+            appendWallEdge(segs, o + b + c, o + a + b + c, r, rest);
+        };
+        const QColor grey(150, 150, 160);
+        // The supercell outline first and thinner, so the unit cell drawn over
+        // it keeps its colours where the two share edges.
+        if (m_cellRepeats[0] > 1 || m_cellRepeats[1] > 1 || m_cellRepeats[2] > 1) {
+            const QColor outline(120, 120, 130);
+            box(o, m_cellA * float(m_cellRepeats[0]), m_cellB * float(m_cellRepeats[1]),
+                m_cellC * float(m_cellRepeats[2]), 0.035f, outline, outline, outline, outline);
+        }
+        box(o, m_cellA, m_cellB, m_cellC, 0.06f, grey,
+            QColor(220, 50, 50), QColor(40, 170, 60), QColor(50, 90, 230));
+    }
+    m_cellLines->setSegments(segs);
 }
 
 void SceneController::setWallVisible(bool on)
@@ -799,13 +906,27 @@ void SceneController::recomputeBounds()
     QVector3D lo(std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
         std::numeric_limits<float>::max());
     QVector3D hi = -lo;
-    for (const AtomDatum& a : m_atoms) {
-        lo.setX(qMin(lo.x(), a.position.x()));
-        lo.setY(qMin(lo.y(), a.position.y()));
-        lo.setZ(qMin(lo.z(), a.position.z()));
-        hi.setX(qMax(hi.x(), a.position.x()));
-        hi.setY(qMax(hi.y(), a.position.y()));
-        hi.setZ(qMax(hi.z(), a.position.z()));
+    const auto include = [&lo, &hi](const QVector3D& p) {
+        lo.setX(qMin(lo.x(), p.x()));
+        lo.setY(qMin(lo.y(), p.y()));
+        lo.setZ(qMin(lo.z(), p.z()));
+        hi.setX(qMax(hi.x(), p.x()));
+        hi.setY(qMax(hi.y(), p.y()));
+        hi.setZ(qMax(hi.z(), p.z()));
+    };
+    for (const AtomDatum& a : m_atoms)
+        include(a.position);
+    // Claude Generated 2026 - A shown unit cell is part of the scene: the atoms of
+    // a cell sit in its lower half (NaCl: 0..2.8 A of a 5.6 A cell), so framing
+    // the atoms alone cut the cell off at the edges of the view.
+    if (m_cellPresent && m_cellShown) {
+        const QVector3D a = m_cellA * float(m_cellRepeats[0]);
+        const QVector3D b = m_cellB * float(m_cellRepeats[1]);
+        const QVector3D c = m_cellC * float(m_cellRepeats[2]);
+        for (int i = 0; i < 2; ++i)
+            for (int j = 0; j < 2; ++j)
+                for (int k = 0; k < 2; ++k)
+                    include(m_cellOrigin + float(i) * a + float(j) * b + float(k) * c);
     }
     m_sceneCenter = 0.5f * (lo + hi);
     m_sceneExtent = qMax(2.0f, 0.5f * (hi - lo).length());
@@ -1181,15 +1302,26 @@ QColor SceneController::atomColor(int index) const
 void SceneController::rebuildAtoms()
 {
     QVector<AtomInstancing::Item> items;
-    if (m_atomsVisible && m_primaryVisible) {
+    // Claude Generated 2026 - Thermal ellipsoids are drawn in every rendering
+    // mode: ellipsoids on thin sticks is what a wireframe of a crystal structure
+    // is for (ORTEP). Atoms without one follow the mode; in a mode without atom
+    // spheres they get a zero-size instance, so instance i stays atom i for the
+    // highlight and hover code.
+    const bool ellipsoids = ellipsoidsActive();
+    if (m_primaryVisible && (m_atomsVisible || ellipsoids)) {
         // Ball-and-stick shrinks spheres; space-filling uses full vdW radius.
         const float radiusFactor = (m_renderingMode == SpaceFilling) ? 1.0f : 0.30f;
         items.reserve(m_atoms.size());
         for (int i = 0; i < m_atoms.size(); ++i) {
             AtomInstancing::Item it;
             it.position = m_atoms[i].position;
-            it.scale = radiusFactor * m_atomScaleFactor * atomDrawRadiusFor(i);
+            it.scale = m_atomsVisible ? radiusFactor * m_atomScaleFactor * atomDrawRadiusFor(i) : 0.0f;
             it.color = atomColor(i);
+            if (ellipsoids && m_ellipsoids[i].valid) {
+                it.ellipsoid = true;
+                it.semiAxes = m_ellipsoids[i].rmsAxes * m_ellipsoidScale;
+                it.rotation = m_ellipsoids[i].rotation;
+            }
             items.append(it);
         }
     }
@@ -1213,9 +1345,7 @@ void SceneController::rebuildGeometry()
     // --- bonds (two half-cylinders, coloured per atom) ---
     QVector<BondInstancing::Segment> segs;
     if (m_bondsVisible && m_primaryVisible) {
-        const float bondRadius = (m_renderingMode == Wireframe)
-            ? qMin(m_bondRadius, 0.06f)
-            : m_bondRadius;
+        const float bondRadius = effectiveBondRadius();
         segs.reserve(m_bonds.size() * 2);
         ensureFragments();
         const bool scaleByFragment = m_fragmentInfo.size() > 1;
@@ -1343,6 +1473,20 @@ void SceneController::cloneStateFrom(const SceneController* src)
     m_pan = src->m_pan;
     m_fov = src->m_fov;
 
+    // Claude Generated 2026 - thermal ellipsoids (rebuildGeometry below draws them)
+    m_ellipsoids = src->m_ellipsoids;
+    m_ellipsoidsShown = src->m_ellipsoidsShown;
+    m_ellipsoidScale = src->m_ellipsoidScale;
+    // Claude Generated 2026 - unit cell
+    m_cellPresent = src->m_cellPresent;
+    m_cellShown = src->m_cellShown;
+    m_cellOrigin = src->m_cellOrigin;
+    m_cellA = src->m_cellA;
+    m_cellB = src->m_cellB;
+    m_cellC = src->m_cellC;
+    for (int k = 0; k < 3; ++k)
+        m_cellRepeats[k] = src->m_cellRepeats[k];
+    rebuildCell();
     // Confinement walls
     m_wallVisible = src->m_wallVisible;
     m_wallOpacity = src->m_wallOpacity;
@@ -1383,6 +1527,7 @@ void SceneController::cloneStateFrom(const SceneController* src)
     emit transformChanged();
     emit overlayChanged();
     emit wallChanged();
+    emit cellChanged();
     emit nciChanged();
 }
 

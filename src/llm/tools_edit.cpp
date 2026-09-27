@@ -7,11 +7,14 @@
 #include "atomselection.h"
 #include "core/toolregistry.h"
 #include "fragmentlibrary.h"
+#include "moleculebridge.h"
 #include "scenefiller.h"
 #include "view.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
+
+#include <cmath>
 
 namespace {
 
@@ -87,6 +90,8 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
 {
     MoleculeViewer* const viewer = context.viewer;
     const auto setContainerWall = context.setContainerWall;
+    const auto containerWall = context.containerWall;
+    const auto clearContainerWall = context.clearContainerWall;
     if (!viewer)
         return 0;
     int added = 0;
@@ -292,41 +297,91 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
     // --- delete_atoms -------------------------------------------------------
     {
         ToolSpec spec = base(QStringLiteral("delete_atoms"),
-            QStringLiteral("Remove atoms and the bonds that touched them. Undoable with Ctrl+Z."),
+            QStringLiteral("Remove atoms and the bonds that touched them. Give either 0-based "
+                           "indices or a selection expression (ONE-based grammar: \"1:10\", \"F2\"). "
+                           "To empty the whole scene use clear_scene. Undoable with Ctrl+Z."),
             ToolEffect::Mutate, R"JSON({
               "type": "object",
               "properties": {
-                "atoms": { "type": "array", "description": "0-based indices" }
-              },
-              "required": ["atoms"]
+                "atoms":     { "type": "array", "description": "0-based indices" },
+                "selection": { "type": "string",
+                               "description": "ONE-based selection grammar, as an alternative to atoms" }
+              }
             })JSON");
         spec.handler = [viewer](const QJsonObject& args) {
             const ToolResult blocked = refusedIfNotEditable(viewer);
             if (!blocked.ok)
                 return blocked;
 
-            const int atomCount = viewer->getCurrentFrameAtoms().size();
+            const QVector<moldata::Atom> atoms = viewer->getCurrentFrameAtoms();
+            const int atomCount = atoms.size();
             QVector<int> indices;
-            for (const QJsonValue& value : args.value(QStringLiteral("atoms")).toArray()) {
-                const int index = value.toInt(-1);
-                if (index < 0 || index >= atomCount) {
-                    return ToolResult::failure(QStringLiteral("atom index %1 is outside 0..%2")
-                                                   .arg(index).arg(atomCount - 1));
-                }
-                indices.append(index);
-            }
+            QString error;
+            if (!resolveAtomSet(atoms, args.value(QStringLiteral("selection")).toString(),
+                    args.value(QStringLiteral("atoms")).toArray(), indices, error))
+                return ToolResult::failure(error);
             if (indices.isEmpty())
-                return ToolResult::failure(QStringLiteral("\"atoms\" is empty"));
+                return ToolResult::failure(QStringLiteral("pass \"atoms\" or \"selection\""));
 
             viewer->selectAtoms(indices, /*append=*/false);
             viewer->deleteSelection();
 
+            // Say what is left in words as well: a model that deletes a slice of a
+            // large scene has more than once reported the scene as empty.
+            const int remaining = viewer->getCurrentFrameAtoms().size();
             QJsonObject data;
-            data.insert(QStringLiteral("removed"), atomCount - viewer->getCurrentFrameAtoms().size());
-            data.insert(QStringLiteral("atom_count"), viewer->getCurrentFrameAtoms().size());
-            return ToolResult::success(data);
+            data.insert(QStringLiteral("removed"), atomCount - remaining);
+            data.insert(QStringLiteral("atom_count"), remaining);
+            return ToolResult::success(data,
+                QStringLiteral("Removed %1 atoms; %2 remain.").arg(atomCount - remaining).arg(remaining));
         };
         spec.available = whenEditable(viewer);
+        add(spec);
+    }
+
+    // --- clear_scene --------------------------------------------------------
+    //
+    // "Empty the scene" has to be one call. Without it a model deletes by index
+    // lists, which for a few thousand atoms it can neither write out nor page
+    // through. Goes straight to MoleculeViewer::newScene(), not to File > New
+    // Scene: that one asks a modal question and switches to Build mode, neither
+    // of which a tool may do. Claude Generated 2026.
+    {
+        ToolSpec spec = base(QStringLiteral("clear_scene"),
+            QStringLiteral("Remove every atom, trajectory frames included, and the simulation's "
+                           "container wall, leaving an empty scene to build in. The atoms are kept "
+                           "as a snapshot (Ctrl+Z restores them, not the wall)."),
+            ToolEffect::Mutate, R"JSON({"type":"object"})JSON");
+        spec.handler = [viewer, containerWall, clearContainerWall](const QJsonObject&) {
+            if (viewer->simulationActive()) {
+                return ToolResult::failure(QStringLiteral(
+                    "not while a simulation is running: stop it first"));
+            }
+            const int before = viewer->getCurrentFrameAtoms().size();
+            viewer->newScene();
+
+            // The box belongs to what was in it: left standing, the next
+            // fill_container with keep_container would pack into the old volume.
+            // Switched off even when it is auto-sized (no explicit size, so
+            // containerWall() does not report it); it is only named if it had one.
+            ToolContainer wall;
+            const bool hadWall = containerWall && containerWall(&wall);
+            QString wallError;
+            const bool cleared = clearContainerWall && clearContainerWall(&wallError);
+            const bool wallRemoved = hadWall && cleared;
+
+            QJsonObject data;
+            data.insert(QStringLiteral("removed"), before);
+            data.insert(QStringLiteral("atom_count"), viewer->getCurrentFrameAtoms().size());
+            data.insert(QStringLiteral("wall_removed"), wallRemoved);
+            QString note = QStringLiteral("Scene cleared: %1 atoms removed, 0 remain.").arg(before);
+            if (wallRemoved)
+                note += QStringLiteral(" The container wall is removed as well.");
+            else if (hadWall)
+                note += QStringLiteral(" The container wall could not be removed: %1").arg(wallError);
+            return ToolResult::success(data, note);
+        };
+        spec.available = [viewer] { return viewer && !viewer->simulationActive(); };
         add(spec);
     }
 
@@ -437,6 +492,8 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
                                   "description": "closest approach allowed, in Angstrom (default 2.2)" },
                 "seed":         { "type": "integer", "minimum": 0,
                                   "description": "0 draws fresh each time; anything else repeats exactly" },
+                "keep_container": { "type": "boolean",
+                                  "description": "pack into the simulation's current container instead of sizing a new box around the structure. The container keeps its size, so adding molecules raises the density; shape, padding and radius are ignored. Needs a container, e.g. from an earlier call with set_wall (default false)" },
                 "set_wall":     { "type": "boolean",
                                   "description": "make the packed volume the simulation's container, so a run afterwards is held in it (default false)" },
                 "wall_potential": { "type": "string", "enum": ["harmonic", "logfermi", "pbc"],
@@ -452,7 +509,7 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
             spec.paramSchema.insert(QStringLiteral("properties"), properties);
         }
 
-        spec.handler = [viewer, setContainerWall](const QJsonObject& args) {
+        spec.handler = [viewer, setContainerWall, containerWall](const QJsonObject& args) {
             const ToolResult blocked = refusedIfNotEditable(viewer);
             if (!blocked.ok)
                 return blocked;
@@ -473,9 +530,29 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
 
             const QVector<moldata::Atom> existing = viewer->getCurrentFrameAtoms();
             build::Container container;
-            const QString shape = args.value(QStringLiteral("shape"))
-                                      .toString(QStringLiteral("box"));
-            if (shape == QLatin1String("sphere")) {
+            QString shape = args.value(QStringLiteral("shape")).toString(QStringLiteral("box"));
+            // Without this every call wrapped a fresh box around everything already
+            // there plus the padding, so a second fill grew the box with the atoms
+            // and the density never rose. Claude Generated 2026.
+            const bool keepContainer = args.value(QStringLiteral("keep_container")).toBool();
+            ToolContainer current;
+            if (keepContainer) {
+                if (!containerWall || !containerWall(&current)) {
+                    return ToolResult::failure(QStringLiteral(
+                        "keep_container needs a container with an explicit size, and none is "
+                        "set. Fill once with set_wall first, or leave keep_container off."));
+                }
+                if (current.sphere) {
+                    container.kind = build::Container::Sphere;
+                    container.radius = current.radius;
+                    shape = QStringLiteral("sphere");
+                } else {
+                    container.kind = build::Container::Box;
+                    container.min = current.min;
+                    container.max = current.max;
+                    shape = QStringLiteral("box");
+                }
+            } else if (shape == QLatin1String("sphere")) {
                 container.kind = build::Container::Sphere;
                 container.radius = float(args.value(QStringLiteral("radius")).toDouble(12.0));
             } else {
@@ -531,10 +608,27 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
                     QJsonArray { container.max.x(), container.max.y(), container.max.z() });
             }
 
+            // Volume and density of the scene as it is now. watch_simulation reads
+            // the last simulation frame, so after an edit without a run in between
+            // its density is the old one. Mass and unit conversion from curcuma's
+            // Molecule::Density, the same number SimpleMD reports. Claude Generated 2026.
+            const QVector3D extent = container.max - container.min;
+            const double volume = container.kind == build::Container::Sphere
+                ? 4.0 / 3.0 * M_PI * double(container.radius) * container.radius * container.radius
+                : double(extent.x()) * extent.y() * extent.z();
+            double density = 0.0;
+            if (volume > 0.0) {
+                density = atomsToMolecule(viewer->getCurrentFrameAtoms()).Density(volume);
+                data.insert(QStringLiteral("container_volume"), volume);
+                data.insert(QStringLiteral("density"), density);
+                data.insert(QStringLiteral("density_unit"), QStringLiteral("g/cm^3"));
+            }
+            data.insert(QStringLiteral("container_kept"), keepContainer);
+
             // The packed volume becomes the container the run is held in, which is
             // what makes the box a box rather than a cloud that expands on the
-            // first step.
-            if (args.value(QStringLiteral("set_wall")).toBool()) {
+            // first step. A kept container already is that wall.
+            if (!keepContainer && args.value(QStringLiteral("set_wall")).toBool()) {
                 const QString potential = args.value(QStringLiteral("wall_potential"))
                                               .toString(QStringLiteral("pbc"));
                 ToolContainer wall;
@@ -567,9 +661,16 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
                                        "volume or a smaller min_distance takes more.")
                             .arg(minDistance);
             }
-            if (data.value(QStringLiteral("wall_set")).toBool()) {
+            if (keepContainer) {
+                note += QStringLiteral(" Packed into the existing container, which kept its size.");
+            } else if (data.value(QStringLiteral("wall_set")).toBool()) {
                 note += QStringLiteral(" The container is now the simulation's wall, so a run "
                                        "is held in it.");
+            }
+            if (volume > 0.0) {
+                note += QStringLiteral(" Density of the whole scene in this container: %1 g/cm^3 "
+                                       "(%2 A^3).")
+                            .arg(density, 0, 'f', 3).arg(volume, 0, 'f', 0);
             }
             note += QStringLiteral(" This is a random packing, not an equilibrated liquid: run it "
                                    "and watch the energy settle before reading anything out of it.");

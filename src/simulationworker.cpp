@@ -235,6 +235,37 @@ static SimulationFramePtr moleculeToFrame(
     double temperature = 0.0, double targetTemperature = 0.0);
 static Vector pendingForcesToFlatVector(const Eigen::MatrixXd& pending);
 
+// Claude Generated 2026 - The per-atom mask OptimizerDriver::setConstraints wants
+// (1 = free, 0 = held) from the config's freeze mode; empty when nothing is held.
+// "heavy" relaxes only the hydrogens -- how an X-ray structure is usually brought
+// to a method's minimum without losing what the diffraction determined.
+static std::vector<int> frozenAtomMask(const SimulationConfig& config,
+    const QVector<MoleculeViewer::Atom>& atoms)
+{
+    const auto isHydrogen = [](const QString& element) {
+        return element.compare(QLatin1String("H"), Qt::CaseInsensitive) == 0
+            || element.compare(QLatin1String("D"), Qt::CaseInsensitive) == 0;
+    };
+    std::vector<int> mask;
+    if (config.freezeMode == QLatin1String("heavy") || config.freezeMode == QLatin1String("hydrogens")) {
+        const bool holdHeavy = config.freezeMode == QLatin1String("heavy");
+        mask.reserve(size_t(atoms.size()));
+        for (const auto& atom : atoms)
+            mask.push_back(isHydrogen(atom.element) == holdHeavy ? 1 : 0);
+    } else if (config.freezeMode == QLatin1String("selection") && !config.freezeSelection.trimmed().isEmpty()) {
+        Molecule molecule = atomsToMolecule(atoms);
+        molecule.GetFragments();   // FragString2Indicies reads the fragment cache
+        mask.assign(size_t(atoms.size()), 1);
+        for (int index : molecule.FragString2Indicies(config.freezeSelection.trimmed().toStdString()))
+            if (index >= 0 && index < atoms.size())
+                mask[size_t(index)] = 0;
+    }
+    // All free is no constraint at all.
+    if (std::find(mask.begin(), mask.end(), 0) == mask.end())
+        mask.clear();
+    return mask;
+}
+
 void SimulationWorker::setMolecule(const QVector<MoleculeViewer::Atom>& atoms)
 {
     m_initialAtoms = atoms;
@@ -412,6 +443,7 @@ void SimulationWorker::stepOnce()
             EnergyCalculator calc(m_config.method.toStdString(), energy_controller);
             Optimization::OptimizerType opt_type =
                 Optimization::parseOptimizerType(m_config.optimizer.toStdString());
+            const std::vector<int> frozen = frozenAtomMask(m_config, m_initialAtoms);
             auto optimizer = Optimization::OptimizerFactory::createOptimizer(opt_type, &calc);
             if (!optimizer) {
                 emit errorOccurred(tr("Failed to create optimizer '%1'").arg(m_config.optimizer));
@@ -422,6 +454,8 @@ void SimulationWorker::stepOnce()
             for (auto it = opt_config.begin(); it != opt_config.end(); ++it)
                 merged[it.key()] = it.value();
             optimizer->LoadConfiguration(merged);
+            if (!frozen.empty())
+                optimizer->setConstraints(frozen);
 
             Molecule mol = atomsToMolecule(m_initialAtoms);
             emit frameReady(moleculeToFrame(mol, m_initialAtoms.size(), 0.0, 0.0, 0));
@@ -891,6 +925,10 @@ void SimulationWorker::runOptimization()
 
         Optimization::OptimizerType opt_type =
             Optimization::parseOptimizerType(m_config.optimizer.toStdString());
+        // Claude Generated 2026 - Held atoms, as OptimizerDriver constraints: every
+        // optimiser zeroes their gradient, and ANCOpt also takes them out of its
+        // model Hessian and ANC basis (curcuma ancopt_optimizer.cpp).
+        const std::vector<int> frozen = frozenAtomMask(m_config, m_initialAtoms);
 
         // Claude Generated 2026 - Keep-alive loop (interactive Opt). A single
         // Optimize() returns once it converges (or its line search stalls under a
@@ -921,6 +959,8 @@ void SimulationWorker::runOptimization()
             for (auto it = opt_config.begin(); it != opt_config.end(); ++it)
                 merged[it.key()] = it.value();
             optimizer->LoadConfiguration(merged);
+            if (!frozen.empty())
+                optimizer->setConstraints(frozen);
         }
 
         // Per-step callback: throttle-then-emit, same cadence model as runMD().
