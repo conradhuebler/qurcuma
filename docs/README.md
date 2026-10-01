@@ -1,129 +1,45 @@
 # Qurcuma Documentation
 
-Comprehensive documentation for the Qurcuma molecular visualization project, organized by architecture, features, and development phases.
+Index of `docs/`. Rules and entry points per source directory are in the `CLAUDE.md` files (root, `src/`, `src/docks/`, `src/dialogs/`, `src/widgets/`, `src/qml/`). Open tasks: `../TODO.md`. Feature wishes: [ROADMAP.md](./ROADMAP.md).
 
-## Quick Navigation
+## Architecture (`architecture/`)
 
-- **[Project Status](../src/CLAUDE.md)** - Current phase overview and status
-- **[Architecture](./architecture/)** - Technical design and system details
-- **[Features](./features/)** - User-facing functionality guides
-- **[Development](./development/)** - Developer guides and API reference
+Current (Qt Quick 3D renderer), moved from `src/CLAUDE.md`:
 
----
+- [viewer-scenecontroller.md](./architecture/viewer-scenecontroller.md): viewer, `SceneController`, display, looks, image export
+- [nci-overlay.md](./architecture/nci-overlay.md): non-covalent interaction detection and drawing
+- [rmsd-workspace.md](./architecture/rmsd-workspace.md): RMSD/align workspace
+- [simulation-gui.md](./architecture/simulation-gui.md): simulation dock, walls, thermostat, charts, reactive topology
+- [lessons.md](./architecture/lessons.md): OER lesson files
+- [interaction-editing.md](./architecture/interaction-editing.md): mouse, hotkeys, edit mode, collisions
+- [builder.md](./architecture/builder.md): Build mode, fragments, container fill
+- [viewer-ui.md](./architecture/viewer-ui.md): structure sync, appearance dock, menus, palette
 
-## Architecture & Design
+Older documents written for the Qt3D renderer (since removed); statements about `CustomFrameGraph`, frustum culling and GPU instancing systems describe that design and are not checked against the current code:
 
-Technical documentation for core systems:
+- [rendering-pipeline.md](./architecture/rendering-pipeline.md), [performance-optimization.md](./architecture/performance-optimization.md), [file-parsers.md](./architecture/file-parsers.md)
 
-- **[Rendering Pipeline](./architecture/rendering-pipeline.md)** - CustomFrameGraph, multi-pass rendering, SSAO, Bloom, HDR tone mapping
-- **[Performance Optimization](./architecture/performance-optimization.md)** - GPU instancing, frustum culling, LOD system, async file loading
-- **[File Parsers](./architecture/file-parsers.md)** - VTF, XYZ, PDB, MOL2 format parsing and integration
-- **[Performance Roadmap (WP)](./WP-performance.md)** - measured plan: bond detection/NCI off the GUI thread, position-only instancing path, frame coalescing, adaptive GPU quality; why a render thread is parked
+## Work packages
 
----
+- [WP-performance.md](./WP-performance.md): bond detection and NCI off the GUI thread, position-only instancing, adaptive quality
+- [WP-ux-restructure.md](./WP-ux-restructure.md): UX slimming (modes, looks, menus); status per stage
+- [WP-visualization-and-vr.md](./WP-visualization-and-vr.md): older plan (written for Qt3D; the renderer decision is done)
+- [WP-remote-compute-vr.md](./WP-remote-compute-vr.md): A visualizes, B computes (SSH), then VR
+- [WP0-quick3d-spike.md](./WP0-quick3d-spike.md): renderer migration spike (`../spikes/quick3d/`)
+- [UX-settings-audit.md](./UX-settings-audit.md)
 
-## Features & Functionality
+## Development (`development/`)
 
-User-facing documentation for major features:
+- [phase-timeline.md](./development/phase-timeline.md): history of phases 1-5D (Nov 2025)
+- [api-reference.md](./development/api-reference.md), [visualizer-roadmap.md](./development/visualizer-roadmap.md)
+- `audit_ui_reach.py`, `count_controls.py`: UI audit scripts
 
-- **[Visualization Settings](./features/visualization-settings.md)** - Rendering modes, materials, presets, fog control
-- **[Selection & Measurements](./features/selection-measurements.md)** - Atom selection, distance/angle/dihedral measurements
-- **[Workspace & Bookmarks](./features/workspace-bookmarks.md)** - Workspace save/restore, bookmarks, directory navigation
-- **[Bond Editor](./features/bond-editor.md)** - Adding, removing, and modifying bonds with validation
+## Build and test
 
----
-
-## Development & API
-
-Information for developers extending Qurcuma:
-
-- **[Phase Timeline](./development/phase-timeline.md)** - Chronological history of development phases (1-5D)
-- **[API Reference](./development/api-reference.md)** - Quick reference for important classes and methods
-- **[Testing Guide](./development/testing.md)** - Building, testing, and debugging
-
----
-
-## By Phase
-
-Detailed information organized by development phase:
-
-| Phase | Title | Status |
-|-------|-------|--------|
-| 1-3 | Settings, Navigation, Workspace | [Complete](./development/phase-timeline.md#phases-1-3) |
-| 4A/4B | PBR & Bond Editor | [Complete](./development/phase-timeline.md#phase-4ab) |
-| 5A/5B | Advanced Rendering | [Complete](./development/phase-timeline.md#phases-5a5b) |
-| 5C | File Format Support | [Complete](./development/phase-timeline.md#phase-5c) |
-| 5D | Performance Optimization | [In Progress](./development/phase-timeline.md#phase-5d) |
-
----
-
-## Key Statistics
-
-- **Total Lines of Code:** 8,000+
-- **Phases Completed:** 5A, 5B, 5C
-- **Phases In Progress:** 5D (GPU Instancing, Frustum Culling, Async Loading)
-- **File Formats Supported:** VTF, XYZ, PDB, MOL2
-- **Performance Target:** >60 FPS for 5000+ atoms with GPU instancing
-
----
-
-## File Structure
-
-```
-qurcuma/
-├── src/                              - Source code
-│   ├── view.cpp/h                   - 3D molecule viewer
-│   ├── mainwindow.cpp/h             - Main application window
-│   ├── customframegraph.cpp/h       - Multi-pass rendering
-│   ├── atominstancingsystem.cpp/h   - GPU instancing
-│   ├── frustumculler.cpp/h          - Frustum culling
-│   ├── fileloadingworker.cpp/h      - Async file loading
-│   ├── *parser.cpp/h                - File format parsers
-│   └── CLAUDE.md                    - Quick project overview
-├── docs/                            - Detailed documentation (this folder)
-├── debug/                           - Debug build artifacts
-├── release/                         - Release build artifacts
-└── CMakeLists.txt                  - Build configuration
-```
-
----
-
-## Development Workflow
-
-### Build Commands
 ```bash
-# Debug build (full symbols, no optimizations)
-cmake --build debug
-
-# Release build (O3 optimizations, stripped symbols)
-cmake --build release
-
-# Run tests
-./debug/test_vtf_bonds
-./debug/test_vtf_frames
-./debug/test_vtf_full
+cmake --build debug; echo CMAKE_EXIT=$?     # development build, ./debug/qurcuma
+cmake --build release; echo CMAKE_EXIT=$?   # optimized build
+python3 scripts/check_docs.py               # documentation checks; hook: git config core.hooksPath scripts/git-hooks
 ```
 
-### Commit Guidelines
-1. Only commit source files (`.cpp`, `.h`, `.md`, `.glsl`)
-2. Never commit build artifacts or executables
-3. Format: `"Verb: Brief description"` (e.g., "Add:", "Fix:", "Improve:")
-4. Include phase marker: `Phase 5D: GPU Instancing System`
-
-### Code Marking
-- New functions: Add `// Claude Generated - Phase X` comment
-- Include Doxygen-ready documentation with scientific context
-- Reference equations, papers, or physics principles where applicable
-
----
-
-## Links & Resources
-
-- **Main Documentation:** [src/CLAUDE.md](../src/CLAUDE.md)
-- **Issue Tracking:** GitHub Issues
-- **Build Guide:** See `docs/development/testing.md`
-- **API Documentation:** Auto-generated Doxygen (not included in repo)
-
----
-
-**Last Updated:** November 2025 | **Phase:** 5D (In Progress)
+Test executables (`test_vtf_bonds`, `test_nci`, `test_fragments`, `test_recipes`, ...) are CMake targets of the root `CMakeLists.txt`; the sources currently lie in the repository root.

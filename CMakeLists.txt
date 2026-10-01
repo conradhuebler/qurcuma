@@ -359,7 +359,7 @@ target_include_directories(qurcuma PRIVATE
 )
 
 # VTF Parser Test
-#add_executable(test_vtf_minimal test_vtf_minimal.cpp)
+#add_executable(test_vtf_minimal tests/test_vtf_minimal.cpp)
 #target_link_libraries(test_vtf_minimal PRIVATE
 #Qt6::Core
 #)
@@ -369,7 +369,7 @@ target_include_directories(qurcuma PRIVATE
 #)
 
 # VTF Bond Test - Claude Generated
-add_executable(test_vtf_bonds test_vtf_bonds.cpp)
+add_executable(test_vtf_bonds tests/test_vtf_bonds.cpp)
 target_link_libraries(test_vtf_bonds PRIVATE
 Qt6::Core
 )
@@ -379,7 +379,7 @@ target_include_directories(test_vtf_bonds PRIVATE
 )
 
 # VTF Frame Test - Claude Generated
-add_executable(test_vtf_frames test_vtf_frames.cpp)
+add_executable(test_vtf_frames tests/test_vtf_frames.cpp)
 target_link_libraries(test_vtf_frames PRIVATE
 Qt6::Core
 )
@@ -389,7 +389,7 @@ target_include_directories(test_vtf_frames PRIVATE
 )
 
 # VTF Full Test - Claude Generated
-add_executable(test_vtf_full test_vtf_full.cpp)
+add_executable(test_vtf_full tests/test_vtf_full.cpp)
 target_link_libraries(test_vtf_full PRIVATE
 Qt6::Core
 )
@@ -399,7 +399,7 @@ target_include_directories(test_vtf_full PRIVATE
 )
 
 # NCI Detection Test - Claude Generated 2026
-add_executable(test_nci test_nci.cpp src/ncianalysis.cpp src/forceinjector.cpp)
+add_executable(test_nci tests/test_nci.cpp src/ncianalysis.cpp src/forceinjector.cpp)
 target_link_libraries(test_nci PRIVATE
 Qt6::Core
 Qt6::Widgets
@@ -416,7 +416,7 @@ target_include_directories(test_nci PRIVATE
 # Fragment Decomposition Test - Claude Generated 2026
 # Needs Quick3D only because SceneController owns the instancing objects; no window
 # is created (offscreen platform is enough).
-add_executable(test_fragments test_fragments.cpp src/scenecontroller.cpp
+add_executable(test_fragments tests/test_fragments.cpp src/scenecontroller.cpp
     src/atominstancing.cpp src/bondinstancing.cpp src/elementdata.cpp src/ncianalysis.cpp
     src/forceinjector.cpp)
 target_link_libraries(test_fragments PRIVATE
@@ -437,7 +437,7 @@ target_include_directories(test_fragments PRIVATE
 )
 
 # Look round-trip test - Claude Generated 2026 (look.h is header-only).
-add_executable(test_looks test_looks.cpp)
+add_executable(test_looks tests/test_looks.cpp)
 target_link_libraries(test_looks PRIVATE
 Qt6::Core
 Qt6::Gui
@@ -446,7 +446,7 @@ target_include_directories(test_looks PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # Simulation settings JSON + recipes test - Claude Generated 2026 (UX stage 6).
 # lesson.cpp needs only Qt; the worker/viewer types it names come from headers.
-add_executable(test_recipes test_recipes.cpp src/lesson.cpp)
+add_executable(test_recipes tests/test_recipes.cpp src/lesson.cpp)
 target_link_libraries(test_recipes PRIVATE
 Qt6::Core
 Qt6::Gui
@@ -467,7 +467,7 @@ target_include_directories(test_recipes PRIVATE
 # Header-only use of MoleculeViewer's Atom/Bond types; no GUI, no Quick3D.
 # measurements.cpp is a thin adapter over curcuma's GeometryTools / RMSDFunctions,
 # so the test needs curcuma's headers and library.
-add_executable(test_measurements test_measurements.cpp src/measurements.cpp)
+add_executable(test_measurements tests/test_measurements.cpp src/measurements.cpp)
 target_link_libraries(test_measurements PRIVATE
 Qt6::Core
 Qt6::Gui
@@ -484,7 +484,7 @@ target_include_directories(test_measurements PRIVATE
 )
 add_test(NAME measurements COMMAND test_measurements)
 
-add_executable(test_scenefiller test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp
+add_executable(test_scenefiller tests/test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp
     src/elementdata.cpp src/fragmentlibrary.cpp)
 target_link_libraries(test_scenefiller PRIVATE
 Qt6::Core
@@ -503,7 +503,7 @@ target_include_directories(test_scenefiller PRIVATE
 )
 add_test(NAME scenefiller COMMAND test_scenefiller)
 
-add_executable(test_buildtools test_buildtools.cpp src/buildtools.cpp src/elementdata.cpp
+add_executable(test_buildtools tests/test_buildtools.cpp src/buildtools.cpp src/elementdata.cpp
     src/fragmentlibrary.cpp)
 target_link_libraries(test_buildtools PRIVATE
 Qt6::Core
@@ -523,7 +523,7 @@ target_include_directories(test_buildtools PRIVATE
 
 # NCI GFN-FF Integration Test - Claude Generated 2026
 # Links curcuma so the analysis worker's real curcuma path is exercised.
-add_executable(test_nci_gfnff test_nci_gfnff.cpp src/ncianalysisworker.cpp src/ncianalysis.cpp
+add_executable(test_nci_gfnff tests/test_nci_gfnff.cpp src/ncianalysisworker.cpp src/ncianalysis.cpp
     src/forceinjector.cpp src/xyzparser.cpp src/elementdata.cpp)
 target_link_libraries(test_nci_gfnff PRIVATE
 Qt6::Core

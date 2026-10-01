@@ -48,6 +48,30 @@ See **[AIChangelog.md](AIChangelog.md)** for significant improvements by date.
 - **Eliminate redundant information** that doesn't add architectural value
 - **Prioritize clean, maintainable documentation** over verbose troubleshooting history
 
+## Where Things Go
+
+One home per kind of information; copies drift apart. `scripts/check_docs.py` enforces the mechanical parts: run it
+before committing, or enable the hook with `git config core.hooksPath scripts/git-hooks`.
+
+| Kind | Home |
+|---|---|
+| Rules, invariants, traps, layout of a directory | the `CLAUDE.md` of that directory (root 200 lines, others 120, no line over 600 characters) |
+| Open code tasks and defects | `TODO.md`, open items only, at most 3 lines each |
+| Feature wishes, long-term vision | `docs/ROADMAP.md` |
+| Work package (plan, measurement, decision) | one `docs/WP-<topic>.md` |
+| Architecture detail behind a CLAUDE.md bullet | `docs/architecture/<topic>.md`, linked from the bullet |
+| History | git log and the `AIChangelog.md` index (one line per fact; older periods in `docs/changelog/`) |
+
+- No dated status sections, "Completed" lists or fix narratives in a CLAUDE.md. No new markdown file in the repository root (README, CLAUDE, TODO, AIChangelog, LICENSE only).
+- A statement about the code ("X exists", "default is Y") is checked against the code when it is written; a path in backticks must exist. What was not checked says so.
+- Closing a task is one change: remove its TODO entry, add the changelog line.
+- Dead code is deleted in the same change that removes its last caller (git is the archive); no `.backup`/`.orig` files.
+
+### Status labels
+- 🤖 AI-generated (not reviewed), ⚙️ machine-tested (builds, test target passes), 👁️ human-reviewed, ✅ TESTED / ✅ APPROVED (operator ran it on real input).
+- **The AI never writes ✅ TESTED or ✅ APPROVED on its own work.** "ADDED" in the workflow states means: compiles and was driven in code, not that it looks right on screen. GUI and 3D rendering cannot be checked from the agent's shell; the operator confirms.
+- A new feature entry names what was checked and what was not.
+
 ## Development Guidelines
 
 ### Code Organization

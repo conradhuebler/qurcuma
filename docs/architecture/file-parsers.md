@@ -437,3 +437,8 @@ if (!parser.parseFile(filePath, frame)) {
 - Format auto-detection
 - Streaming parser for very large files (>100MB)
 - Gzip-compressed file support (.pdb.gz)
+
+## VTF coarse-grained beads (moved from src/CLAUDE.md)
+
+- Both formats handle large files efficiently
+- ✅ **VTF coarse-grained beads** — the `atom` record is parsed **keyword-based** (radius/name/type/element in any order), not by fixed columns. Element = explicit `element`, else `name` if it's a real symbol (`elem::isElementSymbol`), else empty. Beads keep their own `radius` + `type` on `Atom` (both threaded into `AtomDatum`); the renderer sizes by `radius` (fallback element vdW) and colours "By Type". Replaced the old hard-coded `ppo1→C`/`dmaema→N`/else→C fake-element table that rendered every non-polymer VTF as carbon.

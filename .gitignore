@@ -107,3 +107,7 @@ external/ripser/
 external/cpp-d4/
 external/ulysses-main/
 
+
+# Local agent/scratch
+.snapshots/
+spike_*.png
