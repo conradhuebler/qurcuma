@@ -240,7 +240,7 @@ bool LessonController::saveLessonInteractive(bool forceDialog)
 // Build a LessonStructure from atoms + the dock's current simulation conditions,
 // append it, and return its row. No UI changes — callers decide what to reveal.
 int LessonController::appendStructureFromAtoms(const QString& name,
-    const QVector<MoleculeViewer::Atom>& atoms)
+    const QVector<MolAtom>& atoms)
 {
     LessonStructure s;
     s.name = name.isEmpty()
@@ -258,7 +258,7 @@ void LessonController::addCurrentStructure(const QString& sourceFilePath)
 {
     if (!m_viewer)
         return;
-    const QVector<MoleculeViewer::Atom> atoms = m_viewer->getCurrentFrameAtoms();
+    const QVector<MolAtom> atoms = m_viewer->getCurrentFrameAtoms();
     if (atoms.isEmpty()) {
         emit statusMessage(tr("No structure to add"), 3000);
         return;
@@ -283,8 +283,8 @@ void LessonController::addCurrentStructure(const QString& sourceFilePath)
 void LessonController::addFile(const QString& filePath)
 {
     const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath);
-    const QVector<MoleculeViewer::Atom> atoms = r.frames.isEmpty()
-        ? QVector<MoleculeViewer::Atom>() : r.frames.first();
+    const QVector<MolAtom> atoms = r.frames.isEmpty()
+        ? QVector<MolAtom>() : r.frames.first();
     if (atoms.isEmpty()) {
         emit statusMessage(
             tr("Could not read structure: %1").arg(QFileInfo(filePath).fileName()), 3000);
@@ -308,8 +308,8 @@ void LessonController::addFiles(const QStringList& paths)
             && suf != QLatin1String("pdb") && suf != QLatin1String("mol2"))
             continue;
         const MoleculeFileLoader::Result r = MoleculeFileLoader::load(path);
-        const QVector<MoleculeViewer::Atom> atoms = r.frames.isEmpty()
-            ? QVector<MoleculeViewer::Atom>() : r.frames.first();
+        const QVector<MolAtom> atoms = r.frames.isEmpty()
+            ? QVector<MolAtom>() : r.frames.first();
         if (atoms.isEmpty())
             continue;
         appendStructureFromAtoms(QFileInfo(path).completeBaseName(), atoms);
@@ -425,14 +425,14 @@ void LessonController::loadStructureFromIndex(const QModelIndex& index)
     const LessonStructure* s = m_structureModel->at(index.row());
     if (!s)
         return;
-    QVector<MoleculeViewer::Atom> atoms;
+    QVector<MolAtom> atoms;
     if (!xyzToAtoms(s->xyz, atoms)) {
         emit statusMessage(tr("Could not parse lesson structure '%1'").arg(s->name), 3000);
         return;
     }
 
-    QVector<QVector<MoleculeViewer::Atom>> allAtoms { atoms };
-    QVector<QVector<MoleculeViewer::Bond>> allBonds;  // empty => viewer auto-detects bonds
+    QVector<QVector<MolAtom>> allAtoms { atoms };
+    QVector<QVector<MolBond>> allBonds;  // empty => viewer auto-detects bonds
     m_viewer->clearScenePublic();
     m_viewer->setTrajectoryData(allAtoms, allBonds);
     if (m_centerOnLoad)

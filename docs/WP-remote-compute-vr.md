@@ -1,6 +1,6 @@
 # WP: Remote-Rechnen und VR
 
-Status: Stand 2026-10-01. R0 ist umgesetzt (`SimulationBackend`/`LocalBackend` in `src/simulationbackend.*`, `src/moleculetypes.h`; baut, 7 Test-Targets laufen, GUI-Lauf vom Operator noch nicht geprueft). R1 bis R5 sind nicht implementiert; alle Aussagen über vorhandenen Code sind auf den Stand dieses Datums bezogen und am Quelltext gelesen, nicht gebaut oder gemessen.
+Status: Stand 2026-10-01. R0 ist umgesetzt (`SimulationBackend`/`LocalBackend` in `src/simulationbackend.*`, `src/moleculetypes.h`; baut, 7 Test-Targets laufen, GUI-Lauf vom Operator noch nicht geprueft). R1 ist umgesetzt (`src/remote/`: Protokoll, Dateirichtlinie, `qurcuma-server`, Tests `test_remote_protocol` und `test_remote_loopback`; Loopback an einer 3-Atom-GFN-FF-Optimierung geprueft, nicht ueber zwei Rechner, kein MD-Lauf). R2 bis R5 sind nicht implementiert; alle Aussagen über vorhandenen Code sind auf den Stand dieses Datums bezogen und am Quelltext gelesen, nicht gebaut oder gemessen.
 
 ## Ziel
 

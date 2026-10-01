@@ -11,7 +11,7 @@ Open code tasks only, at most 3 lines each. Feature wishes: `docs/ROADMAP.md`. P
 - Lessons: result/target fields reserved in the schema, not implemented; no barostat, "pressure" is wall volume only.
 
 ## Remote
-- Remote compute (A controls/visualizes, B computes) and VR: plan in `docs/WP-remote-compute-vr.md`, stage R0 (decouple `SimulationWorker` behind a backend interface) is the first step.
+- Remote compute (A controls/visualizes, B computes) and VR: plan in `docs/WP-remote-compute-vr.md`; R0 and R1 are in, next is R2 (`RemoteBackend`, SSH tunnel, dock selection).
 
 ## Docs / repository
 - Qt3D-era docs in `docs/architecture/` (rendering-pipeline, performance-optimization, file-parsers) describe removed code; rewrite or archive.

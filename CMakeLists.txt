@@ -601,6 +601,58 @@ elseif(APPLE)
     endif()
 endif()
 
+
+# ---------------------------------------------------------------------------
+# Remote compute (WP remote compute R1, docs/WP-remote-compute-vr.md):
+# qurcuma-server runs SimulationWorker headless for a remote qurcuma. Needs Qt6::WebSockets;
+# skipped when it is not installed.
+# ---------------------------------------------------------------------------
+find_package(Qt6 COMPONENTS WebSockets QUIET)
+if(TARGET Qt6::WebSockets)
+    add_library(qurcuma_remote STATIC
+        src/remote/protocol.cpp
+        src/remote/serversession.cpp
+        src/simulationbackend.cpp
+        src/simulationworker.cpp
+        src/forceinjector.cpp
+        src/lesson.cpp)
+    target_link_libraries(qurcuma_remote PUBLIC Qt6::Core Qt6::Gui Qt6::WebSockets curcuma_core curcuma_cap
+        $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
+    target_include_directories(qurcuma_remote PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/
+        ${curcuma_SOURCE_DIR}
+        ${curcuma_SOURCE_DIR}/src
+        ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+        ${curcuma_SOURCE_DIR}/external
+        ${curcuma_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/LBFGSpp/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/fmt/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/ripser
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/cpp-d4/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/CxxThreadPool/include)
+    # Same Eigen alignment as curcuma (see the qurcuma target above).
+    if(USE_MARCH_NATIVE)
+        target_compile_options(qurcuma_remote PUBLIC -march=native)
+    elseif(USE_AVX512)
+        target_compile_options(qurcuma_remote PUBLIC -mavx512f -mavx512vl -mavx512dq -mfma)
+    elseif(USE_AVX2)
+        target_compile_options(qurcuma_remote PUBLIC -mavx2 -mfma)
+    endif()
+    set_target_properties(qurcuma_remote PROPERTIES AUTOMOC ON)
+
+    add_executable(qurcuma-server src/remote/server_main.cpp)
+    target_link_libraries(qurcuma-server PRIVATE qurcuma_remote)
+
+    add_executable(test_remote_protocol tests/test_remote_protocol.cpp)
+    target_link_libraries(test_remote_protocol PRIVATE qurcuma_remote)
+    add_executable(test_remote_loopback tests/test_remote_loopback.cpp)
+    target_link_libraries(test_remote_loopback PRIVATE qurcuma_remote)
+else()
+    message(STATUS "qurcuma: Qt6::WebSockets not found - qurcuma-server and the remote tests are not built")
+endif()
+
 set(CPACK_PACKAGE_NAME "qurcuma")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_GENERATOR "ZIP")

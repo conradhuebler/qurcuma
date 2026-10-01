@@ -318,12 +318,12 @@ Lesson lessonFromJson(const QJsonObject& obj, QString* error)
     return lesson;
 }
 
-QString atomsToXyz(const QVector<MoleculeViewer::Atom>& atoms, const QString& comment)
+QString atomsToXyz(const QVector<MolAtom>& atoms, const QString& comment)
 {
     QString out;
     QTextStream ts(&out);
     ts << atoms.size() << '\n' << comment << '\n';
-    for (const MoleculeViewer::Atom& a : atoms) {
+    for (const MolAtom& a : atoms) {
         ts << a.element << ' '
            << QString::number(a.position.x(), 'f', 6) << ' '
            << QString::number(a.position.y(), 'f', 6) << ' '
@@ -332,7 +332,7 @@ QString atomsToXyz(const QVector<MoleculeViewer::Atom>& atoms, const QString& co
     return out;
 }
 
-bool xyzToAtoms(const QString& xyz, QVector<MoleculeViewer::Atom>& atoms)
+bool xyzToAtoms(const QString& xyz, QVector<MolAtom>& atoms)
 {
     atoms.clear();
     const QStringList lines = xyz.split(QLatin1Char('\n'));
@@ -348,7 +348,7 @@ bool xyzToAtoms(const QString& xyz, QVector<MoleculeViewer::Atom>& atoms)
         const QStringList t = lines.at(2 + i).trimmed().split(ws, Qt::SkipEmptyParts);
         if (t.size() < 4)
             continue;
-        MoleculeViewer::Atom a;
+        MolAtom a;
         a.element = t.at(0);
         a.position = QVector3D(t.at(1).toFloat(), t.at(2).toFloat(), t.at(3).toFloat());
         atoms.push_back(a);
