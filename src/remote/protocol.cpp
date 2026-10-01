@@ -7,6 +7,8 @@
 #include "../lesson.h"  // simConfigToJson / simConfigFromJson
 
 #include <QCryptographicHash>
+#include <QDir>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonValue>
 #include <QRegularExpression>
@@ -328,6 +330,54 @@ bool decodeFile(const QByteArray& m, QString& name, QByteArray& data, QString* e
     if (QCryptographicHash::hash(data, QCryptographicHash::Sha256) != sha)
         return fail(error, QStringLiteral("file checksum mismatch"));
     return true;
+}
+
+// --- file download ----------------------------------------------------------------
+
+QByteArray encodeChunk(quint32 id, const QByteArray& data)
+{
+    Writer w;
+    w.put<quint8>(quint8(MsgKind::FileChunk));
+    w.put<quint32>(id);
+    w.buf.append(data);
+    return w.buf;
+}
+
+bool decodeChunk(const QByteArray& m, quint32& id, QByteArray& data)
+{
+    Reader r(m);
+    if (r.get<quint8>() != quint8(MsgKind::FileChunk))
+        return false;
+    id = r.get<quint32>();
+    if (!r.ok)
+        return false;
+    data = m.mid(r.pos);
+    return true;
+}
+
+QString resolveBrowsePath(const QString& requested, const QStringList& roots, QString* error)
+{
+    if (roots.isEmpty()) {
+        fail(error, QStringLiteral("no directory is shared by this server"));
+        return QString();
+    }
+    const QString first = QFileInfo(roots.first()).canonicalFilePath();
+    const QString candidate = requested.isEmpty() ? first
+        : (QDir::isAbsolutePath(requested) ? requested : QDir(first).absoluteFilePath(requested));
+    const QString canon = QFileInfo(candidate).canonicalFilePath();  // empty if it does not exist
+    if (canon.isEmpty()) {
+        fail(error, QStringLiteral("no such file or directory"));
+        return QString();
+    }
+    for (const QString& r : roots) {
+        const QString root = QFileInfo(r).canonicalFilePath();
+        if (root.isEmpty())
+            continue;
+        if (canon == root || canon.startsWith(root.endsWith(QLatin1Char('/')) ? root : root + QLatin1Char('/')))
+            return canon;
+    }
+    fail(error, QStringLiteral("outside the directories shared by this server"));
+    return QString();
 }
 
 // --- file policy ----------------------------------------------------------------

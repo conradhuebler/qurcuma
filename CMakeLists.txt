@@ -296,11 +296,15 @@ if(USE_REMOTE AND TARGET Qt6::WebSockets)
     list(APPEND SOURCES
         src/remote/protocol.cpp
         src/remote/remotebackend.cpp
-        src/remote/sshtunnel.cpp)
+        src/remote/remotefiles.cpp
+        src/remote/sshtunnel.cpp
+        src/dialogs/remotefilesdialog.cpp)
     list(APPEND HEADERS
         src/remote/protocol.h
         src/remote/remotebackend.h
-        src/remote/sshtunnel.h)
+        src/remote/remotefiles.h
+        src/remote/sshtunnel.h
+        src/dialogs/remotefilesdialog.h)
     if(NOT USE_SFTP)
         list(APPEND SOURCES src/sshconfig.cpp)  # host list from ~/.ssh/config (Qt only)
         list(APPEND HEADERS src/sshconfig.h)
@@ -633,6 +637,7 @@ if(TARGET Qt6::WebSockets)
     add_library(qurcuma_remote STATIC
         src/remote/protocol.cpp
         src/remote/remotebackend.cpp
+        src/remote/remotefiles.cpp
         src/remote/sshtunnel.cpp
         src/remote/serversession.cpp
         src/simulationbackend.cpp
@@ -674,6 +679,8 @@ if(TARGET Qt6::WebSockets)
     target_link_libraries(test_remote_loopback PRIVATE qurcuma_remote)
     add_executable(test_remote_reconnect tests/test_remote_reconnect.cpp)
     target_link_libraries(test_remote_reconnect PRIVATE qurcuma_remote)
+    add_executable(test_remote_files tests/test_remote_files.cpp)
+    target_link_libraries(test_remote_files PRIVATE qurcuma_remote)
     add_executable(test_remote_ssh tests/test_remote_ssh.cpp)
     target_link_libraries(test_remote_ssh PRIVATE qurcuma_remote)
     add_dependencies(test_remote_ssh qurcuma-server)

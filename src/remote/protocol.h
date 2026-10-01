@@ -30,7 +30,8 @@ constexpr qint64 kMaxSessionBytes = 256LL * 1024 * 1024;  ///< per session
 /// First byte of every binary WebSocket message.
 enum class MsgKind : quint8 {
     Frame = 1,  ///< server -> client: one SimulationFrame
-    File = 2    ///< client -> server: one uploaded file
+    File = 2,   ///< client -> server: one uploaded file
+    FileChunk = 3  ///< server -> client: part of a downloaded file (after a fileBegin message)
 };
 
 // --- control messages (JSON) -------------------------------------------------
@@ -60,6 +61,18 @@ bool decodeFrame(const QByteArray& message, SimulationFrame& frame, QString* err
 QByteArray encodeFile(const QString& name, const QByteArray& data);
 /// Checks the name (isSafeFileName) and the SHA-256 carried in the message.
 bool decodeFile(const QByteArray& message, QString& name, QByteArray& data, QString* error = nullptr);
+
+// --- file download (server -> client, chunked) -----------------------------------
+
+constexpr int kChunkBytes = 256 * 1024;
+
+QByteArray encodeChunk(quint32 transferId, const QByteArray& data);
+bool decodeChunk(const QByteArray& message, quint32& transferId, QByteArray& data);
+
+/// Resolves a path a client asked to list or fetch. @p requested is absolute or relative to
+/// the first root; the result is the canonical existing path and lies inside one of
+/// @p roots (symlinks that leave a root are refused). Empty on failure, @p error says why.
+QString resolveBrowsePath(const QString& requested, const QStringList& roots, QString* error = nullptr);
 
 // --- file policy -------------------------------------------------------------
 

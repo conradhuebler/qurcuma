@@ -410,6 +410,11 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     m_serverCommandEdit->setToolTip(tr("Command that starts qurcuma-server on the remote computer "
                                        "(full path, optionally with --root <directory>)."));
     methodForm->addRow(tr("Server command:"), m_serverCommandEdit);
+    m_serverTrajectoryCheck = new QCheckBox(tr("Also write the full trajectory on the server"), this);
+    m_serverTrajectoryCheck->setToolTip(tr("The trajectory file on this computer is made from the frames that arrive "
+                                           "and can have gaps on a slow connection. This also keeps a complete file in "
+                                           "the server's session directory; fetch it with File > Remote Files."));
+    methodForm->addRow(QString(), m_serverTrajectoryCheck);
     {
         QSettings settings;
         const QString host = settings.value(QStringLiteral("remote/host")).toString();
@@ -418,6 +423,7 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
         m_serverCommandEdit->setText(settings.value(QStringLiteral("remote/serverCommand/") + host,
             QStringLiteral("qurcuma-server")).toString());
         m_serverCommandEdit->setEnabled(!m_computeCombo->currentData().toString().isEmpty());
+        m_serverTrajectoryCheck->setEnabled(!m_computeCombo->currentData().toString().isEmpty());
     }
     connect(m_computeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
         const QString host = m_computeCombo->currentData().toString();
@@ -426,6 +432,7 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
         m_serverCommandEdit->setText(settings.value(QStringLiteral("remote/serverCommand/") + host,
             QStringLiteral("qurcuma-server")).toString());
         m_serverCommandEdit->setEnabled(!host.isEmpty());
+        m_serverTrajectoryCheck->setEnabled(!host.isEmpty());
         refreshGpuChoices();
     });
     connect(m_serverCommandEdit, &QLineEdit::editingFinished, this, [this] {
@@ -1589,8 +1596,11 @@ SimulationBackend* SimulationControlWidget::createBackend()
 #ifdef QURCUMA_REMOTE
     if (m_computeCombo) {
         const QString host = m_computeCombo->currentData().toString();
-        if (!host.isEmpty())
-            return new remote::RemoteBackend(host, m_serverCommandEdit->text().trimmed(), this);
+        if (!host.isEmpty()) {
+            auto* rb = new remote::RemoteBackend(host, m_serverCommandEdit->text().trimmed(), this);
+            rb->setServerTrajectory(m_serverTrajectoryCheck->isChecked());
+            return rb;
+        }
     }
 #endif
     return new LocalBackend(this);
@@ -1963,6 +1973,7 @@ void SimulationControlWidget::setRunning(bool running)
     if (m_computeCombo) {
         m_computeCombo->setEnabled(!running);
         m_serverCommandEdit->setEnabled(!running && !m_computeCombo->currentData().toString().isEmpty());
+        m_serverTrajectoryCheck->setEnabled(!running && !m_computeCombo->currentData().toString().isEmpty());
     }
 #endif
     m_chargeSpin->setEnabled(!running);

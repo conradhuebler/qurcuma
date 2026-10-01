@@ -46,6 +46,10 @@ public:
     void requestPause() override;
     void requestResume() override;
 
+    /// Also let the server write the complete trajectory into its session directory (kept
+    /// there; fetch it with RemoteFiles / the Remote Files dialog). Default off.
+    void setServerTrajectory(bool on) { m_serverTrajectory = on; }
+
     /// Where the trajectory is written (default: remote-<timestamp>.trj.xyz in the working directory).
     void setTrajectoryPath(const QString& path) { m_trajectoryPath = path; }
     QString trajectoryPath() const { return m_trajectoryPath; }
@@ -96,6 +100,7 @@ private:
     SimulationConfig m_config;
     bool m_liveNci = false;
     bool m_singleStep = false;
+    bool m_serverTrajectory = false;
 
     QJsonObject m_startConfig;  // config JSON with file parameters rewritten to upload names
     QVector<Upload> m_uploads;

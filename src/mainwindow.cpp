@@ -103,6 +103,9 @@
 #include "ncianalysisworker.h"
 #include "nciwidget.h"  // Claude Generated 2026 - batch border-trim gallery
 #include "mainwindow.h"
+#ifdef QURCUMA_REMOTE
+#include "dialogs/remotefilesdialog.h"
+#endif
 
 #include "dialogs/fillcontainerdialog.h"
 #include "scenefiller.h"
@@ -882,6 +885,22 @@ void MainWindow::createMenus()
     m_recentConnectionsMenu = fileMenu->addMenu(QIcon::fromTheme("network-server"), tr("Recent Remote &Connections"));
     m_recentConnectionsMenu->setEnabled(false);
     updateRecentConnectionsMenu();
+#endif
+
+#ifdef QURCUMA_REMOTE
+    // Claude Generated 2026 (WP remote compute R4) - files on a computer running qurcuma-server.
+    QAction* remoteFilesAction = fileMenu->addAction(QIcon::fromTheme("folder-remote"), tr("Remote Files (qurcuma-server)..."));
+    connect(remoteFilesAction, &QAction::triggered, this, [this]() {
+        if (!m_remoteFilesDialog) {
+            m_remoteFilesDialog = new RemoteFilesDialog(this);
+            connect(m_remoteFilesDialog, &RemoteFilesDialog::openFileRequested, this, [this](const QString& path) {
+                loadMoleculeFile(path);
+                statusBar()->showMessage(tr("Loaded remote file: %1").arg(QFileInfo(path).fileName()), 3000);
+            });
+        }
+        m_remoteFilesDialog->show();
+        m_remoteFilesDialog->raise();
+    });
 #endif
 
     fileMenu->addSeparator();

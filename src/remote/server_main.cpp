@@ -36,6 +36,7 @@ int main(int argc, char* argv[])
     parser.addOption({ "token-stdin", "Read the shared secret from the first line of standard input." });
     parser.addOption({ "root", "Directory for session directories.", "dir",
         QDir::homePath() + QStringLiteral("/qurcuma-sessions") });
+    parser.addOption({ "browse", "Additional directory clients may list and download from (repeatable); the session root is always shared.", "dir" });
     parser.addOption({ "once", "Exit after the first session ends." });
     parser.addOption({ "grace", "Seconds a run keeps going after the client connection is lost.", "seconds", "60" });
     parser.process(app);
@@ -56,7 +57,7 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    remote::RemoteServer server(token, root, parser.value("grace").toInt(), &app);
+    remote::RemoteServer server(token, root, parser.value("grace").toInt(), parser.values("browse"), &app);
     if (!server.listen(quint16(parser.value("port").toUInt()))) {
         std::fprintf(stderr, "qurcuma-server: cannot listen: %s\n", qPrintable(server.errorString()));
         return 2;

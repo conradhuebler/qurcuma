@@ -10,6 +10,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QTextStream>
@@ -297,7 +298,7 @@ void RemoteBackend::sendStart()
     }
     sendJson({ { "type", "start" }, { "config", m_startConfig },
         { "atoms", atomsToJson(m_atoms) }, { "bonds", bondsToJson(m_bonds) },
-        { "liveNci", m_liveNci }, { "singleStep", m_singleStep } });
+        { "liveNci", m_liveNci }, { "singleStep", m_singleStep }, { "serverTrajectory", m_serverTrajectory } });
 }
 
 void RemoteBackend::onBinary(const QByteArray& message)
@@ -335,10 +336,20 @@ void RemoteBackend::endRun(const QString& reason, bool aborted, const QJsonObjec
         return;
     m_finished = true;
     const double dropped = stats.value("framesDropped").toDouble();
-    emit statusText(tr("Remote run ended: %1 frames received, %2 dropped by the server.")
-                        .arg(m_framesReceived).arg(quint64(dropped)));
+    if (!(m_serverTrajectory && stats.contains("sessionDir")))
+        emit statusText(tr("Remote run ended: %1 frames received, %2 dropped by the server.")
+                            .arg(m_framesReceived).arg(quint64(dropped)));
     if (m_trajectory.isOpen())
         m_trajectory.close();
+    if (m_serverTrajectory && stats.contains("sessionDir")) {
+        QStringList names;
+        for (const QJsonValue& v : stats.value("sessionFiles").toObject().value("files").toArray()) {
+            const QJsonObject o = v.toObject();
+            names << QStringLiteral("%1 (%2 kB)").arg(o.value("name").toString()).arg(qint64(o.value("size").toDouble() / 1024));
+        }
+        emit statusText(tr("Files on %1 in %2: %3").arg(m_host.isEmpty() ? m_url.host() : m_host,
+            stats.value("sessionDir").toString(), names.join(QStringLiteral(", "))));
+    }
     if (m_socket)
         m_socket->close();
     emit finished(reason, aborted);
