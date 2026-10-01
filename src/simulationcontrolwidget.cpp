@@ -7,6 +7,7 @@
 #ifdef QURCUMA_REMOTE
 #include "remote/remotebackend.h"
 #include "sshconfig.h"
+#include <QJsonArray>
 #include <QSettings>
 #endif
 
@@ -425,6 +426,7 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
         m_serverCommandEdit->setText(settings.value(QStringLiteral("remote/serverCommand/") + host,
             QStringLiteral("qurcuma-server")).toString());
         m_serverCommandEdit->setEnabled(!host.isEmpty());
+        refreshGpuChoices();
     });
     connect(m_serverCommandEdit, &QLineEdit::editingFinished, this, [this] {
         QSettings().setValue(QStringLiteral("remote/serverCommand/") + m_computeCombo->currentData().toString(),
@@ -735,6 +737,9 @@ CollapsibleSection* SimulationControlWidget::createAdvancedSection()
     m_gpuCombo->addItem(tr("Auto"), "auto");
     m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
     form->addRow(tr("GPU:"), m_gpuCombo);
+#ifdef QURCUMA_REMOTE
+    refreshGpuChoices();  // a remembered remote host shows its own backends
+#endif
 
     // GFN-FF topology mode selector
     m_topologyModeCombo = new QComboBox(this);
@@ -1591,6 +1596,50 @@ SimulationBackend* SimulationControlWidget::createBackend()
     return new LocalBackend(this);
 }
 
+// Claude Generated 2026 (WP remote compute R3) - GPU choices of the machine that computes:
+// this build's backends locally; for a host what its server reported on the last connection
+// (all three until the host has been connected once).
+void SimulationControlWidget::refreshGpuChoices()
+{
+    if (!m_gpuCombo)
+        return;
+    QStringList backends;
+#ifdef QURCUMA_REMOTE
+    const QString host = m_computeCombo ? m_computeCombo->currentData().toString() : QString();
+    if (!host.isEmpty()) {
+        const QVariant known = QSettings().value(QStringLiteral("remote/gpu/") + host);
+        backends = known.isValid() ? known.toStringList()
+                                   : QStringList{ QStringLiteral("cuda"), QStringLiteral("rocm"), QStringLiteral("vulkan") };
+        m_gpuCombo->setToolTip(known.isValid()
+            ? tr("GPU backends of %1, as reported by its qurcuma-server.").arg(host)
+            : tr("Not known yet: %1 reports its GPU backends when you first run on it.").arg(host));
+    } else
+#endif
+    {
+#if defined(USE_CUDA)
+        backends << QStringLiteral("cuda");
+#endif
+#if defined(USE_ROCM)
+        backends << QStringLiteral("rocm");
+#endif
+#if defined(USE_VULKAN)
+        backends << QStringLiteral("vulkan");
+#endif
+        m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
+    }
+    const QString current = m_gpuCombo->currentData().toString();
+    const QSignalBlocker block(m_gpuCombo);
+    m_gpuCombo->clear();
+    m_gpuCombo->addItem(tr("CPU (none)"), "none");
+    static const QMap<QString, QString> names = { { "cuda", "CUDA" }, { "rocm", "ROCm" }, { "vulkan", "Vulkan" } };
+    for (const QString& b : backends)
+        m_gpuCombo->addItem(names.value(b, b), b);
+    if (!backends.isEmpty())
+        m_gpuCombo->addItem(tr("Auto"), "auto");
+    const int idx = m_gpuCombo->findData(current);
+    m_gpuCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+}
+
 void SimulationControlWidget::teardownBackend()
 {
     if (!m_backend)
@@ -1603,10 +1652,19 @@ void SimulationControlWidget::teardownBackend()
 void SimulationControlWidget::connectBackend()
 {
 #ifdef QURCUMA_REMOTE
-    if (auto* rb = qobject_cast<remote::RemoteBackend*>(m_backend))
+    if (auto* rb = qobject_cast<remote::RemoteBackend*>(m_backend)) {
         connect(rb, &remote::RemoteBackend::statusText, this, [this](const QString& text) {
             m_statusLabel->setText(text);
         });
+        connect(rb, &remote::RemoteBackend::capabilities, this, [this](const QJsonObject& welcome) {
+            const QString host = m_computeCombo->currentData().toString();
+            QStringList gpus;
+            for (const QJsonValue& v : welcome.value("gpuBackends").toArray())
+                gpus << v.toString();
+            QSettings().setValue(QStringLiteral("remote/gpu/") + host, gpus);
+            refreshGpuChoices();
+        });
+    }
 #endif
     connect(m_backend, &SimulationBackend::frameReady, this, &SimulationControlWidget::onFrameReady);
     connect(m_backend, &SimulationBackend::finished, this, &SimulationControlWidget::onSimulationFinished);

@@ -31,6 +31,9 @@ public:
     void start();
     /// Ends both ssh processes.
     void close();
+    /// Starts the port forward again if its ssh process has ended (network change, sleep);
+    /// the server process and its ports are unchanged. No-op while the forward is running.
+    void restartForward();
 
     QString host() const { return m_host; }
 
@@ -47,6 +50,7 @@ signals:
 private:
     void onServerOutput();
     void fail(const QString& message);
+    void startForward();
 
     QString m_host, m_serverCommand, m_token;
     QProcess* m_server = nullptr;
@@ -55,6 +59,7 @@ private:
     QByteArray m_outBuf;
     QString m_stderr;
     bool m_done = false;
+    quint16 m_localPort = 0, m_remotePort = 0;
 };
 
 } // namespace remote

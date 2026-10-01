@@ -20,6 +20,8 @@ namespace remote {
 namespace {
 constexpr int kConnectDeadlineMs = 15000;  // the ssh forward needs a moment before it listens
 constexpr int kRetryMs = 200;
+constexpr int kReconnectWindowMs = 60000;  // matches the server's default grace period
+constexpr int kReconnectIntervalMs = 1000;
 }
 
 RemoteBackend::RemoteBackend(const QString& host, const QString& serverCommand, QObject* parent)
@@ -29,6 +31,8 @@ RemoteBackend::RemoteBackend(const QString& host, const QString& serverCommand, 
 {
     m_retry.setSingleShot(true);
     connect(&m_retry, &QTimer::timeout, this, &RemoteBackend::connectSocket);
+    m_reconnectTimer.setSingleShot(true);
+    connect(&m_reconnectTimer, &QTimer::timeout, this, &RemoteBackend::tryReconnect);
 }
 
 RemoteBackend::RemoteBackend(const QUrl& url, const QString& token, QObject* parent)
@@ -38,6 +42,8 @@ RemoteBackend::RemoteBackend(const QUrl& url, const QString& token, QObject* par
 {
     m_retry.setSingleShot(true);
     connect(&m_retry, &QTimer::timeout, this, &RemoteBackend::connectSocket);
+    m_reconnectTimer.setSingleShot(true);
+    connect(&m_reconnectTimer, &QTimer::timeout, this, &RemoteBackend::tryReconnect);
 }
 
 RemoteBackend::~RemoteBackend()
@@ -56,7 +62,7 @@ RemoteBackend::~RemoteBackend()
 void RemoteBackend::start(bool singleStep)
 {
     m_singleStep = singleStep;
-    m_finished = m_started = m_welcomed = m_stopRequested = false;
+    m_finished = m_started = m_welcomed = m_stopRequested = m_reconnecting = false;
     m_framesReceived = 0;
     m_statusTimer.start();
 
@@ -174,7 +180,11 @@ void RemoteBackend::connectSocket()
         connect(m_socket, &QWebSocket::binaryMessageReceived, this, &RemoteBackend::onBinary);
         connect(m_socket, &QWebSocket::errorOccurred, this, &RemoteBackend::onSocketError);
         connect(m_socket, &QWebSocket::disconnected, this, [this] {
-            if (!m_finished && m_welcomed) {
+            if (m_finished || !m_welcomed || m_reconnecting)
+                return;
+            if (m_started)
+                beginReconnect();  // the run goes on at the server for its grace period
+            else {
                 m_finished = true;
                 emit errorOccurred(tr("Connection to the remote computer lost."));
             }
@@ -183,10 +193,38 @@ void RemoteBackend::connectSocket()
     m_socket->open(m_url);
 }
 
+void RemoteBackend::beginReconnect()
+{
+    m_reconnecting = true;
+    m_lostTimer.start();
+    emit statusText(tr("Connection lost, trying to reconnect (the run continues on the server) ..."));
+    m_reconnectTimer.start(kReconnectIntervalMs);
+}
+
+void RemoteBackend::tryReconnect()
+{
+    if (m_finished || !m_reconnecting)
+        return;
+    if (m_lostTimer.elapsed() > kReconnectWindowMs) {
+        m_reconnecting = false;
+        m_finished = true;
+        emit errorOccurred(tr("Connection to the remote computer lost; it did not come back within %1 s.")
+                               .arg(kReconnectWindowMs / 1000));
+        return;
+    }
+    if (m_tunnel)
+        m_tunnel->restartForward();  // the ssh forward may have died with the network
+    m_socket->abort();
+    m_socket->open(m_url);
+    m_reconnectTimer.start(kReconnectIntervalMs);  // next attempt if this one fails
+}
+
 void RemoteBackend::onSocketError()
 {
     if (m_finished)
         return;
+    if (m_reconnecting)
+        return;  // the reconnect timer tries again
     if (!m_welcomed && m_connectTimer.elapsed() < kConnectDeadlineMs) {
         m_socket->abort();
         m_retry.start(kRetryMs);  // the forward is not listening yet
@@ -198,7 +236,12 @@ void RemoteBackend::onSocketError()
 
 void RemoteBackend::onConnected()
 {
-    sendJson({ { "type", "hello" }, { "protocol", kProtocolVersion }, { "token", m_token } });
+    QJsonObject hello{ { "type", "hello" }, { "protocol", kProtocolVersion }, { "token", m_token } };
+    if (m_reconnecting) {
+        hello["attach"] = true;
+        hello["session"] = m_sessionName;
+    }
+    sendJson(hello);
 }
 
 void RemoteBackend::sendJson(const QJsonObject& obj)
@@ -211,8 +254,14 @@ void RemoteBackend::onText(const QString& text)
 {
     const QJsonObject msg = QJsonDocument::fromJson(text.toUtf8()).object();
     const QString type = msg.value("type").toString();
-    if (type == QLatin1String("welcome")) {
+    if (type == QLatin1String("welcome") && m_reconnecting) {
+        m_reconnecting = false;
+        m_reconnectTimer.stop();
+        emit statusText(tr("Reconnected to the running simulation."));
+    } else if (type == QLatin1String("welcome")) {
         m_welcomed = true;
+        m_sessionName = msg.value("session").toString();
+        emit capabilities(msg);
         m_serverThreads = msg.value("threads").toInt();
         emit statusText(tr("Connected (%1 threads on the server).").arg(m_serverThreads));
         m_pendingStored = m_uploads.size();
@@ -231,6 +280,8 @@ void RemoteBackend::onText(const QString& text)
         endRun(msg.value("reason").toString(), msg.value("aborted").toBool(), msg);
     } else if (type == QLatin1String("error")) {
         if (!m_finished) {
+            m_reconnecting = false;
+            m_reconnectTimer.stop();
             m_finished = true;
             emit errorOccurred(msg.value("message").toString());
         }
@@ -300,6 +351,12 @@ void RemoteBackend::requestStop()
     m_stopRequested = true;
     if (m_finished)
         return;
+    if (m_reconnecting) {  // cannot reach the server; the run ends there after its grace period
+        m_reconnectTimer.stop();
+        m_reconnecting = false;
+        endRun(tr("Disconnected while the connection was lost; the run on the server stops after its grace period."), false);
+        return;
+    }
     if (m_started)
         sendJson({ { "type", "stop" } });
     else if (!m_welcomed) {

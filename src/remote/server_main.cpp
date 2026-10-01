@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 // Claude Generated 2026 (WP remote compute R1, docs/WP-remote-compute-vr.md)
 //
-//   qurcuma-server --port 40123 (--token <secret> | --token-stdin) [--root <dir>] [--once]
+//   qurcuma-server --port 40123 (--token <secret> | --token-stdin) [--root <dir>] [--once] [--grace <s>]
 //
 // Listens on 127.0.0.1 only; the client reaches it through `ssh -L`. Prints
 // "listening <port>" on stdout once ready (port 0 picks a free one).
@@ -14,14 +14,20 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QHostAddress>
-#include <QWebSocket>
-#include <QWebSocketServer>
 
+#include <csignal>
 #include <cstdio>
 
 int main(int argc, char* argv[])
 {
     initialize_generated_registry();  // curcuma's parameter defaults, as qurcuma's main.cpp does
+    // The ssh session that started the server may vanish; the run must survive that.
+#ifdef SIGHUP
+    std::signal(SIGHUP, SIG_IGN);
+#endif
+#ifdef SIGPIPE
+    std::signal(SIGPIPE, SIG_IGN);
+#endif
     QCoreApplication app(argc, argv);
     QCommandLineParser parser;
     parser.addHelpOption();
@@ -31,6 +37,7 @@ int main(int argc, char* argv[])
     parser.addOption({ "root", "Directory for session directories.", "dir",
         QDir::homePath() + QStringLiteral("/qurcuma-sessions") });
     parser.addOption({ "once", "Exit after the first session ends." });
+    parser.addOption({ "grace", "Seconds a run keeps going after the client connection is lost.", "seconds", "60" });
     parser.process(app);
 
     QString token = parser.value("token");
@@ -49,31 +56,15 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    QWebSocketServer server(QStringLiteral("qurcuma-server"), QWebSocketServer::NonSecureMode);
-    if (!server.listen(QHostAddress::LocalHost, quint16(parser.value("port").toUInt()))) {
+    remote::RemoteServer server(token, root, parser.value("grace").toInt(), &app);
+    if (!server.listen(quint16(parser.value("port").toUInt()))) {
         std::fprintf(stderr, "qurcuma-server: cannot listen: %s\n", qPrintable(server.errorString()));
         return 2;
     }
+    if (parser.isSet("once"))
+        QObject::connect(&server, &remote::RemoteServer::sessionEnded, &app, &QCoreApplication::quit);
 
-    remote::ServerSession* active = nullptr;
-    const bool once = parser.isSet("once");
-    QObject::connect(&server, &QWebSocketServer::newConnection, [&]() {
-        QWebSocket* socket = server.nextPendingConnection();
-        if (active) {  // one session per process (the working directory is process-wide)
-            socket->close(QWebSocketProtocol::CloseCodeGoingAway);
-            socket->deleteLater();
-            return;
-        }
-        active = new remote::ServerSession(socket, token, root, &server);
-        QObject::connect(active, &remote::ServerSession::ended, &app, [&, once]() {
-            active->deleteLater();
-            active = nullptr;
-            if (once)
-                app.quit();
-        });
-    });
-
-    std::printf("listening %u\n", unsigned(server.serverPort()));
+    std::printf("listening %u\n", unsigned(server.port()));
     std::fflush(stdout);
     return app.exec();
 }

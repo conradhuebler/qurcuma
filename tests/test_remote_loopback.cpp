@@ -88,12 +88,24 @@ int main(int argc, char* argv[])
 
     // remote: server session in this process, client socket
     const QString token = "0123456789abcdef-test";
-    QWebSocketServer server("test", QWebSocketServer::NonSecureMode);
-    CHECK(server.listen(QHostAddress::LocalHost, 0));
-    remote::ServerSession* session = nullptr;
-    QObject::connect(&server, &QWebSocketServer::newConnection, [&] {
-        session = new remote::ServerSession(server.nextPendingConnection(), token, work.path() + "/sessions", &server);
-    });
+    remote::RemoteServer server(token, work.path() + "/sessions", 5);
+    CHECK(server.listen(0));
+    auto session = [&] { return server.activeSession(); };
+
+    // wrong token is refused (the session keeps waiting for the real client)
+    {
+        QWebSocket bad;
+        QStringList badErrors;
+        bool closed = false;
+        QObject::connect(&bad, &QWebSocket::textMessageReceived, [&](const QString& t) {
+            badErrors << QJsonDocument::fromJson(t.toUtf8()).object().value("type").toString(); });
+        QObject::connect(&bad, &QWebSocket::disconnected, [&] { closed = true; });
+        bad.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())));
+        waitFor([&] { return bad.state() == QAbstractSocket::ConnectedState; }, 5000);
+        bad.sendTextMessage(R"({"type":"hello","protocol":1,"token":"wrong"})");
+        CHECK(waitFor([&] { return closed; }, 5000));
+        CHECK(badErrors.contains("error") && !badErrors.contains("welcome"));
+    }
 
     QWebSocket client;
     SimulationFrame remoteLast;
@@ -111,23 +123,8 @@ int main(int argc, char* argv[])
         else if (type == "finished") { finished = true; aborted = o.value("aborted").toBool(); }
         else if (type == "error") errors << o.value("message").toString();
     });
-    client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.serverPort())));
+    client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())));
     CHECK(waitFor([&] { return client.state() == QAbstractSocket::ConnectedState; }, 5000));
-
-    // wrong token is refused
-    {
-        QWebSocket bad;
-        QStringList badErrors;
-        bool closed = false;
-        QObject::connect(&bad, &QWebSocket::textMessageReceived, [&](const QString& t) {
-            badErrors << QJsonDocument::fromJson(t.toUtf8()).object().value("type").toString(); });
-        QObject::connect(&bad, &QWebSocket::disconnected, [&] { closed = true; });
-        bad.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.serverPort())));
-        waitFor([&] { return bad.state() == QAbstractSocket::ConnectedState; }, 5000);
-        bad.sendTextMessage(R"({"type":"hello","protocol":1,"token":"wrong"})");
-        CHECK(waitFor([&] { return closed; }, 5000));
-        CHECK(badErrors.contains("error") && !badErrors.contains("welcome"));
-    }
 
     client.sendTextMessage(QString::fromUtf8(QJsonDocument(QJsonObject{ { "type", "hello" },
         { "protocol", remote::kProtocolVersion }, { "token", token } }).toJson(QJsonDocument::Compact)));
@@ -151,6 +148,8 @@ int main(int argc, char* argv[])
     for (const QString& e : errors) std::cerr << "server error: " << e.toStdString() << std::endl;
     CHECK(errors.isEmpty());
     CHECK(frames > 0 && remoteLast.positions.size() == 3);
+    client.close();
+    CHECK(waitFor([&] { return session() == nullptr; }, 5000));  // the session ends with its client
 
     double maxDev = 0.0;
     for (size_t i = 0; i < 3 && i < local.positions.size() && i < remoteLast.positions.size(); ++i)
@@ -162,6 +161,7 @@ int main(int argc, char* argv[])
     CHECK(local.step == remoteLast.step);
 
 
+    QString sessionDirSeen;
     // ---- RemoteBackend (client class) against the same server -------------------------
     {
         QFile ref(work.path() + "/ref.xyz");
@@ -171,7 +171,7 @@ int main(int argc, char* argv[])
         cfg.writeTrajectory = true;
         cfg.rmsdMtdRefFile = work.path() + "/ref.xyz";
 
-        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.serverPort())), token);
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())), token);
         rb.setTrajectoryPath(work.path() + "/client.trj.xyz");
         rb.setMolecule(distortedWater());
         rb.setBonds({ { 0, 1, 1 }, { 0, 2, 1 } });
@@ -184,6 +184,8 @@ int main(int argc, char* argv[])
         QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
         QObject::connect(&rb, &SimulationBackend::finished, [&](const QString&, bool a) { done = true; aborted = a; });
         rb.start();
+        waitFor([&] { return session() != nullptr; }, 5000);
+        if (session()) sessionDirSeen = session()->sessionDir();
         CHECK(waitFor([&] { return done || !errs.isEmpty(); }, 120000));
         for (const QString& e : errs) std::cerr << "RemoteBackend error: " << e.toStdString() << std::endl;
         CHECK(errs.isEmpty() && done && !aborted);
@@ -200,14 +202,14 @@ int main(int argc, char* argv[])
         CHECK(lines.size() == n * 5 + 1);
         CHECK(!lines.isEmpty() && lines[0] == "3");
         // the reference file reached the session directory under its upload name
-        CHECK(session && QFile::exists(session->sessionDir() + "/in/rmsd_mtd_ref_file-ref.xyz"));
+        CHECK(QFile::exists(sessionDirSeen + "/in/rmsd_mtd_ref_file-ref.xyz"));
     }
 
     // a missing file parameter ends the start on this side, nothing is sent
     {
         SimulationConfig cfg = optConfig();
         cfg.rmsdMtdRefFile = work.path() + "/does-not-exist.xyz";
-        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.serverPort())), token);
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())), token);
         rb.setMolecule(distortedWater());
         rb.setConfig(cfg);
         QStringList errs;

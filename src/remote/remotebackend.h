@@ -58,6 +58,8 @@ public slots:
     void setWallBeta(double beta) override;
 
 signals:
+    /// What the server reported at connect: gpuBackends (array), threads.
+    void capabilities(const QJsonObject& welcome);
     /// Short link description for a status line ("Remote host: 12 frames, 0 dropped ...").
     void statusText(const QString& text);
 
@@ -69,6 +71,8 @@ private:
     void onText(const QString& message);
     void onBinary(const QByteArray& message);
     void onSocketError();
+    void beginReconnect();
+    void tryReconnect();
     void sendStart();
     void sendJson(const QJsonObject& obj);
     bool prepareUploads(QJsonObject& configJson, QString* error);
@@ -81,6 +85,10 @@ private:
     SshTunnel* m_tunnel = nullptr;
     QWebSocket* m_socket = nullptr;
     QTimer m_retry;
+    QTimer m_reconnectTimer;
+    QElapsedTimer m_lostTimer;
+    bool m_reconnecting = false;
+    QString m_sessionName;
     QElapsedTimer m_connectTimer;
 
     QVector<MolAtom> m_atoms;

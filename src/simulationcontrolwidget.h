@@ -322,6 +322,7 @@ private:
     SimulationBackend* m_backend = nullptr;  // where the current run happens (null when idle)
     SimulationBackend* createBackend();
     void teardownBackend();
+    void refreshGpuChoices();
     void connectBackend();
     bool m_paused = false;
     // Claude Generated 2026 - throttle for the Step button: re-enabled after 1000/fpsLimit ms

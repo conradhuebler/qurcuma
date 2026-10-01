@@ -11,7 +11,7 @@ Open code tasks only, at most 3 lines each. Feature wishes: `docs/ROADMAP.md`. P
 - Lessons: result/target fields reserved in the schema, not implemented; no barostat, "pressure" is wall volume only.
 
 ## Remote
-- Remote compute (A controls/visualizes, B computes) and VR: plan in `docs/WP-remote-compute-vr.md`; R0 to R2 are in, next is R3 (reconnect, abort behaviour). Open: server capabilities (methods, GPUs) are not yet shown in the dock; "Compute on" is untested with real ssh and in the GUI.
+- Remote compute (A controls/visualizes, B computes) and VR: plan in `docs/WP-remote-compute-vr.md`; R0 to R3 are in, next R4 (files on B) or R5 (VR). Open: server method list not shown in the dock; old session directories on B are not cleaned up; everything is untested with real ssh and in the GUI.
 
 ## Docs / repository
 - Qt3D-era docs in `docs/architecture/` (rendering-pipeline, performance-optimization, file-parsers) describe removed code; rewrite or archive.

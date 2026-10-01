@@ -92,21 +92,34 @@ void SshTunnel::onServerOutput()
     const auto m = re.match(QString::fromUtf8(m_outBuf));
     if (!m.hasMatch())
         return;
-    const quint16 remotePort = quint16(m.captured(1).toUInt());
-    const quint16 localPort = freeLocalPort();
-    if (localPort == 0) {
+    m_remotePort = quint16(m.captured(1).toUInt());
+    m_localPort = freeLocalPort();
+    if (m_localPort == 0) {
         fail(tr("No free local port."));
         return;
     }
+    startForward();
+    m_timeout.stop();
+    m_done = true;
+    emit ready(m_localPort, m_token);
+}
+
+void SshTunnel::startForward()
+{
+    delete m_forward;
     m_forward = new QProcess(this);
     connect(m_forward, &QProcess::finished, this, [this](int code, QProcess::ExitStatus) {
         if (!m_done)
             fail(tr("The ssh port forward to %1 ended (exit %2).").arg(m_host).arg(code));
     });
-    m_forward->start(sshProgram(), forwardArgs(m_host, localPort, remotePort));
-    m_timeout.stop();
-    m_done = true;
-    emit ready(localPort, m_token);
+    m_forward->start(sshProgram(), forwardArgs(m_host, m_localPort, m_remotePort));
+}
+
+void SshTunnel::restartForward()
+{
+    if (!m_done || m_localPort == 0 || (m_forward && m_forward->state() != QProcess::NotRunning))
+        return;
+    startForward();
 }
 
 void SshTunnel::fail(const QString& message)
