@@ -29,17 +29,16 @@ SimulationControlWidget::SimulationControlWidget(QWidget* parent)
 
 SimulationControlWidget::~SimulationControlWidget()
 {
-    if (m_worker)
-        m_worker->requestStop();
-    if (m_thread && m_thread->isRunning()) {
-        m_thread->quit();
-        m_thread->wait(2000);
+    if (m_backend) {
+        m_backend->requestStop();
+        delete m_backend;  // waits for the worker thread (LocalBackend)
+        m_backend = nullptr;
     }
 }
 
 void SimulationControlWidget::setMolecule(
-    const QVector<MoleculeViewer::Atom>& atoms,
-    const QVector<MoleculeViewer::Bond>& bonds)
+    const QVector<MolAtom>& atoms,
+    const QVector<MolBond>& bonds)
 {
     m_atoms = atoms;
     m_bonds = bonds;
@@ -1430,7 +1429,7 @@ void SimulationControlWidget::onStartClicked()
 // thread is busy then).
 void SimulationControlWidget::startQuickOptimization(int maxSteps)
 {
-    if (m_thread && m_thread->isRunning()) {
+    if (m_backend) {
         m_statusLabel->setText(tr("A simulation is already running — stop it first."));
         return;
     }
@@ -1451,47 +1450,30 @@ void SimulationControlWidget::startWithConfig(const SimulationConfig& cfg)
         return;
     }
 
-    // Tear down any prior worker
-    if (m_thread && m_thread->isRunning()) {
-        if (m_worker)
-            m_worker->requestStop();
-        m_thread->quit();
-        m_thread->wait(2000);
-    }
+    // Tear down any prior backend
+    teardownBackend();
 
     if (m_reactEventTable)
         m_reactEventTable->setRowCount(0);   // fresh event log per run
 
-    m_worker = new SimulationWorker;
+    m_backend = createBackend();
     // Claude Generated 2026 - Emit workerStarted BEFORE setMolecule so the
     // MainWindow can re-sync m_atoms with the viewer's *current* geometry
     // (e.g. the final coordinates of the previous MD/Opt run) and re-arm
     // the viewer's throttled moleculeUpdated emit. After this signal,
-    // m_atoms holds the live viewer state and is what the worker should
+    // m_atoms holds the live viewer state and is what the backend should
     // start from.
-    emit workerStarted(m_worker);
-    m_worker->setMolecule(m_atoms);
-    m_worker->setBonds(m_bonds);
-    m_worker->setConfig(cfg);
+    emit workerStarted(m_backend);
+    m_backend->setMolecule(m_atoms);
+    m_backend->setBonds(m_bonds);
+    m_backend->setConfig(cfg);
 
-    m_thread = new QThread(this);
-    m_worker->moveToThread(m_thread);
-
-    connect(m_thread, &QThread::started, m_worker, &SimulationWorker::run);
-    connect(m_worker, &SimulationWorker::frameReady, this, &SimulationControlWidget::onFrameReady);
-    connect(m_worker, &SimulationWorker::finished, this, &SimulationControlWidget::onSimulationFinished);
-    connect(m_worker, &SimulationWorker::paused, this, [this]() {
+    connectBackend();
+    connect(m_backend, &SimulationBackend::paused, this, [this]() {
         m_pauseBtn->setText(tr("▶"));
         m_paused = true;
         setState(tr("⏸ Paused"), "#d4a017");  // amber
     });
-    connect(m_worker, &SimulationWorker::errorOccurred, this, [this](const QString& msg) {
-        m_statusLabel->setText(tr("Error: %1").arg(msg));
-        onSimulationFinished();
-    });
-    connect(m_worker, &SimulationWorker::finished, m_thread, &QThread::quit);
-    connect(m_worker, &SimulationWorker::finished, m_worker, &QObject::deleteLater);
-    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
 
     m_config = cfg;
 
@@ -1503,7 +1485,7 @@ void SimulationControlWidget::startWithConfig(const SimulationConfig& cfg)
     setRunning(true);
     setState(tr("● Running"), "#27ae60");  // green
     m_statusLabel->setText(tr("Starting..."));
-    m_thread->start();
+    m_backend->start();
 }
 
 // Claude Generated 2026 - Step button: spawn a fresh worker that runs exactly
@@ -1525,34 +1507,15 @@ void SimulationControlWidget::onStepClicked()
     }
     m_stepThrottleTimer.restart();
 
-    // Tear down any prior worker (shouldn't exist if Step is only enabled when idle)
-    if (m_thread && m_thread->isRunning()) {
-        if (m_worker)
-            m_worker->requestStop();
-        m_thread->quit();
-        m_thread->wait(2000);
-    }
+    // Tear down any prior backend (shouldn't exist if Step is only enabled when idle)
+    teardownBackend();
 
-    m_worker = new SimulationWorker;
-    emit workerStarted(m_worker);
-    m_worker->setMolecule(m_atoms);
-    m_worker->setBonds(m_bonds);
-    m_worker->setConfig(buildConfig());
-
-    m_thread = new QThread(this);
-    m_worker->moveToThread(m_thread);
-
-    // Single-shot step: QThread::started → stepOnce() (NOT run()).
-    connect(m_thread, &QThread::started, m_worker, &SimulationWorker::stepOnce);
-    connect(m_worker, &SimulationWorker::frameReady, this, &SimulationControlWidget::onFrameReady);
-    connect(m_worker, &SimulationWorker::finished, this, &SimulationControlWidget::onSimulationFinished);
-    connect(m_worker, &SimulationWorker::errorOccurred, this, [this](const QString& msg) {
-        m_statusLabel->setText(tr("Error: %1").arg(msg));
-        onSimulationFinished();
-    });
-    connect(m_worker, &SimulationWorker::finished, m_thread, &QThread::quit);
-    connect(m_worker, &SimulationWorker::finished, m_worker, &QObject::deleteLater);
-    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
+    m_backend = createBackend();
+    emit workerStarted(m_backend);
+    m_backend->setMolecule(m_atoms);
+    m_backend->setBonds(m_bonds);
+    m_backend->setConfig(buildConfig());
+    connectBackend();
 
     m_config = buildConfig();
 
@@ -1564,20 +1527,46 @@ void SimulationControlWidget::onStepClicked()
     setRunning(true);
     setState(tr("⏭ Stepping"), "#2980b9");  // blue
     m_statusLabel->setText(tr("Stepping once..."));
-    m_thread->start();
+    m_backend->start(true);
+}
+
+// Claude Generated 2026 (WP remote compute R0) - one place that decides where a run
+// happens; the remote backend (stage R2) is chosen here.
+SimulationBackend* SimulationControlWidget::createBackend()
+{
+    return new LocalBackend(this);
+}
+
+void SimulationControlWidget::teardownBackend()
+{
+    if (!m_backend)
+        return;
+    m_backend->requestStop();
+    delete m_backend;
+    m_backend = nullptr;
+}
+
+void SimulationControlWidget::connectBackend()
+{
+    connect(m_backend, &SimulationBackend::frameReady, this, &SimulationControlWidget::onFrameReady);
+    connect(m_backend, &SimulationBackend::finished, this, &SimulationControlWidget::onSimulationFinished);
+    connect(m_backend, &SimulationBackend::errorOccurred, this, [this](const QString& msg) {
+        m_statusLabel->setText(tr("Error: %1").arg(msg));
+        onSimulationFinished();
+    });
 }
 
 void SimulationControlWidget::onPauseClicked()
 {
-    if (!m_worker)
+    if (!m_backend)
         return;
     if (m_paused) {
-        m_worker->requestResume();
+        m_backend->requestResume();
         m_pauseBtn->setText(tr("⏸"));
         setState(tr("● Running"), "#27ae60");  // green
         m_paused = false;
     } else {
-        m_worker->requestPause();
+        m_backend->requestPause();
         m_pauseBtn->setText(tr("▶"));
         setState(tr("⏸ Paused"), "#d4a017");  // amber
         m_paused = true;
@@ -1586,8 +1575,8 @@ void SimulationControlWidget::onPauseClicked()
 
 void SimulationControlWidget::onStopClicked()
 {
-    if (m_worker)
-        m_worker->requestStop();
+    if (m_backend)
+        m_backend->requestStop();
 }
 
 void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
@@ -1735,8 +1724,10 @@ void SimulationControlWidget::updateReactEventsVisibility()
 void SimulationControlWidget::onSimulationFinished(const QString& reason, bool aborted)
 {
     setRunning(false);
-    m_worker = nullptr;
-    m_thread = nullptr;
+    if (m_backend) {
+        m_backend->deleteLater();  // its thread has finished; the backend goes with it
+        m_backend = nullptr;
+    }
     m_paused = false;
 
     // Report WHY the run ended, not just that it did. An abort (unstable dynamics,

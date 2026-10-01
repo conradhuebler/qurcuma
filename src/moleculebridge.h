@@ -2,13 +2,13 @@
 // Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
 // Claude Generated 2026 - Shared conversion helpers between qurcuma's viewer
-// atom list (MoleculeViewer::Atom) and curcuma's Molecule type. Mirrors the
+// atom list (MolAtom) and curcuma's Molecule type. Mirrors the
 // file-static atomsToMolecule() in simulationworker.cpp so the RMSD/align
 // dialog can build a curcuma Molecule and read results back without touching
 // the simulation code.
 #pragma once
 
-#include "view.h"  // MoleculeViewer::Atom
+#include "moleculetypes.h"  // MolAtom
 
 #include <src/core/elements.h>
 #include <src/core/molecule.h>
@@ -25,7 +25,7 @@
  * passed through unchanged (Angstrom).
  * Claude Generated.
  */
-inline curcuma::Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms)
+inline curcuma::Molecule atomsToMolecule(const QVector<MolAtom>& atoms)
 {
     curcuma::Molecule mol;
     for (const auto& atom : atoms) {
@@ -43,15 +43,15 @@ inline curcuma::Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& at
  * target after RMSDDriver::start().
  * Claude Generated.
  */
-inline QVector<MoleculeViewer::Atom> moleculeToAtoms(const curcuma::Molecule& mol)
+inline QVector<MolAtom> moleculeToAtoms(const curcuma::Molecule& mol)
 {
-    QVector<MoleculeViewer::Atom> atoms;
+    QVector<MolAtom> atoms;
     const int n = static_cast<int>(mol.AtomCount());
     atoms.reserve(n);
     for (int i = 0; i < n; ++i) {
         const std::pair<int, Position> a = mol.Atom(i);
         const int Z = a.first;
-        MoleculeViewer::Atom atom;
+        MolAtom atom;
         atom.element = (Z >= 0 && Z < static_cast<int>(Elements::ElementAbbr.size()))
             ? QString::fromStdString(Elements::ElementAbbr[Z])
             : QStringLiteral("X");

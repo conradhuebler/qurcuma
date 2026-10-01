@@ -44,7 +44,7 @@
 #include "modifiabletextedit.h"
 #include "widgets/breadcrumbbar.h"
 #include "snapshotswidget.h"  // Claude Generated 2026 - global MoleculeSnapshot + SnapshotsWidget
-#include "simulationworker.h"  // Claude Generated - for SimulationConfig
+#include "simulationbackend.h"  // Claude Generated 2026 - SimulationBackend (+ SimulationConfig)
 #include "lesson.h"  // Claude Generated 2026 - OER teaching scenarios (Lesson model)
 class MoleculeViewer;
 class QActionGroup;  // Claude Generated 2026 - NCI source radio group
@@ -464,7 +464,7 @@ private:
 
     // Claude Generated - Interactive Simulation Integration
     QElapsedTimer m_simStatusBarTimer;  // Throttle status bar updates to ~5 Hz
-    void wireSimulationWorker(SimulationWorker* worker);  // Claude Generated - Direct worker->view wiring
+    void wireSimulationWorker(SimulationBackend* worker);  // Claude Generated - Direct worker->view wiring
 
     // Claude Generated 2026 - Non-covalent interaction analysis. The worker lives
     // on its own thread for the whole session so an analysis can run while an MD

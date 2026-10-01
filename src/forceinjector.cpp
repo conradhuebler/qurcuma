@@ -9,10 +9,10 @@
 
 namespace forceinjector {
 
-Adjacency buildAdjacency(int atomCount, const QVector<MoleculeViewer::Bond>& bonds)
+Adjacency buildAdjacency(int atomCount, const QVector<MolBond>& bonds)
 {
     Adjacency adj(atomCount);
-    for (const MoleculeViewer::Bond& b : bonds) {
+    for (const MolBond& b : bonds) {
         if (b.atom1 < 0 || b.atom2 < 0 || b.atom1 >= atomCount || b.atom2 >= atomCount)
             continue;
         if (b.atom1 == b.atom2)

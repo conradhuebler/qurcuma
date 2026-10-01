@@ -6,7 +6,7 @@
 
 #include "forceinjector.h"
 #include "simulationframe.h"
-#include "view.h"
+#include "moleculetypes.h"
 
 #include <Eigen/Dense>
 #include <QAtomicInt>
@@ -185,11 +185,11 @@ public:
     ~SimulationWorker() override;  // non-default: unique_ptr<SimpleMD> needs full type in .cpp
 
     /** @brief Set the initial molecular geometry from viewer atoms. */
-    void setMolecule(const QVector<MoleculeViewer::Atom>& atoms);
+    void setMolecule(const QVector<MolAtom>& atoms);
 
     /** @brief Set the bond topology used for shell-based force distribution.
      *  Must be called on the GUI thread before the worker is started. */
-    void setBonds(const QVector<MoleculeViewer::Bond>& bonds);
+    void setBonds(const QVector<MolBond>& bonds);
 
     /** @brief Set simulation parameters before calling run(). */
     void setConfig(const SimulationConfig& config) { m_config = config; }
@@ -309,8 +309,8 @@ private:
     // the same grab keeps biasing every step until clearInjectedForce() drops it.
     Eigen::MatrixXd currentInjectedForces(int atomCount);
 
-    QVector<MoleculeViewer::Atom> m_initialAtoms;
-    QVector<MoleculeViewer::Bond> m_bonds;
+    QVector<MolAtom> m_initialAtoms;
+    QVector<MolBond> m_bonds;
     forceinjector::Adjacency m_adjacency;
     SimulationConfig m_config;
     QAtomicInt m_stopRequested{ 0 };

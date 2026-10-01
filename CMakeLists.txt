@@ -189,6 +189,7 @@ set(SOURCES
 
     #src/dialogs/nmrstructuremodel.cpp
     src/simulationworker.cpp  # Claude Generated - Interactive Simulation Integration
+    src/simulationbackend.cpp  # Claude Generated 2026 - LocalBackend (WP remote compute R0)
     src/simulationcontrolwidget.cpp  # Claude Generated - Interactive Simulation Integration
     src/simulationparameterswidget.cpp  # Claude Generated 2026 - All parameters tab (registry-generated)
     src/snapshotswidget.cpp  # Claude Generated 2026 - Snapshot history foundation
@@ -252,6 +253,8 @@ set(HEADERS
     src/pdbparser.h  # Claude Generated Phase 5C
     src/mol2parser.h  # Claude Generated Phase 5C
     src/simulationworker.h  # Claude Generated - Interactive Simulation Integration
+    src/simulationbackend.h
+    src/moleculetypes.h
     src/simulationcontrolwidget.h  # Claude Generated - Interactive Simulation Integration
     src/simulationparameterswidget.h  # Claude Generated 2026 - All parameters tab (Q_OBJECT)
     src/snapshotswidget.h  # Claude Generated 2026 - Snapshot history foundation

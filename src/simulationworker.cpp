@@ -360,20 +360,20 @@ SimulationWorker::~SimulationWorker() = default;
 
 // Forward declarations for helpers used by both stepOnce() (above their
 // definition site) and the rest of the worker methods.
-static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms,
-    const QVector<MoleculeViewer::Bond>* bonds = nullptr);
+static Molecule atomsToMolecule(const QVector<MolAtom>& atoms,
+    const QVector<MolBond>* bonds = nullptr);
 static SimulationFramePtr moleculeToFrame(
     const Molecule& mol, int referenceSize, double energy, double ekin, int step,
     double temperature = 0.0, double targetTemperature = 0.0);
 static Vector pendingForcesToFlatVector(const Eigen::MatrixXd& pending);
 
-void SimulationWorker::setMolecule(const QVector<MoleculeViewer::Atom>& atoms)
+void SimulationWorker::setMolecule(const QVector<MolAtom>& atoms)
 {
     m_initialAtoms = atoms;
     m_adjacency = forceinjector::buildAdjacency(atoms.size(), m_bonds);
 }
 
-void SimulationWorker::setBonds(const QVector<MoleculeViewer::Bond>& bonds)
+void SimulationWorker::setBonds(const QVector<MolBond>& bonds)
 {
     m_bonds = bonds;
     m_adjacency = forceinjector::buildAdjacency(m_initialAtoms.size(), m_bonds);
@@ -629,8 +629,8 @@ void SimulationWorker::run()
 // would silently replace GFN-FF's own detection for a loaded structure. In react mode
 // the drawn topology IS the intended starting point, and the hysteresis owns it from
 // the first scan on.
-static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms,
-    const QVector<MoleculeViewer::Bond>* bonds)
+static Molecule atomsToMolecule(const QVector<MolAtom>& atoms,
+    const QVector<MolBond>* bonds)
 {
     Molecule mol;
     for (const auto& atom : atoms) {
@@ -641,7 +641,7 @@ static Molecule atomsToMolecule(const QVector<MoleculeViewer::Atom>& atoms,
     if (bonds && !bonds->isEmpty()) {
         const int n = atoms.size();
         Eigen::MatrixXd topology = Eigen::MatrixXd::Zero(n, n);
-        for (const MoleculeViewer::Bond& b : *bonds) {
+        for (const MolBond& b : *bonds) {
             if (b.atom1 >= 0 && b.atom2 >= 0 && b.atom1 < n && b.atom2 < n && b.atom1 != b.atom2) {
                 topology(b.atom1, b.atom2) = 1.0;
                 topology(b.atom2, b.atom1) = 1.0;

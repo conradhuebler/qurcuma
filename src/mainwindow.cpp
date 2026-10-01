@@ -5616,7 +5616,7 @@ void MainWindow::startNciAnalysis(int source)
         Q_ARG(NciAnalysisWorker::Request, request));
 }
 
-void MainWindow::wireSimulationWorker(SimulationWorker* worker)
+void MainWindow::wireSimulationWorker(SimulationBackend* worker)
 {
     if (!worker)
         return;
@@ -5630,7 +5630,7 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
 
     // Claude Generated 2026 - UX stage 6 S4: every run reports the parameters that differ
     // from curcuma's defaults; they go to the Output panel and to the run log.
-    connect(worker, &SimulationWorker::runParameters, this, [this](const QJsonObject& record) {
+    connect(worker, &SimulationBackend::runParameters, this, [this](const QJsonObject& record) {
         if (m_outputViewDock)
             m_outputViewDock->appendOutput(runlog::summary(record));
         if (!runlog::append(runlog::defaultPath(), record))
@@ -5654,16 +5654,16 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
         m_moleculeView->setPerformanceAnalysis(
             m_simulationConfig.performanceAnalysis, m_simulationConfig.performanceInterval);
 
-        connect(worker, &SimulationWorker::frameReady,
+        connect(worker, &SimulationBackend::frameReady,
             m_moleculeView, &MoleculeViewer::onWorkerFrameReady,
             Qt::QueuedConnection);
         // Claude Generated 2026 - Phase 6: viewer drag → worker force injection.
         // QueuedConnection marshals the force matrix to the worker thread safely.
         connect(m_moleculeView, &MoleculeViewer::atomForceRequested,
-            worker, &SimulationWorker::injectForce,
+            worker, &SimulationBackend::injectForce,
             Qt::QueuedConnection);
         connect(m_moleculeView, &MoleculeViewer::atomGrabReleased,
-            worker, &SimulationWorker::clearInjectedForce,
+            worker, &SimulationBackend::clearInjectedForce,
             Qt::QueuedConnection);
     }
 
@@ -5672,13 +5672,13 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
     // running SimpleMD before the next step (and cancels any active global ramp).
     if (m_simulationControlWidget) {
         connect(m_simulationControlWidget, &SimulationControlWidget::temperatureChanged,
-            worker, &SimulationWorker::setTargetTemperature,
+            worker, &SimulationBackend::setTargetTemperature,
             Qt::QueuedConnection);
         connect(m_simulationControlWidget, &SimulationControlWidget::wallTempChanged,
-            worker, &SimulationWorker::setWallTemp,
+            worker, &SimulationBackend::setWallTemp,
             Qt::QueuedConnection);
         connect(m_simulationControlWidget, &SimulationControlWidget::wallBetaChanged,
-            worker, &SimulationWorker::setWallBeta,
+            worker, &SimulationBackend::setWallBeta,
             Qt::QueuedConnection);
         // Keep iso-potential shell params in sync with live slider changes.
         if (m_moleculeView) {
@@ -5711,7 +5711,7 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
                 elements.append(a.element);
             m_chartDock->setElements(elements);
         }
-        connect(worker, &SimulationWorker::frameReady,
+        connect(worker, &SimulationBackend::frameReady,
             m_chartDock, &ChartDock::appendFrame,
             Qt::QueuedConnection);
     }
@@ -5731,7 +5731,7 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
 
     // Status-bar slot is a lambda so we don't need a Qt slot declaration.
     // Throttled to ~5 Hz to reduce per-frame GUI overhead.
-    connect(worker, &SimulationWorker::frameReady,
+    connect(worker, &SimulationBackend::frameReady,
         this, [this](SimulationFramePtr frame) {
             if (!frame) return;
             if (m_simStatusBarTimer.isValid() && m_simStatusBarTimer.elapsed() < 200)
@@ -5748,7 +5748,7 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
 
     // Claude Generated 2026 - Auto-snapshot stride: if the user sets N > 0 in the
     // Snapshots tab, capture a snapshot every N-th simulation step/iteration.
-    connect(worker, &SimulationWorker::frameReady,
+    connect(worker, &SimulationBackend::frameReady,
         this, [this](SimulationFramePtr frame) {
             if (!frame || frame->step <= 0)
                 return;

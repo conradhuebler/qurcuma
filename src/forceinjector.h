@@ -7,14 +7,14 @@
 #include <Eigen/Dense>
 #include <QVector>
 
-#include "view.h"
+#include "moleculetypes.h"
 
 namespace forceinjector {
 
 using Adjacency = QVector<QVector<int>>;
 
 /** Build a per-atom adjacency list from the viewer bond vector. */
-Adjacency buildAdjacency(int atomCount, const QVector<MoleculeViewer::Bond>& bonds);
+Adjacency buildAdjacency(int atomCount, const QVector<MolBond>& bonds);
 
 /** Distribute a force across an atom and its bonded neighbours.
  *

@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "simulationbackend.h"
 #include "simulationworker.h"
 
 #include <QCheckBox>
@@ -42,10 +43,10 @@ public:
     ~SimulationControlWidget() override;
 
     /** @brief Feed the current molecule + bond graph to the worker before start. */
-    void setMolecule(const QVector<MoleculeViewer::Atom>& atoms,
-        const QVector<MoleculeViewer::Bond>& bonds = {});
+    void setMolecule(const QVector<MolAtom>& atoms,
+        const QVector<MolBond>& bonds = {});
 
-    const QVector<MoleculeViewer::Atom>& currentAtoms() const { return m_atoms; }
+    const QVector<MolAtom>& currentAtoms() const { return m_atoms; }
 
     SimulationConfig currentConfig() const { return buildConfig(); }
 
@@ -99,7 +100,7 @@ signals:
      *  whether the engine stopped it. Mirrored into the output dock. Claude Generated 2026. */
     void runEnded(const QString& reason, bool aborted);
     void simulationRunningChanged(bool running);
-    void workerStarted(SimulationWorker* worker);
+    void workerStarted(SimulationBackend* backend);
 
     /** @brief Emitted whenever the temperature slider moves. During a run MainWindow
      *  forwards it live to the worker (SimulationWorker::setTargetTemperature).
@@ -312,12 +313,14 @@ private:
     QElapsedTimer m_fpsTimer;
     int m_frameCount = 0;
     double m_actualFps = 0.0;
-    QVector<MoleculeViewer::Atom> m_atoms;
-    QVector<MoleculeViewer::Bond> m_bonds;
+    QVector<MolAtom> m_atoms;
+    QVector<MolBond> m_bonds;
     SimulationConfig m_config;
     QJsonObject m_mdExtraParams;  // Claude Generated 2026 - from the All parameters tab
-    SimulationWorker* m_worker = nullptr;
-    QThread* m_thread = nullptr;
+    SimulationBackend* m_backend = nullptr;  // where the current run happens (null when idle)
+    SimulationBackend* createBackend();
+    void teardownBackend();
+    void connectBackend();
     bool m_paused = false;
     // Claude Generated 2026 - throttle for the Step button: re-enabled after 1000/fpsLimit ms
     // so the user can click at the configured "max XXX FPS" but not faster.
