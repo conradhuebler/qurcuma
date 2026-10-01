@@ -52,6 +52,7 @@ public:
     QString host() const { return m_host; }
 
 signals:
+    void logMessage(const QString& text);  ///< diagnostic text (also in remote::logFilePath())
     void connected(const QStringList& roots);
     /// @p path is the canonical path of the listed directory.
     void listing(const QString& path, const QVector<RemoteFiles::Entry>& entries, bool truncated);
@@ -68,6 +69,7 @@ private:
     void onSocketError();
     void abortDownload(const QString& message);
     void sendJson(const QJsonObject& obj);
+    void log(const QString& text);
 
     QString m_host, m_serverCommand;
     QUrl m_url;

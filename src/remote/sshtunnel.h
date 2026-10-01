@@ -43,6 +43,8 @@ public:
     static QString sshProgram();
 
 signals:
+    /// Progress and ssh's own messages, for the diagnostic log.
+    void log(const QString& message);
     /// The forward is started; the first connection may need a retry until ssh listens.
     void ready(quint16 localPort, const QString& token);
     void failed(const QString& message);

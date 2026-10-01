@@ -5071,6 +5071,11 @@ void MainWindow::createDockWidgets()
     // Claude Generated 2026 - Why a run ended, into the output dock and the status
     // bar. The engine's own abort messages never reach the GUI (it runs curcuma at
     // verbosity 0), so this is the only place the reason becomes visible.
+    connect(m_simulationControlWidget, &SimulationControlWidget::remoteLog,
+        this, [this](const QString& text) {
+            if (m_outputViewDock)
+                m_outputViewDock->appendOutput(text);
+        });
     connect(m_simulationControlWidget, &SimulationControlWidget::runEnded,
         this, [this](const QString& reason, bool aborted) {
             const QString line = aborted ? tr("Run aborted: %1").arg(reason)

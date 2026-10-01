@@ -67,8 +67,10 @@ void SshTunnel::start()
     m_server = new QProcess(this);
     connect(m_server, &QProcess::readyReadStandardOutput, this, &SshTunnel::onServerOutput);
     connect(m_server, &QProcess::readyReadStandardError, this, [this] {
-        m_stderr += QString::fromUtf8(m_server->readAllStandardError());
-        m_stderr = m_stderr.right(2000);
+        const QString text = QString::fromUtf8(m_server->readAllStandardError());
+        m_stderr = (m_stderr + text).right(2000);
+        for (const QString& line : text.split(QLatin1Char('\n'), Qt::SkipEmptyParts))
+            emit log(tr("remote side: %1").arg(line));
     });
     connect(m_server, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
         if (e == QProcess::FailedToStart)
@@ -76,16 +78,23 @@ void SshTunnel::start()
     });
     connect(m_server, &QProcess::finished, this, [this](int code, QProcess::ExitStatus) {
         if (!m_done)
-            fail(tr("ssh to %1 ended before the server was ready (exit %2). %3").arg(m_host).arg(code).arg(m_stderr.trimmed()));
+            fail(tr("ssh to %1 ended before the server was ready (exit %2). %3").arg(m_host).arg(code)
+                     .arg(m_stderr.trimmed().isEmpty() ? tr("ssh printed nothing; the server command may not exist or may have exited.")
+                                                      : m_stderr.trimmed()));
     });
     connect(m_server, &QProcess::started, this, [this] { m_server->write((m_token + QLatin1Char('\n')).toUtf8()); });
+    emit log(tr("running: %1 %2").arg(sshProgram(), serverArgs(m_host, m_serverCommand).join(QLatin1Char(' '))));
     m_server->start(sshProgram(), serverArgs(m_host, m_serverCommand));
     m_timeout.start(kStartTimeoutMs);
 }
 
 void SshTunnel::onServerOutput()
 {
-    m_outBuf += m_server->readAllStandardOutput();
+    const QByteArray fresh = m_server->readAllStandardOutput();
+    for (const QByteArray& line : fresh.split('\n'))
+        if (!line.trimmed().isEmpty())
+            emit log(tr("server says: %1").arg(QString::fromUtf8(line.trimmed())));
+    m_outBuf += fresh;
     if (m_forward || m_done)
         return;
     static const QRegularExpression re(QStringLiteral("^listening (\\d+)$"), QRegularExpression::MultilineOption);
@@ -112,6 +121,11 @@ void SshTunnel::startForward()
         if (!m_done)
             fail(tr("The ssh port forward to %1 ended (exit %2).").arg(m_host).arg(code));
     });
+    connect(m_forward, &QProcess::readyReadStandardError, this, [this] {
+        for (const QString& line : QString::fromUtf8(m_forward->readAllStandardError()).split(QLatin1Char('\n'), Qt::SkipEmptyParts))
+            emit log(tr("forward: %1").arg(line));
+    });
+    emit log(tr("running: %1 %2").arg(sshProgram(), forwardArgs(m_host, m_localPort, m_remotePort).join(QLatin1Char(' '))));
     m_forward->start(sshProgram(), forwardArgs(m_host, m_localPort, m_remotePort));
 }
 

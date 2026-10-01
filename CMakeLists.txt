@@ -297,12 +297,14 @@ if(USE_REMOTE AND TARGET Qt6::WebSockets)
         src/remote/protocol.cpp
         src/remote/remotebackend.cpp
         src/remote/remotefiles.cpp
+        src/remote/remotelog.cpp
         src/remote/sshtunnel.cpp
         src/dialogs/remotefilesdialog.cpp)
     list(APPEND HEADERS
         src/remote/protocol.h
         src/remote/remotebackend.h
         src/remote/remotefiles.h
+        src/remote/remotelog.h
         src/remote/sshtunnel.h
         src/dialogs/remotefilesdialog.h)
     if(NOT USE_SFTP)
@@ -638,6 +640,7 @@ if(TARGET Qt6::WebSockets)
         src/remote/protocol.cpp
         src/remote/remotebackend.cpp
         src/remote/remotefiles.cpp
+        src/remote/remotelog.cpp
         src/remote/sshtunnel.cpp
         src/remote/serversession.cpp
         src/simulationbackend.cpp

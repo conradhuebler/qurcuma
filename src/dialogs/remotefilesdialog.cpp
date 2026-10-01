@@ -16,6 +16,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QLocale>
+#include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSettings>
@@ -103,6 +104,11 @@ RemoteFilesDialog::RemoteFilesDialog(QWidget* parent)
     m_status = new QLabel(tr("Not connected. Needs ssh access by key or agent and qurcuma-server on the host."), this);
     m_status->setWordWrap(true);
     layout->addWidget(m_status);
+    m_log = new QPlainTextEdit(this);
+    m_log->setReadOnly(true);
+    m_log->setMaximumHeight(110);
+    m_log->setPlaceholderText(tr("Connection log (ssh messages, errors)"));
+    layout->addWidget(m_log);
 
     setConnected(false);
 }
@@ -151,6 +157,7 @@ void RemoteFilesDialog::onConnectClicked()
     settings.setValue(QStringLiteral("remote/serverCommand/") + host, m_serverCommand->text().trimmed());
 
     m_files = new remote::RemoteFiles(host, m_serverCommand->text().trimmed(), this);
+    connect(m_files, &remote::RemoteFiles::logMessage, m_log, &QPlainTextEdit::appendPlainText);
     connect(m_files, &remote::RemoteFiles::connected, this, [this](const QStringList& roots) {
         m_roots = roots;
         setConnected(true);

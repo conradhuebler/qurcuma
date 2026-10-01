@@ -5,6 +5,7 @@
 #include "remotefiles.h"
 
 #include "protocol.h"
+#include "remotelog.h"
 #include "sshtunnel.h"
 
 #include <QDir>
@@ -47,6 +48,11 @@ RemoteFiles::~RemoteFiles()
     }
 }
 
+void RemoteFiles::log(const QString& text)
+{
+    emit logMessage(appendLog(QStringLiteral("files %1").arg(m_host.isEmpty() ? m_url.host() : m_host), text));
+}
+
 void RemoteFiles::connectToHost()
 {
     m_closed = false;
@@ -54,6 +60,7 @@ void RemoteFiles::connectToHost()
     m_connectTimer.start();
     if (!m_host.isEmpty()) {
         m_tunnel = new SshTunnel(m_host, m_serverCommand, this);
+        connect(m_tunnel, &SshTunnel::log, this, &RemoteFiles::log);
         connect(m_tunnel, &SshTunnel::ready, this, [this](quint16 port, const QString& token) {
             m_url = QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(port));
             m_token = token;
@@ -61,6 +68,7 @@ void RemoteFiles::connectToHost()
             connectSocket();
         });
         connect(m_tunnel, &SshTunnel::failed, this, [this](const QString& msg) {
+            log(tr("tunnel failed: %1").arg(msg));
             if (!m_closed) {
                 m_closed = true;
                 emit failed(msg);
@@ -100,11 +108,13 @@ void RemoteFiles::onSocketError()
     if (m_closed)
         return;
     if (!m_welcomed && m_connectTimer.elapsed() < kConnectDeadlineMs) {
+        log(tr("websocket not ready (%1), retrying").arg(m_socket->errorString()));
         m_socket->abort();
         m_retry.start(kRetryMs);  // the forward is not listening yet
         return;
     }
     m_closed = true;
+    log(tr("websocket error: %1").arg(m_socket->errorString()));
     abortDownload(tr("Connection lost."));
     emit failed(tr("Cannot connect to the remote computer: %1").arg(m_socket->errorString()));
 }
@@ -164,6 +174,8 @@ void RemoteFiles::onText(const QString& text)
 {
     const QJsonObject msg = QJsonDocument::fromJson(text.toUtf8()).object();
     const QString type = msg.value("type").toString();
+    if (type != QLatin1String("listing"))
+        log(tr("server message: %1").arg(type));
     if (type == QLatin1String("welcome")) {
         m_welcomed = true;
         list(QString());  // the first shared directory; its reply carries the roots
@@ -216,6 +228,7 @@ void RemoteFiles::onText(const QString& text)
         if (quint32(msg.value("id").toDouble()) == m_activeId)
             abortDownload(msg.value("message").toString());
     } else if (type == QLatin1String("error")) {
+        log(tr("server error: %1").arg(msg.value("message").toString()));
         emit failed(msg.value("message").toString());
     }
 }

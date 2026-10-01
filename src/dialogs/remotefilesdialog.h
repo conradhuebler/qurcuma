@@ -17,6 +17,7 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QProgressBar;
+class QPlainTextEdit;
 class QPushButton;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -56,6 +57,7 @@ private:
     QPushButton* m_cancelButton = nullptr;
     QProgressBar* m_progress = nullptr;
     QLabel* m_status = nullptr;
+    QPlainTextEdit* m_log = nullptr;
 
     remote::RemoteFiles* m_files = nullptr;
     QString m_currentPath;

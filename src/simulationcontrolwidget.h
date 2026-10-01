@@ -101,6 +101,9 @@ signals:
     void runEnded(const QString& reason, bool aborted);
     void simulationRunningChanged(bool running);
     void workerStarted(SimulationBackend* backend);
+    /** @brief Diagnostic text of the remote connection (ssh messages, errors); MainWindow
+     *  puts it into the Output panel. */
+    void remoteLog(const QString& text);
 
     /** @brief Emitted whenever the temperature slider moves. During a run MainWindow
      *  forwards it live to the worker (SimulationWorker::setTargetTemperature).

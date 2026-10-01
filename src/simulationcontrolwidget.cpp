@@ -1666,6 +1666,7 @@ void SimulationControlWidget::connectBackend()
         connect(rb, &remote::RemoteBackend::statusText, this, [this](const QString& text) {
             m_statusLabel->setText(text);
         });
+        connect(rb, &remote::RemoteBackend::logMessage, this, &SimulationControlWidget::remoteLog);
         connect(rb, &remote::RemoteBackend::capabilities, this, [this](const QJsonObject& welcome) {
             const QString host = m_computeCombo->currentData().toString();
             QStringList gpus;
@@ -1680,6 +1681,8 @@ void SimulationControlWidget::connectBackend()
     connect(m_backend, &SimulationBackend::finished, this, &SimulationControlWidget::onSimulationFinished);
     connect(m_backend, &SimulationBackend::errorOccurred, this, [this](const QString& msg) {
         m_statusLabel->setText(tr("Error: %1").arg(msg));
+        m_statusLabel->setToolTip(msg);
+        emit remoteLog(tr("Error: %1").arg(msg));  // the status label is short; the Output panel keeps it
         onSimulationFinished();
     });
 }

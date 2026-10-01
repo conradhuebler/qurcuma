@@ -5,6 +5,7 @@
 #include "remotebackend.h"
 
 #include "protocol.h"
+#include "remotelog.h"
 #include "sshtunnel.h"
 
 #include <QDateTime>
@@ -58,6 +59,11 @@ RemoteBackend::~RemoteBackend()
         m_trajectory.close();
 }
 
+void RemoteBackend::log(const QString& text)
+{
+    emit logMessage(appendLog(m_host.isEmpty() ? QStringLiteral("remote") : QStringLiteral("remote ") + m_host, text));
+}
+
 // ---- start ------------------------------------------------------------------------
 
 void RemoteBackend::start(bool singleStep)
@@ -95,16 +101,19 @@ void RemoteBackend::start(bool singleStep)
     if (!m_host.isEmpty()) {
         emit statusText(tr("Starting qurcuma-server on %1 ...").arg(m_host));
         m_tunnel = new SshTunnel(m_host, m_serverCommand, this);
+        connect(m_tunnel, &SshTunnel::log, this, &RemoteBackend::log);
         connect(m_tunnel, &SshTunnel::ready, this, [this](quint16 port, const QString& token) {
             m_url = QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(port));
             m_token = token;
+            log(tr("server is up, tunnel on local port %1; connecting").arg(port));
             m_connectTimer.restart();
             connectSocket();
         });
         connect(m_tunnel, &SshTunnel::failed, this, [this](const QString& msg) {
+            log(tr("tunnel failed: %1").arg(msg));
             if (!m_finished) {
                 m_finished = true;
-                emit errorOccurred(msg);
+                emit errorOccurred(msg + tr("  (details: %1)").arg(logFilePath()));
             }
         });
         m_tunnel->start();
@@ -227,12 +236,14 @@ void RemoteBackend::onSocketError()
     if (m_reconnecting)
         return;  // the reconnect timer tries again
     if (!m_welcomed && m_connectTimer.elapsed() < kConnectDeadlineMs) {
+        log(tr("websocket not ready (%1), retrying").arg(m_socket->errorString()));
         m_socket->abort();
         m_retry.start(kRetryMs);  // the forward is not listening yet
         return;
     }
     m_finished = true;
-    emit errorOccurred(tr("Cannot connect to the remote computer: %1").arg(m_socket->errorString()));
+    log(tr("websocket error: %1").arg(m_socket->errorString()));
+    emit errorOccurred(tr("Cannot connect to the remote computer: %1  (details: %2)").arg(m_socket->errorString(), logFilePath()));
 }
 
 void RemoteBackend::onConnected()
@@ -255,6 +266,7 @@ void RemoteBackend::onText(const QString& text)
 {
     const QJsonObject msg = QJsonDocument::fromJson(text.toUtf8()).object();
     const QString type = msg.value("type").toString();
+    log(tr("server message: %1").arg(type));
     if (type == QLatin1String("welcome") && m_reconnecting) {
         m_reconnecting = false;
         m_reconnectTimer.stop();
@@ -280,6 +292,7 @@ void RemoteBackend::onText(const QString& text)
     } else if (type == QLatin1String("finished")) {
         endRun(msg.value("reason").toString(), msg.value("aborted").toBool(), msg);
     } else if (type == QLatin1String("error")) {
+        log(tr("server error: %1").arg(msg.value("message").toString()));
         if (!m_finished) {
             m_reconnecting = false;
             m_reconnectTimer.stop();
@@ -292,6 +305,7 @@ void RemoteBackend::onText(const QString& text)
 void RemoteBackend::sendStart()
 {
     m_started = true;
+    log(tr("sending start: %1 atoms, %2 uploaded file(s)").arg(m_atoms.size()).arg(m_uploads.size()));
     if (m_stopRequested) {
         endRun(tr("Stopped before the remote run started."), false);
         return;

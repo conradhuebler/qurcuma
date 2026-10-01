@@ -62,6 +62,8 @@ public slots:
     void setWallBeta(double beta) override;
 
 signals:
+    /// Diagnostic text (also appended to remote::logFilePath()).
+    void logMessage(const QString& text);
     /// What the server reported at connect: gpuBackends (array), threads.
     void capabilities(const QJsonObject& welcome);
     /// Short link description for a status line ("Remote host: 12 frames, 0 dropped ...").
@@ -78,6 +80,7 @@ private:
     void beginReconnect();
     void tryReconnect();
     void sendStart();
+    void log(const QString& text);
     void sendJson(const QJsonObject& obj);
     bool prepareUploads(QJsonObject& configJson, QString* error);
     void endRun(const QString& reason, bool aborted, const QJsonObject& stats = {});
