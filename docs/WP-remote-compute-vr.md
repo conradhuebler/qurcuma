@@ -1,6 +1,6 @@
 # WP: Remote-Rechnen und VR
 
-Status: Stand 2026-10-01. R0 ist umgesetzt (`SimulationBackend`/`LocalBackend` in `src/simulationbackend.*`, `src/moleculetypes.h`; baut, 7 Test-Targets laufen, GUI-Lauf vom Operator noch nicht geprueft). R1 ist umgesetzt (`src/remote/`: Protokoll, Dateirichtlinie, `qurcuma-server`, Tests `test_remote_protocol` und `test_remote_loopback`; Loopback an einer 3-Atom-GFN-FF-Optimierung geprueft, nicht ueber zwei Rechner, kein MD-Lauf). R2 bis R5 sind nicht implementiert; alle Aussagen über vorhandenen Code sind auf den Stand dieses Datums bezogen und am Quelltext gelesen, nicht gebaut oder gemessen.
+Status: Stand 2026-10-01. R0 ist umgesetzt (`SimulationBackend`/`LocalBackend` in `src/simulationbackend.*`, `src/moleculetypes.h`; baut, 7 Test-Targets laufen, GUI-Lauf vom Operator noch nicht geprueft). R1 ist umgesetzt (`src/remote/`: Protokoll, Dateirichtlinie, `qurcuma-server`, Tests `test_remote_protocol` und `test_remote_loopback`; Loopback an einer 3-Atom-GFN-FF-Optimierung geprueft, nicht ueber zwei Rechner, kein MD-Lauf). R2 ist umgesetzt (`RemoteBackend`, `SshTunnel`, "Compute on" im Simulation-Dock; getestet mit einem Python-Ersatz fuer ssh, nicht mit echtem ssh, nicht im GUI; die Capabilities von B (Methoden-/GPU-Liste) ersetzen die lokale Liste noch nicht). R3 bis R5 sind nicht implementiert; alle Aussagen über vorhandenen Code sind auf den Stand dieses Datums bezogen und am Quelltext gelesen, nicht gebaut oder gemessen.
 
 ## Ziel
 
@@ -41,7 +41,7 @@ A: qurcuma (GUI, Viewer, spaeter VR)            B: qurcuma-server (Qt Core, curc
 
 ## Verbindung und Sicherheit
 
-- A startet pro Sitzung einen Prozess `ssh -L <lokalPort>:127.0.0.1:<remotePort> <Host> qurcuma-server --port <remotePort> --token <zufall> --once`. Host-Auswahl aus `SshConfigParser`, Pfad zum Server pro Host einstellbar. Auth, Schluessel und ProxyJump liefert OpenSSH.
+- A startet pro Sitzung einen Prozess zwei ssh-Prozesse: `ssh <Host> '<server> --port 0 --token-stdin --once'` (Token ueber stdin, nicht auf der Kommandozeile von B) und danach `ssh -N -L <lokal>:127.0.0.1:<port> <Host>`. Host-Auswahl aus `SshConfigParser`, Pfad zum Server pro Host einstellbar. Auth, Schluessel und ProxyJump liefert OpenSSH.
 - Der Server lauscht nur auf `127.0.0.1`. Der Token ist trotzdem noetig: andere Benutzer auf B koennen localhost erreichen.
 - Parameter-Durchreichung ist eine Angriffsflaeche: `mdExtraParams` und Dateiparameter greifen auf Pfade auf B zu. Der Server prueft Schluessel gegen die Registry und behandelt Dateiparameter nach den Regeln in "Dateizugriff".
 - Erweiterung auf TCP: Transport hinter einer kleinen Schnittstelle (`Transport`: SSH-Tunnel, spaeter TCP+TLS mit Token/Zertifikat). Erst entscheiden, wenn SSH laeuft.

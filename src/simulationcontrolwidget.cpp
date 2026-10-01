@@ -4,6 +4,12 @@
 
 #include "simulationcontrolwidget.h"
 
+#ifdef QURCUMA_REMOTE
+#include "remote/remotebackend.h"
+#include "sshconfig.h"
+#include <QSettings>
+#endif
+
 #include "widgets/collapsiblesection.h"
 #include "widgets/temperatureslider.h"
 
@@ -384,6 +390,47 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     m_methodCombo->addItem("GFN2", "gfn2");
     m_methodCombo->addItem("GFN1", "gfn1");
     methodForm->addRow(tr("Method:"), m_methodCombo);
+
+#ifdef QURCUMA_REMOTE
+    // Claude Generated 2026 (WP remote compute R2) - where the run happens. A host is an
+    // entry of ~/.ssh/config with qurcuma-server installed on it; there is no fallback to
+    // this computer when the connection fails.
+    m_computeCombo = new QComboBox(this);
+    m_computeCombo->addItem(tr("This computer"), QString());
+    for (const SshConfigEntry& e : SshConfigParser::parseFile()) {
+        if (e.host.contains(QLatin1Char('*')) || e.host.contains(QLatin1Char('?')) || e.host.contains(QLatin1Char('!')))
+            continue;  // patterns, not hosts
+        m_computeCombo->addItem(e.host, e.host);
+    }
+    m_computeCombo->setToolTip(tr("Where simulations run. Another computer is reached over ssh "
+                                  "(key or agent, no password prompt) and needs qurcuma-server."));
+    methodForm->addRow(tr("Compute on:"), m_computeCombo);
+    m_serverCommandEdit = new QLineEdit(QStringLiteral("qurcuma-server"), this);
+    m_serverCommandEdit->setToolTip(tr("Command that starts qurcuma-server on the remote computer "
+                                       "(full path, optionally with --root <directory>)."));
+    methodForm->addRow(tr("Server command:"), m_serverCommandEdit);
+    {
+        QSettings settings;
+        const QString host = settings.value(QStringLiteral("remote/host")).toString();
+        const int idx = m_computeCombo->findData(host);
+        m_computeCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+        m_serverCommandEdit->setText(settings.value(QStringLiteral("remote/serverCommand/") + host,
+            QStringLiteral("qurcuma-server")).toString());
+        m_serverCommandEdit->setEnabled(!m_computeCombo->currentData().toString().isEmpty());
+    }
+    connect(m_computeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+        const QString host = m_computeCombo->currentData().toString();
+        QSettings settings;
+        settings.setValue(QStringLiteral("remote/host"), host);
+        m_serverCommandEdit->setText(settings.value(QStringLiteral("remote/serverCommand/") + host,
+            QStringLiteral("qurcuma-server")).toString());
+        m_serverCommandEdit->setEnabled(!host.isEmpty());
+    });
+    connect(m_serverCommandEdit, &QLineEdit::editingFinished, this, [this] {
+        QSettings().setValue(QStringLiteral("remote/serverCommand/") + m_computeCombo->currentData().toString(),
+            m_serverCommandEdit->text().trimmed());
+    });
+#endif
 
     m_optimizerCombo = new QComboBox(this);
     m_optimizerCombo->addItem(tr("Auto"), "auto");
@@ -1534,6 +1581,13 @@ void SimulationControlWidget::onStepClicked()
 // happens; the remote backend (stage R2) is chosen here.
 SimulationBackend* SimulationControlWidget::createBackend()
 {
+#ifdef QURCUMA_REMOTE
+    if (m_computeCombo) {
+        const QString host = m_computeCombo->currentData().toString();
+        if (!host.isEmpty())
+            return new remote::RemoteBackend(host, m_serverCommandEdit->text().trimmed(), this);
+    }
+#endif
     return new LocalBackend(this);
 }
 
@@ -1548,6 +1602,12 @@ void SimulationControlWidget::teardownBackend()
 
 void SimulationControlWidget::connectBackend()
 {
+#ifdef QURCUMA_REMOTE
+    if (auto* rb = qobject_cast<remote::RemoteBackend*>(m_backend))
+        connect(rb, &remote::RemoteBackend::statusText, this, [this](const QString& text) {
+            m_statusLabel->setText(text);
+        });
+#endif
     connect(m_backend, &SimulationBackend::frameReady, this, &SimulationControlWidget::onFrameReady);
     connect(m_backend, &SimulationBackend::finished, this, &SimulationControlWidget::onSimulationFinished);
     connect(m_backend, &SimulationBackend::errorOccurred, this, [this](const QString& msg) {
@@ -1841,6 +1901,12 @@ void SimulationControlWidget::setRunning(bool running)
     // time. Its own availability is controlled by setResetEnabled().
     m_modeCombo->setEnabled(!running);
     m_methodCombo->setEnabled(!running);
+#ifdef QURCUMA_REMOTE
+    if (m_computeCombo) {
+        m_computeCombo->setEnabled(!running);
+        m_serverCommandEdit->setEnabled(!running && !m_computeCombo->currentData().toString().isEmpty());
+    }
+#endif
     m_chargeSpin->setEnabled(!running);
     m_spinSpin->setEnabled(!running);
     m_optimizerCombo->setEnabled(!running);

@@ -3,6 +3,7 @@
 // Claude Generated 2026 (WP remote compute R1). Needs curcuma (gfnff), no display.
 
 #include "remote/protocol.h"
+#include "remote/remotebackend.h"
 #include "remote/serversession.h"
 #include "simulationbackend.h"
 #include "generated/parameter_registry.h"  // initialize_generated_registry()
@@ -159,6 +160,76 @@ int main(int argc, char* argv[])
     CHECK(maxDev < 1e-4);  // float32 positions on the wire
     CHECK(std::fabs(local.energy - remoteLast.energy) < 1e-10);
     CHECK(local.step == remoteLast.step);
+
+
+    // ---- RemoteBackend (client class) against the same server -------------------------
+    {
+        QFile ref(work.path() + "/ref.xyz");
+        CHECK(ref.open(QIODevice::WriteOnly) && ref.write("1\nx\nH 0 0 0\n") > 0);
+        ref.close();
+        SimulationConfig cfg = optConfig();
+        cfg.writeTrajectory = true;
+        cfg.rmsdMtdRefFile = work.path() + "/ref.xyz";
+
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.serverPort())), token);
+        rb.setTrajectoryPath(work.path() + "/client.trj.xyz");
+        rb.setMolecule(distortedWater());
+        rb.setBonds({ { 0, 1, 1 }, { 0, 2, 1 } });
+        rb.setConfig(cfg);
+        SimulationFrame viaBackend;
+        int n = 0;
+        bool done = false, aborted = true;
+        QStringList errs;
+        QObject::connect(&rb, &SimulationBackend::frameReady, [&](SimulationFramePtr f) { viaBackend = *f; ++n; });
+        QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
+        QObject::connect(&rb, &SimulationBackend::finished, [&](const QString&, bool a) { done = true; aborted = a; });
+        rb.start();
+        CHECK(waitFor([&] { return done || !errs.isEmpty(); }, 120000));
+        for (const QString& e : errs) std::cerr << "RemoteBackend error: " << e.toStdString() << std::endl;
+        CHECK(errs.isEmpty() && done && !aborted);
+        CHECK(viaBackend.positions.size() == 3 && viaBackend.step == local.step);
+        double dev = 0.0;
+        for (size_t i = 0; i < 3 && i < viaBackend.positions.size(); ++i)
+            dev = std::max(dev, double((local.positions[i] - viaBackend.positions[i]).length()));
+        CHECK(dev < 1e-4 && std::fabs(local.energy - viaBackend.energy) < 1e-10);
+
+        // trajectory written on this side: n frames of 3 atoms (count + comment + 3 lines)
+        QFile trj(work.path() + "/client.trj.xyz");
+        CHECK(trj.open(QIODevice::ReadOnly));
+        const QList<QByteArray> lines = trj.readAll().split('\n');
+        CHECK(lines.size() == n * 5 + 1);
+        CHECK(!lines.isEmpty() && lines[0] == "3");
+        // the reference file reached the session directory under its upload name
+        CHECK(session && QFile::exists(session->sessionDir() + "/in/rmsd_mtd_ref_file-ref.xyz"));
+    }
+
+    // a missing file parameter ends the start on this side, nothing is sent
+    {
+        SimulationConfig cfg = optConfig();
+        cfg.rmsdMtdRefFile = work.path() + "/does-not-exist.xyz";
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.serverPort())), token);
+        rb.setMolecule(distortedWater());
+        rb.setConfig(cfg);
+        QStringList errs;
+        QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
+        rb.start();
+        CHECK(waitFor([&] { return !errs.isEmpty(); }, 5000));
+        CHECK(errs.size() == 1 && errs[0].contains("not found"));
+    }
+
+    // no server: the run ends with an error, there is no fallback to a local run
+    {
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:1")), token);
+        rb.setMolecule(distortedWater());
+        rb.setConfig(optConfig());
+        QStringList errs;
+        int frames2 = 0;
+        QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
+        QObject::connect(&rb, &SimulationBackend::frameReady, [&](SimulationFramePtr) { ++frames2; });
+        rb.start();
+        CHECK(waitFor([&] { return !errs.isEmpty(); }, 30000));
+        CHECK(errs.size() == 1 && frames2 == 0);
+    }
 
     std::cout << (failures == 0 ? "All checks passed." : "FAILED") << " (" << failures << " failed)" << std::endl;
     return failures == 0 ? 0 : 1;

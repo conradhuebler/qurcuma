@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 // Claude Generated 2026 (WP remote compute R1, docs/WP-remote-compute-vr.md)
 //
-//   qurcuma-server --port 40123 --token <secret> [--root <dir>] [--once]
+//   qurcuma-server --port 40123 (--token <secret> | --token-stdin) [--root <dir>] [--once]
 //
 // Listens on 127.0.0.1 only; the client reaches it through `ssh -L`. Prints
 // "listening <port>" on stdout once ready (port 0 picks a free one).
@@ -26,15 +26,21 @@ int main(int argc, char* argv[])
     QCommandLineParser parser;
     parser.addHelpOption();
     parser.addOption({ "port", "TCP port on 127.0.0.1 (0 = any).", "port", "0" });
-    parser.addOption({ "token", "Shared secret the client must present.", "token" });
+    parser.addOption({ "token", "Shared secret the client must present (visible in the process list; prefer --token-stdin).", "token" });
+    parser.addOption({ "token-stdin", "Read the shared secret from the first line of standard input." });
     parser.addOption({ "root", "Directory for session directories.", "dir",
         QDir::homePath() + QStringLiteral("/qurcuma-sessions") });
     parser.addOption({ "once", "Exit after the first session ends." });
     parser.process(app);
 
-    const QString token = parser.value("token");
+    QString token = parser.value("token");
+    if (parser.isSet("token-stdin")) {
+        char line[512] = {};
+        if (std::fgets(line, sizeof line, stdin))
+            token = QString::fromUtf8(line).trimmed();
+    }
     if (token.size() < 16) {
-        std::fprintf(stderr, "qurcuma-server: --token with at least 16 characters is required\n");
+        std::fprintf(stderr, "qurcuma-server: a token of at least 16 characters is required (--token or --token-stdin)\n");
         return 2;
     }
     const QString root = parser.value("root");

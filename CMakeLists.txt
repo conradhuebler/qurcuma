@@ -287,6 +287,26 @@ if(USE_SFTP)
     )
 endif()
 
+# Claude Generated 2026 - Remote compute (docs/WP-remote-compute-vr.md): the GUI side
+# (RemoteBackend, SshTunnel, "Compute on" in the Simulation dock) needs Qt6::WebSockets.
+option(USE_REMOTE "Build remote compute support (needs Qt6::WebSockets)" ON)
+find_package(Qt6 COMPONENTS WebSockets QUIET)
+if(USE_REMOTE AND TARGET Qt6::WebSockets)
+    set(QURCUMA_REMOTE ON)
+    list(APPEND SOURCES
+        src/remote/protocol.cpp
+        src/remote/remotebackend.cpp
+        src/remote/sshtunnel.cpp)
+    list(APPEND HEADERS
+        src/remote/protocol.h
+        src/remote/remotebackend.h
+        src/remote/sshtunnel.h)
+    if(NOT USE_SFTP)
+        list(APPEND SOURCES src/sshconfig.cpp)  # host list from ~/.ssh/config (Qt only)
+        list(APPEND HEADERS src/sshconfig.h)
+    endif()
+endif()
+
 add_executable(qurcuma
     ${SOURCES}
     ${HEADERS}
@@ -295,6 +315,7 @@ add_executable(qurcuma
 
 target_compile_definitions(qurcuma PRIVATE
     $<$<BOOL:${USE_SFTP}>:USE_SFTP>
+    $<$<BOOL:${QURCUMA_REMOTE}>:QURCUMA_REMOTE>
     QURCUMA_VERSION="${PROJECT_VERSION}")
 
 # Claude Generated 2026 - Match curcuma's CPU/SIMD flags on the qurcuma target.
@@ -335,6 +356,7 @@ Qt6::Qml
 Qt6::Quick
 Qt6::Quick3D
 Qt6::QuickWidgets
+$<$<BOOL:${QURCUMA_REMOTE}>:Qt6::WebSockets>
 cutechart
 $<$<BOOL:${USE_SFTP}>:${LIBSSH_LIBRARIES}>
 curcuma_core  # Claude Generated - Curcuma simulation backend
@@ -607,10 +629,11 @@ endif()
 # qurcuma-server runs SimulationWorker headless for a remote qurcuma. Needs Qt6::WebSockets;
 # skipped when it is not installed.
 # ---------------------------------------------------------------------------
-find_package(Qt6 COMPONENTS WebSockets QUIET)
 if(TARGET Qt6::WebSockets)
     add_library(qurcuma_remote STATIC
         src/remote/protocol.cpp
+        src/remote/remotebackend.cpp
+        src/remote/sshtunnel.cpp
         src/remote/serversession.cpp
         src/simulationbackend.cpp
         src/simulationworker.cpp
@@ -649,6 +672,9 @@ if(TARGET Qt6::WebSockets)
     target_link_libraries(test_remote_protocol PRIVATE qurcuma_remote)
     add_executable(test_remote_loopback tests/test_remote_loopback.cpp)
     target_link_libraries(test_remote_loopback PRIVATE qurcuma_remote)
+    add_executable(test_remote_ssh tests/test_remote_ssh.cpp)
+    target_link_libraries(test_remote_ssh PRIVATE qurcuma_remote)
+    add_dependencies(test_remote_ssh qurcuma-server)
 else()
     message(STATUS "qurcuma: Qt6::WebSockets not found - qurcuma-server and the remote tests are not built")
 endif()
