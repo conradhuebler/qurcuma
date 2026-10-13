@@ -8,6 +8,7 @@
 #include "view.h"
 
 #include "measurements.h"
+#include "bonddetect.h"
 #include "remote/remotelog.h"
 
 #include "bondeditor.h"
@@ -4010,23 +4011,27 @@ float MoleculeViewer::getCovalentRadius(const QString& element)
 
 QVector<MoleculeViewer::Bond> MoleculeViewer::detectBonds(const QVector<Atom>& atoms)
 {
-    QVector<Bond> detectedBonds;
-    const float BOND_TOLERANCE = 1.25f;
-    for (int i = 0; i < atoms.size(); ++i) {
-        for (int j = i + 1; j < atoms.size(); ++j) {
-            const float distance = (atoms[i].position - atoms[j].position).length();
-            const float threshold = (getCovalentRadius(atoms[i].element) + getCovalentRadius(atoms[j].element)) * BOND_TOLERANCE;
-            if (distance <= threshold)
-                detectedBonds.append({ i, j, 1 });
-        }
+    constexpr float BOND_TOLERANCE = 1.25f;
+    QVector<QVector3D> positions;
+    QVector<float> radius;
+    positions.reserve(atoms.size());
+    radius.reserve(atoms.size());
+    for (const Atom& a : atoms) {
+        positions.append(a.position);
+        radius.append(getCovalentRadius(a.element));
     }
+    QVector<Bond> detectedBonds;
+    for (const auto& p : bonddetect::pairsWithin(positions, radius, BOND_TOLERANCE, BOND_TOLERANCE, nullptr))
+        detectedBonds.append({ p.first, p.second, 1 });
     return detectedBonds;
 }
 
 // Claude Generated 2026 - per-frame bond detection with hysteresis. A currently-bonded pair is
 // kept until it stretches past the looser BREAK threshold; an unbonded pair only forms a bond
 // within the tighter FORM threshold. The gap between the two suppresses on/off flicker for bonds
-// that vibrate near the cutoff at finite temperature.
+// that vibrate near the cutoff at finite temperature. Pair search by cell list (bonddetect.h):
+// the all-pairs loop with a string lookup of the radius per pair cost 610 to 714 ms per frame
+// at 7320 atoms, on the GUI thread.
 QVector<MoleculeViewer::Bond> MoleculeViewer::detectBondsHysteresis(
     const QVector<Atom>& atoms, const QVector<Bond>& previous)
 {
@@ -4035,18 +4040,20 @@ QVector<MoleculeViewer::Bond> MoleculeViewer::detectBondsHysteresis(
     for (const Bond& b : previous)
         bonded.insert(bondPairKey(b.atom1, b.atom2));
 
-    QVector<Bond> result;
+    QVector<QVector3D> positions;
+    QVector<float> radius;
+    positions.reserve(atoms.size());
+    radius.reserve(atoms.size());
+    for (const Atom& a : atoms) {
+        positions.append(a.position);
+        radius.append(getCovalentRadius(a.element));
+    }
+
     constexpr float FORM = 1.25f;   // matches detectBonds() used at load
     constexpr float BREAK = 1.45f;  // ~16% looser before an existing bond is dropped
-    for (int i = 0; i < atoms.size(); ++i) {
-        for (int j = i + 1; j < atoms.size(); ++j) {
-            const float distance = (atoms[i].position - atoms[j].position).length();
-            const float r = getCovalentRadius(atoms[i].element) + getCovalentRadius(atoms[j].element);
-            const float tol = bonded.contains(bondPairKey(i, j)) ? BREAK : FORM;
-            if (distance <= r * tol)
-                result.append({ i, j, 1 });
-        }
-    }
+    QVector<Bond> result;
+    for (const auto& p : bonddetect::pairsWithin(positions, radius, FORM, BREAK, &bonded))
+        result.append({ p.first, p.second, 1 });
     return result;
 }
 

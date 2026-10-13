@@ -5,6 +5,7 @@ Newest first; one line per fact. Entries from August 2026 and earlier: [docs/cha
 ## Oktober 2026 - Remote: Messpunkte
 
 - **Remote-Link messbar**: der Client schreibt einmal pro Sekunde eine `perf:`-Zeile ins Remote-Log (Frames/s, kB/s, Anteil des GUI-Threads, Round-Trip) samt `linkStats` des Servers (erzeugt/gesendet/verworfen, Pending-Bytes, Kodierzeit); `ping`/`pong` ist neu im Protokoll. ⚙️ Loopback-Test, nicht über echtes ssh.
+- **Bindungserkennung im Viewer per Zellliste** (`src/bonddetect.h`): `detectBonds`/`detectBondsHysteresis` prüften alle Paare mit zwei String-Nachschlagungen pro Paar (O(N²)); gemessen im `remote.log` 24 ms pro Frame bei 1410 Atomen und 610 bis 714 ms bei 7320 (bis zu 1,5 Durchläufe pro Sekunde). Jetzt gleiche Paare in gleicher Reihenfolge (Test `test_bonddetect` gegen die Schleife über alle Paare, 7320 Atome 25 ms im Debug-Build). ⚙️ GUI nicht geprüft.
 - **Remote-Log: Einstellungen und GUI-Seite**: `run:`-Zeile mit Methode, GPU, fps-Limit, Thermostat, Topologie, Threads; `gui remote|local rate:` (gleiches Format für lokale und entfernte Läufe) und `gui viewer` (Frames ein/verarbeitet, Zeit in `updateSimulationFrame`, Verspätung eines 10-ms-Herzschlags im GUI-Event-Loop). 🤖 gebaut, GUI-Teil nicht ausgeführt.
 
 ## September 2026 - WASD im View- und Measure-Werkzeug

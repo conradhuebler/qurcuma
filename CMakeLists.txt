@@ -466,6 +466,11 @@ target_include_directories(test_fragments PRIVATE
 )
 
 # Look round-trip test - Claude Generated 2026 (look.h is header-only).
+# Cell-list bond detection (src/bonddetect.h) against the all-pairs loop - Claude Generated 2026.
+add_executable(test_bonddetect tests/test_bonddetect.cpp)
+target_link_libraries(test_bonddetect PRIVATE Qt6::Core Qt6::Gui)
+target_include_directories(test_bonddetect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 add_executable(test_looks tests/test_looks.cpp)
 target_link_libraries(test_looks PRIVATE
 Qt6::Core
