@@ -205,6 +205,42 @@ int main(int argc, char* argv[])
         CHECK(QFile::exists(sessionDirSeen + "/in/rmsd_mtd_ref_file-ref.xyz"));
     }
 
+    // link measurement: a run longer than a second yields `perf:` lines with the client side
+    // (frames, busy time, round trip) and the server's linkStats
+    {
+        SimulationConfig cfg;
+        cfg.mode = SimulationConfig::Mode::MolecularDynamics;
+        cfg.method = "gfnff";
+        cfg.steps = 100000;
+        cfg.fpsLimit = 30;
+        cfg.writeTrajectory = false;
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())), token);
+        rb.setMolecule(distortedWater());
+        rb.setBonds({ { 0, 1, 1 }, { 0, 2, 1 } });
+        rb.setConfig(cfg);
+        QStringList logs, errs;
+        int n = 0;
+        bool done = false;
+        QObject::connect(&rb, &SimulationBackend::frameReady, [&](SimulationFramePtr) { ++n; });
+        QObject::connect(&rb, &remote::RemoteBackend::logMessage, [&](const QString& s) { logs << s; });
+        QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
+        QObject::connect(&rb, &SimulationBackend::finished, [&](const QString&, bool) { done = true; });
+        rb.start();
+        auto perfLines = [&] { return logs.filter(QStringLiteral("perf:")).size(); };
+        CHECK(waitFor([&] { return perfLines() >= 2 || !errs.isEmpty(); }, 60000));
+        rb.requestStop();
+        waitFor([&] { return done; }, 30000);
+        const QStringList perf = logs.filter(QStringLiteral("perf:"));
+        CHECK(errs.isEmpty() && perf.size() >= 2 && n > 0);
+        // the second line has the server side (linkStats arrive once per second) and a round trip
+        if (perf.size() >= 2) {
+            std::cerr << perf.last().toStdString() << std::endl;
+            CHECK(perf.last().contains("recv") && perf.last().contains("RTT"));
+            CHECK(perf.last().contains("server: produced"));
+            CHECK(!perf.last().contains("RTT -1"));
+        }
+    }
+
     // a missing file parameter ends the start on this side, nothing is sent
     {
         SimulationConfig cfg = optConfig();

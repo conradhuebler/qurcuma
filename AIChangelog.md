@@ -2,6 +2,10 @@
 
 Newest first; one line per fact. Entries from August 2026 and earlier: [docs/changelog/AIChangelog_2026-08-and-earlier.md](docs/changelog/AIChangelog_2026-08-and-earlier.md).
 
+## Oktober 2026 - Remote: Messpunkte
+
+- **Remote-Link messbar**: der Client schreibt einmal pro Sekunde eine `perf:`-Zeile ins Remote-Log (Frames/s, kB/s, Anteil des GUI-Threads, Round-Trip) samt `linkStats` des Servers (erzeugt/gesendet/verworfen, Pending-Bytes, Kodierzeit); `ping`/`pong` ist neu im Protokoll. ⚙️ Loopback-Test, nicht über echtes ssh.
+
 ## September 2026 - WASD im View- und Measure-Werkzeug
 
 - Q und E rollen jetzt in die jeweils andere Richtung als zuvor (getauscht); das Verschieben mit Shift+Q/E im Edit-Werkzeug bleibt, wie es war.

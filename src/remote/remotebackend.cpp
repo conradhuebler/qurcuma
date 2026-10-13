@@ -35,6 +35,8 @@ RemoteBackend::RemoteBackend(const QString& host, const QString& serverCommand, 
     connect(&m_retry, &QTimer::timeout, this, &RemoteBackend::connectSocket);
     m_reconnectTimer.setSingleShot(true);
     connect(&m_reconnectTimer, &QTimer::timeout, this, &RemoteBackend::tryReconnect);
+    m_perfTimer.setInterval(1000);
+    connect(&m_perfTimer, &QTimer::timeout, this, &RemoteBackend::perfTick);
 }
 
 RemoteBackend::RemoteBackend(const QUrl& url, const QString& token, QObject* parent)
@@ -46,6 +48,8 @@ RemoteBackend::RemoteBackend(const QUrl& url, const QString& token, QObject* par
     connect(&m_retry, &QTimer::timeout, this, &RemoteBackend::connectSocket);
     m_reconnectTimer.setSingleShot(true);
     connect(&m_reconnectTimer, &QTimer::timeout, this, &RemoteBackend::tryReconnect);
+    m_perfTimer.setInterval(1000);
+    connect(&m_perfTimer, &QTimer::timeout, this, &RemoteBackend::perfTick);
 }
 
 RemoteBackend::~RemoteBackend()
@@ -266,6 +270,15 @@ void RemoteBackend::onText(const QString& text)
 {
     const QJsonObject msg = QJsonDocument::fromJson(text.toUtf8()).object();
     const QString type = msg.value("type").toString();
+    if (type == QLatin1String("pong")) {
+        m_pfRttLast = m_clock.elapsed() - qint64(msg.value("t").toDouble());
+        m_pfRttMax = qMax(m_pfRttMax, m_pfRttLast);
+        return;
+    }
+    if (type == QLatin1String("linkStats")) {
+        m_serverStats = msg;
+        return;
+    }
     log(tr("server message: %1").arg(type));
     if (type == QLatin1String("welcome") && m_reconnecting) {
         m_reconnecting = false;
@@ -273,6 +286,9 @@ void RemoteBackend::onText(const QString& text)
         emit statusText(tr("Reconnected to the running simulation."));
     } else if (type == QLatin1String("welcome")) {
         m_welcomed = true;
+        m_clock.start();
+        m_perfWindow.start();
+        m_perfTimer.start();
         m_sessionName = msg.value("session").toString();
         emit capabilities(msg);
         m_serverThreads = msg.value("threads").toInt();
@@ -302,6 +318,37 @@ void RemoteBackend::onText(const QString& text)
     }
 }
 
+/// One diagnostic line per second (Claude Generated 2026). Reading it: `recv` below the
+/// server's `sent` means the link or this thread is the limit; a large `pending` or RTT with
+/// small `busy` points at the link, a large `busy` at decode, trajectory write or the viewer.
+void RemoteBackend::perfTick()
+{
+    if (m_socket && m_socket->isValid() && m_welcomed)
+        sendJson({ { "type", "ping" }, { "t", double(m_clock.elapsed()) } });
+    const double s = qMax<qint64>(1, m_perfWindow.restart()) / 1000.0;
+    const double n = qMax<quint64>(1, m_pfFrames);
+    const auto ms = [&](qint64 ns) { return double(ns) / 1e6 / n; };
+    QString line = tr("perf: recv %1 fps %2 kB/s | this thread %3 % busy (decode %4, write %5, emit %6 ms/frame) | RTT %7 ms (max %8)")
+                       .arg(m_pfFrames / s, 0, 'f', 1).arg(m_pfBytes / 1024.0 / s, 0, 'f', 0)
+                       .arg(100.0 * double(m_pfBusyNs) / 1e9 / s, 0, 'f', 0)
+                       .arg(ms(m_pfDecodeNs), 0, 'f', 2).arg(ms(m_pfWriteNs), 0, 'f', 2).arg(ms(m_pfEmitNs), 0, 'f', 2)
+                       .arg(m_pfRttLast).arg(m_pfRttMax);
+    if (!m_serverStats.isEmpty()) {
+        const QJsonObject& o = m_serverStats;
+        const double sec = qMax(1.0, o.value("intervalMs").toDouble()) / 1000.0;
+        line += tr(" | server: produced %1/s sent %2/s dropped %3/s, %4 kB/s, pending %5 kB (max %6), encode %7 ms/frame, step %8")
+                    .arg(o.value("produced").toDouble() / sec, 0, 'f', 1).arg(o.value("sent").toDouble() / sec, 0, 'f', 1)
+                    .arg(o.value("dropped").toDouble() / sec, 0, 'f', 1).arg(o.value("bytes").toDouble() / 1024.0 / sec, 0, 'f', 0)
+                    .arg(o.value("pendingBytes").toDouble() / 1024.0, 0, 'f', 0).arg(o.value("maxPendingBytes").toDouble() / 1024.0, 0, 'f', 0)
+                    .arg(o.value("encodeUsPerFrame").toDouble() / 1000.0, 0, 'f', 3).arg(o.value("step").toInt());
+    }
+    if (m_pfFrames > 0 || m_started)
+        log(line);
+    m_pfFrames = m_pfBytes = 0;
+    m_pfBusyNs = m_pfDecodeNs = m_pfWriteNs = m_pfEmitNs = 0;
+    m_pfRttMax = 0;
+}
+
 void RemoteBackend::sendStart()
 {
     m_started = true;
@@ -317,14 +364,25 @@ void RemoteBackend::sendStart()
 
 void RemoteBackend::onBinary(const QByteArray& message)
 {
+    QElapsedTimer busy;
+    busy.start();
     SimulationFrame f;
     QString err;
     if (!decodeFrame(message, f, &err))
         return;  // a corrupt frame is skipped, the run goes on
     ++m_framesReceived;
-    if (m_trajectory.isOpen())
+    ++m_pfFrames;
+    m_pfBytes += quint64(message.size());
+    m_pfDecodeNs += busy.nsecsElapsed();
+    if (m_trajectory.isOpen()) {
+        const qint64 t0 = busy.nsecsElapsed();
         writeTrajectoryFrame(f);
-    emit frameReady(SimulationFramePtr::create(std::move(f)));
+        m_pfWriteNs += busy.nsecsElapsed() - t0;
+    }
+    const qint64 t1 = busy.nsecsElapsed();
+    emit frameReady(SimulationFramePtr::create(std::move(f)));  // direct slots run inside this call
+    m_pfEmitNs += busy.nsecsElapsed() - t1;
+    m_pfBusyNs += busy.nsecsElapsed();
     if (m_statusTimer.elapsed() >= 1000) {
         m_statusTimer.restart();
         emit statusText(tr("%1: %2 frames received").arg(m_host.isEmpty() ? m_url.host() : m_host).arg(m_framesReceived));
@@ -349,6 +407,7 @@ void RemoteBackend::endRun(const QString& reason, bool aborted, const QJsonObjec
     if (m_finished)
         return;
     m_finished = true;
+    m_perfTimer.stop();
     const double dropped = stats.value("framesDropped").toDouble();
     if (!(m_serverTrajectory && stats.contains("sessionDir")))
         emit statusText(tr("Remote run ended: %1 frames received, %2 dropped by the server.")

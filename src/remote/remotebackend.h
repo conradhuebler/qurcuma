@@ -118,6 +118,17 @@ private:
     quint64 m_framesReceived = 0;
     int m_serverThreads = 0;
     QElapsedTimer m_statusTimer;
+
+    /// Link measurement (Claude Generated 2026): once per second one `perf` line in the remote
+    /// log with the client side (frames, bytes, time spent in this thread, round trip) and the
+    /// server's last `linkStats`, so "link", "server" and "GUI thread" can be told apart.
+    void perfTick();
+    QTimer m_perfTimer;
+    QElapsedTimer m_perfWindow, m_clock;
+    quint64 m_pfFrames = 0, m_pfBytes = 0;
+    qint64 m_pfBusyNs = 0, m_pfDecodeNs = 0, m_pfWriteNs = 0, m_pfEmitNs = 0;
+    qint64 m_pfRttLast = -1, m_pfRttMax = 0;
+    QJsonObject m_serverStats;
 };
 
 } // namespace remote

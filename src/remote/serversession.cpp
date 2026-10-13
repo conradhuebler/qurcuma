@@ -43,6 +43,8 @@ ServerSession::ServerSession(const QString& token, const QString& rootDir, int g
 
     m_graceTimer.setSingleShot(true);
     connect(&m_graceTimer, &QTimer::timeout, this, &ServerSession::endSession);
+    m_statsTimer.setInterval(1000);
+    connect(&m_statsTimer, &QTimer::timeout, this, &ServerSession::sendLinkStats);
 }
 
 ServerSession::~ServerSession()
@@ -131,7 +133,11 @@ void ServerSession::onText(const QString& text)
         return;
     }
 
-    if (type == QLatin1String("start")) {
+    if (type == QLatin1String("ping")) {
+        // Answered at once, but queued behind whatever frames are already waiting on the
+        // socket: the round trip the client measures is the delay a frame would see.
+        send({ { "type", "pong" }, { "t", msg.value("t") } });
+    } else if (type == QLatin1String("start")) {
         handleStart(msg);
     } else if (type == QLatin1String("list")) {
         handleList(msg);
@@ -233,13 +239,28 @@ void ServerSession::handleStart(const QJsonObject& msg)
     connect(m_backend, &SimulationBackend::frameReady, this, [this](SimulationFramePtr frame) {
         if (!frame || !m_socket || !m_socket->isValid())
             return;
-        if (m_socket->bytesToWrite() > kMaxPendingBytes) {
+        ++m_ivProduced;
+        m_lastStep = frame->step;
+        const qint64 pending = m_socket->bytesToWrite();
+        m_ivMaxPending = qMax(m_ivMaxPending, pending);
+        if (pending > kMaxPendingBytes) {
             ++m_framesDropped;  // slow link: latest wins, the simulation is never slowed down
+            ++m_ivDropped;
             return;
         }
-        m_socket->sendBinaryMessage(encodeFrame(*frame));
+        QElapsedTimer encodeTimer;
+        encodeTimer.start();
+        const QByteArray bytes = encodeFrame(*frame);
+        m_ivEncodeNs += encodeTimer.nsecsElapsed();
+        m_ivBytes += quint64(bytes.size());
+        m_socket->sendBinaryMessage(bytes);
         ++m_framesSent;
+        ++m_ivSent;
     });
+    m_ivProduced = m_ivSent = m_ivDropped = m_ivBytes = 0;
+    m_ivEncodeNs = m_ivMaxPending = 0;
+    m_statsClock.start();
+    m_statsTimer.start();
     connect(m_backend, &SimulationBackend::runParameters, this, [this](const QJsonObject& rec) {
         send({ { "type", "runParameters" }, { "record", rec } });
     });
@@ -249,12 +270,30 @@ void ServerSession::handleStart(const QJsonObject& msg)
         m_finishedMsg = { { "type", "finished" }, { "reason", reason }, { "aborted", aborted },
             { "framesSent", double(m_framesSent) }, { "framesDropped", double(m_framesDropped) },
             { "sessionDir", m_sessionDir }, { "sessionFiles", sessionFilesJson() } };
+        m_statsTimer.stop();
         send(m_finishedMsg);  // kept: a client that is away gets it when it returns
         m_backend->deleteLater();
         m_backend = nullptr;
     });
 
     m_backend->start(msg.value("singleStep").toBool());
+}
+
+/// Counters of the last second (Claude Generated 2026). `pendingBytes` is what the socket still
+/// holds, so a link that cannot keep up shows as a pending figure that grows towards the 4 MiB
+/// drop limit; `produced` against `sent` + `dropped` shows what the worker delivered.
+void ServerSession::sendLinkStats()
+{
+    if (!m_socket || !m_authenticated)
+        return;
+    const double ms = qMax<qint64>(1, m_statsClock.restart());
+    send({ { "type", "linkStats" }, { "intervalMs", ms }, { "produced", double(m_ivProduced) },
+        { "sent", double(m_ivSent) }, { "dropped", double(m_ivDropped) }, { "bytes", double(m_ivBytes) },
+        { "encodeUsPerFrame", m_ivSent ? double(m_ivEncodeNs) / 1e3 / double(m_ivSent) : 0.0 },
+        { "pendingBytes", double(m_socket->bytesToWrite()) }, { "maxPendingBytes", double(m_ivMaxPending) },
+        { "step", m_lastStep } });
+    m_ivProduced = m_ivSent = m_ivDropped = m_ivBytes = 0;
+    m_ivEncodeNs = m_ivMaxPending = 0;
 }
 
 void ServerSession::stopRun()
@@ -400,6 +439,7 @@ void ServerSession::endSession()
         return;
     m_ended = true;
     m_graceTimer.stop();
+    m_statsTimer.stop();
     stopRun();
     emit ended();
 }

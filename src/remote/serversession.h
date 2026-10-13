@@ -26,6 +26,7 @@
 #include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QWebSocketServer>
 
@@ -92,6 +93,15 @@ private:
     qint64 m_uploadedBytes = 0;
     quint64 m_framesSent = 0;
     quint64 m_framesDropped = 0;
+
+    /// Link measurement (Claude Generated 2026): one `linkStats` message per second while a
+    /// run is going, so a slow remote session can be told apart as "link", "server" or "client".
+    void sendLinkStats();
+    QTimer m_statsTimer;
+    QElapsedTimer m_statsClock;
+    quint64 m_ivProduced = 0, m_ivSent = 0, m_ivDropped = 0, m_ivBytes = 0;
+    qint64 m_ivEncodeNs = 0, m_ivMaxPending = 0;
+    qint32 m_lastStep = 0;
 };
 
 /// Listener plus the one-session policy of qurcuma-server.
