@@ -27,6 +27,7 @@
 #include <QString>
 #include <QStringList>
 #include <QElapsedTimer>
+#include <QJsonArray>
 #include <QTimer>
 #include <QWebSocketServer>
 
@@ -104,6 +105,9 @@ private:
     qint32 m_lastStep = 0;
     QElapsedTimer m_gapClock;  // spacing of the frames the worker produces (jitter)
     double m_ivGapSum = 0, m_ivGapSq = 0, m_ivGapMax = 0;
+    double m_gapEma = 0;          // running mean of the spacing, to recognise an outlier step
+    int m_ivSlow = 0;
+    QJsonArray m_ivSlowList;      // [step, gap ms] of the first outliers of the interval
 };
 
 /// Listener plus the one-session policy of qurcuma-server.

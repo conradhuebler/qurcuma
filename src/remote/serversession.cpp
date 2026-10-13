@@ -247,6 +247,13 @@ void ServerSession::handleStart(const QJsonObject& msg)
             m_ivGapSum += gap;
             m_ivGapSq += gap * gap;
             m_ivGapMax = qMax(m_ivGapMax, gap);
+            // An outlier step (more than three times the running mean): which step, how long.
+            if (m_gapEma > 0 && gap > 3.0 * m_gapEma) {
+                ++m_ivSlow;
+                if (m_ivSlowList.size() < 12)
+                    m_ivSlowList.append(QJsonArray{ frame->step, qRound(gap) });
+            }
+            m_gapEma = m_gapEma > 0 ? 0.95 * m_gapEma + 0.05 * gap : gap;
         }
         m_gapClock.restart();
         const qint64 pending = m_socket->bytesToWrite();
@@ -302,8 +309,11 @@ void ServerSession::sendLinkStats()
         { "sent", double(m_ivSent) }, { "dropped", double(m_ivDropped) }, { "bytes", double(m_ivBytes) },
         { "encodeUsPerFrame", m_ivSent ? double(m_ivEncodeNs) / 1e3 / double(m_ivSent) : 0.0 },
         { "pendingBytes", double(m_socket->bytesToWrite()) }, { "maxPendingBytes", double(m_ivMaxPending) },
-        { "step", m_lastStep }, { "gapMeanMs", mean }, { "gapSdMs", sd }, { "gapMaxMs", m_ivGapMax } });
+        { "step", m_lastStep }, { "gapMeanMs", mean }, { "gapSdMs", sd }, { "gapMaxMs", m_ivGapMax },
+        { "slowSteps", m_ivSlow }, { "slowList", m_ivSlowList } });
     m_ivGapSum = m_ivGapSq = m_ivGapMax = 0;
+    m_ivSlow = 0;
+    m_ivSlowList = QJsonArray();
     m_ivProduced = m_ivSent = m_ivDropped = m_ivBytes = 0;
     m_ivEncodeNs = m_ivMaxPending = 0;
 }

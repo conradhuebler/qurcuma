@@ -347,6 +347,12 @@ void RemoteBackend::perfTick()
                     .arg(o.value("encodeUsPerFrame").toDouble() / 1000.0, 0, 'f', 3).arg(o.value("step").toInt())
                     .arg(o.value("gapMeanMs").toDouble(), 0, 'f', 1).arg(o.value("gapSdMs").toDouble(), 0, 'f', 1)
                     .arg(o.value("gapMaxMs").toDouble(), 0, 'f', 0);
+        if (o.value("slowSteps").toInt() > 0) {
+            QStringList slow;
+            for (const QJsonValue& v : o.value("slowList").toArray())
+                slow << QStringLiteral("%1:%2").arg(v.toArray().at(0).toInt()).arg(v.toArray().at(1).toInt());
+            line += tr(" | slow steps (>3x mean) %1 [step:ms %2]").arg(o.value("slowSteps").toInt()).arg(slow.join(QLatin1Char(' ')));
+        }
     }
     if (m_pfFrames > 0 || m_started)
         log(line);

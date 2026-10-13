@@ -1965,12 +1965,13 @@ void MoleculeViewer::probeBeat()
     const int atoms = m_trajectoryAtoms.isEmpty() ? 0 : int(m_trajectoryAtoms[0].size());
     remote::appendLog(QStringLiteral("gui viewer"),
         QStringLiteral("frames in %1/s, passes %2/s (rest coalesced), update %3 ms avg (max %4), "
-                       "event loop late %5 ms avg (max %6), longest gap between passes %9 ms, %7 atoms, dynamic bonds %8")
+                       "(bond detection %10 ms, scene sync %11 ms), event loop late %5 ms avg (max %6), longest gap between passes %9 ms, %7 atoms, dynamic bonds %8")
             .arg(m_probeFramesIn / s, 0, 'f', 1).arg(m_probeUpdates / s, 0, 'f', 1)
             .arg(m_probeUpdateNs / 1e6 / passes, 0, 'f', 2).arg(m_probeUpdateMaxNs / 1e6, 0, 'f', 1)
             .arg(m_probeLateNs / 1e6 / qMax(1, m_probeBeats), 0, 'f', 1).arg(m_probeLateMaxNs / 1e6, 0, 'f', 0)
-            .arg(atoms).arg(m_dynamicBonds ? QStringLiteral("on") : QStringLiteral("off")).arg(m_probeGapMaxMs, 0, 'f', 0));
+            .arg(atoms).arg(m_dynamicBonds ? QStringLiteral("on") : QStringLiteral("off")).arg(m_probeGapMaxMs, 0, 'f', 0).arg(m_probeBondNs / 1e6 / passes, 0, 'f', 2).arg(m_probeSyncNs / 1e6 / passes, 0, 'f', 2));
     m_probeGapMaxMs = 0;
+    m_probeBondNs = m_probeSyncNs = 0;
     m_probeFramesIn = m_probeUpdates = m_probeBeats = 0;
     m_probeUpdateNs = m_probeUpdateMaxNs = m_probeLateNs = m_probeLateMaxNs = 0;
     if (m_probeLastFrame.isValid() && m_probeLastFrame.elapsed() > 2000)
@@ -2045,6 +2046,8 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
     // Claude Generated 2026.
     bool topologyChanged = false;
     qint64 bondDetectUs = 0;  // Claude Generated 2026 - P0 timing
+    QElapsedTimer probeStage;  // GUI-thread probe (probeBeat): bonds, then scene sync
+    probeStage.start();
     if (!frame->bonds.empty()) {
         // Reactive GFN-FF: the force field's own bond list is the topology being
         // integrated, so it is drawn as-is (with its bond orders) and takes precedence
@@ -2078,6 +2081,8 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
         }
     }
 
+    m_probeBondNs += probeStage.nsecsElapsed();
+    probeStage.restart();
     syncSceneToController(0, /*resetCamera=*/false, /*fullRebuild=*/false);
     if (topologyChanged && m_scene) {
         QVector<SceneController::BondDatum> sb;
@@ -2086,6 +2091,7 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
             sb.append({ b.atom1, b.atom2, b.bondOrder });
         m_scene->updateBonds(sb);
     }
+    m_probeSyncNs += probeStage.nsecsElapsed();
     computeWallViolations();  // live MD: recolour box + status as atoms cross walls
     // Claude Generated 2026 - Measurement lines and HUD values follow the running
     // geometry (the live frame is written into frame 0, see refAtoms above).
