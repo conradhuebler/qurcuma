@@ -4,6 +4,8 @@
 
 #include "sshtunnel.h"
 
+#include "hostprofiles.h"
+
 #include <QRegularExpression>
 #include <QTcpServer>
 #include <QUuid>
@@ -29,15 +31,15 @@ QString SshTunnel::sshProgram()
     return env.isEmpty() ? QStringLiteral("ssh") : env;
 }
 
-QStringList SshTunnel::serverArgs(const QString& host, const QString& serverCommand)
+QStringList SshTunnel::serverArgs(const QString& host, const QString& serverCommand, const QStringList& extra)
 {
-    return kCommonOptions + QStringList{ host,
+    return kCommonOptions + extra + QStringList{ host,
         serverCommand + QStringLiteral(" --port 0 --token-stdin --once") };
 }
 
-QStringList SshTunnel::forwardArgs(const QString& host, quint16 localPort, quint16 remotePort)
+QStringList SshTunnel::forwardArgs(const QString& host, quint16 localPort, quint16 remotePort, const QStringList& extra)
 {
-    return kCommonOptions + QStringList{ QStringLiteral("-o"), QStringLiteral("ExitOnForwardFailure=yes"),
+    return kCommonOptions + extra + QStringList{ QStringLiteral("-o"), QStringLiteral("ExitOnForwardFailure=yes"),
         QStringLiteral("-N"), QStringLiteral("-L"),
         QStringLiteral("%1:127.0.0.1:%2").arg(localPort).arg(remotePort), host };
 }
@@ -47,6 +49,12 @@ SshTunnel::SshTunnel(const QString& host, const QString& serverCommand, QObject*
     , m_host(host)
     , m_serverCommand(serverCommand.trimmed().isEmpty() ? QStringLiteral("qurcuma-server") : serverCommand.trimmed())
 {
+    // A computer added in qurcuma has no ~/.ssh/config entry: its address, port and key come from
+    // the saved profile. Any other name goes to ssh as it is (alias of ~/.ssh/config).
+    const std::optional<HostProfile> profile = HostProfiles::find(host);
+    m_target = profile ? profile->target : host;
+    if (profile)
+        m_extra = profile->sshArgs();
     m_timeout.setSingleShot(true);
     connect(&m_timeout, &QTimer::timeout, this, [this] {
         fail(tr("No answer from qurcuma-server on %1 after %2 s.").arg(m_host).arg(kStartTimeoutMs / 1000));
@@ -83,8 +91,8 @@ void SshTunnel::start()
                                                       : m_stderr.trimmed()));
     });
     connect(m_server, &QProcess::started, this, [this] { m_server->write((m_token + QLatin1Char('\n')).toUtf8()); });
-    emit log(tr("running: %1 %2").arg(sshProgram(), serverArgs(m_host, m_serverCommand).join(QLatin1Char(' '))));
-    m_server->start(sshProgram(), serverArgs(m_host, m_serverCommand));
+    emit log(tr("running: %1 %2").arg(sshProgram(), serverArgs(m_target, m_serverCommand, m_extra).join(QLatin1Char(' '))));
+    m_server->start(sshProgram(), serverArgs(m_target, m_serverCommand, m_extra));
     m_timeout.start(kStartTimeoutMs);
 }
 
@@ -125,8 +133,8 @@ void SshTunnel::startForward()
         for (const QString& line : QString::fromUtf8(m_forward->readAllStandardError()).split(QLatin1Char('\n'), Qt::SkipEmptyParts))
             emit log(tr("forward: %1").arg(line));
     });
-    emit log(tr("running: %1 %2").arg(sshProgram(), forwardArgs(m_host, m_localPort, m_remotePort).join(QLatin1Char(' '))));
-    m_forward->start(sshProgram(), forwardArgs(m_host, m_localPort, m_remotePort));
+    emit log(tr("running: %1 %2").arg(sshProgram(), forwardArgs(m_target, m_localPort, m_remotePort, m_extra).join(QLatin1Char(' '))));
+    m_forward->start(sshProgram(), forwardArgs(m_target, m_localPort, m_remotePort, m_extra));
 }
 
 void SshTunnel::restartForward()

@@ -38,8 +38,9 @@ public:
     QString host() const { return m_host; }
 
     /// Arguments of the two ssh invocations (also used by the tests).
-    static QStringList serverArgs(const QString& host, const QString& serverCommand);
-    static QStringList forwardArgs(const QString& host, quint16 localPort, quint16 remotePort);
+    /// @p extra goes before the target (a profile's `-p`/`-i`); see HostProfile::sshArgs().
+    static QStringList serverArgs(const QString& host, const QString& serverCommand, const QStringList& extra = {});
+    static QStringList forwardArgs(const QString& host, quint16 localPort, quint16 remotePort, const QStringList& extra = {});
     static QString sshProgram();
 
 signals:
@@ -55,6 +56,8 @@ private:
     void startForward();
 
     QString m_host, m_serverCommand, m_token;
+    QString m_target;       // what ssh is given: the host name, or a saved profile's address
+    QStringList m_extra;    // `-p`/`-i` of a saved profile (remote/hostprofiles.h)
     QProcess* m_server = nullptr;
     QProcess* m_forward = nullptr;
     QTimer m_timeout;

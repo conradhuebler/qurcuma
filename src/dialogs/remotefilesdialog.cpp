@@ -4,6 +4,8 @@
 
 #include "remotefilesdialog.h"
 
+#include "addcomputerdialog.h"
+
 #include "sshconfig.h"
 
 #include <QCryptographicHash>
@@ -44,20 +46,12 @@ RemoteFilesDialog::RemoteFilesDialog(QWidget* parent)
     auto* layout = new QVBoxLayout(this);
     auto* form = new QFormLayout;
     m_hostCombo = new QComboBox(this);
-    for (const SshConfigEntry& e : SshConfigParser::parseFile()) {
-        if (e.host.contains(QLatin1Char('*')) || e.host.contains(QLatin1Char('?')) || e.host.contains(QLatin1Char('!')))
-            continue;
-        m_hostCombo->addItem(e.host, e.host);
-    }
-    const QString lastHost = QSettings().value(QStringLiteral("remote/host")).toString();
-    if (m_hostCombo->findData(lastHost) >= 0)
-        m_hostCombo->setCurrentIndex(m_hostCombo->findData(lastHost));
+    AddComputerDialog::fillHostCombo(m_hostCombo, false, QSettings().value(QStringLiteral("remote/host")).toString());
     m_serverCommand = new QLineEdit(this);
     m_serverCommand->setToolTip(tr("Command that starts qurcuma-server on the remote computer. Add --browse <directory> "
                                    "to share more than the session directories."));
     auto loadCommand = [this] {
-        m_serverCommand->setText(QSettings().value(QStringLiteral("remote/serverCommand/") + m_hostCombo->currentData().toString(),
-            QStringLiteral("qurcuma-server")).toString());
+        m_serverCommand->setText(AddComputerDialog::defaultServerCommand(m_hostCombo->currentData().toString()));
     };
     loadCommand();
     connect(m_hostCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, loadCommand);
@@ -149,7 +143,7 @@ void RemoteFilesDialog::onConnectClicked()
     }
     const QString host = m_hostCombo->currentData().toString();
     if (host.isEmpty()) {
-        m_status->setText(tr("No host: add one to ~/.ssh/config."));
+        m_status->setText(tr("No host: add a computer in the Simulation dock (Compute on: +) or an entry to ~/.ssh/config."));
         return;
     }
     QSettings settings;

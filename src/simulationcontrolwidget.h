@@ -321,6 +321,7 @@ private:
     SimulationConfig m_config;
     QJsonObject m_mdExtraParams;  // Claude Generated 2026 - from the All parameters tab
     QComboBox* m_computeCombo = nullptr;      // "Compute on": this computer or an ssh host (QURCUMA_REMOTE)
+    class QToolButton* m_removeComputer = nullptr;  // removes a computer added in qurcuma (QURCUMA_REMOTE)
     QLineEdit* m_serverCommandEdit = nullptr;
     QCheckBox* m_serverTrajectoryCheck = nullptr;
     SimulationBackend* m_backend = nullptr;  // where the current run happens (null when idle)

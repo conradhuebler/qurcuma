@@ -40,6 +40,9 @@ Specialized dialog windows and analysis tools for molecular visualization.
   - `sftpcache.cpp/h` - Cache manager (/tmp/qurcuma_sftp/)
   - `Settings` - SftpConnectionProfile persistence (QSettings)
 
+### Add Computer Dialog (addcomputerdialog.*)
+- **Purpose**: add a computer for remote runs (address, port, key), test ssh and `qurcuma-server`; also holds the host list shared by the Simulation dock and the Remote Files dialog (`fillHostCombo`). Details: `src/remote/CLAUDE.md`. 🤖 built, not checked in the GUI.
+
 ## Architecture
 
 ```
