@@ -232,6 +232,7 @@ int main(int argc, char* argv[])
         waitFor([&] { return done; }, 30000);
         const QStringList perf = logs.filter(QStringLiteral("perf:"));
         CHECK(errs.isEmpty() && perf.size() >= 2 && n > 0);
+        CHECK(!logs.filter(QStringLiteral("run: MD, method gfnff")).isEmpty());  // the settings the rate depends on
         // the second line has the server side (linkStats arrive once per second) and a round trip
         if (perf.size() >= 2) {
             std::cerr << perf.last().toStdString() << std::endl;

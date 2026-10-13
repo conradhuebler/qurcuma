@@ -8,6 +8,7 @@
 #include "view.h"
 
 #include "measurements.h"
+#include "remote/remotelog.h"
 
 #include "bondeditor.h"
 #include "elementdata.h"
@@ -1911,6 +1912,22 @@ bool bondSetEqual(const QVector<MoleculeViewer::Bond>& a, const QVector<Molecule
 // updateSimulationFrame directly.
 void MoleculeViewer::onWorkerFrameReady(SimulationFramePtr frame)
 {
+    ++m_probeFramesIn;
+    m_probeLastFrame.start();
+    if (!m_probeBeat) {
+        m_probeBeat = new QTimer(this);
+        m_probeBeat->setTimerType(Qt::PreciseTimer);
+        m_probeBeat->setInterval(10);
+        connect(m_probeBeat, &QTimer::timeout, this, &MoleculeViewer::probeBeat);
+    }
+    if (!m_probeBeat->isActive()) {
+        m_probeLast.start();
+        m_probeWindow.start();
+        m_probeUpdateNs = m_probeUpdateMaxNs = m_probeLateNs = m_probeLateMaxNs = 0;
+        m_probeUpdates = m_probeBeats = 0;
+        m_probeFramesIn = 1;
+        m_probeBeat->start();
+    }
     m_pendingFrame = frame;
     if (m_frameUpdateScheduled)
         return;  // a pass is already queued; it will pick up whatever is latest
@@ -1919,9 +1936,41 @@ void MoleculeViewer::onWorkerFrameReady(SimulationFramePtr frame)
         m_frameUpdateScheduled = false;
         SimulationFramePtr toProcess = m_pendingFrame;
         m_pendingFrame.reset();
-        if (toProcess)
+        if (toProcess) {
+            QElapsedTimer pass;
+            pass.start();
             updateSimulationFrame(toProcess);
+            const qint64 ns = pass.nsecsElapsed();
+            m_probeUpdateNs += ns;
+            m_probeUpdateMaxNs = qMax(m_probeUpdateMaxNs, ns);
+            ++m_probeUpdates;
+        }
     }, Qt::QueuedConnection);
+}
+
+void MoleculeViewer::probeBeat()
+{
+    const qint64 late = qMax<qint64>(0, m_probeLast.nsecsElapsed() - 10 * 1000 * 1000);
+    m_probeLast.start();
+    m_probeLateNs += late;
+    m_probeLateMaxNs = qMax(m_probeLateMaxNs, late);
+    ++m_probeBeats;
+    if (m_probeWindow.elapsed() < 1000)
+        return;
+    const double s = m_probeWindow.restart() / 1000.0;
+    const double passes = qMax(1, m_probeUpdates);
+    const int atoms = m_trajectoryAtoms.isEmpty() ? 0 : int(m_trajectoryAtoms[0].size());
+    remote::appendLog(QStringLiteral("gui viewer"),
+        QStringLiteral("frames in %1/s, passes %2/s (rest coalesced), update %3 ms avg (max %4), "
+                       "event loop late %5 ms avg (max %6), %7 atoms, dynamic bonds %8")
+            .arg(m_probeFramesIn / s, 0, 'f', 1).arg(m_probeUpdates / s, 0, 'f', 1)
+            .arg(m_probeUpdateNs / 1e6 / passes, 0, 'f', 2).arg(m_probeUpdateMaxNs / 1e6, 0, 'f', 1)
+            .arg(m_probeLateNs / 1e6 / qMax(1, m_probeBeats), 0, 'f', 1).arg(m_probeLateMaxNs / 1e6, 0, 'f', 0)
+            .arg(atoms).arg(m_dynamicBonds ? QStringLiteral("on") : QStringLiteral("off")));
+    m_probeFramesIn = m_probeUpdates = m_probeBeats = 0;
+    m_probeUpdateNs = m_probeUpdateMaxNs = m_probeLateNs = m_probeLateMaxNs = 0;
+    if (m_probeLastFrame.isValid() && m_probeLastFrame.elapsed() > 2000)
+        m_probeBeat->stop();  // the run is over; the next frame restarts the probe
 }
 
 // Claude Generated 2026 - P0 GUI-side timing (docs/WP-performance.md). Wired from

@@ -13,6 +13,7 @@
 #include <QFrame>
 #include <QColor>
 #include <QElapsedTimer>
+#include <QTimer>
 #include <QQuaternion>
 #include <QVector3D>
 #include <QHash>
@@ -956,6 +957,16 @@ private:
     // Claude Generated 2026 - P3 frame coalescing state (see onWorkerFrameReady).
     SimulationFramePtr m_pendingFrame;
     bool m_frameUpdateScheduled = false;
+
+    // Claude Generated 2026 - GUI-thread probe for a slow live display (docs/WP-performance.md P0).
+    // Once per second, while frames arrive, one `gui viewer` line goes to remote.log: frames in
+    // against passes done (the difference was coalesced), time in updateSimulationFrame, and how
+    // late a 10 ms heartbeat fires in the GUI event loop (that includes drawing the scene).
+    void probeBeat();
+    QTimer* m_probeBeat = nullptr;
+    QElapsedTimer m_probeLast, m_probeWindow, m_probeLastFrame;
+    qint64 m_probeUpdateNs = 0, m_probeUpdateMaxNs = 0, m_probeLateNs = 0, m_probeLateMaxNs = 0;
+    int m_probeFramesIn = 0, m_probeUpdates = 0, m_probeBeats = 0;
 
     // Claude Generated 2026 - P0 GUI-side timing state (see setPerformanceAnalysis).
     bool m_perfAnalysis = false;

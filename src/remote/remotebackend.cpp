@@ -353,6 +353,13 @@ void RemoteBackend::sendStart()
 {
     m_started = true;
     log(tr("sending start: %1 atoms, %2 uploaded file(s)").arg(m_atoms.size()).arg(m_uploads.size()));
+    // The settings that decide how many steps per second the server can deliver, so a rate in
+    // the perf lines can be read against them (Claude Generated 2026).
+    log(tr("run: %1, method %2, gpu %3, fps limit %4, T %5 K (%6), dt %7 fs, steps %8, topology %9, live NCI %10, server threads %11")
+            .arg(m_config.mode == SimulationConfig::Mode::MolecularDynamics ? tr("MD") : tr("optimisation"))
+            .arg(m_config.method, m_config.gpu).arg(m_config.fpsLimit).arg(m_config.temperature, 0, 'f', 1)
+            .arg(m_config.thermostat).arg(m_config.timestep, 0, 'f', 2).arg(m_config.steps)
+            .arg(m_config.topologyMode).arg(m_liveNci ? tr("on") : tr("off")).arg(m_serverThreads));
     if (m_stopRequested) {
         endRun(tr("Stopped before the remote run started."), false);
         return;

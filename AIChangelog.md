@@ -5,6 +5,7 @@ Newest first; one line per fact. Entries from August 2026 and earlier: [docs/cha
 ## Oktober 2026 - Remote: Messpunkte
 
 - **Remote-Link messbar**: der Client schreibt einmal pro Sekunde eine `perf:`-Zeile ins Remote-Log (Frames/s, kB/s, Anteil des GUI-Threads, Round-Trip) samt `linkStats` des Servers (erzeugt/gesendet/verworfen, Pending-Bytes, Kodierzeit); `ping`/`pong` ist neu im Protokoll. ⚙️ Loopback-Test, nicht über echtes ssh.
+- **Remote-Log: Einstellungen und GUI-Seite**: `run:`-Zeile mit Methode, GPU, fps-Limit, Thermostat, Topologie, Threads; `gui remote|local rate:` (gleiches Format für lokale und entfernte Läufe) und `gui viewer` (Frames ein/verarbeitet, Zeit in `updateSimulationFrame`, Verspätung eines 10-ms-Herzschlags im GUI-Event-Loop). 🤖 gebaut, GUI-Teil nicht ausgeführt.
 
 ## September 2026 - WASD im View- und Measure-Werkzeug
 

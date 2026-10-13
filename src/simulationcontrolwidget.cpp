@@ -6,6 +6,7 @@
 
 #ifdef QURCUMA_REMOTE
 #include "remote/remotebackend.h"
+#include "remote/remotelog.h"
 #include "sshconfig.h"
 #include "core/energy_calculators/gpu_plugin.h"
 #include <QJsonArray>
@@ -1705,6 +1706,11 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
         m_actualFps = 1000.0 * m_frameCount / elapsed;
         m_frameCount = 0;
         m_fpsTimer.restart();
+        // Same line for local and remote runs, so the two rates can be compared in remote.log
+        // (Claude Generated 2026). A limit of 0 makes it the unthrottled steps per second.
+        remote::appendLog(qobject_cast<remote::RemoteBackend*>(m_backend) ? QStringLiteral("gui remote") : QStringLiteral("gui local"),
+            tr("rate: %1 frames/s shown, %2 atoms, %3, fps limit %4, step %5")
+                .arg(m_actualFps, 0, 'f', 1).arg(m_atoms.size()).arg(m_config.method).arg(m_config.fpsLimit).arg(frame->step));
     }
 
     // Format FPS string: red when actual < configured limit
