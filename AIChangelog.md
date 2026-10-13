@@ -711,3 +711,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-29: New-scene button in the Build strip (page icon; same action as File > New Scene), optimization button renamed Clean up -> Relax to end the naming confusion; newScene also clears stale RMSD overlays and the NCI overlay
 - 2026-08-29: Relax fixed: runs ONE bounded Optimize() pass (optSingleShot, max 50 iterations, no trajectory file) instead of entering the interactive keep-alive loop that never terminates
 - 2026-10-13: VR spike `spikes/quick3d/quick3d_xr_spike` (Qt Quick 3D XR + WiVRn) runs on PICO 4 Ultra over USB: molecule visible, right controller pose and trigger-driven rotation work
+- 2026-10-13: VR output in qurcuma (View > Show in VR Headset): OpenXR session with a mirrored SceneController, controller-ray atom picking feeds the viewer selection

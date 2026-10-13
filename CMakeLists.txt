@@ -42,6 +42,10 @@ QuickWidgets  # Claude Generated 2026 - QQuickWidget viewport (no native-window 
 REQUIRED
 )
 
+# Claude Generated 2026 - OpenXR output (Qt Quick 3D XR, Qt >= 6.8). Optional: without the
+# module the VR menu entry is not built.
+find_package(Qt6 6.8 QUIET OPTIONAL_COMPONENTS Quick3DXr)
+
 # Claude Generated 2026 - GuiPrivate (needed for the QRhi-based high-res image export,
 # src/view.cpp) is requested separately and non-fatally: official Qt installer builds
 # (aqt/install-qt-action, used by CI) don't ship a standalone Qt6GuiPrivateConfig.cmake,
@@ -289,6 +293,12 @@ add_executable(qurcuma
     ${HEADERS}
     resources.qrc
 )
+
+if(TARGET Qt6::Quick3DXr)
+    target_sources(qurcuma PRIVATE src/vrsession.cpp src/vrsession.h)  # Claude Generated 2026 - OpenXR session
+    target_link_libraries(qurcuma PRIVATE Qt6::Quick3DXr)
+    target_compile_definitions(qurcuma PRIVATE QURCUMA_HAS_XR)
+endif()
 
 target_compile_definitions(qurcuma PRIVATE
     $<$<BOOL:${USE_SFTP}>:USE_SFTP>

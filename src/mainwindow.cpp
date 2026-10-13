@@ -1127,6 +1127,23 @@ void MainWindow::createMenus()
     // ------------------------------------------------------------------ View
     QMenu *viewMenu = menuBar->addMenu(tr("&View"));
 
+#ifdef QURCUMA_HAS_XR
+    // Claude Generated 2026 - OpenXR headset output; the action follows the session state
+    // (also when the headset session ends on its own).
+    QAction* vrAction = viewMenu->addAction(QIcon::fromTheme("camera-video"), tr("Show in &VR Headset"));
+    vrAction->setCheckable(true);
+    vrAction->setToolTip(tr("Show the scene in an OpenXR headset (e.g. WiVRn). Right trigger rotates, "
+                            "A selects the atom under the controller ray."));
+    connect(vrAction, &QAction::triggered, this, [this, vrAction](bool on) {
+        if (!m_moleculeView->setVrActive(on)) {
+            vrAction->setChecked(false);
+            statusBar()->showMessage(tr("VR session could not be started"), 5000);
+        }
+    });
+    connect(m_moleculeView, &MoleculeViewer::vrActiveChanged, vrAction, &QAction::setChecked);
+    viewMenu->addSeparator();
+#endif
+
     // Mode: radio items, checked from setAppMode() (corner buttons, palette, startup).
     QMenu* modeMenu = viewMenu->addMenu(tr("&Mode"));
     m_appModeGroup = new QActionGroup(this);

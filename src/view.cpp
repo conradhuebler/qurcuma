@@ -68,6 +68,9 @@
 #include <QQmlContext>
 #include <QQuickView>
 #include <QQuickWidget>
+#ifdef QURCUMA_HAS_XR
+#include "vrsession.h"
+#endif
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWheelEvent>
@@ -1541,6 +1544,12 @@ void MoleculeViewer::syncSceneToController(int frameIndex, bool resetCamera, boo
         }
         m_scene->setStructure(sa, sb, keepView); // keepView: no bounds/camera change
         m_scene->setSelection(m_selectedAtoms);
+#ifdef QURCUMA_HAS_XR
+        if (m_vr) {
+            m_vr->scene()->setStructure(sa, sb, keepView);
+            m_vr->scene()->setSelection(m_selectedAtoms);
+        }
+#endif
         if (keepView) {
             // structure editing: keep the user's exact orientation/zoom/pan.
         } else if (!resetCamera) {
@@ -1555,6 +1564,10 @@ void MoleculeViewer::syncSceneToController(int frameIndex, bool resetCamera, boo
         for (const Atom& a : atoms)
             pos.append(a.position);
         m_scene->updatePositions(pos);
+#ifdef QURCUMA_HAS_XR
+        if (m_vr)
+            m_vr->scene()->updatePositions(pos);
+#endif
     }
 
     // A full rebuild means the atom or bond set itself changed (load, edit, paste,
@@ -1576,6 +1589,10 @@ void MoleculeViewer::clearScene()
 {
     if (m_scene)
         m_scene->clear();
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->scene()->clear();
+#endif
     m_modelRotation = QQuaternion();
 }
 
@@ -2441,6 +2458,10 @@ void MoleculeViewer::selectAtoms(const QVector<int>& indices, bool append)
     }
     if (m_scene)
         m_scene->setSelection(m_selectedAtoms);
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->scene()->setSelection(m_selectedAtoms);
+#endif
     emit selectionChanged(m_selectedAtoms);
 }
 
@@ -2481,6 +2502,10 @@ void MoleculeViewer::clearSelection()
         m_selectionManager->clearSelection();
     if (m_scene)
         m_scene->setSelection(m_selectedAtoms);
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->scene()->setSelection(m_selectedAtoms);
+#endif
     updateMeasurement(); // selection now empty -> clears the measurement display
 }
 
@@ -5389,4 +5414,51 @@ void MoleculeViewer::setQuickAccess(QAction* hbondToggle, QMenu* hydrogenMenu, Q
         m_styleButton->setMenu(styleMenu);
     if (m_lookButton)
         m_lookButton->setMenu(lookMenu);
+}
+
+// Claude Generated 2026 - OpenXR output. The headset renders a second SceneController that
+// mirrors structure, positions and selection (see syncSceneToController); a controller-ray
+// pick in the headset selects the atom here like a mouse pick would.
+bool MoleculeViewer::setVrActive(bool on)
+{
+#ifdef QURCUMA_HAS_XR
+    if (on == (m_vr != nullptr))
+        return true;
+    if (!on) {
+        m_vr->deleteLater();
+        m_vr = nullptr;
+        emit vrActiveChanged(false);
+        return true;
+    }
+    m_vr = new VrSession(this);
+    if (!m_vr->start()) {
+        delete m_vr;
+        m_vr = nullptr;
+        return false;
+    }
+    connect(m_vr, &VrSession::atomPicked, this, [this](int index) {
+        if (index < 0)
+            clearSelection();
+        else
+            selectAtom(index, false);
+    });
+    connect(m_vr, &VrSession::ended, this, [this] { setVrActive(false); });
+    // Hand the structure that is already loaded to the headset scene.
+    if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
+        QVector<SceneController::AtomDatum> sa;
+        for (const Atom& a : m_trajectoryAtoms[m_currentFrame])
+            sa.append({ a.position, a.element, a.charge, a.radius, a.type });
+        QVector<SceneController::BondDatum> sb;
+        if (m_currentFrame < m_trajectoryBonds.size())
+            for (const Bond& b : m_trajectoryBonds[m_currentFrame])
+                sb.append({ b.atom1, b.atom2, b.bondOrder });
+        m_vr->scene()->setStructure(sa, sb, false);
+        m_vr->scene()->setSelection(m_selectedAtoms);
+    }
+    emit vrActiveChanged(true);
+    return true;
+#else
+    Q_UNUSED(on);
+    return false;
+#endif
 }

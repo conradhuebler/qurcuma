@@ -9,6 +9,7 @@
     <!-- Claude Generated - Qt Quick 3D viewer scene (renderer migration) -->
     <qresource prefix="/qml">
         <file>src/qml/viewer3d.qml</file>
+        <file>src/qml/viewerxr.qml</file>
     </qresource>
 
     <!-- Claude Generated - Phase 3B & 4A: Shader resources for advanced rendering -->
