@@ -1575,6 +1575,65 @@ void MainWindow::createMenus()
                 stopAction->setEnabled(running);
             });
 
+#ifdef QURCUMA_HAS_XR
+    // Claude Generated 2026 - Headset panels: simulation buttons and file browser act through the
+    // same paths as the menus above; the thermostat target is mirrored to the panel.
+    connect(m_moleculeView, &MoleculeViewer::vrSimulationCommand, this, [this, startSimulation](const QString& name) {
+        if (!m_simulationControlWidget)
+            return;
+        if (name == QLatin1String("simStartMD") && !m_simulationControlWidget->isRunning())
+            startSimulation(SimulationConfig::Mode::MolecularDynamics);
+        else if (name == QLatin1String("simStartOpt") && !m_simulationControlWidget->isRunning())
+            startSimulation(SimulationConfig::Mode::GeometryOptimization);
+        else if (name == QLatin1String("simStop"))
+            m_simulationControlWidget->onStopClicked();
+        else if (name == QLatin1String("simPause"))
+            m_simulationControlWidget->onPauseClicked();
+        else if (name == QLatin1String("simTempUp"))
+            m_simulationControlWidget->setTemperature(m_simulationControlWidget->temperature() + 25.0);
+        else if (name == QLatin1String("simTempDown"))
+            m_simulationControlWidget->setTemperature(m_simulationControlWidget->temperature() - 25.0);
+        else if (name.startsWith(QLatin1String("simMethod:")))
+            m_simulationControlWidget->setMethod(name.mid(int(strlen("simMethod:"))));
+        m_moleculeView->setVrTemperature(m_simulationControlWidget->temperature());
+        m_moleculeView->setVrMethod(m_simulationControlWidget->method());
+    });
+    connect(m_moleculeView, &MoleculeViewer::vrFileRequested, this,
+        [this](const QString& path) { loadMoleculeFile(path); });
+    // Run state for the headset's Simulation panel, whichever side (desk or headset) changed it.
+    if (m_simulationControlWidget) {
+        connect(m_simulationControlWidget, &SimulationControlWidget::temperatureChanged, this,
+            [this](double kelvin) { m_moleculeView->setVrTemperature(kelvin); });
+        connect(m_simulationControlWidget, &SimulationControlWidget::configChanged, this,
+            [this](SimulationConfig cfg) { m_moleculeView->setVrMethod(cfg.method); });
+        connect(m_simulationControlWidget, &SimulationControlWidget::pauseStateChanged, this,
+            [this](bool paused) { m_moleculeView->setVrSimulationStatus(paused, QString()); });
+        connect(m_simulationControlWidget, &SimulationControlWidget::simulationRunningChanged, this,
+            [this](bool running) {
+                if (running)
+                    m_moleculeView->setVrSimulationStatus(false, QString());
+            });
+        connect(m_simulationControlWidget, &SimulationControlWidget::runEnded, this,
+            [this](const QString& reason, bool aborted) {
+                m_moleculeView->setVrSimulationStatus(false,
+                    aborted ? tr("Aborted: %1").arg(reason) : tr("Finished: %1").arg(reason));
+            });
+    }
+    connect(m_moleculeView, &MoleculeViewer::vrActiveChanged, this, [this](bool on) {
+        if (!on)
+            return;
+        // File browser opens next to the most recent file, else in the working directory.
+        QString dir = m_settings.lastUsedWorkingDirectory();
+        if (!m_recentFiles.isEmpty() && QFileInfo(m_recentFiles.first().path).exists())
+            dir = QFileInfo(m_recentFiles.first().path).absolutePath();
+        m_moleculeView->setVrStartDirectory(dir);
+        if (m_simulationControlWidget) {
+            m_moleculeView->setVrTemperature(m_simulationControlWidget->temperature());
+            m_moleculeView->setVrMethod(m_simulationControlWidget->method());
+        }
+    });
+#endif
+
     simulationMenu->addSeparator();
 
     // Claude Generated 2026 - Recipes (UX stage 6 S2): named protocols; the same menu

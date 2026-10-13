@@ -10,6 +10,17 @@
     <qresource prefix="/qml">
         <file>src/qml/viewer3d.qml</file>
         <file>src/qml/viewerxr.qml</file>
+        <!-- Claude Generated 2026 - headset scene and panels (shared with spikes/vr_preview) -->
+        <file>src/qml/VrScene.qml</file>
+        <file>src/qml/VrPanelHost.qml</file>
+        <file>src/qml/VrPanel.qml</file>
+        <file>src/qml/VrPanelStructure.qml</file>
+        <file>src/qml/VrPanelSimulation.qml</file>
+        <file>src/qml/VrPanelView.qml</file>
+        <file>src/qml/VrPanelFiles.qml</file>
+        <file>src/qml/VrButton.qml</file>
+        <file>src/qml/VrStepper.qml</file>
+        <file>src/qml/VrStyle.js</file>
     </qresource>
 
     <!-- Claude Generated - Phase 3B & 4A: Shader resources for advanced rendering -->

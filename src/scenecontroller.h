@@ -265,6 +265,8 @@ public:
     void updatePositions(const QVector<QVector3D>& positions); // sim fast path (same count)
     void updateBonds(const QVector<BondDatum>& bonds);         // Claude Generated 2026 - swap bonds only (no bounds/camera change)
     void clear();
+    /// Model-local position (Angstrom) of an atom; zero if out of range. For the XR grab (Claude Generated 2026).
+    Q_INVOKABLE QVector3D atomPosition(int index) const;
     int atomCount() const { return m_atoms.size(); }
     const QVector<AtomDatum>& atoms() const { return m_atoms; }
 

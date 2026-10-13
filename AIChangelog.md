@@ -712,3 +712,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-29: Relax fixed: runs ONE bounded Optimize() pass (optSingleShot, max 50 iterations, no trajectory file) instead of entering the interactive keep-alive loop that never terminates
 - 2026-10-13: VR spike `spikes/quick3d/quick3d_xr_spike` (Qt Quick 3D XR + WiVRn) runs on PICO 4 Ultra over USB: molecule visible, right controller pose and trigger-driven rotation work
 - 2026-10-13: VR output in qurcuma (View > Show in VR Headset): OpenXR session with a mirrored SceneController, controller-ray atom picking feeds the viewer selection
+- 2026-10-13: VR panels redesigned as one console (Structure, Simulation, View; file browser on demand in front) built from separate QML files (VrScene/VrPanel*), laid out around the tracked head; the file browser was unreachable because its button sat under the coplanar simulation panel and it opened about 77° away; offline preview in spikes/vr_preview

@@ -499,9 +499,19 @@ public slots:
     /// Returns false if the session could not be created. No-op without QURCUMA_HAS_XR.
     bool setVrActive(bool on);
     bool vrActive() const { return m_vr != nullptr; }
+    void setVrStartDirectory(const QString& dir);  // file browser root in the headset
+    void setVrMethod(const QString& key);          // method key shown on the headset panel
+    void setVrTemperature(double kelvin);          // thermostat target shown on the headset panel
+    void setVrSimulationStatus(bool paused, const QString& message);  // run paused / last run's end line
+    void updateVrStatus();  // refresh the in-headset panel text (no-op without a session)
 
 signals:
     void vrActiveChanged(bool active);
+    /// Headset panel asked for a simulation action ("simStartMD", "simStartOpt", "simStop", "simPause",
+    /// "simTempUp", "simTempDown"); MainWindow owns the simulation and carries it out.
+    void vrSimulationCommand(const QString& name);
+    /// Structure file picked in the headset file browser.
+    void vrFileRequested(const QString& path);
     void frameChanged(int frameIndex);
     void trajectoryLoaded(int frameCount);
     void selectionChanged(const QVector<int>& selectedAtoms);
@@ -797,6 +807,11 @@ private:
     QWidget* m_container = nullptr;
     SceneController* m_scene = nullptr;
     VrSession* m_vr = nullptr;  // non-null while a headset session runs
+    QString m_vrStartDir;       // file browser root handed to the next session
+    double m_vrTemperature = 0.0;
+    QString m_vrMethod;
+    bool m_vrSimPaused = false;
+    QString m_vrSimMessage;     // "Finished: ..." / "Aborted: ..." of the last run, for the headset
     QWidget* m_controlPanel = nullptr;
 
     // Claude Generated - Frame control widgets (shown/hidden based on frame count)

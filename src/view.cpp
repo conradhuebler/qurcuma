@@ -1583,6 +1583,7 @@ void MoleculeViewer::syncSceneToController(int frameIndex, bool resetCamera, boo
     // (frame change, live MD/Opt step, structure edit, refresh). Cheap no-op when
     // the overlay is off, which is the default.
     refreshNciOverlay();
+    updateVrStatus();
 }
 
 void MoleculeViewer::clearScene()
@@ -2417,6 +2418,10 @@ void MoleculeViewer::refreshVisualization()
 void MoleculeViewer::setSimulationActive(bool on)
 {
     m_simulationActive = on;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setSimulationActive(on);
+#endif
     m_grabbedAtom = -1;
     if (m_scene) m_scene->setForceArrows({});
     Qt::CursorShape shape = on ? Qt::SizeAllCursor : Qt::ArrowCursor;
@@ -2461,6 +2466,7 @@ void MoleculeViewer::selectAtoms(const QVector<int>& indices, bool append)
 #ifdef QURCUMA_HAS_XR
     if (m_vr)
         m_vr->scene()->setSelection(m_selectedAtoms);
+    updateVrStatus();
 #endif
     emit selectionChanged(m_selectedAtoms);
 }
@@ -2505,6 +2511,7 @@ void MoleculeViewer::clearSelection()
 #ifdef QURCUMA_HAS_XR
     if (m_vr)
         m_vr->scene()->setSelection(m_selectedAtoms);
+    updateVrStatus();
 #endif
     updateMeasurement(); // selection now empty -> clears the measurement display
 }
@@ -5443,6 +5450,40 @@ bool MoleculeViewer::setVrActive(bool on)
             selectAtom(index, false);
     });
     connect(m_vr, &VrSession::ended, this, [this] { setVrActive(false); });
+    // Grab: the headset sends the displacement of the controller target from the atom; this is the
+    // same spring as the mouse drag (force ~ displacement * grabStrength, Angstrom -> Bohr).
+    connect(m_vr, &VrSession::grabForce, this, [this](int atom, QVector3D displacement) {
+        if (!m_simulationActive)
+            return;
+        static constexpr float Angstrom2Bohr = 1.8897259886f;
+        const QVector3D force = displacement * Angstrom2Bohr * float(m_grabStrength);
+        // curcuma adds force to the gradient; accel = -gradient, so negate (as in the mouse path)
+        emit atomForceRequested(atom, -force, m_grabAlpha, m_grabMaxShells);
+    });
+    connect(m_vr, &VrSession::fileRequested, this, &MoleculeViewer::vrFileRequested);
+    connect(m_vr, &VrSession::grabReleased, this, [this] { emit atomGrabReleased(); });
+    connect(m_vr, &VrSession::command, this, [this](const QString& name) {
+        if (name == QLatin1String("playPause"))
+            toggleAnimation();
+        else if (name == QLatin1String("nextFrame"))
+            nextFrame();
+        else if (name == QLatin1String("previousFrame"))
+            previousFrame();
+        else if (name == QLatin1String("grabUp"))
+            m_grabStrength *= 1.25;
+        else if (name == QLatin1String("grabDown"))
+            m_grabStrength *= 0.8;
+        else if (name.startsWith(QLatin1String("sim")))
+            emit vrSimulationCommand(name);
+        updateVrStatus();
+    });
+    // Play/pause from the desktop bar or the headset updates the transport panel's label.
+    connect(this, &MoleculeViewer::animationStateChanged, m_vr, [this] { updateVrStatus(); });
+    m_vr->setSimulationActive(m_simulationActive);
+    m_vr->setSimulationStatus(m_vrSimPaused, m_vrSimMessage);
+    m_vr->setTemperature(m_vrTemperature);
+    m_vr->setMethod(m_vrMethod);
+    m_vr->setStartDirectory(m_vrStartDir);
     // Hand the structure that is already loaded to the headset scene.
     if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
         QVector<SceneController::AtomDatum> sa;
@@ -5455,10 +5496,73 @@ bool MoleculeViewer::setVrActive(bool on)
         m_vr->scene()->setStructure(sa, sb, false);
         m_vr->scene()->setSelection(m_selectedAtoms);
     }
+    updateVrStatus();
     emit vrActiveChanged(true);
     return true;
 #else
     Q_UNUSED(on);
     return false;
+#endif
+}
+
+// Claude Generated 2026 - Status of the in-headset panels: frame, playback, selection and grab
+// strength, as one text (statusText) and as separate properties (VrSession::setStatus).
+void MoleculeViewer::updateVrStatus()
+{
+#ifdef QURCUMA_HAS_XR
+    if (!m_vr)
+        return;
+    QString sel;
+    if (!m_selectedAtoms.isEmpty() && m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
+        const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+        const int first = m_selectedAtoms.first();
+        if (first >= 0 && first < atoms.size())
+            sel = QStringLiteral("%1 #%2").arg(atoms[first].element).arg(first);
+        if (m_selectedAtoms.size() > 1)
+            sel += QStringLiteral(" (+%1)").arg(m_selectedAtoms.size() - 1);
+    }
+    m_vr->setStatusText(QStringLiteral("Frame %1 / %2\nSelected: %3\nGrab strength: %4")
+            .arg(m_currentFrame + 1)
+            .arg(m_frameCount)
+            .arg(sel.isEmpty() ? QStringLiteral("-") : sel)
+            .arg(m_grabStrength, 0, 'f', 3));
+    m_vr->setStatus(m_currentFrame, m_frameCount, m_isAnimating, sel, m_grabStrength);
+#endif
+}
+
+void MoleculeViewer::setVrSimulationStatus(bool paused, const QString& message)
+{
+    m_vrSimPaused = paused;
+    m_vrSimMessage = message;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setSimulationStatus(paused, message);
+#endif
+}
+
+void MoleculeViewer::setVrStartDirectory(const QString& dir)
+{
+    m_vrStartDir = dir;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setStartDirectory(dir);
+#endif
+}
+
+void MoleculeViewer::setVrTemperature(double kelvin)
+{
+    m_vrTemperature = kelvin;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setTemperature(kelvin);
+#endif
+}
+
+void MoleculeViewer::setVrMethod(const QString& key)
+{
+    m_vrMethod = key;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setMethod(key);
 #endif
 }

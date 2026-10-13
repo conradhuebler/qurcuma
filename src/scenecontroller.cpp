@@ -1727,6 +1727,13 @@ void SceneController::setBackgroundColor(const QColor& c)
     emit appearanceChanged();
 }
 
+QVector3D SceneController::atomPosition(int index) const
+{
+    if (index < 0 || index >= m_atoms.size())
+        return QVector3D();
+    return m_atoms[index].position;
+}
+
 void SceneController::setSelection(const QVector<int>& indices)
 {
     m_selection = indices;

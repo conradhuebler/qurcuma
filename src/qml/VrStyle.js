@@ -1,0 +1,49 @@
+// Copyright (C) 2025 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
+// One look for all headset panels (Claude Generated 2026). Colours follow the desktop dark theme
+// (stylesheets/dark.qss: backgrounds #1e1e1e/#252525/#2d2d2d, border #3d3d3d, text #e0e0e0, buttons
+// #0d47a1 -> #1565c0 on hover) and the state colours of the Simulation dock.
+//
+// Panel pixels are millimetres: VrPanelHost maps 10 px to 1 cm. Panels hang 55-60 cm from the head,
+// where 1 degree is about 10 mm, so body text is about 1.2 degrees tall and a button about 4 degrees,
+// a target a hand-held controller ray can hold.
+.pragma library
+
+var pixelsPerCm = 10
+
+// ---- colours ---------------------------------------------------------------------------------
+var panelColor = "#1e1e1e"
+var panelBorder = "#3d3d3d"
+var separator = "#333333"
+var title = "#ffffff"
+var text = "#e0e0e0"
+var textDim = "#a0a0a0"
+var textDisabled = "#666666"
+var button = "#2d2d2d"
+var buttonHover = "#3a3a3a"
+var buttonBorder = "#555555"
+var buttonDown = "#1565c0"
+var buttonDisabled = "#242424"
+var primary = "#0d47a1"
+var primaryHover = "#1565c0"
+var danger = "#8e2a20"
+var dangerHover = "#c0392b"
+var hoverRing = "#64b5f6"
+var folder = "#90caf9"
+// run states, as in the Simulation dock
+var running = "#27ae60"
+var paused = "#d4a017"
+var aborted = "#c0392b"
+var idle = "#7f8c8d"
+
+// ---- metrics (px = mm) -----------------------------------------------------------------------
+var fontTitle = 15
+var fontBody = 12
+var fontSmall = 10
+var fontButton = 13
+var padding = 14
+var spacing = 8
+var radius = 12
+var headerHeight = 24
+var buttonHeight = 44
+var buttonRadius = 8
+var listRowHeight = 36
