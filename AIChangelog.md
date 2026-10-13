@@ -710,3 +710,4 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-08-29: Fragment library gains Gases (H2/N2/O2/F2/Cl2/Br2/I2 with experimental lengths and orders) and Materials (planar graphene flake, greedy Kekule matching + rim H, fully saturated); Build dropdown grouped by category
 - 2026-08-29: New-scene button in the Build strip (page icon; same action as File > New Scene), optimization button renamed Clean up -> Relax to end the naming confusion; newScene also clears stale RMSD overlays and the NCI overlay
 - 2026-08-29: Relax fixed: runs ONE bounded Optimize() pass (optSingleShot, max 50 iterations, no trajectory file) instead of entering the interactive keep-alive loop that never terminates
+- 2026-10-13: VR spike `spikes/quick3d/quick3d_xr_spike` (Qt Quick 3D XR + WiVRn) runs on PICO 4 Ultra over USB: molecule visible, right controller pose and trigger-driven rotation work
