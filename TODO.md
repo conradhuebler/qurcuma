@@ -14,6 +14,7 @@ Open code tasks only, at most 3 lines each. Feature wishes: `docs/ROADMAP.md`. P
 - Remote compute (A controls/visualizes, B computes) and VR: plan in `docs/WP-remote-compute-vr.md`; R0 to R4 are in, next R5 (VR). Open: server method list not shown in the dock; old session directories on B are not cleaned up; everything is untested with real ssh and in the GUI.
 
 - Trajectory name: the worker's molecule has no basename, so curcuma writes `.snapshots/.trj.xyz` (hidden) in the working directory, also for local runs with "write trajectory". Give the molecule a name or set the basename.
+- Periodic step stalls of GPU GFN-FF MD on the server (urea-water: every 10th step 720 to 840 ms): cause open, work package for the GPU machine in `docs/WP-remote-step-stalls.md`.
 - `RemoteFiles` and `RemoteBackend` each hold their own tunnel/connect/retry code; share it (a small link class) when a third user appears.
 
 ## Docs / repository
