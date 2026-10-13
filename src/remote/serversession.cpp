@@ -315,6 +315,7 @@ void ServerSession::handleStart(const QJsonObject& msg)
 }
 
 /// Encodes and sends one frame unless more is waiting on the socket than pendingLimit() allows.
+/// Claude Generated 2026.
 void ServerSession::transmitFrame(const SimulationFramePtr& frame)
 {
     if (!frame || !m_socket || !m_socket->isValid())
@@ -339,7 +340,7 @@ void ServerSession::transmitFrame(const SimulationFramePtr& frame)
 }
 
 /// A held frame goes out before anything that ends the run, so the client's last frame is the
-/// run's last frame.
+/// run's last frame. Claude Generated 2026.
 void ServerSession::flushHeldFrame()
 {
     m_holdTimer.stop();
@@ -353,6 +354,7 @@ void ServerSession::flushHeldFrame()
 /// Unsent bytes tolerated before a frame is dropped: what the link drains in kPendingSeconds,
 /// at least three frames and at most 4 MiB. Without a measurement yet (the first second) 4 MiB.
 /// A fixed 4 MiB meant seconds of delay on a slow link (RTT 5 s at 2.3 MB/s, remote.log).
+/// Claude Generated 2026.
 qint64 ServerSession::pendingLimit() const
 {
     if (m_drainRate <= 0 || m_avgFrameBytes <= 0)

@@ -1,4 +1,5 @@
 // test_bonddetect.cpp - the cell list of bonddetect.h gives the same pairs as the all-pairs loop
+// Copyright (C) 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 // Claude Generated 2026
 
 #include "bonddetect.h"

@@ -32,6 +32,8 @@ inline quint64 pairKey(int i, int j)
  * 2 * maxRadius * max(formTol, breakTol) wide, so every pair within its threshold lies in the
  * same or an adjacent cell.
  *
+ * Claude Generated 2026.
+ *
  * @param positions  Atom positions in Angstrom.
  * @param radius     Covalent radius per atom, same units and order as @p positions.
  */

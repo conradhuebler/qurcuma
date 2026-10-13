@@ -1952,6 +1952,8 @@ void MoleculeViewer::onWorkerFrameReady(SimulationFramePtr frame)
     }, Qt::QueuedConnection);
 }
 
+/// Claude Generated 2026 - 10 ms heartbeat of the GUI-thread probe: measures how late the event loop
+/// runs it and, once per second, writes the `gui viewer` line to remote.log (see view.h).
 void MoleculeViewer::probeBeat()
 {
     const qint64 late = qMax<qint64>(0, m_probeLast.nsecsElapsed() - 10 * 1000 * 1000);
