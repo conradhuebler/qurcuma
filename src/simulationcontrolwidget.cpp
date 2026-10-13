@@ -7,6 +7,7 @@
 #ifdef QURCUMA_REMOTE
 #include "remote/remotebackend.h"
 #include "sshconfig.h"
+#include "core/energy_calculators/gpu_plugin.h"
 #include <QJsonArray>
 #include <QSettings>
 #endif
@@ -731,22 +732,8 @@ CollapsibleSection* SimulationControlWidget::createAdvancedSection()
     m_advancedForm = form;
 
     m_gpuCombo = new QComboBox(this);
-    m_gpuCombo->addItem(tr("CPU (none)"), "none");
-#if defined(USE_CUDA)
-    m_gpuCombo->addItem(tr("CUDA"), "cuda");
-#endif
-#if defined(USE_ROCM)
-    m_gpuCombo->addItem(tr("ROCm"), "rocm");
-#endif
-#if defined(USE_VULKAN)
-    m_gpuCombo->addItem(tr("Vulkan"), "vulkan");
-#endif
-    m_gpuCombo->addItem(tr("Auto"), "auto");
-    m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
+    refreshGpuChoices();  // local plugins, or a remembered remote host's backends
     form->addRow(tr("GPU:"), m_gpuCombo);
-#ifdef QURCUMA_REMOTE
-    refreshGpuChoices();  // a remembered remote host shows its own backends
-#endif
 
     // GFN-FF topology mode selector
     m_topologyModeCombo = new QComboBox(this);
@@ -1626,15 +1613,11 @@ void SimulationControlWidget::refreshGpuChoices()
     } else
 #endif
     {
-#if defined(USE_CUDA)
-        backends << QStringLiteral("cuda");
-#endif
-#if defined(USE_ROCM)
-        backends << QStringLiteral("rocm");
-#endif
-#if defined(USE_VULKAN)
-        backends << QStringLiteral("vulkan");
-#endif
+        // curcuma loads GPU backends as plugins (libcurcuma_<backend>.so next to the
+        // executable); USE_CUDA etc. are no longer defined for this target, so probe at runtime.
+        for (const std::string& b : gpu_plugin::knownBackends())
+            if (gpu_plugin::available(b))
+                backends << QString::fromStdString(b);
         m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
     }
     const QString current = m_gpuCombo->currentData().toString();

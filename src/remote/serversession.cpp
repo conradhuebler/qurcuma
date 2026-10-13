@@ -18,6 +18,8 @@
 #include <QUuid>
 #include <QWebSocket>
 
+#include "core/energy_calculators/gpu_plugin.h"
+
 namespace remote {
 
 namespace {
@@ -104,15 +106,9 @@ void ServerSession::handleHello(const QJsonObject& msg)
     m_authenticated = m_everAuthenticated = true;
     m_graceTimer.stop();
     QJsonArray gpus;
-#if defined(USE_CUDA)
-    gpus.append("cuda");
-#endif
-#if defined(USE_ROCM)
-    gpus.append("rocm");
-#endif
-#if defined(USE_VULKAN)
-    gpus.append("vulkan");
-#endif
+    for (const std::string& b : gpu_plugin::knownBackends())  // plugins found next to the server binary
+        if (gpu_plugin::available(b))
+            gpus.append(QString::fromStdString(b));
     send({ { "type", "welcome" }, { "protocol", kProtocolVersion }, { "session", sessionName() },
         { "threads", QThread::idealThreadCount() }, { "gpuBackends", gpus },
         { "attached", attach }, { "running", m_backend != nullptr } });

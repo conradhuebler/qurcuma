@@ -696,3 +696,12 @@ set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_PACKAGE_FILE_NAME "qurcuma-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}")
 include(CPack)
+
+# Claude Generated 2026 - The GPU plugins (libcurcuma_<backend>.so, dlopen'd by curcuma's
+# gpu_plugin) resolve their undefined core symbols (NativeXtbMethod vtable, XTB, ...) against
+# the executable. Curcuma's -rdynamic lives in its own directory scope and does not reach
+# these targets, so export the symbols explicitly.
+set_target_properties(qurcuma PROPERTIES ENABLE_EXPORTS ON)
+if(TARGET qurcuma-server)
+    set_target_properties(qurcuma-server PROPERTIES ENABLE_EXPORTS ON)
+endif()
