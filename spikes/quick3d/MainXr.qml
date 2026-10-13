@@ -28,6 +28,18 @@ XrView {
             controller: XrController.ControllerRight
             poseSpace: XrController.AimPose
 
+            // Aim ray, 150 cm along the controller's -Z (Cylinder axis is Y, 100 units tall)
+            Model {
+                source: "#Cylinder"
+                position: Qt.vector3d(0, 0, -75)
+                eulerRotation.x: 90
+                scale: Qt.vector3d(0.004, 1.5, 0.004)
+                materials: PrincipledMaterial {
+                    baseColor: "#80c0ff"
+                    lighting: PrincipledMaterial.NoLighting
+                }
+            }
+
             Model {
                 source: "#Sphere"
                 scale: Qt.vector3d(0.03, 0.03, 0.03)
@@ -43,6 +55,21 @@ XrView {
         id: triggerAction
         hand: XrInputAction.RightHand
         actionId: XrInputAction.TriggerValue
+    }
+
+    // A button on the right controller picks the atom under the aim ray.
+    XrInputAction {
+        id: pickAction
+        hand: XrInputAction.RightHand
+        actionId: XrInputAction.Button1Pressed
+        onPressedChanged: if (pressed) xrView.pickAtom()
+    }
+
+    function pickAtom() {
+        var dir = rightHand.sceneRotation.times(Qt.vector3d(0, 0, -1))
+        var result = xrView.rayPick(rightHand.scenePosition, dir)
+        controller.setSelectedAtom(result.instanceIndex)
+        console.log("picked instance", result.instanceIndex, controller.selectionLabel)
     }
 
     DirectionalLight {
@@ -73,6 +100,7 @@ XrView {
                 Model {
                     source: "#Sphere"
                     instancing: controller.atomInstancing
+                    pickable: true   // required for rayPick
                     materials: PrincipledMaterial { baseColor: "white"; roughness: 0.4 }
                 }
                 Model {
