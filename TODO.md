@@ -11,7 +11,7 @@ Open code tasks only, at most 3 lines each. Feature wishes: `docs/ROADMAP.md`. P
 - Lessons: result/target fields reserved in the schema, not implemented; no barostat, "pressure" is wall volume only.
 
 ## Remote
-- Remote compute (A controls/visualizes, B computes) and VR: plan in `docs/WP-remote-compute-vr.md`; R0 to R4 are in, next R5 (VR). Open: server method list not shown in the dock; old session directories on B are not cleaned up; everything is untested with real ssh and in the GUI.
+- Remote compute (A controls/visualizes, B computes) and VR: plan in `docs/WP-remote-compute-vr.md`; R0 to R4 are in, next R5 (VR). Open: server method list not shown in the dock; old session directories on B are not cleaned up; reconnect over a real link and the Remote Files dialog are not exercised (real ssh runs between two machines work, Oct 2026).
 
 - Trajectory name: the worker's molecule has no basename, so curcuma writes `.snapshots/.trj.xyz` (hidden) in the working directory, also for local runs with "write trajectory". Give the molecule a name or set the basename.
 - Periodic step stalls of GPU GFN-FF MD on the server (urea-water: every 10th step 720 to 840 ms): cause open, work package for the GPU machine in `docs/WP-remote-step-stalls.md`.
