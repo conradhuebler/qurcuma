@@ -129,6 +129,8 @@ private:
     qint64 m_pfBusyNs = 0, m_pfDecodeNs = 0, m_pfWriteNs = 0, m_pfEmitNs = 0;
     qint64 m_pfRttLast = -1, m_pfRttMax = 0;
     QJsonObject m_serverStats;
+    QElapsedTimer m_pfGapClock;  // spacing of the frames as they arrive here
+    double m_pfGapSum = 0, m_pfGapSq = 0, m_pfGapMax = 0;
 };
 
 } // namespace remote

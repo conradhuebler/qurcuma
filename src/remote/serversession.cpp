@@ -3,6 +3,7 @@
 // Claude Generated 2026 (WP remote compute R1)
 
 #include "serversession.h"
+#include <cmath>
 
 #include "../simulationbackend.h"
 #include "protocol.h"
@@ -241,6 +242,13 @@ void ServerSession::handleStart(const QJsonObject& msg)
             return;
         ++m_ivProduced;
         m_lastStep = frame->step;
+        if (m_gapClock.isValid()) {
+            const double gap = double(m_gapClock.nsecsElapsed()) / 1e6;
+            m_ivGapSum += gap;
+            m_ivGapSq += gap * gap;
+            m_ivGapMax = qMax(m_ivGapMax, gap);
+        }
+        m_gapClock.restart();
         const qint64 pending = m_socket->bytesToWrite();
         m_ivMaxPending = qMax(m_ivMaxPending, pending);
         if (pending > kMaxPendingBytes) {
@@ -287,11 +295,15 @@ void ServerSession::sendLinkStats()
     if (!m_socket || !m_authenticated)
         return;
     const double ms = qMax<qint64>(1, m_statsClock.restart());
+    const double gaps = qMax<quint64>(1, m_ivProduced);
+    const double mean = m_ivGapSum / gaps;
+    const double sd = std::sqrt(qMax(0.0, m_ivGapSq / gaps - mean * mean));
     send({ { "type", "linkStats" }, { "intervalMs", ms }, { "produced", double(m_ivProduced) },
         { "sent", double(m_ivSent) }, { "dropped", double(m_ivDropped) }, { "bytes", double(m_ivBytes) },
         { "encodeUsPerFrame", m_ivSent ? double(m_ivEncodeNs) / 1e3 / double(m_ivSent) : 0.0 },
         { "pendingBytes", double(m_socket->bytesToWrite()) }, { "maxPendingBytes", double(m_ivMaxPending) },
-        { "step", m_lastStep } });
+        { "step", m_lastStep }, { "gapMeanMs", mean }, { "gapSdMs", sd }, { "gapMaxMs", m_ivGapMax } });
+    m_ivGapSum = m_ivGapSq = m_ivGapMax = 0;
     m_ivProduced = m_ivSent = m_ivDropped = m_ivBytes = 0;
     m_ivEncodeNs = m_ivMaxPending = 0;
 }

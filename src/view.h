@@ -967,6 +967,8 @@ private:
     QElapsedTimer m_probeLast, m_probeWindow, m_probeLastFrame;
     qint64 m_probeUpdateNs = 0, m_probeUpdateMaxNs = 0, m_probeLateNs = 0, m_probeLateMaxNs = 0;
     int m_probeFramesIn = 0, m_probeUpdates = 0, m_probeBeats = 0;
+    QElapsedTimer m_probePassClock;  // spacing of the passes that update the scene
+    double m_probeGapMaxMs = 0;
 
     // Claude Generated 2026 - P0 GUI-side timing state (see setPerformanceAnalysis).
     bool m_perfAnalysis = false;

@@ -1937,6 +1937,9 @@ void MoleculeViewer::onWorkerFrameReady(SimulationFramePtr frame)
         SimulationFramePtr toProcess = m_pendingFrame;
         m_pendingFrame.reset();
         if (toProcess) {
+            if (m_probePassClock.isValid())
+                m_probeGapMaxMs = qMax(m_probeGapMaxMs, double(m_probePassClock.nsecsElapsed()) / 1e6);
+            m_probePassClock.restart();
             QElapsedTimer pass;
             pass.start();
             updateSimulationFrame(toProcess);
@@ -1962,11 +1965,12 @@ void MoleculeViewer::probeBeat()
     const int atoms = m_trajectoryAtoms.isEmpty() ? 0 : int(m_trajectoryAtoms[0].size());
     remote::appendLog(QStringLiteral("gui viewer"),
         QStringLiteral("frames in %1/s, passes %2/s (rest coalesced), update %3 ms avg (max %4), "
-                       "event loop late %5 ms avg (max %6), %7 atoms, dynamic bonds %8")
+                       "event loop late %5 ms avg (max %6), longest gap between passes %9 ms, %7 atoms, dynamic bonds %8")
             .arg(m_probeFramesIn / s, 0, 'f', 1).arg(m_probeUpdates / s, 0, 'f', 1)
             .arg(m_probeUpdateNs / 1e6 / passes, 0, 'f', 2).arg(m_probeUpdateMaxNs / 1e6, 0, 'f', 1)
             .arg(m_probeLateNs / 1e6 / qMax(1, m_probeBeats), 0, 'f', 1).arg(m_probeLateMaxNs / 1e6, 0, 'f', 0)
-            .arg(atoms).arg(m_dynamicBonds ? QStringLiteral("on") : QStringLiteral("off")));
+            .arg(atoms).arg(m_dynamicBonds ? QStringLiteral("on") : QStringLiteral("off")).arg(m_probeGapMaxMs, 0, 'f', 0));
+    m_probeGapMaxMs = 0;
     m_probeFramesIn = m_probeUpdates = m_probeBeats = 0;
     m_probeUpdateNs = m_probeUpdateMaxNs = m_probeLateNs = m_probeLateMaxNs = 0;
     if (m_probeLastFrame.isValid() && m_probeLastFrame.elapsed() > 2000)

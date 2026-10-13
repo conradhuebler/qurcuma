@@ -102,6 +102,8 @@ private:
     quint64 m_ivProduced = 0, m_ivSent = 0, m_ivDropped = 0, m_ivBytes = 0;
     qint64 m_ivEncodeNs = 0, m_ivMaxPending = 0;
     qint32 m_lastStep = 0;
+    QElapsedTimer m_gapClock;  // spacing of the frames the worker produces (jitter)
+    double m_ivGapSum = 0, m_ivGapSq = 0, m_ivGapMax = 0;
 };
 
 /// Listener plus the one-session policy of qurcuma-server.

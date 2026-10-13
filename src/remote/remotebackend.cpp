@@ -3,6 +3,7 @@
 // Claude Generated 2026 (WP remote compute R2)
 
 #include "remotebackend.h"
+#include <cmath>
 
 #include "protocol.h"
 #include "remotelog.h"
@@ -328,25 +329,31 @@ void RemoteBackend::perfTick()
     const double s = qMax<qint64>(1, m_perfWindow.restart()) / 1000.0;
     const double n = qMax<quint64>(1, m_pfFrames);
     const auto ms = [&](qint64 ns) { return double(ns) / 1e6 / n; };
+    const double gapMean = m_pfFrames ? m_pfGapSum / double(m_pfFrames) : 0.0;
+    const double gapSd = std::sqrt(qMax(0.0, (m_pfFrames ? m_pfGapSq / double(m_pfFrames) : 0.0) - gapMean * gapMean));
     QString line = tr("perf: recv %1 fps %2 kB/s | this thread %3 % busy (decode %4, write %5, emit %6 ms/frame) | RTT %7 ms (max %8)")
                        .arg(m_pfFrames / s, 0, 'f', 1).arg(m_pfBytes / 1024.0 / s, 0, 'f', 0)
                        .arg(100.0 * double(m_pfBusyNs) / 1e9 / s, 0, 'f', 0)
                        .arg(ms(m_pfDecodeNs), 0, 'f', 2).arg(ms(m_pfWriteNs), 0, 'f', 2).arg(ms(m_pfEmitNs), 0, 'f', 2)
                        .arg(m_pfRttLast).arg(m_pfRttMax);
+    line += tr(" | arrival gap %1 ms (sd %2, max %3)").arg(gapMean, 0, 'f', 1).arg(gapSd, 0, 'f', 1).arg(m_pfGapMax, 0, 'f', 0);
     if (!m_serverStats.isEmpty()) {
         const QJsonObject& o = m_serverStats;
         const double sec = qMax(1.0, o.value("intervalMs").toDouble()) / 1000.0;
-        line += tr(" | server: produced %1/s sent %2/s dropped %3/s, %4 kB/s, pending %5 kB (max %6), encode %7 ms/frame, step %8")
+        line += tr(" | server: produced %1/s sent %2/s dropped %3/s, %4 kB/s, pending %5 kB (max %6), encode %7 ms/frame, step %8, produced gap %9 ms (sd %10, max %11)")
                     .arg(o.value("produced").toDouble() / sec, 0, 'f', 1).arg(o.value("sent").toDouble() / sec, 0, 'f', 1)
                     .arg(o.value("dropped").toDouble() / sec, 0, 'f', 1).arg(o.value("bytes").toDouble() / 1024.0 / sec, 0, 'f', 0)
                     .arg(o.value("pendingBytes").toDouble() / 1024.0, 0, 'f', 0).arg(o.value("maxPendingBytes").toDouble() / 1024.0, 0, 'f', 0)
-                    .arg(o.value("encodeUsPerFrame").toDouble() / 1000.0, 0, 'f', 3).arg(o.value("step").toInt());
+                    .arg(o.value("encodeUsPerFrame").toDouble() / 1000.0, 0, 'f', 3).arg(o.value("step").toInt())
+                    .arg(o.value("gapMeanMs").toDouble(), 0, 'f', 1).arg(o.value("gapSdMs").toDouble(), 0, 'f', 1)
+                    .arg(o.value("gapMaxMs").toDouble(), 0, 'f', 0);
     }
     if (m_pfFrames > 0 || m_started)
         log(line);
     m_pfFrames = m_pfBytes = 0;
     m_pfBusyNs = m_pfDecodeNs = m_pfWriteNs = m_pfEmitNs = 0;
     m_pfRttMax = 0;
+    m_pfGapSum = m_pfGapSq = m_pfGapMax = 0;
 }
 
 void RemoteBackend::sendStart()
@@ -371,6 +378,13 @@ void RemoteBackend::sendStart()
 
 void RemoteBackend::onBinary(const QByteArray& message)
 {
+    if (m_pfGapClock.isValid()) {
+        const double gap = double(m_pfGapClock.nsecsElapsed()) / 1e6;
+        m_pfGapSum += gap;
+        m_pfGapSq += gap * gap;
+        m_pfGapMax = qMax(m_pfGapMax, gap);
+    }
+    m_pfGapClock.restart();
     QElapsedTimer busy;
     busy.start();
     SimulationFrame f;
