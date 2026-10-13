@@ -347,6 +347,10 @@ void RemoteBackend::perfTick()
                     .arg(o.value("encodeUsPerFrame").toDouble() / 1000.0, 0, 'f', 3).arg(o.value("step").toInt())
                     .arg(o.value("gapMeanMs").toDouble(), 0, 'f', 1).arg(o.value("gapSdMs").toDouble(), 0, 'f', 1)
                     .arg(o.value("gapMaxMs").toDouble(), 0, 'f', 0);
+        line += tr(" | thinned %1/s, link drains %2 kB/s, drop limit %3 kB")
+                    .arg(o.value("thinned").toDouble() / sec, 0, 'f', 1)
+                    .arg(o.value("drainBytesPerSec").toDouble() / 1024.0, 0, 'f', 0)
+                    .arg(o.value("pendingLimitBytes").toDouble() / 1024.0, 0, 'f', 0);
         if (o.value("slowSteps").toInt() > 0) {
             QStringList slow;
             for (const QJsonValue& v : o.value("slowList").toArray())
@@ -379,7 +383,8 @@ void RemoteBackend::sendStart()
     }
     sendJson({ { "type", "start" }, { "config", m_startConfig },
         { "atoms", atomsToJson(m_atoms) }, { "bonds", bondsToJson(m_bonds) },
-        { "liveNci", m_liveNci }, { "singleStep", m_singleStep }, { "serverTrajectory", m_serverTrajectory } });
+        { "liveNci", m_liveNci }, { "singleStep", m_singleStep }, { "serverTrajectory", m_serverTrajectory },
+        { "clientTrajectory", m_config.writeTrajectory && !m_serverTrajectory } });
 }
 
 void RemoteBackend::onBinary(const QByteArray& message)

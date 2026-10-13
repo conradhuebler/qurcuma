@@ -327,6 +327,8 @@ private:
     std::vector<FrameBond> m_lastFfBonds;
     std::unique_ptr<SimpleMD> m_md;
     QTimer* m_mdTimer = nullptr;    // parent = this, auto-cleaned
+    int m_mdIntervalMs = 33;        // target spacing of MD steps (1000 / fps limit)
+    QElapsedTimer m_mdPace;         // start of the current step, for the rest-time wait
 
     // Performance-analysis accumulators for MD (timer-driven, so counters must persist)
     QElapsedTimer m_mdPerfTimer;

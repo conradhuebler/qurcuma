@@ -727,9 +727,14 @@ void SimulationWorker::startMD()
     int effectiveFps = m_config.fpsLimit > 0 ? m_config.fpsLimit : 60;
     m_mdTimer = new QTimer(this);
     m_mdTimer->setTimerType(Qt::PreciseTimer);
-    m_mdTimer->setInterval(1000 / effectiveFps);
+    // Single shot, restarted after every step with the time that is left until the target
+    // spacing. A periodic timer drops a tick whenever a step overruns its interval, and with a
+    // step time close to the interval (7320 atoms: 31 ms against 33 ms) that turned a limit of
+    // 30 into 22 steps/s with uneven spacing (remote.log, Oct 2026). Claude Generated 2026.
+    m_mdIntervalMs = qMax(1, 1000 / effectiveFps);
+    m_mdTimer->setSingleShot(true);
     connect(m_mdTimer, &QTimer::timeout, this, &SimulationWorker::performMDStep);
-    m_mdTimer->start();
+    m_mdTimer->start(0);
 }
 
 // Claude Generated 2026 - The GFN-FF instance behind the running MD, whichever
@@ -829,9 +834,12 @@ void SimulationWorker::performMDStep()
         return;
     }
     if (m_pauseRequested.loadRelaxed()) {
-        return;  // skip this tick; timer keeps firing, observes resume automatically
+        if (m_mdTimer)
+            m_mdTimer->start(m_mdIntervalMs);  // poll again; observes resume automatically
+        return;
     }
 
+    m_mdPace.start();
     QElapsedTimer stepClock;
     stepClock.start();
 
@@ -910,6 +918,10 @@ void SimulationWorker::performMDStep()
             m_mdPerfTimer.restart();
         }
     }
+
+    // Next step after the rest of the target spacing (immediately when this one overran).
+    if (m_mdTimer)
+        m_mdTimer->start(int(qMax<qint64>(0, m_mdIntervalMs - m_mdPace.elapsed())));
 }
 
 void SimulationWorker::finalizeMDRun()

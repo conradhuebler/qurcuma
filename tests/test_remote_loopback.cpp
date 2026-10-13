@@ -10,6 +10,7 @@
 
 #include <QCoreApplication>
 #include <QEventLoop>
+#include <QRegularExpression>
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -240,6 +241,59 @@ int main(int argc, char* argv[])
             CHECK(perf.last().contains("server: produced"));
             CHECK(!perf.last().contains("RTT -1"));
         }
+    }
+
+    // sending policy: a fast source is thinned to screen rate, a client-side trajectory keeps every
+    // frame, and a limit below the step rate is met (single-shot pacing in the worker)
+    {
+        auto lastRecv = [](const QStringList& logs, const QString& key) {
+            double v = -1;
+            const QRegularExpression re(key + QStringLiteral(" ([0-9.]+)"));
+            for (const QString& s : logs.filter(QStringLiteral("perf:"))) {
+                const auto m = re.match(s);
+                if (m.hasMatch())
+                    v = m.captured(1).toDouble();
+            }
+            return v;
+        };
+        struct Result { double recv, produced, thinned; };
+        auto run = [&](int fpsLimit, bool clientTrajectory) {
+            SimulationConfig cfg;
+            cfg.mode = SimulationConfig::Mode::MolecularDynamics;
+            cfg.method = "gfnff";
+            cfg.steps = 1000000;
+            cfg.fpsLimit = fpsLimit;
+            cfg.writeTrajectory = clientTrajectory;
+            remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())), token);
+            rb.setTrajectoryPath(work.path() + "/policy.trj.xyz");
+            rb.setMolecule(distortedWater());
+            rb.setBonds({ { 0, 1, 1 }, { 0, 2, 1 } });
+            rb.setConfig(cfg);
+            QStringList logs;
+            bool done = false;
+            QObject::connect(&rb, &remote::RemoteBackend::logMessage, [&](const QString& s) { logs << s; });
+            QObject::connect(&rb, &SimulationBackend::finished, [&](const QString&, bool) { done = true; });
+            rb.start();
+            waitFor([&] { return logs.filter(QStringLiteral("perf:")).size() >= 4; }, 60000);
+            rb.requestStop();
+            waitFor([&] { return done; }, 30000);
+            const QStringList perf = logs.filter(QStringLiteral("perf:"));
+            QString last = perf.isEmpty() ? QString() : perf.last();
+            const auto thin = QRegularExpression(QStringLiteral("thinned ([0-9.]+)/s")).match(last);
+            return Result{ lastRecv(logs, QStringLiteral("recv")), lastRecv(logs, QStringLiteral("produced")),
+                thin.hasMatch() ? thin.captured(1).toDouble() : -1 };
+        };
+        const Result fast = run(1000, false);
+        std::cerr << "fast source: recv " << fast.recv << "/s, produced " << fast.produced << "/s, thinned " << fast.thinned << "/s" << std::endl;
+        CHECK(fast.produced > 100);         // the source really is fast
+        CHECK(fast.recv > 40 && fast.recv < 70);  // thinned to about 60 per second
+        CHECK(fast.thinned > 0);
+        const Result full = run(1000, true);
+        std::cerr << "client trajectory: recv " << full.recv << "/s, produced " << full.produced << "/s" << std::endl;
+        CHECK(full.recv > 0.8 * full.produced && full.thinned == 0);
+        const Result paced = run(30, false);
+        std::cerr << "limit 30: produced " << paced.produced << "/s" << std::endl;
+        CHECK(paced.produced > 26 && paced.produced < 32);
     }
 
     // a missing file parameter ends the start on this side, nothing is sent

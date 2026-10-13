@@ -26,6 +26,11 @@ namespace remote {
 namespace {
 /// Frames are dropped while more than this is waiting to be sent (latest wins).
 constexpr qint64 kMaxPendingBytes = 4LL * 1024 * 1024;
+/// Frames are sent at most this often when nothing needs every step (the viewer draws at most
+/// at screen rate anyway). Frames that carry reaction events are never thinned.
+constexpr int kMaxSendFps = 60;
+/// How much unsent data is tolerated, as time at the rate the link drains.
+constexpr double kPendingSeconds = 0.25;
 }
 
 ServerSession::ServerSession(const QString& token, const QString& rootDir, int graceSeconds,
@@ -45,6 +50,8 @@ ServerSession::ServerSession(const QString& token, const QString& rootDir, int g
     m_graceTimer.setSingleShot(true);
     connect(&m_graceTimer, &QTimer::timeout, this, &ServerSession::endSession);
     m_statsTimer.setInterval(1000);
+    m_holdTimer.setSingleShot(true);
+    connect(&m_holdTimer, &QTimer::timeout, this, &ServerSession::flushHeldFrame);
     connect(&m_statsTimer, &QTimer::timeout, this, &ServerSession::sendLinkStats);
 }
 
@@ -69,7 +76,10 @@ void ServerSession::bindSocket(QWebSocket* socket)
     connect(m_socket, &QWebSocket::textMessageReceived, this, &ServerSession::onText);
     connect(m_socket, &QWebSocket::binaryMessageReceived, this, &ServerSession::onBinary);
     connect(m_socket, &QWebSocket::disconnected, this, &ServerSession::onDisconnected);
-    connect(m_socket, &QWebSocket::bytesWritten, this, [this] { pumpTransfer(); });
+    connect(m_socket, &QWebSocket::bytesWritten, this, [this](qint64 n) {
+        m_drainBytesIv += n;
+        pumpTransfer();
+    });
 }
 
 void ServerSession::closeClientConnection()
@@ -234,6 +244,7 @@ void ServerSession::handleStart(const QJsonObject& msg)
     // The client writes its own trajectory from the frames; a complete one on this machine
     // is only written when asked for (serverTrajectory), and stays in the session directory.
     cfg.writeTrajectory = msg.value("serverTrajectory").toBool();
+    m_clientTrajectory = msg.value("clientTrajectory").toBool();
     m_backend->setConfig(cfg);
     m_backend->setLiveNci(msg.value("liveNci").toBool());
 
@@ -256,24 +267,32 @@ void ServerSession::handleStart(const QJsonObject& msg)
             m_gapEma = m_gapEma > 0 ? 0.95 * m_gapEma + 0.05 * gap : gap;
         }
         m_gapClock.restart();
-        const qint64 pending = m_socket->bytesToWrite();
-        m_ivMaxPending = qMax(m_ivMaxPending, pending);
-        if (pending > kMaxPendingBytes) {
-            ++m_framesDropped;  // slow link: latest wins, the simulation is never slowed down
-            ++m_ivDropped;
+        // Rate limit with trailing edge: the viewer cannot show more than screen rate, and the
+        // link is better used for frames it can show. A frame that comes too soon is held (a
+        // newer one replaces it) and sent when the spacing is over, so a source near the limit
+        // keeps an even rhythm. Not with a client-side trajectory (it wants every frame), and a
+        // frame that carries a reaction event is always sent at once.
+        const qint64 interval = 1000 / kMaxSendFps;
+        const bool exempt = m_clientTrajectory || !frame->events.isEmpty();
+        if (!exempt && m_sendClock.isValid() && m_sendClock.elapsed() < interval) {
+            if (m_heldFrame)
+                ++m_ivThinned;
+            m_heldFrame = frame;
+            if (!m_holdTimer.isActive())
+                m_holdTimer.start(int(qMax<qint64>(1, interval - m_sendClock.elapsed())));
             return;
         }
-        QElapsedTimer encodeTimer;
-        encodeTimer.start();
-        const QByteArray bytes = encodeFrame(*frame);
-        m_ivEncodeNs += encodeTimer.nsecsElapsed();
-        m_ivBytes += quint64(bytes.size());
-        m_socket->sendBinaryMessage(bytes);
-        ++m_framesSent;
-        ++m_ivSent;
+        m_heldFrame.reset();
+        m_holdTimer.stop();
+        transmitFrame(frame);
     });
     m_ivProduced = m_ivSent = m_ivDropped = m_ivBytes = 0;
     m_ivEncodeNs = m_ivMaxPending = 0;
+    m_ivThinned = 0;
+    m_drainBytesIv = 0;
+    m_drainRate = 0;
+    m_avgFrameBytes = 0;
+    m_sendClock.invalidate();
     m_statsClock.start();
     m_statsTimer.start();
     connect(m_backend, &SimulationBackend::runParameters, this, [this](const QJsonObject& rec) {
@@ -286,12 +305,60 @@ void ServerSession::handleStart(const QJsonObject& msg)
             { "framesSent", double(m_framesSent) }, { "framesDropped", double(m_framesDropped) },
             { "sessionDir", m_sessionDir }, { "sessionFiles", sessionFilesJson() } };
         m_statsTimer.stop();
+        flushHeldFrame();
         send(m_finishedMsg);  // kept: a client that is away gets it when it returns
         m_backend->deleteLater();
         m_backend = nullptr;
     });
 
     m_backend->start(msg.value("singleStep").toBool());
+}
+
+/// Encodes and sends one frame unless more is waiting on the socket than pendingLimit() allows.
+void ServerSession::transmitFrame(const SimulationFramePtr& frame)
+{
+    if (!frame || !m_socket || !m_socket->isValid())
+        return;
+    const qint64 pending = m_socket->bytesToWrite();
+    m_ivMaxPending = qMax(m_ivMaxPending, pending);
+    if (pending > pendingLimit()) {
+        ++m_framesDropped;  // slow link: latest wins, the simulation is never slowed down
+        ++m_ivDropped;
+        return;
+    }
+    QElapsedTimer encodeTimer;
+    encodeTimer.start();
+    const QByteArray bytes = encodeFrame(*frame);
+    m_ivEncodeNs += encodeTimer.nsecsElapsed();
+    m_ivBytes += quint64(bytes.size());
+    m_avgFrameBytes = m_avgFrameBytes > 0 ? 0.9 * m_avgFrameBytes + 0.1 * double(bytes.size()) : double(bytes.size());
+    m_sendClock.restart();
+    m_socket->sendBinaryMessage(bytes);
+    ++m_framesSent;
+    ++m_ivSent;
+}
+
+/// A held frame goes out before anything that ends the run, so the client's last frame is the
+/// run's last frame.
+void ServerSession::flushHeldFrame()
+{
+    m_holdTimer.stop();
+    if (m_heldFrame) {
+        const SimulationFramePtr f = m_heldFrame;
+        m_heldFrame.reset();
+        transmitFrame(f);
+    }
+}
+
+/// Unsent bytes tolerated before a frame is dropped: what the link drains in kPendingSeconds,
+/// at least three frames and at most 4 MiB. Without a measurement yet (the first second) 4 MiB.
+/// A fixed 4 MiB meant seconds of delay on a slow link (RTT 5 s at 2.3 MB/s, remote.log).
+qint64 ServerSession::pendingLimit() const
+{
+    if (m_drainRate <= 0 || m_avgFrameBytes <= 0)
+        return kMaxPendingBytes;
+    const double limit = qMax(m_drainRate * kPendingSeconds, 3.0 * m_avgFrameBytes);
+    return qint64(qMin(limit, double(kMaxPendingBytes)));
 }
 
 /// Counters of the last second (Claude Generated 2026). `pendingBytes` is what the socket still
@@ -302,6 +369,11 @@ void ServerSession::sendLinkStats()
     if (!m_socket || !m_authenticated)
         return;
     const double ms = qMax<qint64>(1, m_statsClock.restart());
+    {
+        const double rate = double(m_drainBytesIv) / (ms / 1000.0);
+        m_drainRate = m_drainRate > 0 ? 0.5 * m_drainRate + 0.5 * rate : rate;
+        m_drainBytesIv = 0;
+    }
     const double gaps = qMax<quint64>(1, m_ivProduced);
     const double mean = m_ivGapSum / gaps;
     const double sd = std::sqrt(qMax(0.0, m_ivGapSq / gaps - mean * mean));
@@ -310,7 +382,9 @@ void ServerSession::sendLinkStats()
         { "encodeUsPerFrame", m_ivSent ? double(m_ivEncodeNs) / 1e3 / double(m_ivSent) : 0.0 },
         { "pendingBytes", double(m_socket->bytesToWrite()) }, { "maxPendingBytes", double(m_ivMaxPending) },
         { "step", m_lastStep }, { "gapMeanMs", mean }, { "gapSdMs", sd }, { "gapMaxMs", m_ivGapMax },
-        { "slowSteps", m_ivSlow }, { "slowList", m_ivSlowList } });
+        { "slowSteps", m_ivSlow }, { "slowList", m_ivSlowList },
+        { "thinned", double(m_ivThinned) }, { "drainBytesPerSec", m_drainRate }, { "pendingLimitBytes", double(pendingLimit()) } });
+    m_ivThinned = 0;
     m_ivGapSum = m_ivGapSq = m_ivGapMax = 0;
     m_ivSlow = 0;
     m_ivSlowList = QJsonArray();

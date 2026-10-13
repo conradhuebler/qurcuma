@@ -31,6 +31,8 @@
 #include <QTimer>
 #include <QWebSocketServer>
 
+#include "simulationframe.h"
+
 class QWebSocket;
 class SimulationBackend;
 
@@ -103,6 +105,20 @@ private:
     quint64 m_ivProduced = 0, m_ivSent = 0, m_ivDropped = 0, m_ivBytes = 0;
     qint64 m_ivEncodeNs = 0, m_ivMaxPending = 0;
     qint32 m_lastStep = 0;
+    // Sending policy (Claude Generated 2026): frames are thinned to kMaxSendFps unless the
+    // client writes its trajectory from them, and dropped when more is waiting on the socket
+    // than the link drains in about a quarter of a second (see pendingLimit()).
+    qint64 pendingLimit() const;
+    void transmitFrame(const SimulationFramePtr& frame);
+    void flushHeldFrame();
+    QTimer m_holdTimer;           // sends the held frame when the minimum spacing is over
+    SimulationFramePtr m_heldFrame;
+    bool m_clientTrajectory = false;
+    QElapsedTimer m_sendClock;
+    qint64 m_drainBytesIv = 0;
+    double m_drainRate = 0;       // bytes/s the socket accepted, smoothed over the stats intervals
+    double m_avgFrameBytes = 0;
+    quint64 m_ivThinned = 0;
     QElapsedTimer m_gapClock;  // spacing of the frames the worker produces (jitter)
     double m_ivGapSum = 0, m_ivGapSq = 0, m_ivGapMax = 0;
     double m_gapEma = 0;          // running mean of the spacing, to recognise an outlier step
