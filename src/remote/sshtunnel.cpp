@@ -55,6 +55,21 @@ SshTunnel::SshTunnel(const QString& host, const QString& serverCommand, QObject*
     m_target = profile ? profile->target : host;
     if (profile)
         m_extra = profile->sshArgs();
+    initTimeout();
+}
+
+SshTunnel::SshTunnel(const HostProfile& profile, QObject* parent)
+    : QObject(parent)
+    , m_host(profile.name)
+    , m_serverCommand(profile.effectiveServerCommand())
+    , m_target(profile.target)
+    , m_extra(profile.sshArgs())
+{
+    initTimeout();
+}
+
+void SshTunnel::initTimeout()
+{
     m_timeout.setSingleShot(true);
     connect(&m_timeout, &QTimer::timeout, this, [this] {
         fail(tr("No answer from qurcuma-server on %1 after %2 s.").arg(m_host).arg(kStartTimeoutMs / 1000));

@@ -8,17 +8,21 @@
 #include "sshconfig.h"
 
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDir>
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QProgressBar>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSettings>
 #include <QSpinBox>
 #include <QVBoxLayout>
+
+#include <initializer_list>
 
 namespace {
 bool isPattern(const QString& host)
@@ -72,10 +76,15 @@ QString AddComputerDialog::defaultServerCommand(const QString& host)
     return QStringLiteral("qurcuma-server");
 }
 
-AddComputerDialog::AddComputerDialog(QWidget* parent)
+namespace {
+const char* const kStepNames[3] = { QT_TRANSLATE_NOOP("AddComputerDialog", "Login"),
+    QT_TRANSLATE_NOOP("AddComputerDialog", "Server"), QT_TRANSLATE_NOOP("AddComputerDialog", "Session") };
+}
+
+AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote::HostProfile>& edit)
     : QDialog(parent)
 {
-    setWindowTitle(tr("Add computer"));
+    setWindowTitle(edit ? tr("Edit computer") : tr("Add computer"));
     auto* layout = new QVBoxLayout(this);
     auto* intro = new QLabel(tr("A computer that runs the simulations for this window. qurcuma reaches it over ssh without a password "
                                 "prompt (key or ssh agent), and qurcuma-server must be installed on it."), this);
@@ -96,43 +105,91 @@ AddComputerDialog::AddComputerDialog(QWidget* parent)
     form->addRow(tr("ssh port:"), m_port);
     m_key = new QLineEdit(this);
     m_key->setPlaceholderText(tr("empty: ssh agent and default keys"));
-    auto* browse = new QPushButton(tr("Browse..."), this);
+    m_browse = new QPushButton(tr("Browse..."), this);
     auto* keyRow = new QHBoxLayout;
     keyRow->addWidget(m_key);
-    keyRow->addWidget(browse);
+    keyRow->addWidget(m_browse);
     form->addRow(tr("Key file:"), keyRow);
     m_serverCommand = new QLineEdit(this);
-    m_serverCommand->setPlaceholderText(QStringLiteral("qurcuma-server"));
+    m_serverCommand->setPlaceholderText(tr("empty: the test looks for qurcuma-server"));
     m_serverCommand->setToolTip(tr("Command that starts qurcuma-server on that computer (full path if it is not in the PATH). "
-                                   "The test fills it in when it finds the server."));
+                                   "Left empty, the test searches for it and the found path is stored."));
     form->addRow(tr("Server command:"), m_serverCommand);
     layout->addLayout(form);
 
+    // The test, in three steps that each show their own state.
     m_test = new QPushButton(tr("Test connection"), this);
-    m_status = new QLabel(this);
-    m_status->setWordWrap(true);
-    m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_problem = new QLabel(this);
+    m_problem->setWordWrap(true);
     auto* testRow = new QHBoxLayout;
     testRow->addWidget(m_test);
-    testRow->addWidget(m_status, 1);
+    testRow->addStretch(1);
     layout->addLayout(testRow);
+    for (int i = 0; i < 3; ++i) {
+        m_stepLabels[i] = new QLabel(this);
+        m_stepLabels[i]->setWordWrap(true);
+        m_stepLabels[i]->setTextFormat(Qt::RichText);
+        m_stepLabels[i]->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        layout->addWidget(m_stepLabels[i]);
+    }
+    m_progress = new QProgressBar(this);
+    m_progress->setRange(0, 0);  // busy indicator
+    m_progress->setTextVisible(false);
+    m_progress->setMaximumHeight(8);
+    m_progress->hide();
+    layout->addWidget(m_progress);
+    m_summary = new QLabel(this);
+    m_summary->setWordWrap(true);
+    m_summary->setTextFormat(Qt::RichText);
+    m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(m_summary);
+    layout->addWidget(m_problem);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     m_ok = buttons->button(QDialogButtonBox::Ok);
+    m_ok->setText(edit ? tr("Save") : tr("Add"));
     layout->addWidget(buttons);
 
-    connect(browse, &QPushButton::clicked, this, [this] {
+    if (edit) {
+        m_originalName = edit->name;
+        m_address->setText(edit->target);
+        m_name->setText(edit->name);
+        m_port->setValue(edit->port);
+        m_key->setText(edit->identityFile);
+        m_serverCommand->setText(edit->serverCommand);
+    }
+    for (int i = 0; i < 3; ++i)
+        onStep(i, int(remote::HostProbe::Pending), QString());
+
+    connect(m_browse, &QPushButton::clicked, this, [this] {
         const QString f = QFileDialog::getOpenFileName(this, tr("ssh key file"), QDir::homePath() + QStringLiteral("/.ssh"));
         if (!f.isEmpty())
             m_key->setText(f);
     });
-    connect(m_test, &QPushButton::clicked, this, &AddComputerDialog::runTest);
+    connect(m_test, &QPushButton::clicked, this, &AddComputerDialog::toggleTest);
     connect(buttons, &QDialogButtonBox::accepted, this, &AddComputerDialog::tryAccept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    for (QLineEdit* e : { m_address, m_name, m_key })
-        connect(e, &QLineEdit::textChanged, this, &AddComputerDialog::updateButtons);
-    connect(m_port, QOverload<int>::of(&QSpinBox::valueChanged), this, &AddComputerDialog::updateButtons);
+    for (QLineEdit* e : { m_address, m_name, m_key, m_serverCommand })
+        connect(e, &QLineEdit::textChanged, this, [this] {
+            // A result belongs to the entries it was made with.
+            if (m_tested && !m_filling) {
+                m_tested = m_testedOk = false;
+                m_summary->clear();
+                for (int i = 0; i < 3; ++i)
+                    onStep(i, int(remote::HostProbe::Pending), QString());
+            }
+            updateButtons();
+        });
+    connect(m_port, QOverload<int>::of(&QSpinBox::valueChanged), this, [this] {
+        m_tested = m_testedOk = false;
+        updateButtons();
+    });
     updateButtons();
+}
+
+AddComputerDialog::~AddComputerDialog()
+{
+    stopTest();
 }
 
 remote::HostProfile AddComputerDialog::profile() const
@@ -140,62 +197,118 @@ remote::HostProfile AddComputerDialog::profile() const
     remote::HostProfile p;
     p.target = m_address->text().trimmed();
     p.name = m_name->text().trimmed();
-    if (p.name.isEmpty()) {
-        // the host part of the address (after '@', before ':' of an IPv6-less host:port)
-        p.name = p.target.section(QLatin1Char('@'), -1);
-    }
+    if (p.name.isEmpty())
+        p.name = p.target.section(QLatin1Char('@'), -1);  // the host part of the address
     p.port = m_port->value();
     p.identityFile = m_key->text().trimmed();
     p.serverCommand = m_serverCommand->text().trimmed();
     return p;
 }
 
+void AddComputerDialog::setBusy(bool busy)
+{
+    // Everything that would change the test while it runs is greyed out.
+    for (QWidget* w : std::initializer_list<QWidget*>{ m_address, m_name, m_port, m_key, m_serverCommand, m_browse })
+        w->setEnabled(!busy);
+    m_progress->setVisible(busy);
+    m_test->setText(busy ? tr("Cancel test") : tr("Test connection"));
+    updateButtons();
+}
+
 void AddComputerDialog::updateButtons()
 {
     QString why;
-    const bool valid = !m_address->text().trimmed().isEmpty() && profile().isValid(&why);
-    m_test->setEnabled(valid && !m_probe);
-    m_ok->setEnabled(valid);
-    if (!valid && !m_address->text().trimmed().isEmpty())
-        m_status->setText(why);
-    else if (!m_probe)
-        m_status->clear();
+    const bool filled = !m_address->text().trimmed().isEmpty();
+    const bool valid = filled && profile().isValid(&why);
+    const bool busy = m_probe != nullptr;
+    m_test->setEnabled(busy || valid);
+    m_ok->setEnabled(valid && !busy);
+    m_problem->setText(filled && !valid ? QStringLiteral("<span style='color:#c62828'>%1</span>").arg(why.toHtmlEscaped()) : QString());
+    if (!busy && !m_tested)
+        m_ok->setToolTip(valid ? tr("Not tested yet: the computer is saved as entered.") : tr("Enter a valid address first."));
+    else if (!busy && m_testedOk)
+        m_ok->setToolTip(tr("The test passed."));
+    else if (!busy)
+        m_ok->setToolTip(tr("The test found a problem (see above); the computer can still be saved."));
 }
 
-void AddComputerDialog::runTest()
+void AddComputerDialog::toggleTest()
 {
     if (m_probe)
-        return;
-    m_test->setEnabled(false);
-    m_status->setText(tr("Testing ..."));
+        stopTest();
+    else
+        startTest();
+}
+
+void AddComputerDialog::startTest()
+{
+    m_tested = m_testedOk = false;
+    m_summary->clear();
+    for (int i = 0; i < 3; ++i)
+        onStep(i, int(remote::HostProbe::Pending), QString());
     m_probe = new remote::HostProbe(profile(), this);
-    connect(m_probe, &remote::HostProbe::progress, m_status, &QLabel::setText);
+    connect(m_probe, &remote::HostProbe::stepChanged, this, &AddComputerDialog::onStep);
     connect(m_probe, &remote::HostProbe::finished, this, &AddComputerDialog::onProbeFinished);
+    setBusy(true);
     m_probe->start();
 }
 
-void AddComputerDialog::onProbeFinished(bool sshOk, const QString& serverPath, bool serverRuns, const QString& message)
+void AddComputerDialog::stopTest()
+{
+    if (!m_probe)
+        return;
+    delete m_probe;  // cancels the ssh processes
+    m_probe = nullptr;
+    for (int i = 0; i < 3; ++i)
+        onStep(i, int(remote::HostProbe::Pending), QString());
+    m_summary->setText(tr("Test cancelled."));
+    setBusy(false);
+}
+
+void AddComputerDialog::onStep(int step, int state, const QString& text)
+{
+    if (step < 0 || step > 2)
+        return;
+    struct Look { const char* mark; const char* colour; };
+    static const Look looks[] = { { "\u25CB", "#757575" }, { "\u2026", "#1565c0" }, { "\u2714", "#2e7d32" }, { "\u2718", "#c62828" }, { "\u2013", "#757575" } };
+    const Look& l = looks[qBound(0, state, 4)];
+    const QString name = QCoreApplication::translate("AddComputerDialog", kStepNames[step]);
+    const QString detail = state == int(remote::HostProbe::Pending) ? tr("not tried yet") : text;
+    m_stepLabels[step]->setText(QStringLiteral("<span style='color:%1'>%2 <b>%3</b></span> &nbsp;%4")
+                                    .arg(QLatin1String(l.colour), QString::fromUtf8(l.mark), name.toHtmlEscaped(), detail.toHtmlEscaped()));
+}
+
+void AddComputerDialog::onProbeFinished(const remote::ProbeResult& result)
 {
     m_probe->deleteLater();
     m_probe = nullptr;
-    if (!serverPath.isEmpty() && m_serverCommand->text().trimmed().isEmpty())
-        m_serverCommand->setText(serverPath);
-    const bool good = sshOk && serverRuns;
-    m_status->setText(QStringLiteral("<span style='color:%1'>%2</span>").arg(good ? QStringLiteral("#2e7d32") : QStringLiteral("#c62828"), message.toHtmlEscaped()));
-    updateButtons();
+    m_tested = true;
+    m_testedOk = result.sessionOk;
+    if (!result.serverPath.isEmpty() && m_serverCommand->text().trimmed().isEmpty()) {
+        m_filling = true;  // the found path is part of this result, not a new entry
+        m_serverCommand->setText(result.serverPath);
+        m_filling = false;
+    }
+    m_summary->setText(QStringLiteral("<b><span style='color:%1'>%2</span></b>")
+                           .arg(result.sessionOk ? QStringLiteral("#2e7d32") : QStringLiteral("#c62828"), result.message.toHtmlEscaped()));
+    setBusy(false);
 }
 
 void AddComputerDialog::tryAccept()
 {
     QString why;
-    remote::HostProfile p = profile();
-    for (const SshConfigEntry& e : SshConfigParser::parseFile())
-        if (e.host == p.name) {
-            m_status->setText(tr("'%1' is already an entry of ~/.ssh/config; choose another name (or use that entry).").arg(p.name));
-            return;
-        }
-    if (!remote::HostProfiles::add(p, &why)) {
-        m_status->setText(why);
+    const remote::HostProfile p = profile();
+    if (m_originalName.isEmpty() || p.name != m_originalName) {
+        for (const SshConfigEntry& e : SshConfigParser::parseFile())
+            if (e.host == p.name) {
+                m_problem->setText(tr("'%1' is already an entry of ~/.ssh/config; choose another name (or use that entry).").arg(p.name));
+                return;
+            }
+    }
+    const bool saved = m_originalName.isEmpty() ? remote::HostProfiles::add(p, &why)
+                                                : remote::HostProfiles::update(m_originalName, p, &why);
+    if (!saved) {
+        m_problem->setText(why);
         return;
     }
     accept();

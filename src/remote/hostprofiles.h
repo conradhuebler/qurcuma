@@ -43,6 +43,9 @@ public:
     static std::optional<HostProfile> find(const QString& name);
     /// Adds @p profile; false (with @p why) if it is invalid or the name is taken.
     static bool add(const HostProfile& profile, QString* why = nullptr);
+    /// Replaces the profile called @p oldName by @p profile (the name may change). The settings that
+    /// are kept per computer (server command, GPU backends, last selection) follow a rename.
+    static bool update(const QString& oldName, const HostProfile& profile, QString* why = nullptr);
     static bool remove(const QString& name);
 };
 

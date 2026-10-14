@@ -408,6 +408,8 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     auto* addComputer = new QToolButton(this);
     addComputer->setText(QStringLiteral("+"));
     addComputer->setToolTip(tr("Add a computer (address, key, test of the connection and of qurcuma-server)."));
+    m_editComputer = new QToolButton(this);
+    m_editComputer->setText(tr("Edit"));
     m_removeComputer = new QToolButton(this);
     m_removeComputer->setText(QStringLiteral("\u2212"));
     m_removeComputer->setToolTip(tr("Remove the selected computer from qurcuma's list (only computers added here; "
@@ -415,8 +417,21 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     auto* computerRow = new QHBoxLayout;
     computerRow->addWidget(m_computeCombo, 1);
     computerRow->addWidget(addComputer);
+    computerRow->addWidget(m_editComputer);
     computerRow->addWidget(m_removeComputer);
     methodForm->addRow(tr("Compute on:"), computerRow);
+    // Edit and remove work on computers added in qurcuma; the others are greyed out, with the reason.
+    auto updateComputerButtons = [this] {
+        const QString host = m_computeCombo->currentData().toString();
+        const bool saved = AddComputerDialog::isSavedComputer(host);
+        m_editComputer->setEnabled(saved);
+        m_removeComputer->setEnabled(saved);
+        const QString why = host.isEmpty() ? tr("This computer needs no setup.")
+                                           : tr("This computer is an entry of ~/.ssh/config; change it there.");
+        m_editComputer->setToolTip(saved ? tr("Change address, port, key or server command of this computer.") : why);
+        m_removeComputer->setToolTip(saved ? tr("Remove this computer from qurcuma's list (~/.ssh/config is not changed).") : why);
+    };
+    m_updateComputerButtons = updateComputerButtons;
     m_serverCommandEdit = new QLineEdit(QStringLiteral("qurcuma-server"), this);
     m_serverCommandEdit->setToolTip(tr("Command that starts qurcuma-server on the remote computer "
                                        "(full path, optionally with --root <directory>)."));
@@ -433,7 +448,7 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
         m_computeCombo->setCurrentIndex(idx >= 0 ? idx : 0);
         m_serverCommandEdit->setText(AddComputerDialog::defaultServerCommand(host));
         m_serverCommandEdit->setEnabled(!m_computeCombo->currentData().toString().isEmpty());
-        m_removeComputer->setEnabled(AddComputerDialog::isSavedComputer(host));
+        m_updateComputerButtons();
         m_serverTrajectoryCheck->setEnabled(!m_computeCombo->currentData().toString().isEmpty());
     }
     connect(m_computeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
@@ -442,7 +457,7 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
         settings.setValue(QStringLiteral("remote/host"), host);
         m_serverCommandEdit->setText(AddComputerDialog::defaultServerCommand(host));
         m_serverCommandEdit->setEnabled(!host.isEmpty());
-        m_removeComputer->setEnabled(AddComputerDialog::isSavedComputer(host));
+        m_updateComputerButtons();
         m_serverTrajectoryCheck->setEnabled(!host.isEmpty());
         refreshGpuChoices();
     });
@@ -452,6 +467,20 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
             return;
         const remote::HostProfile p = dialog.profile();
         // the server command found by the test is the one to start with; later edits are stored per host
+        QSettings().setValue(QStringLiteral("remote/serverCommand/") + p.name, p.effectiveServerCommand());
+        AddComputerDialog::fillHostCombo(m_computeCombo, true, p.name);
+        m_computeCombo->currentIndexChanged(m_computeCombo->currentIndex());
+    });
+    connect(m_editComputer, &QToolButton::clicked, this, [this] {
+        const QString host = m_computeCombo->currentData().toString();
+        const auto current = remote::HostProfiles::find(host);
+        if (!current || !AddComputerDialog::isSavedComputer(host))
+            return;
+        AddComputerDialog dialog(this, current);
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+        const remote::HostProfile p = dialog.profile();
+        // a server command typed or found in the dialog replaces the one stored for this computer
         QSettings().setValue(QStringLiteral("remote/serverCommand/") + p.name, p.effectiveServerCommand());
         AddComputerDialog::fillHostCombo(m_computeCombo, true, p.name);
         m_computeCombo->currentIndexChanged(m_computeCombo->currentIndex());

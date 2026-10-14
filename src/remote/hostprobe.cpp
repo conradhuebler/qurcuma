@@ -4,14 +4,21 @@
 
 #include "hostprobe.h"
 
+#include "protocol.h"
 #include "sshtunnel.h"
 
-#include <functional>
+#include <QDateTime>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QWebSocket>
 
 namespace remote {
 
 namespace {
 constexpr int kStepTimeoutMs = 20000;
+constexpr int kSessionTimeoutMs = 45000;
+constexpr int kMaxConnectAttempts = 25;  // the forward needs a moment before it listens
 }
 
 QByteArray HostProbe::findServerScript()
@@ -55,6 +62,7 @@ HostProbe::HostProbe(const HostProfile& profile, QObject* parent)
     : QObject(parent)
     , m_profile(profile)
 {
+    qRegisterMetaType<remote::ProbeResult>();
     m_timeout.setSingleShot(true);
 }
 
@@ -74,25 +82,39 @@ void HostProbe::cancel()
         delete m_process;
         m_process = nullptr;
     }
+    if (m_socket) {
+        m_socket->disconnect(this);
+        m_socket->abort();
+        delete m_socket;
+        m_socket = nullptr;
+    }
+    if (m_tunnel) {
+        m_tunnel->disconnect(this);
+        m_tunnel->close();
+        delete m_tunnel;
+        m_tunnel = nullptr;
+    }
 }
 
-void HostProbe::finishWith(bool sshOk, const QString& path, bool runs, const QString& message)
+void HostProbe::setStep(Step step, State state, const QString& text)
+{
+    if (!m_done)
+        emit stepChanged(int(step), int(state), text);
+}
+
+void HostProbe::finishWith(const QString& message)
 {
     if (m_done)
         return;
-    m_done = true;
     m_timeout.stop();
-    emit finished(sshOk, path, runs, message);
+    m_result.message = message;
+    m_done = true;
+    emit finished(m_result);
 }
 
 void HostProbe::runStep(const QStringList& command, const QByteArray& input,
     std::function<void(int, const QString&, const QString&)> done)
 {
-    QString why;
-    if (!m_profile.isValid(&why)) {
-        finishWith(false, {}, false, why);
-        return;
-    }
     // Same options as the real connection (BatchMode: no prompt can hang the test), plus a
     // connect timeout.
     QStringList args = { QStringLiteral("-o"), QStringLiteral("BatchMode=yes"), QStringLiteral("-o"), QStringLiteral("ConnectTimeout=8") };
@@ -103,7 +125,7 @@ void HostProbe::runStep(const QStringList& command, const QByteArray& input,
     m_process = new QProcess(this);
     connect(m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
         if (e == QProcess::FailedToStart)
-            finishWith(false, {}, false, tr("Could not start '%1'. Is the ssh client installed?").arg(SshTunnel::sshProgram()));
+            failSession(tr("Could not start '%1'. Is the ssh client installed?").arg(SshTunnel::sshProgram()));
     });
     connect(m_process, &QProcess::finished, this, [this, done](int code, QProcess::ExitStatus) {
         if (m_done)
@@ -114,10 +136,11 @@ void HostProbe::runStep(const QStringList& command, const QByteArray& input,
         m_process = nullptr;
         done(code, out, err);
     });
+    m_timeout.disconnect(this);
     connect(&m_timeout, &QTimer::timeout, this, [this] {
         if (m_process)
             m_process->kill();
-        finishWith(false, {}, false, tr("No answer from %1 within %2 s.").arg(m_profile.target).arg(kStepTimeoutMs / 1000));
+        failSession(tr("No answer from %1 within %2 s.").arg(m_profile.target).arg(kStepTimeoutMs / 1000));
     });
     m_timeout.start(kStepTimeoutMs);
     m_process->start(SshTunnel::sshProgram(), args);
@@ -126,39 +149,138 @@ void HostProbe::runStep(const QStringList& command, const QByteArray& input,
     m_process->closeWriteChannel();
 }
 
+/// Marks the step that is running as failed and ends the test; the steps after it stay pending.
+void HostProbe::failSession(const QString& why)
+{
+    if (m_done)
+        return;
+    const Step running = !m_result.sshOk ? Login : (m_result.serverPath.isEmpty() || !m_result.serverRuns ? Server : Session);
+    setStep(running, Failed, why);
+    for (int s = running + 1; s <= Session; ++s)
+        setStep(Step(s), Skipped, tr("not tried"));
+    finishWith(why);
+}
+
 void HostProbe::start()
 {
     m_done = false;
-    emit progress(tr("Logging in to %1 ...").arg(m_profile.target));
+    m_result = {};
+    QString why;
+    if (!m_profile.isValid(&why)) {
+        setStep(Login, Failed, why);
+        finishWith(why);
+        return;
+    }
+    setStep(Login, Running, tr("Logging in to %1 ...").arg(m_profile.target));
     runStep({ QStringLiteral("echo qurcuma-ok") }, {}, [this](int code, const QString& out, const QString& err) {
         if (code != 0 || !out.contains(QStringLiteral("qurcuma-ok"))) {
-            finishWith(false, {}, false, explainSshFailure(err, m_profile));
+            failSession(explainSshFailure(err, m_profile));
             return;
         }
-        emit progress(tr("Logged in. Looking for qurcuma-server ..."));
+        m_result.sshOk = true;
+        setStep(Login, Ok, tr("ssh logs in without a prompt."));
+        setStep(Server, Running, tr("Looking for qurcuma-server ..."));
         runStep({ QStringLiteral("sh -s") }, findServerScript(), [this](int code2, const QString& out2, const QString& err2) {
             if (code2 != 0) {
-                finishWith(true, {}, false, tr("ssh works, but the search for qurcuma-server failed: %1").arg(err2.trimmed()));
+                failSession(tr("The search for qurcuma-server failed: %1").arg(err2.trimmed()));
                 return;
             }
-            QString path;
             bool runs = false;
             for (const QString& line : out2.split(QLatin1Char('\n'))) {
                 if (line.startsWith(QStringLiteral("SERVER=")))
-                    path = line.mid(7).trimmed();
+                    m_result.serverPath = line.mid(7).trimmed();
                 else if (line.trimmed() == QStringLiteral("RUNS=1"))
                     runs = true;
             }
-            if (path.isEmpty())
-                finishWith(true, {}, false, tr("ssh works, but qurcuma-server was not found on %1. Build it there "
-                                               "(cmake --build <dir> --target qurcuma-server) and enter its full path as the server command.")
-                                                .arg(m_profile.target));
-            else if (!runs)
-                finishWith(true, path, false, tr("Found %1, but it does not start (missing libraries?). Try running it with --help on that computer.").arg(path));
-            else
-                finishWith(true, path, true, tr("Ready: qurcuma-server found at %1.").arg(path));
+            m_result.serverRuns = runs;
+            // A server command typed by the user wins over the one found.
+            const QString custom = m_profile.serverCommand.trimmed();
+            if (m_result.serverPath.isEmpty() && custom.isEmpty()) {
+                failSession(tr("qurcuma-server was not found on %1. Build it there (cmake --build <dir> --target qurcuma-server) "
+                               "and enter its full path as the server command.").arg(m_profile.target));
+                return;
+            }
+            if (!m_result.serverPath.isEmpty() && !runs && custom.isEmpty()) {
+                failSession(tr("Found %1, but it does not start (missing libraries?). Try it with --help on that computer.").arg(m_result.serverPath));
+                return;
+            }
+            setStep(Server, Ok, m_result.serverPath.isEmpty() ? tr("Using the server command you entered.")
+                                                              : tr("Found %1.").arg(m_result.serverPath));
+            runSession(custom.isEmpty() ? m_result.serverPath : custom);
         });
     });
+}
+
+/// Step 3: the same way a run starts it (ssh, server with a token on stdin, port forward), then
+/// hello -> welcome and one ping. A session that ends with the client leaves no process behind:
+/// the server ends it when an authenticated client leaves without a run.
+void HostProbe::runSession(const QString& serverCommand)
+{
+    setStep(Session, Running, tr("Starting qurcuma-server and opening a session ..."));
+    HostProfile p = m_profile;
+    p.serverCommand = serverCommand;
+    m_tunnel = new SshTunnel(p, this);
+    connect(m_tunnel, &SshTunnel::failed, this, [this](const QString& msg) { failSession(msg); });
+    connect(m_tunnel, &SshTunnel::ready, this, [this](quint16 port, const QString& token) {
+        m_port = port;
+        m_token = token;
+        m_attempts = 0;
+        connectSocket();
+    });
+    m_timeout.disconnect(this);
+    connect(&m_timeout, &QTimer::timeout, this, [this] {
+        failSession(tr("The server did not answer within %1 s.").arg(kSessionTimeoutMs / 1000));
+    });
+    m_timeout.start(kSessionTimeoutMs);
+    m_tunnel->start();
+}
+
+void HostProbe::connectSocket()
+{
+    if (m_done)
+        return;
+    if (!m_socket) {
+        m_socket = new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
+        connect(m_socket, &QWebSocket::connected, this, [this] {
+            const QJsonObject hello{ { "type", "hello" }, { "protocol", kProtocolVersion }, { "token", m_token } };
+            m_socket->sendTextMessage(QString::fromUtf8(QJsonDocument(hello).toJson(QJsonDocument::Compact)));
+        });
+        connect(m_socket, &QWebSocket::textMessageReceived, this, &HostProbe::onSocketText);
+        connect(m_socket, &QWebSocket::errorOccurred, this, [this] {
+            if (m_welcomed || m_done)
+                return;
+            if (++m_attempts < kMaxConnectAttempts)
+                QTimer::singleShot(300, this, &HostProbe::connectSocket);
+            else
+                failSession(tr("The connection through the ssh tunnel was not accepted: %1").arg(m_socket->errorString()));
+        });
+    }
+    m_socket->open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(m_port)));
+}
+
+void HostProbe::onSocketText(const QString& text)
+{
+    const QJsonObject msg = QJsonDocument::fromJson(text.toUtf8()).object();
+    const QString type = msg.value("type").toString();
+    if (type == QLatin1String("welcome")) {
+        m_welcomed = true;
+        m_result.threads = msg.value("threads").toInt();
+        for (const QJsonValue& v : msg.value("gpuBackends").toArray())
+            m_result.gpuBackends << v.toString();
+        m_pingSentMs = QDateTime::currentMSecsSinceEpoch();
+        m_socket->sendTextMessage(QString::fromUtf8(QJsonDocument(QJsonObject{ { "type", "ping" }, { "t", double(m_pingSentMs) } })
+                                                        .toJson(QJsonDocument::Compact)));
+    } else if (type == QLatin1String("pong")) {
+        m_result.rttMs = int(QDateTime::currentMSecsSinceEpoch() - m_pingSentMs);
+        m_result.sessionOk = true;
+        const QString gpu = m_result.gpuBackends.isEmpty() ? tr("no GPU backend") : tr("GPU: %1").arg(m_result.gpuBackends.join(QStringLiteral(", ")));
+        const QString line = tr("Session works: %1 threads, %2, round trip %3 ms.").arg(m_result.threads).arg(gpu).arg(m_result.rttMs);
+        setStep(Session, Ok, line);
+        m_socket->close();  // the server ends the session when the client leaves
+        finishWith(tr("Ready to use. %1").arg(line));
+    } else if (type == QLatin1String("error")) {
+        failSession(tr("The server refused the session: %1").arg(msg.value("message").toString()));
+    }
 }
 
 } // namespace remote

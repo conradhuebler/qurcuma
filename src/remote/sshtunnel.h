@@ -20,12 +20,17 @@
 
 namespace remote {
 
+struct HostProfile;
+
 class SshTunnel : public QObject {
     Q_OBJECT
 public:
     /// @p serverCommand is run by the remote shell, e.g. "qurcuma-server" or
     /// "/opt/qurcuma/bin/qurcuma-server --root /scratch/me".
     SshTunnel(const QString& host, const QString& serverCommand, QObject* parent = nullptr);
+    /// For a computer that is not saved yet (the Add computer test): address, port, key and server
+    /// command come from @p profile.
+    SshTunnel(const HostProfile& profile, QObject* parent = nullptr);
     ~SshTunnel() override;
 
     void start();
@@ -54,6 +59,7 @@ private:
     void onServerOutput();
     void fail(const QString& message);
     void startForward();
+    void initTimeout();
 
     QString m_host, m_serverCommand, m_token;
     QString m_target;       // what ssh is given: the host name, or a saved profile's address

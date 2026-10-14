@@ -106,6 +106,42 @@ bool HostProfiles::add(const HostProfile& profile, QString* why)
     return true;
 }
 
+bool HostProfiles::update(const QString& oldName, const HostProfile& profile, QString* why)
+{
+    if (!profile.isValid(why))
+        return false;
+    QList<HostProfile> all = load();
+    int index = -1;
+    for (int i = 0; i < all.size(); ++i) {
+        if (all[i].name == oldName)
+            index = i;
+        else if (all[i].name == profile.name) {
+            if (why)
+                *why = QObject::tr("A computer named '%1' is already in the list.").arg(profile.name);
+            return false;
+        }
+    }
+    if (index < 0) {
+        if (why)
+            *why = QObject::tr("The computer '%1' is no longer in the list.").arg(oldName);
+        return false;
+    }
+    all[index] = profile;
+    save(all);
+    if (profile.name != oldName) {
+        QSettings s;
+        for (const QString& prefix : { QStringLiteral("remote/serverCommand/"), QStringLiteral("remote/gpu/") }) {
+            if (s.contains(prefix + oldName)) {
+                s.setValue(prefix + profile.name, s.value(prefix + oldName));
+                s.remove(prefix + oldName);
+            }
+        }
+        if (s.value(QStringLiteral("remote/host")).toString() == oldName)
+            s.setValue(QStringLiteral("remote/host"), profile.name);
+    }
+    return true;
+}
+
 bool HostProfiles::remove(const QString& name)
 {
     QList<HostProfile> all = load();
