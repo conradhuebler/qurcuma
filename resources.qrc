@@ -9,6 +9,8 @@
     <!-- Claude Generated - Qt Quick 3D viewer scene (renderer migration) -->
     <qresource prefix="/qml">
         <file>src/qml/viewer3d.qml</file>
+        <!-- Claude Generated 2026 - instanced molecule content, shared by viewer3d.qml and VrScene.qml -->
+        <file>src/qml/MoleculeModels.qml</file>
         <file>src/qml/viewerxr.qml</file>
         <!-- Claude Generated 2026 - headset scene and panels (shared with spikes/vr_preview) -->
         <file>src/qml/VrScene.qml</file>

@@ -3,6 +3,10 @@
 // panels, laid out around the head. viewerxr.qml hosts it in the XrView (controllers, input, head
 // tracking); spikes/vr_preview hosts it in a plain View3D with mock objects.
 //
+// The molecule is the desktop viewer's: MoleculeModels.qml with the desktop SceneController for
+// flags and bounds and the mirrored instance tables (XrSceneBridge) for the geometry. Its rotation
+// is this scene's own (moleculeAnchor, turned by the right hand), never the desktop rootRotation.
+//
 // Units are centimetres. Layout around the head (yaw > 0 = left, pitch > 0 = up):
 //   molecule        straight ahead, 80 cm, at eye height, fitted to moleculeSize (default 40 cm)
 //   Structure       yaw   0, pitch -28, 58 cm   frames, selection, "Open structure…"
@@ -19,8 +23,12 @@ Node {
 
     /// VrSession (headset) or MockVr (preview): status properties, command(), file browser calls.
     required property var session
-    /// SceneController (headset) or MockMolecule (preview): instancing tables and scene bounds.
+    /// SceneController (headset) or MockMolecule (preview): flags, scene bounds, atom positions.
     required property var sceneController
+    /// XrSceneBridge (headset) or MockMolecule.tables (preview): the instance tables, under the same
+    /// property names as SceneController's. Never the controller itself: its tables belong to the
+    /// desktop window.
+    required property var instancing
 
     /// Head position and heading (yaw, degrees) the layout is built around; the XR host sets them
     /// from the tracked head at session start and on "Recenter".
@@ -34,6 +42,8 @@ Node {
     property alias moleculeAnchor: anchorNode
     /// Atom coordinates (Angstrom) live in this node; used to map grab targets.
     property alias atomsNode: atomNode
+    /// The atom sphere Model; a ray pick on it gives an instance row (map it with atomIndexForInstance).
+    readonly property Model atomModel: moleculeModels.atomModel
 
     signal recenterRequested()
 
@@ -66,16 +76,11 @@ Node {
                     position: Qt.vector3d(-scene.sceneController.sceneCenter.x,
                                           -scene.sceneController.sceneCenter.y,
                                           -scene.sceneController.sceneCenter.z)
-                    Model {
-                        source: "#Sphere"
-                        instancing: scene.sceneController.atomInstancing
-                        pickable: true   // required for rayPick
-                        materials: PrincipledMaterial { baseColor: "white"; roughness: 0.4 }
-                    }
-                    Model {
-                        source: "#Cylinder"
-                        instancing: scene.sceneController.bondInstancing
-                        materials: PrincipledMaterial { baseColor: "white"; roughness: 0.55 }
+                    MoleculeModels {
+                        id: moleculeModels
+                        ctl: scene.sceneController
+                        inst: scene.instancing
+                        atomsPickable: true   // required for rayPick
                     }
                 }
             }

@@ -6,12 +6,14 @@
 #pragma once
 
 #include <QColor>
-#include <QQuick3DInstancing>
 #include <QVector3D>
+
+#include "tableinstancing.h"
 
 // Instantiated in C++ (owned by the scene controller) and bound into QML via the
 // base QQuick3DInstancing* property type — no QML_ELEMENT registration needed.
-class AtomInstancing : public QQuick3DInstancing
+// The table can be shown in a second scene through a MirrorInstancing (tableinstancing.h).
+class AtomInstancing : public TableInstancing
 {
     Q_OBJECT
 public:
@@ -21,15 +23,16 @@ public:
         QVector3D position; // scene units (Angstrom)
         float scale = 1.0f; // sphere display radius in scene units
         QColor color;
+        int atomIndex = -1; // structure atom this instance draws (hidden atoms get no instance)
     };
 
     /// Replace the full instance list and re-upload (cheap enough per frame).
     void setItems(const QVector<Item>& items);
     /// Recolour a single instance as the picked atom (-1 = none).
     void setHighlight(int index, const QColor& color);
-
-protected:
-    QByteArray getInstanceBuffer(int* instanceCount) override;
+    /// Claude Generated 2026 - Structure atom drawn by instance @p instance (-1 if out of range).
+    /// Instances are compacted (hidden atoms are skipped), so this is not the identity.
+    int atomIndexOf(int instance) const;
 
 private:
     void rebuild();
@@ -37,6 +40,4 @@ private:
     QVector<Item> m_items;
     int m_highlight = -1;
     QColor m_highlightColor{ 255, 0, 255 };
-    QByteArray m_buffer;
-    int m_count = 0;
 };

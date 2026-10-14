@@ -2,7 +2,8 @@
 
 Renders the headset scene `src/qml/VrScene.qml` (molecule + panels, the same files qurcuma uses in
 the XrView) in a plain window, driven by `MockVr.qml` (stands in for `VrSession`) and
-`MockMolecule.qml` (n-decane instead of the `SceneController`). The camera is the head: at the
+`MockMolecule.qml` (n-decane instead of the desktop `SceneController`; its `tables` object stands in
+for the `XrSceneBridge` that mirrors the controller's instance tables). The camera is the head: at the
 origin, looking along -Z, horizontal field of view 100° by default. No stereo, no lens distortion.
 
 QML is read from the source tree, so edits to `src/qml/*.qml` need no rebuild.
@@ -18,7 +19,8 @@ QT_QPA_PLATFORM=offscreen spikes/vr_preview/build/vr_preview --state files --pit
 spikes/vr_preview/build/vr_preview --state running
 ```
 
-- `--state`: `idle`, `trajectory`, `running`, `paused`, `aborted`, `files` (file browser open)
+- `--state`: `idle`, `trajectory`, `running`, `paused`, `aborted`, `files` (file browser open),
+  `overlays` (three picked carbons with measurement lines, as the desktop draws them)
 - `--yaw` / `--pitch`: head direction in degrees (yaw > 0 = left, pitch > 0 = up; default 0 / -12).
   The Simulation panel sits at yaw 37, the View panel at yaw -34, both at pitch -28.
 - `--fov`, `--size WxH`: horizontal field of view, window size

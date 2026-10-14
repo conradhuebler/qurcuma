@@ -1243,6 +1243,7 @@ void SceneController::rebuildAtoms()
             it.position = m_atoms[i].position;
             it.scale = radiusFactor * m_atomScaleFactor * atomDrawRadiusFor(i);
             it.color = atomColor(i);
+            it.atomIndex = i;   // instances are compacted; see atomIndexForInstance()
             items.append(it);
         }
     }
@@ -1732,6 +1733,14 @@ QVector3D SceneController::atomPosition(int index) const
     if (index < 0 || index >= m_atoms.size())
         return QVector3D();
     return m_atoms[index].position;
+}
+
+// Claude Generated 2026 - Instance -> atom index of the atom table. rebuildAtoms() skips hidden
+// atoms (hydrogen display, hidden molecule kinds), so a ray pick's instanceIndex is a row of the
+// compacted table, not an atom index.
+int SceneController::atomIndexForInstance(int instance) const
+{
+    return m_atomInstancing->atomIndexOf(instance);
 }
 
 void SceneController::setSelection(const QVector<int>& indices)

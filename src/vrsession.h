@@ -1,5 +1,5 @@
 /*
- * <Qurcuma VR session: mirrors the viewer scene into an OpenXR headset.>
+ * <Qurcuma VR session: shows the viewer scene in an OpenXR headset.>
  * Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -26,14 +26,16 @@
 #include <memory>
 
 class SceneController;
+class XrSceneBridge;
 
 /**
  * @brief OpenXR session showing the current molecule in a headset (Claude Generated 2026).
  *
- * Owns a second SceneController (instancing buffers belong to one Quick 3D scene, so the
- * desktop controller cannot be shared) and a QML engine hosting src/qml/viewerxr.qml
- * (Qt Quick 3D XR). The viewer mirrors structure, positions and selection into scene();
- * a controller-ray pick in the headset arrives as atomPicked().
+ * Renders the desktop viewer's SceneController: a QML engine hosts src/qml/viewerxr.qml
+ * (Qt Quick 3D XR) with "controller" = that controller (flags, colours, bounds, atom
+ * positions) and "xrInstancing" = an XrSceneBridge, which hands the controller's instance
+ * tables to the headset scene as MirrorInstancing objects. Nothing is computed twice; the
+ * headset keeps its own molecule rotation. A controller-ray pick arrives as atomPicked().
  */
 class VrSession : public QObject {
     Q_OBJECT
@@ -60,17 +62,15 @@ class VrSession : public QObject {
     Q_PROPERTY(bool simulationPaused READ simulationPaused NOTIFY simulationStatusChanged)
     Q_PROPERTY(QString simulationMessage READ simulationMessage NOTIFY simulationStatusChanged)
 public:
-    explicit VrSession(QObject* parent = nullptr);
+    /// @p scene is the desktop viewer's controller; it must outlive the session (or stop() first).
+    explicit VrSession(SceneController* scene, QObject* parent = nullptr);
     ~VrSession() override;
 
     /// Create the XR view. Returns false if the QML could not be loaded.
     bool start();
-    /// Tear the XR view down (ends the OpenXR session).
+    /// Tear the XR view down (ends the OpenXR session): QML engine first, then the bridge.
     void stop();
     bool isActive() const { return m_engine != nullptr; }
-
-    /// Scene the headset renders; feed it like the desktop SceneController.
-    SceneController* scene() const { return m_scene; }
 
     QString statusText() const { return m_statusText; }
     void setStatusText(const QString& text);
@@ -104,7 +104,7 @@ public:
     Q_INVOKABLE void choose(const QString& name);
 
 signals:
-    /// Instance index of the atom hit by the controller ray (-1 = nothing hit).
+    /// Atom hit by the controller ray (atom index, mapped from the instance row; -1 = nothing hit).
     void atomPicked(int atomIndex);
     /// The OpenXR session ended (headset removed, runtime stopped, or stop()).
     void ended();
@@ -126,7 +126,8 @@ signals:
     void simulationStatusChanged();
 
 private:
-    SceneController* m_scene = nullptr;
+    SceneController* m_scene = nullptr;      // desktop controller, not owned
+    XrSceneBridge* m_instancing = nullptr;   // mirrors of m_scene's instance tables, owned
     std::unique_ptr<QQmlEngine> m_engine;
     QObject* m_root = nullptr;
     QString m_statusText;

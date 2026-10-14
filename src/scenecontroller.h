@@ -142,7 +142,8 @@ public:
     QQuick3DInstancing* arrowTipInstancing() const;
     bool forceVectorsVisible() const { return m_forceVectorsVisible; }
 
-    // World-space force arrow (origin at atom, pointing along the force direction).
+    // Force arrow in model-local (intrinsic atom) coordinates: origin at the atom, pointing
+    // along the force. Drawn under moleculeRoot, so it turns with the molecule.
     struct Arrow {
         QVector3D origin;
         QVector3D dir; // unit
@@ -156,7 +157,7 @@ public:
     QQuick3DInstancing* measureLineInstancing() const;
     QString measurementText() const { return m_measurementText; }
     bool measurementActive() const { return !m_measurementText.isEmpty(); }
-    /// World-space measurement lines (consecutive selected atoms) + result label.
+    /// Model-local measurement lines (consecutive selected atoms) + result label.
     void setMeasurement(const QVector<QPair<QVector3D, QVector3D>>& lines, const QString& text);
 
     // RMSD overlay structures: a list of aligned targets drawn under moleculeRoot. Each
@@ -267,6 +268,9 @@ public:
     void clear();
     /// Model-local position (Angstrom) of an atom; zero if out of range. For the XR grab (Claude Generated 2026).
     Q_INVOKABLE QVector3D atomPosition(int index) const;
+    /// Claude Generated 2026 - Atom drawn by row @p instance of the atom instance table (-1 = none).
+    /// Hidden atoms have no row, so a ray pick's instanceIndex must be mapped through this.
+    Q_INVOKABLE int atomIndexForInstance(int instance) const;
     int atomCount() const { return m_atoms.size(); }
     const QVector<AtomDatum>& atoms() const { return m_atoms; }
 

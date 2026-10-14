@@ -9,7 +9,7 @@ constexpr float kSphereBaseRadius = 50.0f;
 }
 
 AtomInstancing::AtomInstancing(QQuick3DObject* parent)
-    : QQuick3DInstancing(parent)
+    : TableInstancing(parent)
 {
 }
 
@@ -32,6 +32,11 @@ void AtomInstancing::setHighlight(int index, const QColor& color)
     rebuild();
 }
 
+int AtomInstancing::atomIndexOf(int instance) const
+{
+    return (instance >= 0 && instance < m_items.size()) ? m_items[instance].atomIndex : -1;
+}
+
 void AtomInstancing::rebuild()
 {
     m_count = m_items.size();
@@ -45,12 +50,5 @@ void AtomInstancing::rebuild()
         entry[i] = calculateTableEntry(it.position,
             QVector3D(s, s, s), QVector3D(0, 0, 0), color);
     }
-    markDirty();
-}
-
-QByteArray AtomInstancing::getInstanceBuffer(int* instanceCount)
-{
-    if (instanceCount)
-        *instanceCount = m_count;
-    return m_buffer;
+    publish(); // markDirty + tell mirrors (tableinstancing.h)
 }

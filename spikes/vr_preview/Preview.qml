@@ -1,8 +1,9 @@
 // Copyright (C) 2025 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 // Offline preview of the headset scene (Claude Generated 2026): src/qml/VrScene.qml with MockVr and
-// MockMolecule, seen from a head at the origin looking along -Z (the headset's eye camera, without
-// stereo or lens distortion). Left click operates the panels, right drag looks around, the wheel
-// changes the field of view. Started by main.cpp, which sets the properties below.
+// MockMolecule (controller flags + stand-in instance tables), seen from a head at the origin looking
+// along -Z (the headset's eye camera, without stereo or lens distortion). Left click operates the
+// panels, right drag looks around, the wheel changes the field of view. Started by main.cpp, which
+// sets the properties below.
 import QtQuick
 import QtQuick3D
 import "../../src/qml"
@@ -29,7 +30,7 @@ Item {
         camera: head
         environment: SceneEnvironment {
             backgroundMode: SceneEnvironment.Color
-            clearColor: "#1c2230"
+            clearColor: mockMolecule.backgroundColor
             antialiasingMode: SceneEnvironment.MSAA
             antialiasingQuality: SceneEnvironment.High
         }
@@ -44,12 +45,16 @@ Item {
             clipFar: 10000
         }
 
-        MockMolecule { id: mockMolecule }
+        MockMolecule {
+            id: mockMolecule
+            showOverlays: root.stateName === "overlays"
+        }
 
         VrScene {
             id: scene
             session: mockVr
             sceneController: mockMolecule
+            instancing: mockMolecule.tables
             headPosition: Qt.vector3d(0, 0, 0)
             filesVisible: root.stateName === "files"
             onRecenterRequested: headYaw = root.lookYaw

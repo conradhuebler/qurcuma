@@ -1,5 +1,5 @@
 /*
- * <Qurcuma VR session: mirrors the viewer scene into an OpenXR headset.>
+ * <Qurcuma VR session: shows the viewer scene in an OpenXR headset.>
  * Copyright (C) 2015 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -18,14 +18,16 @@
 #include "vrsession.h"
 
 #include "scenecontroller.h"
+#include "xrscenebridge.h"
 
 #include <QQmlComponent>
 #include <QDir>
 #include <QFileInfo>
 #include <QQmlContext>
 
-VrSession::VrSession(QObject* parent)
+VrSession::VrSession(SceneController* scene, QObject* parent)
     : QObject(parent)
+    , m_scene(scene)
 {
 }
 
@@ -38,10 +40,13 @@ bool VrSession::start()
 {
     if (m_engine)
         return true;
+    if (!m_scene)
+        return false;
 
-    m_scene = new SceneController(this);
+    m_instancing = new XrSceneBridge(m_scene, this);
     m_engine = std::make_unique<QQmlEngine>();
     m_engine->rootContext()->setContextProperty(QStringLiteral("controller"), m_scene);
+    m_engine->rootContext()->setContextProperty(QStringLiteral("xrInstancing"), m_instancing);
     m_engine->rootContext()->setContextProperty(QStringLiteral("vr"), this);
 
     QQmlComponent component(m_engine.get(), QUrl(QStringLiteral("qrc:/qml/src/qml/viewerxr.qml")));
@@ -57,12 +62,13 @@ bool VrSession::start()
 
 void VrSession::stop()
 {
-    // Drop the QML root before the scene controller so its bindings go first.
+    // The XR scene binds to the bridge's mirrors and to the controller: drop the QML root and
+    // the engine first, then the mirrors. The controller belongs to the desktop viewer.
     delete m_root;
     m_root = nullptr;
     m_engine.reset();
-    delete m_scene;
-    m_scene = nullptr;
+    delete m_instancing;
+    m_instancing = nullptr;
 }
 
 void VrSession::setStatusText(const QString& text)

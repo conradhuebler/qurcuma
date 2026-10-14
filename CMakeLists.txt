@@ -220,6 +220,7 @@ set(SOURCES
     src/scenefiller.cpp  # Claude Generated 2026 - pack fragment copies into a container
     src/measurements.cpp  # Claude Generated 2026 - distance/angle/dihedral + histogram binning
     src/dialogs/fillcontainerdialog.cpp  # Claude Generated 2026 - fill-container dialog
+    src/tableinstancing.cpp  # Claude Generated 2026 - instance-table base + mirror for the headset scene
     src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.cpp  # Claude Generated 2026 - Quick3D renderer: bond instancing
     src/scenecontroller.cpp  # Claude Generated 2026 - Quick3D renderer: scene view-model
@@ -262,6 +263,7 @@ set(HEADERS
     src/rmsdwidget.h  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/forceinjector.h  # Claude Generated 2026 - Topological force distribution (Phase 4)
     src/elementdata.h  # Claude Generated 2026 - Quick3D renderer: shared element tables
+    src/tableinstancing.h  # Claude Generated 2026 - instance-table base + mirror for the headset scene
     src/atominstancing.h  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.h  # Claude Generated 2026 - Quick3D renderer: bond instancing
     src/scenecontroller.h  # Claude Generated 2026 - Quick3D renderer: scene view-model
@@ -296,6 +298,7 @@ add_executable(qurcuma
 
 if(TARGET Qt6::Quick3DXr)
     target_sources(qurcuma PRIVATE src/vrsession.cpp src/vrsession.h)  # Claude Generated 2026 - OpenXR session
+    target_sources(qurcuma PRIVATE src/xrscenebridge.cpp src/xrscenebridge.h)  # Claude Generated 2026 - mirrored tables for the headset
     target_link_libraries(qurcuma PRIVATE Qt6::Quick3DXr)
     target_compile_definitions(qurcuma PRIVATE QURCUMA_HAS_XR)
 endif()
@@ -427,8 +430,8 @@ target_include_directories(test_nci PRIVATE
 # Needs Quick3D only because SceneController owns the instancing objects; no window
 # is created (offscreen platform is enough).
 add_executable(test_fragments test_fragments.cpp src/scenecontroller.cpp
-    src/atominstancing.cpp src/bondinstancing.cpp src/elementdata.cpp src/ncianalysis.cpp
-    src/forceinjector.cpp)
+    src/tableinstancing.cpp src/atominstancing.cpp src/bondinstancing.cpp src/elementdata.cpp
+    src/ncianalysis.cpp src/forceinjector.cpp)
 target_link_libraries(test_fragments PRIVATE
 Qt6::Core
 Qt6::Gui
@@ -445,6 +448,37 @@ target_include_directories(test_fragments PRIVATE
     ${curcuma_SOURCE_DIR}/external
     ${curcuma_BINARY_DIR}
 )
+
+# Instance-table mirror test - Claude Generated 2026. Pins how the headset scene follows the
+# desktop SceneController (src/tableinstancing.h, src/xrscenebridge.h): mirror count/bytes after a
+# rebuild, one mirror per controller table, instance -> atom index mapping, and (offscreen OpenGL)
+# that a mirror in a second window re-renders after a source rebuild and only then, and that
+# src/qml/MoleculeModels.qml shows overlays switched on later with their parent's rotation.
+add_executable(test_instancing_mirror test_instancing_mirror.cpp src/scenecontroller.cpp
+    src/tableinstancing.cpp src/atominstancing.cpp src/bondinstancing.cpp src/xrscenebridge.cpp
+    src/elementdata.cpp src/ncianalysis.cpp src/forceinjector.cpp)
+target_link_libraries(test_instancing_mirror PRIVATE
+Qt6::Core
+Qt6::Gui
+Qt6::Widgets
+Qt6::Qml
+Qt6::Quick
+Qt6::Quick3D
+)
+target_include_directories(test_instancing_mirror PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+target_compile_definitions(test_instancing_mirror PRIVATE
+    QURCUMA_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/qml")
+add_test(NAME instancing_mirror COMMAND test_instancing_mirror)
+set_tests_properties(instancing_mirror PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # Look round-trip test - Claude Generated 2026 (look.h is header-only).
 add_executable(test_looks test_looks.cpp)

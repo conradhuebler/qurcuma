@@ -1,5 +1,6 @@
 // Copyright (C) 2025 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
-// Qurcuma VR view (OpenXR), hosted by VrSession. Context: "controller" = XR SceneController,
+// Qurcuma VR view (OpenXR), hosted by VrSession. Context: "controller" = the desktop viewer's
+// SceneController, "xrInstancing" = XrSceneBridge (its instance tables, mirrored into this window),
 // "vr" = VrSession. Claude Generated.
 //
 // This file holds what only exists in a headset: the XrView, the tracked head and hands, controller
@@ -20,7 +21,7 @@ XrView {
 
     environment: SceneEnvironment {
         backgroundMode: SceneEnvironment.Color
-        clearColor: "#1c2230"
+        clearColor: controller.backgroundColor
         antialiasingMode: SceneEnvironment.MSAA
         antialiasingQuality: SceneEnvironment.Medium
     }
@@ -100,6 +101,7 @@ XrView {
         id: scene
         session: vr
         sceneController: controller
+        instancing: xrInstancing
         onRecenterRequested: xrView.recenter()
     }
 
@@ -142,16 +144,25 @@ XrView {
         return rightHand.sceneRotation.times(Qt.vector3d(0, 0, -1))
     }
 
-    function pickAtom() {
+    // Atom index under the right-hand ray, -1 if the ray hits no atom. rayPick reports a row of the
+    // atom instance table, which skips hidden atoms (hydrogen display, hidden molecule kinds), so
+    // the row is mapped back to the atom index.
+    function atomUnderRay() {
         var result = xrView.rayPick(rightHand.scenePosition, aimDirection())
-        vr.atomPicked(result.instanceIndex)
+        if (result.objectHit !== scene.atomModel)
+            return -1
+        return controller.atomIndexForInstance(result.instanceIndex)
+    }
+
+    function pickAtom() {
+        vr.atomPicked(atomUnderRay())
     }
 
     onTriggerDownChanged: {
         if (triggerDown) {
-            var result = xrView.rayPick(rightHand.scenePosition, aimDirection())
-            if (vr.simulationActive && result.instanceIndex >= 0)
-                grabAtom = result.instanceIndex
+            var atom = atomUnderRay()
+            if (vr.simulationActive && atom >= 0)
+                grabAtom = atom
         } else if (grabAtom >= 0) {
             grabAtom = -1
             vr.grabReleased()
