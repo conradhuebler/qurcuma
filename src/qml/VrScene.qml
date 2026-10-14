@@ -13,8 +13,11 @@
 //   Simulation      yaw +37, pitch -28, 58 cm   MD/Opt/Pause/Stop, temperature, grab strength
 //   View            yaw -34, pitch -28, 58 cm   size, reset, recenter
 //   Open structure  yaw   0, pitch  +5, 55 cm   on demand, in front of the molecule
-// The three console panels sit below the molecule, where a left-hand ray reaches them from a relaxed
-// arm; the file browser opens where the user is already looking.
+//   How to use      yaw   0, pitch  +8, 55 cm   help, open at start; shares the spot with the files
+//   Menu bar        yaw   0, pitch -12, 50 cm   see-through toggles for the panels and Help
+// The three console panels sit below the molecule, where a controller ray reaches them from a relaxed
+// arm; the file browser and the help open where the user is already looking. The menu bar never
+// hides, so hidden panels are always one click away.
 import QtQuick
 import QtQuick3D
 
@@ -36,6 +39,12 @@ Node {
     property real headYaw: 0
     property real moleculeSize: 40   // cm
     property bool filesVisible: false
+    // Claude Generated 2026 - each panel can be hidden from the menu bar, all at once with B / Y
+    property bool structureVisible: true
+    property bool simulationVisible: true
+    property bool viewVisible: true
+    /// Help is open when a session starts: most users put on a headset for the first time.
+    property bool helpVisible: true
 
     readonly property real defaultMoleculeSize: 40
     /// Node the right hand rotates (its parent only translates, so world and local rotation agree).
@@ -46,6 +55,31 @@ Node {
     readonly property Model atomModel: moleculeModels.atomModel
 
     signal recenterRequested()
+
+    /// B / Y: hide the three console panels if any is shown, otherwise show all three.
+    function togglePanels() {
+        var show = !(structureVisible || simulationVisible || viewVisible)
+        structureVisible = show
+        simulationVisible = show
+        viewVisible = show
+    }
+
+    // Help and the file browser share the spot in front of the molecule: one closes the other.
+    onHelpVisibleChanged: if (helpVisible) filesVisible = false
+    onFilesVisibleChanged: if (filesVisible) helpVisible = false
+
+    /// Distance (cm) from a scene-space ray to the nearest visible panel or the menu bar, -1 if the
+    /// ray hits none. Used by both hands to decide whether the trigger clicks or turns the molecule.
+    function panelHitDistance(origin, direction) {
+        var hosts = [structureHost, simulationHost, viewHost, filesHost, helpHost, menuHost]
+        var best = -1
+        for (var i = 0; i < hosts.length; ++i) {
+            var t = hosts[i].rayDistance(origin, direction)
+            if (t >= 0 && (best < 0 || t < best))
+                best = t
+        }
+        return best
+    }
 
     function resetView() {
         anchorNode.rotation = Qt.quaternion(1, 0, 0, 0)
@@ -91,6 +125,8 @@ Node {
             eulerRotation.y: scene.headYaw
 
             VrPanelHost {
+                id: structureHost
+                visible: scene.structureVisible
                 yaw: 0
                 pitch: -28
                 distance: 58
@@ -102,6 +138,8 @@ Node {
             }
 
             VrPanelHost {
+                id: simulationHost
+                visible: scene.simulationVisible
                 yaw: 37
                 pitch: -28
                 distance: 58
@@ -111,6 +149,8 @@ Node {
             }
 
             VrPanelHost {
+                id: viewHost
+                visible: scene.viewVisible
                 yaw: -34
                 pitch: -28
                 distance: 58
@@ -124,6 +164,7 @@ Node {
             }
 
             VrPanelHost {
+                id: filesHost
                 visible: scene.filesVisible
                 yaw: 0
                 pitch: 5
@@ -131,6 +172,28 @@ Node {
                 panel: VrPanelFiles {
                     session: scene.session
                     onCloseRequested: scene.filesVisible = false
+                }
+            }
+
+            VrPanelHost {
+                id: helpHost
+                visible: scene.helpVisible
+                yaw: 0
+                pitch: 8   // taller than the file browser: clears the menu bar
+                distance: 55
+                panel: VrPanelHelp {
+                    onCloseRequested: scene.helpVisible = false
+                }
+            }
+
+            // closer than the panels, so its buttons win where it overlaps one
+            VrPanelHost {
+                id: menuHost
+                yaw: 0
+                pitch: -12
+                distance: 50
+                panel: VrMenuBar {
+                    vrScene: scene
                 }
             }
         }

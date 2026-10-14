@@ -108,7 +108,7 @@ VrPanel {
 
     Text {
         width: parent.width
-        text: panel.active ? "Right trigger on an atom pulls it."
+        text: panel.active ? "Trigger on an atom pulls it."
                            : panel.message !== "" ? panel.message
                            : "MD or Opt starts with the Simulation dock's settings."
         color: panel.runState === "Aborted" ? Style.aborted : Style.textDim

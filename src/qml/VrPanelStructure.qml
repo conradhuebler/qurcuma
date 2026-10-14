@@ -66,7 +66,7 @@ VrPanel {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             horizontalAlignment: Text.AlignRight
-            text: panel.session.selectionText !== "" ? panel.session.selectionText : "none (A on an atom)"
+            text: panel.session.selectionText !== "" ? panel.session.selectionText : "none (A / X on an atom)"
             color: panel.session.selectionText !== "" ? Style.text : Style.textDim
             font.pixelSize: Style.fontBody
             elide: Text.ElideRight

@@ -42,7 +42,7 @@ VrPanel {
 
     Text {
         width: parent.width
-        text: "Right trigger or grip turns the molecule."
+        text: "Trigger or grip (either hand) turns the molecule."
         color: Style.textDim
         font.pixelSize: Style.fontSmall
         wrapMode: Text.Wrap

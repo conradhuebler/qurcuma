@@ -27,6 +27,7 @@ Node {
         eulerRotation.x: host.pitch
 
         XrItem {
+            id: surface
             visible: host.visible
             width: host.panel ? host.panel.width / Style.pixelsPerCm : 1
             height: host.panel ? host.panel.height / Style.pixelsPerCm : 1
@@ -36,5 +37,25 @@ Node {
             color: "transparent"   // default is white, which would show around the rounded corners
             contentItem: host.panel
         }
+    }
+
+    /// Distance (cm) along a scene-space ray (unit direction) to this panel, -1 if the ray misses it
+    /// or the panel is hidden. The hands use it to tell "pointing at a panel" (trigger = click) from
+    /// "pointing at the molecule" (trigger = rotate/grab). Claude Generated.
+    function rayDistance(origin, direction) {
+        if (!host.visible || !host.panel)
+            return -1
+        // XrItem space: content in x [0, width], y [-height, 0] on the plane z = 0 (no scale on the
+        // way up, so local units are scene centimetres)
+        var o = surface.mapPositionFromScene(origin)
+        var d = surface.mapDirectionFromScene(direction)
+        if (Math.abs(d.z) < 1e-6)
+            return -1
+        var t = -o.z / d.z
+        if (t <= 0)
+            return -1
+        var x = o.x + t * d.x
+        var y = o.y + t * d.y
+        return (x >= 0 && x <= surface.width && y <= 0 && y >= -surface.height) ? t : -1
     }
 }

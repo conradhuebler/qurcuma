@@ -20,6 +20,7 @@ spikes/vr_preview/build/vr_preview --state running
 ```
 
 - `--state`: `idle`, `trajectory`, `running`, `paused`, `aborted`, `files` (file browser open),
+  `help` (help panel open), `hidden` (panels hidden, only the menu bar),
   `overlays` (three picked carbons with measurement lines, as the desktop draws them)
 - `--yaw` / `--pitch`: head direction in degrees (yaw > 0 = left, pitch > 0 = up; default 0 / -12).
   The Simulation panel sits at yaw 37, the View panel at yaw -34, both at pitch -28.
