@@ -8,7 +8,7 @@
 // preview (spikes/vr_preview) renders without a headset. Units are centimetres.
 //
 // Both hands work the same (Hand below), so left- and right-handed users need nothing to learn:
-//   trigger on a panel              = click it (the panel "mouse" follows the hand pointing at a panel)
+//   trigger on a panel              = click the button under the ray (each hand clicks on its own)
 //   trigger on an atom (simulation) = grab it with a spring force (one atom at a time)
 //   trigger elsewhere, or grip      = rotate the molecule with the hand
 //   A / X                           = select the atom under the ray
@@ -54,17 +54,8 @@ XrView {
         }
     }
 
-    /// The hand that drives the panel mouse: the last one that pointed at a panel. Switched by
-    /// Hand.updatePanelHit, never while the current one holds a click.
-    property Hand pointerHand: rightHand
     /// The hand holding an atom (null = none); VrSession knows a single grab only.
     property Hand grabHand: null
-
-    XrVirtualMouse {
-        view: xrView
-        source: xrView.pointerHand
-        leftMouseButton: xrView.pointerHand.pressing
-    }
 
     // ---- molecule and panels -----------------------------------------------------------------
     VrScene {
@@ -109,7 +100,7 @@ XrView {
 
         /// XrInputAction.LeftHand or RightHand, for the buttons of this controller
         required property int inputHand
-        required property var view   // the XrView (var: it carries pointerHand and grabHand)
+        required property var view   // the XrView (var: it carries grabHand)
         required property var vrScene
 
         poseSpace: XrController.AimPose
@@ -117,7 +108,11 @@ XrView {
         /// distance (cm) to the panel under the ray, -1 = not on a panel
         property real panelDistance: -1
         readonly property bool pointsAtPanel: panelDistance >= 0
-        /// trigger pulled while on a panel: a click in progress (the panel mouse's button)
+        /// VrButton under the ray, and the one the trigger went down on (typed: nulls itself when a
+        /// file list row is destroyed under the ray)
+        property VrButton hoverButton: null
+        property VrButton pressedButton: null
+        /// trigger pulled while on a panel: a click in progress, never a rotation
         property bool pressing: false
         property int grabAtom: -1
         readonly property bool triggerDown: trigger.value > 0.5
@@ -142,22 +137,35 @@ XrView {
             return thisHand.sceneRotation.times(Qt.vector3d(0, 0, -1))
         }
 
-        // Atom index under the ray, -1 if the ray hits no atom. rayPick reports a row of the atom
-        // instance table, which skips hidden atoms (hydrogen display, hidden molecule kinds), so the
-        // row is mapped back to the atom index.
+        // Atom index under the ray, -1 if the ray hits no atom or a panel is in front of it. The
+        // pick is limited to the atom model: an unrestricted rayPick also reports every panel's
+        // infinite plane (Qt 6.11) and those lie in front of the molecule. It reports a row of the
+        // atom instance table, which skips hidden atoms (hydrogen display, hidden molecule kinds),
+        // so the row is mapped back to the atom index.
         function atomUnderRay() {
-            var result = thisHand.view.rayPick(thisHand.scenePosition, aimDirection())
+            var result = thisHand.view.rayPick(thisHand.scenePosition, aimDirection(), thisHand.vrScene.atomModel)
             if (result.objectHit !== thisHand.vrScene.atomModel)
+                return -1
+            if (pointsAtPanel && panelDistance < result.distance)
                 return -1
             return thisHand.vrScene.sceneController.atomIndexForInstance(result.instanceIndex)
         }
 
-        // Panel under the ray; hands the panel mouse to this hand when it points at a panel and the
-        // other hand is not in the middle of a click.
+        // Panel and button under the ray. Lights the button (rayHoverCount: both hands may point at
+        // it), and shows a held button as pressed only while the ray stays on it, like a mouse.
         function updatePanelHit() {
-            panelDistance = thisHand.vrScene.panelHitDistance(thisHand.scenePosition, aimDirection())
-            if (pointsAtPanel && thisHand.view.pointerHand !== thisHand && !thisHand.view.pointerHand.pressing)
-                thisHand.view.pointerHand = thisHand
+            var hit = thisHand.vrScene.panelHit(thisHand.scenePosition, aimDirection())
+            panelDistance = hit ? hit.distance : -1
+            var button = hit ? hit.button : null
+            if (button === hoverButton)
+                return
+            if (hoverButton)
+                hoverButton.rayHoverCount--
+            hoverButton = button
+            if (hoverButton)
+                hoverButton.rayHoverCount++
+            if (pressedButton)
+                pressedButton.rayDown = pressedButton === hoverButton
         }
         onScenePositionChanged: updatePanelHit()
         onSceneRotationChanged: {
@@ -175,8 +183,10 @@ XrView {
         onTriggerDownChanged: {
             if (triggerDown) {
                 if (pointsAtPanel) {
-                    thisHand.view.pointerHand = thisHand
                     pressing = true
+                    pressedButton = hoverButton && hoverButton.enabled ? hoverButton : null
+                    if (pressedButton)
+                        pressedButton.rayDown = true
                     return
                 }
                 var atom = atomUnderRay()
@@ -185,7 +195,15 @@ XrView {
                     thisHand.view.grabHand = thisHand
                 }
             } else {
+                // Click = trigger released on the button it went down on (a mouse click's rule).
+                var button = pressedButton
+                pressedButton = null
                 pressing = false
+                if (button) {
+                    button.rayDown = false
+                    if (button === hoverButton && button.enabled)
+                        button.clicked()
+                }
                 if (grabAtom >= 0) {
                     grabAtom = -1
                     thisHand.view.grabHand = null

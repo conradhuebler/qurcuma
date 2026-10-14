@@ -68,15 +68,16 @@ Node {
     onHelpVisibleChanged: if (helpVisible) filesVisible = false
     onFilesVisibleChanged: if (filesVisible) helpVisible = false
 
-    /// Distance (cm) from a scene-space ray to the nearest visible panel or the menu bar, -1 if the
-    /// ray hits none. Used by both hands to decide whether the trigger clicks or turns the molecule.
-    function panelHitDistance(origin, direction) {
+    /// Nearest visible panel (or the menu bar) on a scene-space ray: { distance (cm), button (the
+    /// VrButton under the ray or null) }, null if the ray hits none. Used by both hands to decide
+    /// whether the trigger clicks or turns the molecule, and which button it clicks.
+    function panelHit(origin, direction) {
         var hosts = [structureHost, simulationHost, viewHost, filesHost, helpHost, menuHost]
-        var best = -1
+        var best = null
         for (var i = 0; i < hosts.length; ++i) {
-            var t = hosts[i].rayDistance(origin, direction)
-            if (t >= 0 && (best < 0 || t < best))
-                best = t
+            var hit = hosts[i].rayHit(origin, direction)
+            if (hit && (!best || hit.distance < best.distance))
+                best = hit
         }
         return best
     }

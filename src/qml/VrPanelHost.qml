@@ -4,10 +4,15 @@
 // in cm. The two nested rotations turn the panel's face exactly toward the head, so every panel is
 // seen head-on (no grazing angles) whatever its height.
 //
-// The surface is an XrItem, which renders and takes pointer input in the XrView (XrVirtualMouse)
-// and in a plain View3D alike, so the offline preview shows exactly what the headset shows.
-// XrItem puts the content's top-left corner at its origin (+x right, +y up); the offset below
-// centres it. Panel pixels are millimetres (Style.pixelsPerCm).
+// The surface is an XrItem, which renders in the XrView and in a plain View3D alike, so the offline
+// preview shows exactly what the headset shows. XrItem puts the content's top-left corner at its
+// origin (+x right, +y up); the offset below centres it. Panel pixels are millimetres
+// (Style.pixelsPerCm).
+//
+// Headset input does not use XrVirtualMouse: Qt 6.11 ray-picks an XrItem against its infinite plane
+// and stops at the first plane that has no item under the hit, so a nearer panel (the menu bar, or
+// a hidden one) swallowed clicks meant for the panel behind it. rayHit() below tests the real
+// rectangle and hands the button under the ray to the controller (viewerxr.qml Hand).
 import QtQuick
 import QtQuick3D
 import QtQuick3D.Xr
@@ -39,23 +44,43 @@ Node {
         }
     }
 
-    /// Distance (cm) along a scene-space ray (unit direction) to this panel, -1 if the ray misses it
-    /// or the panel is hidden. The hands use it to tell "pointing at a panel" (trigger = click) from
-    /// "pointing at the molecule" (trigger = rotate/grab). Claude Generated.
-    function rayDistance(origin, direction) {
+    /// Where a scene-space ray (unit direction) meets this panel: { distance (cm), button (the
+    /// VrButton under the hit, null if none) }, or null if the ray misses it or the panel is hidden.
+    /// The hands use it to tell "pointing at a panel" (trigger = click) from "pointing at the
+    /// molecule" (trigger = rotate/grab), and to drive the button. Claude Generated.
+    function rayHit(origin, direction) {
         if (!host.visible || !host.panel)
-            return -1
+            return null
         // XrItem space: content in x [0, width], y [-height, 0] on the plane z = 0 (no scale on the
         // way up, so local units are scene centimetres)
         var o = surface.mapPositionFromScene(origin)
         var d = surface.mapDirectionFromScene(direction)
         if (Math.abs(d.z) < 1e-6)
-            return -1
+            return null
         var t = -o.z / d.z
         if (t <= 0)
-            return -1
+            return null
         var x = o.x + t * d.x
         var y = o.y + t * d.y
-        return (x >= 0 && x <= surface.width && y <= 0 && y >= -surface.height) ? t : -1
+        if (x < 0 || x > surface.width || y > 0 || y < -surface.height)
+            return null
+        return { distance: t, button: buttonAt(x * Style.pixelsPerCm, -y * Style.pixelsPerCm) }
+    }
+
+    /// Topmost visible VrButton at a point of the panel (panel pixels), null if none.
+    function buttonAt(px, py) {
+        var item = host.panel
+        while (item) {
+            var child = item.childAt(px, py)
+            if (!child)
+                return null
+            var p = child.mapFromItem(item, px, py)
+            px = p.x
+            py = p.y
+            if (child.vrRayTarget === true)
+                return child
+            item = child
+        }
+        return null
     }
 }

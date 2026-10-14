@@ -1,6 +1,6 @@
 // Copyright (C) 2025 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 // Headset button (Claude Generated 2026): a large ray target with a hover ring, so the user sees
-// which button the left controller ray is on before pulling the trigger.
+// which button a controller ray is on before pulling the trigger.
 import QtQuick
 import QtQuick.Templates as T
 import "VrStyle.js" as Style
@@ -13,6 +13,12 @@ T.Button {
     property string tone: "normal"
     /// Text alignment of the label; file list rows use Text.AlignLeft.
     property int alignment: Text.AlignHCenter
+    /// Controller rays (viewerxr.qml Hand) drive the button directly, not through mouse events:
+    /// rays on it (both hands count) and a trigger held on it. Claude Generated 2026.
+    property int rayHoverCount: 0
+    property bool rayDown: false
+    /// Marks the target VrPanelHost.buttonAt looks for.
+    readonly property bool vrRayTarget: true
 
     implicitWidth: Math.max(56, implicitContentWidth + leftPadding + rightPadding)
     implicitHeight: Style.buttonHeight
@@ -32,10 +38,10 @@ T.Button {
     }
 
     background: Rectangle {
-        readonly property bool lit: control.hovered && control.enabled
+        readonly property bool lit: (control.hovered || control.rayHoverCount > 0) && control.enabled
         radius: Style.buttonRadius
         color: !control.enabled ? Style.buttonDisabled
-             : control.down ? Style.buttonDown
+             : control.down || control.rayDown ? Style.buttonDown
              : control.tone === "primary" ? (lit ? Style.primaryHover : Style.primary)
              : control.tone === "danger" ? (lit ? Style.dangerHover : Style.danger)
              : control.tone === "ghost" ? (control.highlighted ? (lit ? Style.ghostOnHover : Style.ghostOn)

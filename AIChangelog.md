@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## October 2026 - VR: Panel-Knöpfe per Controller-Strahl
+
+- Headset-Panels reagieren jetzt zuverlässig auf beide Controller („Open structure…“, Dateiliste, Stop usw.): Qt 6.11 pickt ein XrItem gegen seine unendliche Ebene und bricht beim ersten Treffer ohne Item ab, sodass die Menüleiste und versteckte Panels Klicks auf die Panels dahinter schluckten. `XrVirtualMouse` entfällt; `VrPanelHost::rayHit`/`buttonAt` testet das echte Rechteck, `Hand` (viewerxr.qml) setzt Hover/Down am `VrButton` und löst `clicked()` beim Loslassen aus.
+- Atom-Auswahl (A/X) und Grab picken nur noch das Atom-Modell (`rayPick(..., atomModel)`), dieselben Panel-Ebenen lagen vor dem Molekül.
+
 ## September 2026 - WASD im View- und Measure-Werkzeug
 
 - Q und E rollen jetzt in die jeweils andere Richtung als zuvor (getauscht); das Verschieben mit Shift+Q/E im Edit-Werkzeug bleibt, wie es war.
