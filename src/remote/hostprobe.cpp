@@ -11,6 +11,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QWebSocket>
 
 namespace remote {
@@ -21,11 +22,22 @@ constexpr int kSessionTimeoutMs = 45000;
 constexpr int kMaxConnectAttempts = 25;  // the forward needs a moment before it listens
 }
 
-QByteArray HostProbe::findServerScript()
+QByteArray HostProbe::findServerScript(const QString& typedCommand)
 {
-    // Fixed text, no value from this program is put into it. Candidate places: the PATH of
-    // the ssh session, then where a user build usually ends up.
-    return QByteArrayLiteral(
+    QByteArray check;
+    const QString word = typedCommand.trimmed().section(QLatin1Char(' '), 0, 0);
+    static const QRegularExpression safe(QStringLiteral("^[A-Za-z0-9_./~+@-]{1,300}$"));
+    if (!word.isEmpty() && safe.match(word).hasMatch()) {
+        check = "tok='" + word.toUtf8() + "'\n"
+                "case \"$tok\" in \"~/\"*) tok=\"$HOME/${tok#\"~/\"}\";; esac\n"
+                "if [ -d \"$tok\" ]; then echo CUSTOM=dir\n"
+                "elif [ -x \"$tok\" ] || command -v \"$tok\" >/dev/null 2>&1; then echo CUSTOM=ok\n"
+                "else echo CUSTOM=missing; fi\n";
+    }
+    // Fixed text, no value from this program is put into it (the typed word above passed the
+    // character check). Candidate places: the PATH of the ssh session, then where a user build
+    // usually ends up.
+    return check + QByteArrayLiteral(
         "for c in \"$(command -v qurcuma-server 2>/dev/null)\" \"$HOME/.local/bin/qurcuma-server\" "
         "\"$HOME/bin/qurcuma-server\" \"$HOME/src/qurcuma/release/qurcuma-server\" "
         "\"$HOME/src/qurcuma/build/qurcuma-server\" \"$HOME/src/qurcuma/debug/qurcuma-server\" "
@@ -98,6 +110,8 @@ void HostProbe::cancel()
 
 void HostProbe::setStep(Step step, State state, const QString& text)
 {
+    if (state == Running)
+        m_current = step;
     if (!m_done)
         emit stepChanged(int(step), int(state), text);
 }
@@ -154,7 +168,7 @@ void HostProbe::failSession(const QString& why)
 {
     if (m_done)
         return;
-    const Step running = !m_result.sshOk ? Login : (m_result.serverPath.isEmpty() || !m_result.serverRuns ? Server : Session);
+    const Step running = m_current;  // the step that was reported as running
     setStep(running, Failed, why);
     for (int s = running + 1; s <= Session; ++s)
         setStep(Step(s), Skipped, tr("not tried"));
@@ -164,6 +178,7 @@ void HostProbe::failSession(const QString& why)
 void HostProbe::start()
 {
     m_done = false;
+    m_current = Login;
     m_result = {};
     QString why;
     if (!m_profile.isValid(&why)) {
@@ -180,21 +195,38 @@ void HostProbe::start()
         m_result.sshOk = true;
         setStep(Login, Ok, tr("ssh logs in without a prompt."));
         setStep(Server, Running, tr("Looking for qurcuma-server ..."));
-        runStep({ QStringLiteral("sh -s") }, findServerScript(), [this](int code2, const QString& out2, const QString& err2) {
+        runStep({ QStringLiteral("sh -s") }, findServerScript(m_profile.serverCommand), [this](int code2, const QString& out2, const QString& err2) {
             if (code2 != 0) {
                 failSession(tr("The search for qurcuma-server failed: %1").arg(err2.trimmed()));
                 return;
             }
             bool runs = false;
+            QString custom_state;
             for (const QString& line : out2.split(QLatin1Char('\n'))) {
                 if (line.startsWith(QStringLiteral("SERVER=")))
                     m_result.serverPath = line.mid(7).trimmed();
                 else if (line.trimmed() == QStringLiteral("RUNS=1"))
                     runs = true;
+                else if (line.startsWith(QStringLiteral("CUSTOM=")))
+                    custom_state = line.mid(7).trimmed();
             }
             m_result.serverRuns = runs;
             // A server command typed by the user wins over the one found.
             const QString custom = m_profile.serverCommand.trimmed();
+            // The command the user typed is checked first: a wrong one would otherwise only show up
+            // as a failed session. If the search found a server, its path is offered.
+            if (!custom.isEmpty() && (custom_state == QStringLiteral("missing") || custom_state == QStringLiteral("dir"))) {
+                const QString word = custom.section(QLatin1Char(' '), 0, 0);
+                QString msg = custom_state == QStringLiteral("dir")
+                    ? tr("'%1' is a directory on %2; the server command needs the path of the qurcuma-server file.").arg(word, m_profile.target)
+                    : tr("'%1' does not exist on %2.").arg(word, m_profile.target);
+                if (!m_result.serverPath.isEmpty())
+                    msg += tr(" qurcuma-server was found at %1: clear the field to use it.").arg(m_result.serverPath);
+                else
+                    msg += tr(" qurcuma-server was not found anywhere on that computer; build it there (cmake --build <dir> --target qurcuma-server).");
+                failSession(msg);
+                return;
+            }
             if (m_result.serverPath.isEmpty() && custom.isEmpty()) {
                 failSession(tr("qurcuma-server was not found on %1. Build it there (cmake --build <dir> --target qurcuma-server) "
                                "and enter its full path as the server command.").arg(m_profile.target));
@@ -204,8 +236,8 @@ void HostProbe::start()
                 failSession(tr("Found %1, but it does not start (missing libraries?). Try it with --help on that computer.").arg(m_result.serverPath));
                 return;
             }
-            setStep(Server, Ok, m_result.serverPath.isEmpty() ? tr("Using the server command you entered.")
-                                                              : tr("Found %1.").arg(m_result.serverPath));
+            setStep(Server, Ok, !custom.isEmpty() ? tr("The server command you entered exists.")
+                                                  : tr("Found %1.").arg(m_result.serverPath));
             runSession(custom.isEmpty() ? m_result.serverPath : custom);
         });
     });

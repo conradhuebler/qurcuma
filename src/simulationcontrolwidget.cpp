@@ -406,16 +406,24 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     m_computeCombo->setToolTip(tr("Where simulations run. Another computer is reached over ssh "
                                   "(key or agent, no password prompt) and needs qurcuma-server."));
     auto* addComputer = new QToolButton(this);
-    addComputer->setText(QStringLiteral("+"));
+    addComputer->setIcon(AddComputerDialog::icon(QStringLiteral("list-add"), QStyle::SP_FileDialogNewFolder));
+    addComputer->setAccessibleName(tr("Add computer"));
     addComputer->setToolTip(tr("Add a computer (address, key, test of the connection and of qurcuma-server)."));
+    m_testComputer = new QToolButton(this);
+    m_testComputer->setIcon(AddComputerDialog::icon(QStringLiteral("network-connect"), QStyle::SP_DriveNetIcon));
+    m_testComputer->setAccessibleName(tr("Test computer"));
+    m_testComputer->setToolTip(tr("Check the connection to the selected computer and look for qurcuma-server on it."));
     m_editComputer = new QToolButton(this);
-    m_editComputer->setText(tr("Edit"));
+    m_editComputer->setIcon(AddComputerDialog::icon(QStringLiteral("document-edit"), QStyle::SP_FileDialogContentsView));
+    m_editComputer->setAccessibleName(tr("Edit computer"));
     m_removeComputer = new QToolButton(this);
-    m_removeComputer->setText(QStringLiteral("\u2212"));
+    m_removeComputer->setIcon(AddComputerDialog::icon(QStringLiteral("list-remove"), QStyle::SP_TrashIcon));
+    m_removeComputer->setAccessibleName(tr("Remove computer"));
     m_removeComputer->setToolTip(tr("Remove the selected computer from qurcuma's list (only computers added here; "
                                     "~/.ssh/config is not changed)."));
     auto* computerRow = new QHBoxLayout;
     computerRow->addWidget(m_computeCombo, 1);
+    computerRow->addWidget(m_testComputer);
     computerRow->addWidget(addComputer);
     computerRow->addWidget(m_editComputer);
     computerRow->addWidget(m_removeComputer);
@@ -424,6 +432,7 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     auto updateComputerButtons = [this] {
         const QString host = m_computeCombo->currentData().toString();
         const bool saved = AddComputerDialog::isSavedComputer(host);
+        m_testComputer->setEnabled(!host.isEmpty());
         m_editComputer->setEnabled(saved);
         m_removeComputer->setEnabled(saved);
         const QString why = host.isEmpty() ? tr("This computer needs no setup.")
@@ -470,6 +479,27 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
         QSettings().setValue(QStringLiteral("remote/serverCommand/") + p.name, p.effectiveServerCommand());
         AddComputerDialog::fillHostCombo(m_computeCombo, true, p.name);
         m_computeCombo->currentIndexChanged(m_computeCombo->currentIndex());
+    });
+    connect(m_testComputer, &QToolButton::clicked, this, [this] {
+        const QString host = m_computeCombo->currentData().toString();
+        if (host.isEmpty())
+            return;
+        // A saved computer is tested with its address, port and key; an entry of ~/.ssh/config by
+        // its name (ssh reads the rest). The server command is the one in the field.
+        remote::HostProfile p;
+        if (const auto saved = remote::HostProfiles::find(host); saved && AddComputerDialog::isSavedComputer(host))
+            p = *saved;
+        else {
+            p.name = host;
+            p.target = host;
+        }
+        p.serverCommand = m_serverCommandEdit->text().trimmed();
+        AddComputerDialog dialog(this, p, true);
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+        const QString command = dialog.profile().effectiveServerCommand();
+        QSettings().setValue(QStringLiteral("remote/serverCommand/") + host, command);
+        m_serverCommandEdit->setText(command);
     });
     connect(m_editComputer, &QToolButton::clicked, this, [this] {
         const QString host = m_computeCombo->currentData().toString();

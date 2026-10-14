@@ -305,6 +305,51 @@ else:
         const Outcome o = probe(typed);
         CHECK(o.done && o.result.sessionOk);
     }
+    // a typed server command is checked on the remote side before the session is tried
+    QFile::remove(bin + "/qurcuma-server");
+    QFile::link(realServer, bin + "/qurcuma-server");
+    qputenv("PATH", (bin.toUtf8() + ":" + basePath));
+    {   // it does not exist (a wrong path): step 2 fails, and says where the server really is
+        remote::HostProfile typed = prof;
+        typed.serverCommand = QStringLiteral("/home/nobody/qurcuma/release/qurcuma-server --root /x");
+        const Outcome o = probe(typed);
+        CHECK(o.done && o.result.sshOk && !o.result.sessionOk);
+        CHECK(o.steps.contains("1:3") && o.steps.contains("2:4"));
+        CHECK(o.result.message.contains("does not exist") && o.result.message.contains(bin + "/qurcuma-server"));
+    }
+    {   // it is a directory (the file name is missing)
+        remote::HostProfile typed = prof;
+        typed.serverCommand = bin;
+        const Outcome o = probe(typed);
+        CHECK(o.done && !o.result.sessionOk && o.result.message.contains("is a directory"));
+    }
+    {   // it exists, with arguments: the first word is checked, the session works
+        remote::HostProfile typed = prof;
+        typed.serverCommand = realServer + " --grace 5";
+        const Outcome o = probe(typed);
+        CHECK(o.done && o.result.sessionOk);
+    }
+    {   // a command with characters a shell would interpret is not put into the check script
+        const QByteArray script = remote::HostProbe::findServerScript(QStringLiteral("x;touch${IFS}/tmp/pwn"));
+        CHECK(!script.contains("pwn") && !script.contains("CUSTOM"));
+        CHECK(remote::HostProbe::findServerScript(QStringLiteral("/opt/q/qurcuma-server --root /s")).contains("tok='/opt/q/qurcuma-server'"));
+    }
+    {   // the tunnel names a missing server command instead of a bare exit code
+        remote::HostProfile typed = prof;
+        typed.serverCommand = QStringLiteral("/nonexistent/qurcuma-server");
+        remote::SshTunnel tunnel(typed);
+        QString failure;
+        QEventLoop loop;
+        QTimer limit;
+        limit.setSingleShot(true);
+        QObject::connect(&limit, &QTimer::timeout, &loop, &QEventLoop::quit);
+        QObject::connect(&tunnel, &remote::SshTunnel::failed, [&](const QString& m) { failure = m; loop.quit(); });
+        QObject::connect(&tunnel, &remote::SshTunnel::ready, &loop, &QEventLoop::quit);
+        limit.start(30000);
+        tunnel.start();
+        loop.exec();
+        CHECK(failure.contains("does not exist") && failure.contains("/nonexistent/qurcuma-server") && failure.contains("Test"));
+    }
     {   // ssh refuses: step 1 fails with the way out, the rest is not tried
         remote::HostProfile denied = prof;
         denied.target = QStringLiteral("denied");

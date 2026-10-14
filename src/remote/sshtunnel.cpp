@@ -100,10 +100,19 @@ void SshTunnel::start()
             fail(tr("Could not start '%1'.").arg(sshProgram()));
     });
     connect(m_server, &QProcess::finished, this, [this](int code, QProcess::ExitStatus) {
-        if (!m_done)
-            fail(tr("ssh to %1 ended before the server was ready (exit %2). %3").arg(m_host).arg(code)
-                     .arg(m_stderr.trimmed().isEmpty() ? tr("ssh printed nothing; the server command may not exist or may have exited.")
-                                                      : m_stderr.trimmed()));
+        if (m_done)
+            return;
+        // exit 127 / "not found": the command does not exist there (a wrong path, or no server built)
+        const QString err = m_stderr.trimmed();
+        if (code == 127 || err.contains(QStringLiteral("Unknown command")) || err.contains(QStringLiteral("command not found"))
+            || err.contains(QStringLiteral("No such file or directory"))) {
+            fail(tr("The server command '%1' does not exist on %2 (exit %3). Use Test next to \"Compute on\" to look for qurcuma-server "
+                    "there, or build it on that computer (cmake --build <dir> --target qurcuma-server).")
+                     .arg(m_serverCommand.section(QLatin1Char(' '), 0, 0), m_host).arg(code));
+            return;
+        }
+        fail(tr("ssh to %1 ended before the server was ready (exit %2). %3").arg(m_host).arg(code)
+                 .arg(err.isEmpty() ? tr("ssh printed nothing; the server command may not exist or may have exited.") : err));
     });
     connect(m_server, &QProcess::started, this, [this] { m_server->write((m_token + QLatin1Char('\n')).toUtf8()); });
     emit log(tr("running: %1 %2").arg(sshProgram(), serverArgs(m_target, m_serverCommand, m_extra).join(QLatin1Char(' '))));

@@ -53,7 +53,10 @@ public:
     /// Hint for the usual ssh failures, from ssh's own message (also used by the tests).
     static QString explainSshFailure(const QString& stderrText, const HostProfile& profile);
     /// The script run on the remote side (`sh -s`); it takes no input from this program.
-    static QByteArray findServerScript();
+    /// With @p typedCommand (the user's own server command) the script also reports whether its
+    /// executable exists there: `CUSTOM=ok|dir|missing`. Only the first word is used and only when
+    /// it has no characters a shell would interpret, so nothing typed can end up as shell syntax.
+    static QByteArray findServerScript(const QString& typedCommand = QString());
 
 signals:
     /// State and one line of detail for a step (the dialog shows them as a list).
@@ -82,6 +85,7 @@ private:
     qint64 m_pingSentMs = 0;
     bool m_welcomed = false;
     bool m_done = false;
+    Step m_current = Login;  ///< the step that is running (for failSession)
 };
 
 } // namespace remote

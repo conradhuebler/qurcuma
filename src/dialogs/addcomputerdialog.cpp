@@ -7,6 +7,7 @@
 #include "remote/hostprobe.h"
 #include "sshconfig.h"
 
+#include <QApplication>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDir>
@@ -81,10 +82,19 @@ const char* const kStepNames[3] = { QT_TRANSLATE_NOOP("AddComputerDialog", "Logi
     QT_TRANSLATE_NOOP("AddComputerDialog", "Server"), QT_TRANSLATE_NOOP("AddComputerDialog", "Session") };
 }
 
-AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote::HostProfile>& edit)
-    : QDialog(parent)
+QIcon AddComputerDialog::icon(const QString& themeName, QStyle::StandardPixmap fallback)
 {
-    setWindowTitle(edit ? tr("Edit computer") : tr("Add computer"));
+    const QIcon themed = QIcon::fromTheme(themeName);
+    return themed.isNull() ? QApplication::style()->standardIcon(fallback) : themed;
+}
+
+AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote::HostProfile>& edit, bool testOnly)
+    : QDialog(parent)
+    , m_testOnly(testOnly && edit)
+{
+    setWindowTitle(m_testOnly ? tr("Test computer") : edit ? tr("Edit computer") : tr("Add computer"));
+    resize(660, 480);
+    setMinimumWidth(580);
     auto* layout = new QVBoxLayout(this);
     auto* intro = new QLabel(tr("A computer that runs the simulations for this window. qurcuma reaches it over ssh without a password "
                                 "prompt (key or ssh agent), and qurcuma-server must be installed on it."), this);
@@ -105,7 +115,7 @@ AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote
     form->addRow(tr("ssh port:"), m_port);
     m_key = new QLineEdit(this);
     m_key->setPlaceholderText(tr("empty: ssh agent and default keys"));
-    m_browse = new QPushButton(tr("Browse..."), this);
+    m_browse = new QPushButton(icon(QStringLiteral("document-open"), QStyle::SP_DirOpenIcon), tr("Browse..."), this);
     auto* keyRow = new QHBoxLayout;
     keyRow->addWidget(m_key);
     keyRow->addWidget(m_browse);
@@ -118,7 +128,7 @@ AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote
     layout->addLayout(form);
 
     // The test, in three steps that each show their own state.
-    m_test = new QPushButton(tr("Test connection"), this);
+    m_test = new QPushButton(icon(QStringLiteral("network-connect"), QStyle::SP_DriveNetIcon), tr("Test connection"), this);
     m_problem = new QLabel(this);
     m_problem->setWordWrap(true);
     auto* testRow = new QHBoxLayout;
@@ -126,11 +136,16 @@ AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote
     testRow->addStretch(1);
     layout->addLayout(testRow);
     for (int i = 0; i < 3; ++i) {
+        m_stepIcons[i] = new QLabel(this);
+        m_stepIcons[i]->setFixedSize(20, 20);
         m_stepLabels[i] = new QLabel(this);
         m_stepLabels[i]->setWordWrap(true);
         m_stepLabels[i]->setTextFormat(Qt::RichText);
         m_stepLabels[i]->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        layout->addWidget(m_stepLabels[i]);
+        auto* row = new QHBoxLayout;
+        row->addWidget(m_stepIcons[i], 0, Qt::AlignTop);
+        row->addWidget(m_stepLabels[i], 1);
+        layout->addLayout(row);
     }
     m_progress = new QProgressBar(this);
     m_progress->setRange(0, 0);  // busy indicator
@@ -147,7 +162,7 @@ AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     m_ok = buttons->button(QDialogButtonBox::Ok);
-    m_ok->setText(edit ? tr("Save") : tr("Add"));
+    m_ok->setText(m_testOnly ? tr("Use this server command") : edit ? tr("Save") : tr("Add"));
     layout->addWidget(buttons);
 
     if (edit) {
@@ -160,6 +175,8 @@ AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote
     }
     for (int i = 0; i < 3; ++i)
         onStep(i, int(remote::HostProbe::Pending), QString());
+    if (m_testOnly)
+        setBusy(false);  // greys out the fixed fields
 
     connect(m_browse, &QPushButton::clicked, this, [this] {
         const QString f = QFileDialog::getOpenFileName(this, tr("ssh key file"), QDir::homePath() + QStringLiteral("/.ssh"));
@@ -208,8 +225,9 @@ remote::HostProfile AddComputerDialog::profile() const
 void AddComputerDialog::setBusy(bool busy)
 {
     // Everything that would change the test while it runs is greyed out.
-    for (QWidget* w : std::initializer_list<QWidget*>{ m_address, m_name, m_port, m_key, m_serverCommand, m_browse })
-        w->setEnabled(!busy);
+    for (QWidget* w : std::initializer_list<QWidget*>{ m_address, m_name, m_port, m_key, m_browse })
+        w->setEnabled(!busy && !m_testOnly);  // fixed in the test-only mode
+    m_serverCommand->setEnabled(!busy);
     m_progress->setVisible(busy);
     m_test->setText(busy ? tr("Cancel test") : tr("Test connection"));
     updateButtons();
@@ -269,13 +287,20 @@ void AddComputerDialog::onStep(int step, int state, const QString& text)
 {
     if (step < 0 || step > 2)
         return;
-    struct Look { const char* mark; const char* colour; };
-    static const Look looks[] = { { "\u25CB", "#757575" }, { "\u2026", "#1565c0" }, { "\u2714", "#2e7d32" }, { "\u2718", "#c62828" }, { "\u2013", "#757575" } };
+    struct Look { const char* theme; QStyle::StandardPixmap fallback; const char* colour; };
+    // pending, running, ok, failed, skipped
+    static const Look looks[] = {
+        { "dialog-question", QStyle::SP_MessageBoxQuestion, "#757575" },
+        { "view-refresh", QStyle::SP_BrowserReload, "#1565c0" },
+        { "dialog-ok-apply", QStyle::SP_DialogApplyButton, "#2e7d32" },
+        { "dialog-error", QStyle::SP_MessageBoxCritical, "#c62828" },
+        { "go-next", QStyle::SP_ArrowForward, "#757575" } };
     const Look& l = looks[qBound(0, state, 4)];
+    m_stepIcons[step]->setPixmap(icon(QString::fromLatin1(l.theme), l.fallback).pixmap(16, 16));
     const QString name = QCoreApplication::translate("AddComputerDialog", kStepNames[step]);
     const QString detail = state == int(remote::HostProbe::Pending) ? tr("not tried yet") : text;
-    m_stepLabels[step]->setText(QStringLiteral("<span style='color:%1'>%2 <b>%3</b></span> &nbsp;%4")
-                                    .arg(QLatin1String(l.colour), QString::fromUtf8(l.mark), name.toHtmlEscaped(), detail.toHtmlEscaped()));
+    m_stepLabels[step]->setText(QStringLiteral("<span style='color:%1'><b>%2</b> &nbsp;%3</span>")
+                                    .arg(QLatin1String(l.colour), name.toHtmlEscaped(), detail.toHtmlEscaped()));
 }
 
 void AddComputerDialog::onProbeFinished(const remote::ProbeResult& result)
@@ -296,6 +321,10 @@ void AddComputerDialog::onProbeFinished(const remote::ProbeResult& result)
 
 void AddComputerDialog::tryAccept()
 {
+    if (m_testOnly) {
+        accept();
+        return;
+    }
     QString why;
     const remote::HostProfile p = profile();
     if (m_originalName.isEmpty() || p.name != m_originalName) {
