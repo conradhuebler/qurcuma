@@ -66,6 +66,14 @@ public:
     bool darkModeEnabled() const;
     void setDarkMode(bool enabled);
 
+    // Claude Generated 2026 - Surroundings of the VR headset scene (files; empty = none).
+    QString vrPanorama() const;               // 360 degree equirectangular image, the sky box
+    void setVrPanorama(const QString& path);
+    QString vrSurroundings() const;           // 3D scene file (glTF/GLB/OBJ)
+    void setVrSurroundings(const QString& path);
+    bool vrSurroundingsInCentimetres() const; // its units: false = metres (glTF convention)
+    void setVrSurroundingsInCentimetres(bool on);
+
     // Claude Generated 2026 - "Use Invocation Directory" preference.
     // When enabled, the directory from which qurcuma was launched
     // (QDir::currentPath() at process start) becomes the active Working

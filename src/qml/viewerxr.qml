@@ -13,6 +13,9 @@
 //   trigger elsewhere, or grip      = rotate the molecule with the hand
 //   A / X                           = select the atom under the ray
 //   B / Y                           = hide / show the panels
+// The thumbsticks are the one exception (Claude Generated 2026), they move the user, not the scene:
+//   left stick                      = walk (horizontal, relative to where the head looks)
+//   right stick left / right        = snap turn by 45 degrees about the head
 // The help panel (VrPanelHelp.qml) explains the same; keep both in sync.
 import QtQuick
 import QtQuick3D
@@ -25,11 +28,19 @@ XrView {
     quitOnSessionEnd: false   // the headset session ending must not quit qurcuma
     onSessionEnded: vr.ended()
 
+    // Surroundings (Claude Generated 2026): a 360 degree panorama (equirectangular image, e.g. .hdr
+    // or .jpg) becomes the sky box; without one the desktop background colour fills the view. Qt
+    // folds the panorama into a cube map and also lights the scene with it (image-based lighting).
     environment: SceneEnvironment {
-        backgroundMode: SceneEnvironment.Color
+        backgroundMode: vr.panorama.toString() !== "" ? SceneEnvironment.SkyBox : SceneEnvironment.Color
         clearColor: controller.backgroundColor
+        lightProbe: vr.panorama.toString() !== "" ? panoramaTexture : null
         antialiasingMode: SceneEnvironment.MSAA
         antialiasingQuality: SceneEnvironment.Medium
+    }
+    Texture {
+        id: panoramaTexture
+        source: vr.panorama
     }
 
     // ---- head and hands ----------------------------------------------------------------------
@@ -57,12 +68,67 @@ XrView {
     /// The hand holding an atom (null = none); VrSession knows a single grab only.
     property Hand grabHand: null
 
+    // ---- locomotion: left stick walks, right stick snap-turns (Claude Generated 2026) -----------
+    // The user moves, not the scene: both act on the XrOrigin, which carries head and hands, so the
+    // molecule, the panels and the surroundings stay where they are. Qt Quick 3D is y-up, -z forward;
+    // walking stays in the horizontal x/z plane.
+    XrInputAction { id: walkX; hand: XrInputAction.LeftHand; actionId: XrInputAction.ThumbstickX }
+    XrInputAction { id: walkY; hand: XrInputAction.LeftHand; actionId: XrInputAction.ThumbstickY }
+    XrInputAction { id: turnX; hand: XrInputAction.RightHand; actionId: XrInputAction.ThumbstickX }
+
+    /// Stick deflection below this is ignored (resting sticks never read exactly 0).
+    readonly property real stickDeadzone: 0.15
+    /// True while a snap turn rotates the origin: the hands must not read it as a rotate gesture.
+    property bool turning: false
+
+    FrameAnimation {
+        running: Math.hypot(walkX.value, walkY.value) > xrView.stickDeadzone
+        onTriggered: xrView.walk(frameTime)
+    }
+
+    /// Move the origin by the left stick for @p dt seconds: forward = where the head looks,
+    /// flattened to the floor; speed rises from 0 at the deadzone to Style.walkSpeed at full tilt.
+    function walk(dt) {
+        var x = walkX.value
+        var y = walkY.value
+        var tilt = Math.hypot(x, y)
+        if (tilt <= stickDeadzone)
+            return
+        var look = headCamera.sceneRotation.times(Qt.vector3d(0, 0, -1))
+        var forward = Qt.vector3d(look.x, 0, look.z)
+        if (forward.length() < 1e-3)   // looking straight up or down: no heading
+            return
+        forward = forward.normalized()
+        var right = Qt.vector3d(-forward.z, 0, forward.x)
+        var speed = Style.walkSpeed * Math.min(1, (tilt - stickDeadzone) / (1 - stickDeadzone)) / tilt
+        origin.position = origin.position.plus(forward.times(y * speed * dt).plus(right.times(x * speed * dt)))
+    }
+
+    // One turn per push: the stick has to come back towards the centre before the next one.
+    readonly property int turnDirection: turnX.value > 0.6 ? 1 : turnX.value < -0.6 ? -1 : 0
+    onTurnDirectionChanged: if (turnDirection !== 0) snapTurn(-turnDirection * Style.snapTurnDegrees)
+
+    /// Turn the user by @p degrees (> 0 = left) about the vertical axis through the head, so the
+    /// head stays in place: origin' = head + R (origin - head), rotation' = R rotation.
+    function snapTurn(degrees) {
+        var r = Quaternion.fromEulerAngles(0, degrees, 0)
+        var head = headCamera.scenePosition
+        turning = true
+        origin.position = head.plus(r.times(origin.position.minus(head)))
+        origin.rotation = r.times(origin.rotation)
+        turning = false
+        rightHand.lastRotation = rightHand.sceneRotation
+        leftHand.lastRotation = leftHand.sceneRotation
+    }
+
     // ---- molecule and panels -----------------------------------------------------------------
     VrScene {
         id: scene
         session: vr
         sceneController: controller
         instancing: xrInstancing
+        surroundingsSource: vr.surroundings
+        surroundingsScale: vr.surroundingsScale
         onRecenterRequested: xrView.recenter()
     }
 
@@ -87,6 +153,11 @@ XrView {
             var q = headCamera.sceneRotation
             if (p.x !== 0 || p.y !== 0 || p.z !== 0 || q.scalar !== 1) {
                 xrView.recenter()
+                // Floor for the surroundings: y = 0 in a floor-based reference space; in "local"
+                // space the origin is the starting head, so the floor is one eye height below it.
+                var floorBased = xrView.referenceSpace === XrView.ReferenceSpaceStage
+                              || xrView.referenceSpace === XrView.ReferenceSpaceLocalFloor
+                scene.floorHeight = floorBased ? 0 : p.y - Style.eyeHeight
                 stop()
             } else if (++tries > 40) {
                 stop()
@@ -170,7 +241,7 @@ XrView {
         onScenePositionChanged: updatePanelHit()
         onSceneRotationChanged: {
             updatePanelHit()
-            if (!rotating)
+            if (!rotating || thisHand.view.turning)
                 return
             // delta = current * inverse(last), applied in world space (the anchor's parent only
             // translates, so its local rotation is its world rotation)

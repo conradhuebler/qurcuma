@@ -16,7 +16,9 @@ VrPanel {
         { keys: "Hold Trigger or Grip", text: "away from the panels and turn your hand: the molecule turns with it" },
         { keys: "A / X", text: "on an atom selects it (shown in Structure)" },
         { keys: "Hold Trigger", text: "on an atom while a simulation runs pulls the atom" },
-        { keys: "B / Y", text: "hides or shows all panels" }
+        { keys: "B / Y", text: "hides or shows all panels" },
+        { keys: "Left stick", text: "walks where you look" },
+        { keys: "Right stick", text: "left / right turns you by 45°" }
     ]
 
     title: "How to use"
@@ -30,7 +32,7 @@ VrPanel {
 
     Text {
         width: parent.width
-        text: "Both controllers work the same – use whichever hand you like."
+        text: "Both controllers work the same – use whichever hand you like. Only the sticks differ."
         color: Style.text
         font.pixelSize: Style.fontBody
         wrapMode: Text.Wrap

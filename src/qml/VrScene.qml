@@ -15,11 +15,13 @@
 //   Open structure  yaw   0, pitch  +5, 55 cm   on demand, in front of the molecule
 //   How to use      yaw   0, pitch  +8, 55 cm   help, open at start; shares the spot with the files
 //   Menu bar        yaw   0, pitch -12, 50 cm   see-through toggles for the panels and Help
+//   Surroundings    world-fixed at the floor, does not follow "Recenter" (a room stays a room)
 // The three console panels sit below the molecule, where a controller ray reaches them from a relaxed
 // arm; the file browser and the help open where the user is already looking. The menu bar never
 // hides, so hidden panels are always one click away.
 import QtQuick
 import QtQuick3D
+import QtQuick3D.AssetUtils
 
 Node {
     id: scene
@@ -45,6 +47,12 @@ Node {
     property bool viewVisible: true
     /// Help is open when a session starts: most users put on a headset for the first time.
     property bool helpVisible: true
+    /// Surroundings (Claude Generated 2026): a 3D scene file (glTF/GLB/OBJ...) placed around the
+    /// user, empty = none; its units in cm (100 = metres, the glTF convention; 1 = centimetres); and
+    /// the floor height (cm) it stands on, set by the XR host.
+    property url surroundingsSource
+    property real surroundingsScale: 100
+    property real floorHeight: 0
 
     readonly property real defaultMoleculeSize: 40
     /// Node the right hand rotates (its parent only translates, so world and local rotation agree).
@@ -85,6 +93,17 @@ Node {
     function resetView() {
         anchorNode.rotation = Qt.quaternion(1, 0, 0, 0)
         moleculeSize = defaultMoleculeSize
+    }
+
+    // ---- surroundings: loaded at run time, so any scene the user picks works without a rebuild ----
+    RuntimeLoader {
+        id: surroundings
+        source: scene.surroundingsSource
+        visible: scene.surroundingsSource.toString() !== ""
+        y: scene.floorHeight
+        scale: Qt.vector3d(scene.surroundingsScale, scene.surroundingsScale, scene.surroundingsScale)
+        onStatusChanged: if (status === RuntimeLoader.Error)
+            console.warn("VR surroundings could not be loaded:", errorString)
     }
 
     DirectionalLight { eulerRotation.x: -40; eulerRotation.y: -50; brightness: 1.0 }

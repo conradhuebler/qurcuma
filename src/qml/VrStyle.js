@@ -61,3 +61,8 @@ var headerHeight = 24
 var buttonHeight = 44
 var buttonRadius = 8
 var listRowHeight = 36
+
+// ---- locomotion and surroundings (Claude Generated 2026) ----------------------------------------
+var walkSpeed = 150          // cm/s at full left-stick tilt, a brisk walk
+var snapTurnDegrees = 45     // right-stick snap turn
+var eyeHeight = 160          // cm, floor below the starting head when the runtime has no floor

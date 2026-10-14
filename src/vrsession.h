@@ -19,6 +19,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QUrl>
 #include <QVariantList>
 #include <QVector3D>
 #include <QQmlEngine>
@@ -61,6 +62,12 @@ class VrSession : public QObject {
     /// empty while a run is active or before the first one).
     Q_PROPERTY(bool simulationPaused READ simulationPaused NOTIFY simulationStatusChanged)
     Q_PROPERTY(QString simulationMessage READ simulationMessage NOTIFY simulationStatusChanged)
+    /// Surroundings (Claude Generated 2026): 360 degree panorama (equirectangular image) shown as the
+    /// sky box, and a 3D scene file (glTF/GLB/OBJ, metres) around the user; empty = none.
+    Q_PROPERTY(QUrl panorama READ panorama NOTIFY surroundingsChanged)
+    Q_PROPERTY(QUrl surroundings READ surroundings NOTIFY surroundingsChanged)
+    /// Centimetres per unit of the surroundings file: 100 = metres (glTF convention), 1 = centimetres.
+    Q_PROPERTY(double surroundingsScale READ surroundingsScale NOTIFY surroundingsChanged)
 public:
     /// @p scene is the desktop viewer's controller; it must outlive the session (or stop() first).
     explicit VrSession(SceneController* scene, QObject* parent = nullptr);
@@ -93,6 +100,13 @@ public:
     /// Pause state and end line of the run (Claude Generated 2026).
     void setSimulationStatus(bool paused, const QString& message);
 
+    QUrl panorama() const { return m_panorama; }
+    QUrl surroundings() const { return m_surroundings; }
+    double surroundingsScale() const { return m_surroundingsScale; }
+    /// Local files for the sky box panorama and the surroundings scene (empty paths clear them), and
+    /// the scene's units in centimetres.
+    void setSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale);
+
     QString currentDir() const { return m_currentDir; }
     QVariantList entries() const { return m_entries; }
     /// Directory the browser opens in (falls back to the home directory).
@@ -124,6 +138,7 @@ signals:
     void simulationActiveChanged();
     void statusChanged();
     void simulationStatusChanged();
+    void surroundingsChanged();
 
 private:
     SceneController* m_scene = nullptr;      // desktop controller, not owned
@@ -143,6 +158,9 @@ private:
     double m_grabStrength = 0.0;
     bool m_simulationPaused = false;
     QString m_simulationMessage;
+    QUrl m_panorama;
+    QUrl m_surroundings;
+    double m_surroundingsScale = 100.0;
 
     void refreshEntries();
 };

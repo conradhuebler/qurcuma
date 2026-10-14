@@ -1141,6 +1141,55 @@ void MainWindow::createMenus()
         }
     });
     connect(m_moleculeView, &MoleculeViewer::vrActiveChanged, vrAction, &QAction::setChecked);
+
+    // Claude Generated 2026 - Surroundings of the headset scene: a 360 degree panorama as the sky
+    // box and/or a 3D scene file around the user. Remembered; a file that is gone is skipped.
+    QMenu* vrSurroundingsMenu = viewMenu->addMenu(tr("VR &Surroundings"));
+    const auto applyVrSurroundings = [this] {
+        const QString panorama = m_settings.vrPanorama();
+        const QString scene = m_settings.vrSurroundings();
+        m_moleculeView->setVrSurroundings(QFileInfo::exists(panorama) ? panorama : QString(),
+                                          QFileInfo::exists(scene) ? scene : QString(),
+                                          m_settings.vrSurroundingsInCentimetres() ? 1.0 : 100.0);
+    };
+    QAction* panoramaAction = vrSurroundingsMenu->addAction(tr("&Panorama (Sky Box)..."));
+    panoramaAction->setToolTip(tr("360° equirectangular image (.hdr, .exr, .jpg, .png) shown around the headset user"));
+    connect(panoramaAction, &QAction::triggered, this, [this, applyVrSurroundings] {
+        const QString path = QFileDialog::getOpenFileName(this, tr("VR Panorama"),
+            QFileInfo(m_settings.vrPanorama()).absolutePath(),
+            tr("Panoramas (*.hdr *.exr *.jpg *.jpeg *.png *.ktx);;All files (*)"));
+        if (path.isEmpty())
+            return;
+        m_settings.setVrPanorama(path);
+        applyVrSurroundings();
+    });
+    QAction* sceneAction = vrSurroundingsMenu->addAction(tr("3D &Scene..."));
+    sceneAction->setToolTip(tr("3D scene file (glTF/GLB, OBJ, FBX) placed around the headset user"));
+    connect(sceneAction, &QAction::triggered, this, [this, applyVrSurroundings] {
+        const QString path = QFileDialog::getOpenFileName(this, tr("VR 3D Scene"),
+            QFileInfo(m_settings.vrSurroundings()).absolutePath(),
+            tr("3D scenes (*.gltf *.glb *.obj *.fbx);;All files (*)"));
+        if (path.isEmpty())
+            return;
+        m_settings.setVrSurroundings(path);
+        applyVrSurroundings();
+    });
+    // glTF is defined in metres, but many exported scenes are in centimetres.
+    QAction* centimetresAction = vrSurroundingsMenu->addAction(tr("3D Scene Units in &Centimetres"));
+    centimetresAction->setCheckable(true);
+    centimetresAction->setChecked(m_settings.vrSurroundingsInCentimetres());
+    centimetresAction->setToolTip(tr("Off: one unit of the 3D scene is a metre (glTF convention). "
+                                     "On: one unit is a centimetre."));
+    connect(centimetresAction, &QAction::toggled, this, [this, applyVrSurroundings](bool on) {
+        m_settings.setVrSurroundingsInCentimetres(on);
+        applyVrSurroundings();
+    });
+    vrSurroundingsMenu->addSeparator();
+    connect(vrSurroundingsMenu->addAction(tr("Clear Panorama")), &QAction::triggered, this,
+        [this, applyVrSurroundings] { m_settings.setVrPanorama(QString()); applyVrSurroundings(); });
+    connect(vrSurroundingsMenu->addAction(tr("Clear 3D Scene")), &QAction::triggered, this,
+        [this, applyVrSurroundings] { m_settings.setVrSurroundings(QString()); applyVrSurroundings(); });
+    applyVrSurroundings();
     viewMenu->addSeparator();
 #endif
 

@@ -1,5 +1,10 @@
 # AIChangelog - Qurcuma Improvements
 
+## October 2026 - VR: Bewegen und Umgebung
+
+- Linker Stick läuft (horizontal, in Blickrichtung, bis 1,5 m/s), rechter Stick dreht in 45°-Schritten um den Kopf; beides verschiebt den `XrOrigin`, Molekül, Panels und Umgebung bleiben stehen. Ein Snap-Turn während Trigger/Grip dreht das Molekül nicht mit.
+- View ▸ VR Surroundings: 360°-Panorama als Skybox (equirektangular, .hdr/.jpg/.png; beleuchtet die Szene mit) und/oder eine 3D-Szene (glTF/GLB/OBJ/FBX per `RuntimeLoader`, Einheit Meter oder Zentimeter) auf dem Boden des Tracking-Raums; Auswahl wird gespeichert.
+
 ## October 2026 - VR: Panel-Knöpfe per Controller-Strahl
 
 - Headset-Panels reagieren jetzt zuverlässig auf beide Controller („Open structure…“, Dateiliste, Stop usw.): Qt 6.11 pickt ein XrItem gegen seine unendliche Ebene und bricht beim ersten Treffer ohne Item ab, sodass die Menüleiste und versteckte Panels Klicks auf die Panels dahinter schluckten. `XrVirtualMouse` entfällt; `VrPanelHost::rayHit`/`buttonAt` testet das echte Rechteck, `Hand` (viewerxr.qml) setzt Hover/Down am `VrButton` und löst `clicked()` beim Loslassen aus.

@@ -503,6 +503,8 @@ public slots:
     void setVrMethod(const QString& key);          // method key shown on the headset panel
     void setVrTemperature(double kelvin);          // thermostat target shown on the headset panel
     void setVrSimulationStatus(bool paused, const QString& message);  // run paused / last run's end line
+    /// Headset sky box panorama and 3D scene; @p sceneScale = cm per scene unit (100 = metres).
+    void setVrSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale);
     void updateVrStatus();  // refresh the in-headset panel text (no-op without a session)
 
 signals:
@@ -812,6 +814,9 @@ private:
     QString m_vrMethod;
     bool m_vrSimPaused = false;
     QString m_vrSimMessage;     // "Finished: ..." / "Aborted: ..." of the last run, for the headset
+    QString m_vrPanorama;       // sky box panorama file of the headset scene (empty = colour)
+    QString m_vrSurroundings;   // 3D scene file around the headset user (empty = none)
+    double m_vrSurroundingsScale = 100.0;  // cm per unit of that file (100 = metres)
     QWidget* m_controlPanel = nullptr;
 
     // Claude Generated - Frame control widgets (shown/hidden based on frame count)

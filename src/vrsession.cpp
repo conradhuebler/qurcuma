@@ -163,6 +163,19 @@ void VrSession::choose(const QString& name)
         emit fileRequested(path);
 }
 
+// Claude Generated 2026 - Surroundings of the headset scene, as file URLs for the QML side.
+void VrSession::setSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale)
+{
+    const QUrl panorama = panoramaPath.isEmpty() ? QUrl() : QUrl::fromLocalFile(panoramaPath);
+    const QUrl scene = scenePath.isEmpty() ? QUrl() : QUrl::fromLocalFile(scenePath);
+    if (panorama == m_panorama && scene == m_surroundings && sceneScale == m_surroundingsScale)
+        return;
+    m_panorama = panorama;
+    m_surroundings = scene;
+    m_surroundingsScale = sceneScale;
+    emit surroundingsChanged();
+}
+
 void VrSession::setMethod(const QString& key)
 {
     if (key == m_method)

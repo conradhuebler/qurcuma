@@ -5475,6 +5475,7 @@ bool MoleculeViewer::setVrActive(bool on)
     m_vr->setTemperature(m_vrTemperature);
     m_vr->setMethod(m_vrMethod);
     m_vr->setStartDirectory(m_vrStartDir);
+    m_vr->setSurroundings(m_vrPanorama, m_vrSurroundings, m_vrSurroundingsScale);
     updateVrStatus();
     emit vrActiveChanged(true);
     return true;
@@ -5525,6 +5526,18 @@ void MoleculeViewer::setVrStartDirectory(const QString& dir)
 #ifdef QURCUMA_HAS_XR
     if (m_vr)
         m_vr->setStartDirectory(dir);
+#endif
+}
+
+// Claude Generated 2026 - Sky box panorama and 3D surroundings of the headset scene.
+void MoleculeViewer::setVrSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale)
+{
+    m_vrPanorama = panoramaPath;
+    m_vrSurroundings = scenePath;
+    m_vrSurroundingsScale = sceneScale;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setSurroundings(panoramaPath, scenePath, sceneScale);
 #endif
 }
 
