@@ -50,7 +50,24 @@ QList<SshConfigEntry> SshConfigParser::parseFile(const QString& configPath)
 
     QTextStream in(&file);
     SshConfigEntry currentEntry;
+    QStringList aliases;  // the names on the current Host line (`Host a b` is one block with two names)
     bool inHostSection = false;
+
+    // Saves the block that has just ended, once per name. Claude Generated 2026: the block used to
+    // be saved after parseLine() had already replaced it with the new, empty one, so only the last
+    // entry of a file was ever returned.
+    auto saveBlock = [&]() {
+        if (!inHostSection)
+            return;
+        for (const QString& alias : aliases) {
+            SshConfigEntry entry = currentEntry;
+            entry.host = alias;
+            if (entry.hostName.isEmpty())
+                entry.hostName = alias;  // ssh uses the name as the address when HostName is not set
+            if (entry.isValid())
+                entries.append(entry);
+        }
+    };
 
     while (!in.atEnd()) {
         QString line = in.readLine().trimmed();
@@ -60,31 +77,17 @@ QList<SshConfigEntry> SshConfigParser::parseFile(const QString& configPath)
             continue;
         }
 
-        // Check if this starts a new Host section
-        if (parseLine(line, currentEntry)) {
-            // Save previous entry if valid
-            if (inHostSection && currentEntry.isValid()) {
-                entries.append(currentEntry);
-            }
-
-            // Start new entry
+        const QStringList parts = line.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        if (!parts.isEmpty() && parts[0].compare("host", Qt::CaseInsensitive) == 0) {
+            saveBlock();
+            currentEntry = SshConfigEntry();
+            aliases = parts.mid(1);
             inHostSection = true;
-
-            // If HostName not specified, default to Host
-            if (currentEntry.hostName.isEmpty()) {
-                currentEntry.hostName = currentEntry.host;
-            }
+            continue;
         }
+        parseLine(line, currentEntry);  // an option of the current block
     }
-
-    // Save last entry
-    if (inHostSection && currentEntry.isValid()) {
-        // Default HostName to Host if not specified
-        if (currentEntry.hostName.isEmpty()) {
-            currentEntry.hostName = currentEntry.host;
-        }
-        entries.append(currentEntry);
-    }
+    saveBlock();
 
     file.close();
 

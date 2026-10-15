@@ -17,7 +17,9 @@
 #include <QWebSocket>
 #include <QWebSocketServer>
 #include <cmath>
+#include <algorithm>
 #include <iostream>
+#include <vector>
 
 static int failures = 0;
 #define CHECK(cond)                                                                         \
@@ -246,15 +248,21 @@ int main(int argc, char* argv[])
     // sending policy: a fast source is thinned to screen rate, a client-side trajectory keeps every
     // frame, and a limit below the step rate is met (single-shot pacing in the worker)
     {
+        // Median over the one-second windows (the first one is partial and skipped): one slow window
+        // on a loaded machine must not decide the check.
         auto lastRecv = [](const QStringList& logs, const QString& key) {
-            double v = -1;
+            std::vector<double> values;
             const QRegularExpression re(key + QStringLiteral(" ([0-9.]+)"));
-            for (const QString& s : logs.filter(QStringLiteral("perf:"))) {
-                const auto m = re.match(s);
+            const QStringList perf = logs.filter(QStringLiteral("perf:"));
+            for (int i = 1; i < perf.size(); ++i) {
+                const auto m = re.match(perf[i]);
                 if (m.hasMatch())
-                    v = m.captured(1).toDouble();
+                    values.push_back(m.captured(1).toDouble());
             }
-            return v;
+            if (values.empty())
+                return -1.0;
+            std::sort(values.begin(), values.end());
+            return values[values.size() / 2];
         };
         struct Result { double recv, produced, thinned; };
         auto run = [&](int fpsLimit, bool clientTrajectory) {

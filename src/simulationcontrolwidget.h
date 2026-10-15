@@ -325,7 +325,7 @@ private:
     class QToolButton* m_removeComputer = nullptr;  // removes a computer added in qurcuma (QURCUMA_REMOTE)
     class QToolButton* m_testComputer = nullptr;    // tests the selected computer (QURCUMA_REMOTE)
     class QToolButton* m_editComputer = nullptr;    // changes a computer added in qurcuma
-    std::function<void()> m_updateComputerButtons;  // greys out edit/remove for ~/.ssh/config entries
+    std::function<void()> m_updateComputerButtons;  // test/edit/remove are greyed out for "This computer"
     QLineEdit* m_serverCommandEdit = nullptr;
     QCheckBox* m_serverTrajectoryCheck = nullptr;
     SimulationBackend* m_backend = nullptr;  // where the current run happens (null when idle)

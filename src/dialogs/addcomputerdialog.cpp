@@ -5,7 +5,6 @@
 #include "addcomputerdialog.h"
 
 #include "remote/hostprobe.h"
-#include "sshconfig.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -25,12 +24,6 @@
 
 #include <initializer_list>
 
-namespace {
-bool isPattern(const QString& host)
-{
-    return host.contains(QLatin1Char('*')) || host.contains(QLatin1Char('?')) || host.contains(QLatin1Char('!'));
-}
-}
 
 void AddComputerDialog::fillHostCombo(QComboBox* combo, bool withLocal, const QString& select)
 {
@@ -38,20 +31,9 @@ void AddComputerDialog::fillHostCombo(QComboBox* combo, bool withLocal, const QS
     combo->clear();
     if (withLocal)
         combo->addItem(tr("This computer"), QString());
-    QStringList seen;
-    for (const SshConfigEntry& e : SshConfigParser::parseFile()) {
-        if (isPattern(e.host) || seen.contains(e.host))
-            continue;
-        seen << e.host;
-        combo->addItem(e.host, e.host);
-        combo->setItemData(combo->count() - 1, tr("From ~/.ssh/config"), Qt::ToolTipRole);
-    }
     for (const remote::HostProfile& p : remote::HostProfiles::load()) {
-        if (seen.contains(p.name))
-            continue;  // an ~/.ssh/config entry of the same name wins, as it did before
-        seen << p.name;
         combo->addItem(p.name, p.name);
-        combo->setItemData(combo->count() - 1, tr("Added in qurcuma: %1").arg(p.target), Qt::ToolTipRole);
+        combo->setItemData(combo->count() - 1, p.target, Qt::ToolTipRole);
     }
     const int idx = select.isEmpty() ? -1 : combo->findData(select);
     combo->setCurrentIndex(idx >= 0 ? idx : 0);
@@ -59,12 +41,7 @@ void AddComputerDialog::fillHostCombo(QComboBox* combo, bool withLocal, const QS
 
 bool AddComputerDialog::isSavedComputer(const QString& name)
 {
-    if (name.isEmpty())
-        return false;
-    for (const SshConfigEntry& e : SshConfigParser::parseFile())
-        if (e.host == name)
-            return false;
-    return remote::HostProfiles::find(name).has_value();
+    return !name.isEmpty() && remote::HostProfiles::find(name).has_value();
 }
 
 QString AddComputerDialog::defaultServerCommand(const QString& host)
@@ -331,13 +308,6 @@ void AddComputerDialog::tryAccept()
     }
     QString why;
     const remote::HostProfile p = profile();
-    if (m_originalName.isEmpty() || p.name != m_originalName) {
-        for (const SshConfigEntry& e : SshConfigParser::parseFile())
-            if (e.host == p.name) {
-                m_problem->setText(tr("'%1' is already an entry of ~/.ssh/config; choose another name (or use that entry).").arg(p.name));
-                return;
-            }
-    }
     const bool saved = m_originalName.isEmpty() ? remote::HostProfiles::add(p, &why)
                                                 : remote::HostProfiles::update(m_originalName, p, &why);
     if (!saved) {

@@ -6,7 +6,6 @@
 
 #include "addcomputerdialog.h"
 
-#include "sshconfig.h"
 
 #include <QCryptographicHash>
 #include <QComboBox>
@@ -143,7 +142,7 @@ void RemoteFilesDialog::onConnectClicked()
     }
     const QString host = m_hostCombo->currentData().toString();
     if (host.isEmpty()) {
-        m_status->setText(tr("No host: add a computer in the Simulation dock (Compute on: +) or an entry to ~/.ssh/config."));
+        m_status->setText(tr("No computer: add one in the Simulation dock (the + next to Compute on)."));
         return;
     }
     QSettings settings;

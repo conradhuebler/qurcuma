@@ -311,10 +311,6 @@ if(USE_REMOTE AND TARGET Qt6::WebSockets)
         src/remote/hostprobe.h
         src/dialogs/remotefilesdialog.h
         src/dialogs/addcomputerdialog.h)
-    if(NOT USE_SFTP)
-        list(APPEND SOURCES src/sshconfig.cpp)  # host list from ~/.ssh/config (Qt only)
-        list(APPEND HEADERS src/sshconfig.h)
-    endif()
 endif()
 
 add_executable(qurcuma
@@ -472,6 +468,11 @@ target_include_directories(test_fragments PRIVATE
 )
 
 # Look round-trip test - Claude Generated 2026 (look.h is header-only).
+# ~/.ssh/config parser (host lists of the dock, Remote Files and SFTP) - Claude Generated 2026.
+add_executable(test_sshconfig tests/test_sshconfig.cpp src/sshconfig.cpp)
+target_link_libraries(test_sshconfig PRIVATE Qt6::Core)
+target_include_directories(test_sshconfig PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 # Cell-list bond detection (src/bonddetect.h) against the all-pairs loop - Claude Generated 2026.
 add_executable(test_bonddetect tests/test_bonddetect.cpp)
 target_link_libraries(test_bonddetect PRIVATE Qt6::Core Qt6::Gui)

@@ -8,7 +8,6 @@
 #include "remote/remotebackend.h"
 #include "remote/remotelog.h"
 #include "dialogs/addcomputerdialog.h"
-#include "sshconfig.h"
 #include "core/energy_calculators/gpu_plugin.h"
 #include <QJsonArray>
 #include <QSettings>
@@ -398,9 +397,9 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     methodForm->addRow(tr("Method:"), m_methodCombo);
 
 #ifdef QURCUMA_REMOTE
-    // Claude Generated 2026 (WP remote compute R2) - where the run happens. A host is an
-    // entry of ~/.ssh/config with qurcuma-server installed on it; there is no fallback to
-    // this computer when the connection fails.
+    // Claude Generated 2026 (WP remote compute R2) - where the run happens. A computer is one
+    // saved in qurcuma (the + button) with qurcuma-server installed on it; ~/.ssh/config is not
+    // read. There is no fallback to this computer when the connection fails.
     m_computeCombo = new QComboBox(this);
     AddComputerDialog::fillHostCombo(m_computeCombo, true, QSettings().value(QStringLiteral("remote/host")).toString());
     m_computeCombo->setToolTip(tr("Where simulations run. Another computer is reached over ssh "
@@ -419,8 +418,6 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     m_removeComputer = new QToolButton(this);
     m_removeComputer->setIcon(AddComputerDialog::icon(QStringLiteral("list-remove"), QStyle::SP_TrashIcon));
     m_removeComputer->setAccessibleName(tr("Remove computer"));
-    m_removeComputer->setToolTip(tr("Remove the selected computer from qurcuma's list (only computers added here; "
-                                    "~/.ssh/config is not changed)."));
     auto* computerRow = new QHBoxLayout;
     computerRow->addWidget(m_computeCombo, 1);
     computerRow->addWidget(m_testComputer);
@@ -428,17 +425,17 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     computerRow->addWidget(m_editComputer);
     computerRow->addWidget(m_removeComputer);
     methodForm->addRow(tr("Compute on:"), computerRow);
-    // Edit and remove work on computers added in qurcuma; the others are greyed out, with the reason.
+    // Test, edit and remove work on a computer of the list; "This computer" needs none of them.
     auto updateComputerButtons = [this] {
         const QString host = m_computeCombo->currentData().toString();
-        const bool saved = AddComputerDialog::isSavedComputer(host);
-        m_testComputer->setEnabled(!host.isEmpty());
-        m_editComputer->setEnabled(saved);
-        m_removeComputer->setEnabled(saved);
-        const QString why = host.isEmpty() ? tr("This computer needs no setup.")
-                                           : tr("This computer is an entry of ~/.ssh/config; change it there.");
-        m_editComputer->setToolTip(saved ? tr("Change address, port, key or server command of this computer.") : why);
-        m_removeComputer->setToolTip(saved ? tr("Remove this computer from qurcuma's list (~/.ssh/config is not changed).") : why);
+        const bool remote = !host.isEmpty();
+        m_testComputer->setEnabled(remote);
+        m_editComputer->setEnabled(remote);
+        m_removeComputer->setEnabled(remote);
+        const QString none = tr("This computer needs no setup.");
+        m_testComputer->setToolTip(remote ? tr("Check the connection to the selected computer and look for qurcuma-server on it.") : none);
+        m_editComputer->setToolTip(remote ? tr("Change address, port, key or server command of this computer.") : none);
+        m_removeComputer->setToolTip(remote ? tr("Remove this computer from the list.") : none);
     };
     m_updateComputerButtons = updateComputerButtons;
     m_serverCommandEdit = new QLineEdit(QStringLiteral("qurcuma-server"), this);
@@ -484,15 +481,11 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
         const QString host = m_computeCombo->currentData().toString();
         if (host.isEmpty())
             return;
-        // A saved computer is tested with its address, port and key; an entry of ~/.ssh/config by
-        // its name (ssh reads the rest). The server command is the one in the field.
-        remote::HostProfile p;
-        if (const auto saved = remote::HostProfiles::find(host); saved && AddComputerDialog::isSavedComputer(host))
-            p = *saved;
-        else {
-            p.name = host;
-            p.target = host;
-        }
+        // The saved computer, with the server command that is in the field.
+        const auto saved = remote::HostProfiles::find(host);
+        if (!saved)
+            return;
+        remote::HostProfile p = *saved;
         p.serverCommand = m_serverCommandEdit->text().trimmed();
         AddComputerDialog dialog(this, p, true);
         if (dialog.exec() != QDialog::Accepted)

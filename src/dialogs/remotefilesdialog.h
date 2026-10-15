@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 //
 // Claude Generated 2026 (WP remote compute R4, docs/WP-remote-compute-vr.md). A dialog
-// (not a dock) over remote::RemoteFiles: pick a host from ~/.ssh/config, connect, walk the
+// (not a dock) over remote::RemoteFiles: pick a computer of the list, connect, walk the
 // directories the server shares, download a file or open a structure in the viewer.
 // Downloads of "open" go to the cache directory; "Download" asks for a target.
 
