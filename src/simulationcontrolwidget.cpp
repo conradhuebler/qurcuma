@@ -408,10 +408,6 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     addComputer->setIcon(AddComputerDialog::icon(QStringLiteral("list-add"), QStyle::SP_FileDialogNewFolder));
     addComputer->setAccessibleName(tr("Add computer"));
     addComputer->setToolTip(tr("Add a computer (address, key, test of the connection and of qurcuma-server)."));
-    m_testComputer = new QToolButton(this);
-    m_testComputer->setIcon(AddComputerDialog::icon(QStringLiteral("network-connect"), QStyle::SP_DriveNetIcon));
-    m_testComputer->setAccessibleName(tr("Test computer"));
-    m_testComputer->setToolTip(tr("Check the connection to the selected computer and look for qurcuma-server on it."));
     m_editComputer = new QToolButton(this);
     m_editComputer->setIcon(AddComputerDialog::icon(QStringLiteral("document-edit"), QStyle::SP_FileDialogContentsView));
     m_editComputer->setAccessibleName(tr("Edit computer"));
@@ -420,7 +416,6 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     m_removeComputer->setAccessibleName(tr("Remove computer"));
     auto* computerRow = new QHBoxLayout;
     computerRow->addWidget(m_computeCombo, 1);
-    computerRow->addWidget(m_testComputer);
     computerRow->addWidget(addComputer);
     computerRow->addWidget(m_editComputer);
     computerRow->addWidget(m_removeComputer);
@@ -429,12 +424,10 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     auto updateComputerButtons = [this] {
         const QString host = m_computeCombo->currentData().toString();
         const bool remote = !host.isEmpty();
-        m_testComputer->setEnabled(remote);
         m_editComputer->setEnabled(remote);
         m_removeComputer->setEnabled(remote);
         const QString none = tr("This computer needs no setup.");
-        m_testComputer->setToolTip(remote ? tr("Check the connection to the selected computer and look for qurcuma-server on it.") : none);
-        m_editComputer->setToolTip(remote ? tr("Change address, port, key or server command of this computer.") : none);
+        m_editComputer->setToolTip(remote ? tr("Change this computer and test it: address, port, key, server command, and a check of the connection and of qurcuma-server.") : none);
         m_removeComputer->setToolTip(remote ? tr("Remove this computer from the list.") : none);
     };
     m_updateComputerButtons = updateComputerButtons;
@@ -476,23 +469,6 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
         QSettings().setValue(QStringLiteral("remote/serverCommand/") + p.name, p.effectiveServerCommand());
         AddComputerDialog::fillHostCombo(m_computeCombo, true, p.name);
         m_computeCombo->currentIndexChanged(m_computeCombo->currentIndex());
-    });
-    connect(m_testComputer, &QToolButton::clicked, this, [this] {
-        const QString host = m_computeCombo->currentData().toString();
-        if (host.isEmpty())
-            return;
-        // The saved computer, with the server command that is in the field.
-        const auto saved = remote::HostProfiles::find(host);
-        if (!saved)
-            return;
-        remote::HostProfile p = *saved;
-        p.serverCommand = m_serverCommandEdit->text().trimmed();
-        AddComputerDialog dialog(this, p, true);
-        if (dialog.exec() != QDialog::Accepted)
-            return;
-        const QString command = dialog.profile().effectiveServerCommand();
-        QSettings().setValue(QStringLiteral("remote/serverCommand/") + host, command);
-        m_serverCommandEdit->setText(command);
     });
     connect(m_editComputer, &QToolButton::clicked, this, [this] {
         const QString host = m_computeCombo->currentData().toString();

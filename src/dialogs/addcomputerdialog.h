@@ -26,11 +26,8 @@ class QSpinBox;
 class AddComputerDialog : public QDialog {
     Q_OBJECT
 public:
-    /// With @p edit the dialog changes that saved computer instead of adding a new one. With
-    /// @p testOnly it tests @p edit as it is (address, port and key are fixed, also for an entry
-    /// as saved) and only the server command can be changed; nothing is saved but that.
-    explicit AddComputerDialog(QWidget* parent = nullptr, const std::optional<remote::HostProfile>& edit = std::nullopt,
-        bool testOnly = false);
+    /// With @p edit the dialog changes that saved computer instead of adding a new one.
+    explicit AddComputerDialog(QWidget* parent = nullptr, const std::optional<remote::HostProfile>& edit = std::nullopt);
     ~AddComputerDialog() override;
 
     /// The profile as entered (valid after accept()).
@@ -67,5 +64,4 @@ private:
     QString m_originalName;  ///< set when editing
     bool m_tested = false, m_testedOk = false;
     bool m_filling = false;  ///< the test itself fills in a field
-    bool m_testOnly = false;  ///< address, port and key are fixed
 };

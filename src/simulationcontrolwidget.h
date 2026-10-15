@@ -323,9 +323,8 @@ private:
     QJsonObject m_mdExtraParams;  // Claude Generated 2026 - from the All parameters tab
     QComboBox* m_computeCombo = nullptr;      // "Compute on": this computer or an ssh host (QURCUMA_REMOTE)
     class QToolButton* m_removeComputer = nullptr;  // removes a computer added in qurcuma (QURCUMA_REMOTE)
-    class QToolButton* m_testComputer = nullptr;    // tests the selected computer (QURCUMA_REMOTE)
     class QToolButton* m_editComputer = nullptr;    // changes a computer added in qurcuma
-    std::function<void()> m_updateComputerButtons;  // test/edit/remove are greyed out for "This computer"
+    std::function<void()> m_updateComputerButtons;  // edit/remove are greyed out for "This computer"
     QLineEdit* m_serverCommandEdit = nullptr;
     QCheckBox* m_serverTrajectoryCheck = nullptr;
     SimulationBackend* m_backend = nullptr;  // where the current run happens (null when idle)

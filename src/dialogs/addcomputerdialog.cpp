@@ -65,11 +65,10 @@ QIcon AddComputerDialog::icon(const QString& themeName, QStyle::StandardPixmap f
     return themed.isNull() ? QApplication::style()->standardIcon(fallback) : themed;
 }
 
-AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote::HostProfile>& edit, bool testOnly)
+AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote::HostProfile>& edit)
     : QDialog(parent)
-    , m_testOnly(testOnly && edit)
 {
-    setWindowTitle(m_testOnly ? tr("Test computer") : edit ? tr("Edit computer") : tr("Add computer"));
+    setWindowTitle(edit ? tr("Edit computer") : tr("Add computer"));
     resize(660, 480);
     setMinimumWidth(580);
     auto* layout = new QVBoxLayout(this);
@@ -139,7 +138,7 @@ AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     m_ok = buttons->button(QDialogButtonBox::Ok);
-    m_ok->setText(m_testOnly ? tr("Use this server command") : edit ? tr("Save") : tr("Add"));
+    m_ok->setText(edit ? tr("Save") : tr("Add"));
     layout->addWidget(buttons);
 
     if (edit) {
@@ -152,8 +151,6 @@ AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote
     }
     for (int i = 0; i < 3; ++i)
         onStep(i, int(remote::HostProbe::Pending), QString());
-    if (m_testOnly)
-        setBusy(false);  // greys out the fixed fields
 
     connect(m_browse, &QPushButton::clicked, this, [this] {
         const QString f = QFileDialog::getOpenFileName(this, tr("ssh key file"), QDir::homePath() + QStringLiteral("/.ssh"));
@@ -202,9 +199,8 @@ remote::HostProfile AddComputerDialog::profile() const
 void AddComputerDialog::setBusy(bool busy)
 {
     // Everything that would change the test while it runs is greyed out.
-    for (QWidget* w : std::initializer_list<QWidget*>{ m_address, m_name, m_port, m_key, m_browse })
-        w->setEnabled(!busy && !m_testOnly);  // fixed in the test-only mode
-    m_serverCommand->setEnabled(!busy);
+    for (QWidget* w : std::initializer_list<QWidget*>{ m_address, m_name, m_port, m_key, m_serverCommand, m_browse })
+        w->setEnabled(!busy);
     m_progress->setVisible(busy);
     m_test->setText(busy ? tr("Cancel test") : tr("Test connection"));
     updateButtons();
@@ -302,10 +298,6 @@ void AddComputerDialog::onProbeFinished(const remote::ProbeResult& result)
 
 void AddComputerDialog::tryAccept()
 {
-    if (m_testOnly) {
-        accept();
-        return;
-    }
     QString why;
     const remote::HostProfile p = profile();
     const bool saved = m_originalName.isEmpty() ? remote::HostProfiles::add(p, &why)
