@@ -95,6 +95,15 @@ void VrSession::setTemperature(double kelvin)
     emit temperatureChanged();
 }
 
+void VrSession::setTemperatureRange(double minimum, double maximum)
+{
+    if (qFuzzyCompare(1.0 + minimum, 1.0 + m_temperatureMin) && qFuzzyCompare(1.0 + maximum, 1.0 + m_temperatureMax))
+        return;
+    m_temperatureMin = minimum;
+    m_temperatureMax = maximum;
+    emit temperatureRangeChanged();
+}
+
 // Claude Generated 2026 - Structured status for the headset panels (VrPanelStructure/VrPanelSimulation).
 void VrSession::setStatus(int frame, int frameCount, bool playing, const QString& selection, double grabStrength)
 {

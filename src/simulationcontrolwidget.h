@@ -70,6 +70,11 @@ public:
     void setMethod(const QString& key);
     double temperature() const;
     void setTemperature(double kelvin);
+    /** @brief Min/max of the temperature slider (its spin boxes); the headset slider shares them.
+     *  Claude Generated 2026. */
+    double temperatureMinimum() const;
+    double temperatureMaximum() const;
+    void setTemperatureRange(double minimum, double maximum);
     /** @brief True while an MD or optimization run is active. */
     bool isRunning() const { return m_running; }
 
@@ -114,6 +119,8 @@ signals:
      *  forwards it live to the worker (SimulationWorker::setTargetTemperature).
      *  Claude Generated 2026. */
     void temperatureChanged(double temperature);
+    /** @brief The temperature slider's min/max changed. Claude Generated 2026. */
+    void temperatureRangeChanged(double minimum, double maximum);
 
     /** @brief Emitted when the wall_temp slider moves — live during a run. */
     void wallTempChanged(double T);

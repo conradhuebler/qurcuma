@@ -115,6 +115,8 @@ SceneController::SceneController(QObject* parent)
 {
     m_atomInstancing = new AtomInstancing(nullptr);
     m_atomInstancing->setParent(this);
+    m_selectionHaloInstancing = new AtomInstancing(nullptr);
+    m_selectionHaloInstancing->setParent(this);
     m_bondInstancing = new BondInstancing(nullptr);
     m_bondInstancing->setParent(this);
     m_arrowShaft = new BondInstancing(nullptr);
@@ -703,6 +705,7 @@ void SceneController::rebuildWallVectorField()
 }
 
 QQuick3DInstancing* SceneController::atomInstancing() const { return m_atomInstancing; }
+QQuick3DInstancing* SceneController::selectionHaloInstancing() const { return m_selectionHaloInstancing; }
 QQuick3DInstancing* SceneController::bondInstancing() const { return m_bondInstancing; }
 QQuick3DInstancing* SceneController::arrowShaftInstancing() const { return m_arrowShaft; }
 QQuick3DInstancing* SceneController::arrowTipInstancing() const { return m_arrowTip; }
@@ -775,6 +778,7 @@ void SceneController::setStructure(const QVector<AtomDatum>& atoms, const QVecto
     rebuildGeometry();
     resetView();
     emit structureChanged();
+    emit selectionChanged();
 }
 
 void SceneController::updatePositions(const QVector<QVector3D>& positions)
@@ -807,6 +811,7 @@ void SceneController::clear()
     m_visibilityMaskDirty = true;
     rebuildGeometry();
     emit structureChanged();
+    emit selectionChanged();
 }
 
 void SceneController::recomputeBounds()
@@ -1248,6 +1253,20 @@ void SceneController::rebuildAtoms()
         }
     }
     m_atomInstancing->setItems(items);
+
+    // Claude Generated 2026 - Selection shells for the headset, where the magenta tint alone is hard
+    // to spot: a sphere 45 % (at least 0.25 Angstrom) larger than the drawn atom, rebuilt with the
+    // atoms, so it follows trajectory frames and live MD. Colour and pulse are set in VrScene.qml.
+    QVector<AtomInstancing::Item> halos;
+    for (const AtomInstancing::Item& it : std::as_const(items)) {
+        if (!m_selection.contains(it.atomIndex))
+            continue;
+        AtomInstancing::Item halo = it;
+        halo.scale = std::max(it.scale * 1.45f, it.scale + 0.25f);
+        halo.color = Qt::white;
+        halos.append(halo);
+    }
+    m_selectionHaloInstancing->setItems(halos);
 }
 
 // Claude Generated 2026 - Hydrogen display rule (see scenecontroller.h). Polar mode
@@ -1767,10 +1786,21 @@ int SceneController::atomAtPoint(const QVector3D& point, float margin) const
     return best;
 }
 
+float SceneController::atomDrawnRadius(int index) const
+{
+    if (!m_atomsVisible || !m_primaryVisible || index < 0 || index >= m_atoms.size() || isAtomHidden(index))
+        return 0.0f;
+    const float radiusFactor = (m_renderingMode == SpaceFilling) ? 1.0f : 0.30f;
+    return radiusFactor * m_atomScaleFactor * atomDrawRadiusFor(index);
+}
+
 void SceneController::setSelection(const QVector<int>& indices)
 {
+    const bool changed = m_selection != indices;
     m_selection = indices;
     rebuildAtoms(); // only atom colours change
+    if (changed)
+        emit selectionChanged();
     if (m_labelSelectionOnly && m_labelMode != 0)
         rebuildLabels();  // selection-scoped labels follow the selection
 }

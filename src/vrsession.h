@@ -46,6 +46,9 @@ class VrSession : public QObject {
     Q_PROPERTY(bool simulationActive READ simulationActive NOTIFY simulationActiveChanged)
     /// Thermostat target (K) of the Simulation dock; 0 = unknown.
     Q_PROPERTY(double temperature READ temperature NOTIFY temperatureChanged)
+    /// Range of the Simulation dock's temperature slider, shared by the headset slider (Claude Generated 2026).
+    Q_PROPERTY(double temperatureMin READ temperatureMin NOTIFY temperatureRangeChanged)
+    Q_PROPERTY(double temperatureMax READ temperatureMax NOTIFY temperatureRangeChanged)
     /// Method key of the Simulation dock ("gfnff", "uff", "gfn2", "gfn1").
     Q_PROPERTY(QString method READ method NOTIFY methodChanged)
     /// File browser: directory shown and its entries ({name, isDir}), directories first.
@@ -89,6 +92,9 @@ public:
     void setSimulationActive(bool on);
     double temperature() const { return m_temperature; }
     void setTemperature(double kelvin);
+    double temperatureMin() const { return m_temperatureMin; }
+    double temperatureMax() const { return m_temperatureMax; }
+    void setTemperatureRange(double minimum, double maximum);
     QString method() const { return m_method; }
     void setMethod(const QString& key);
 
@@ -134,10 +140,12 @@ signals:
     void grabForce(int atomIndex, QVector3D displacement);
     void grabReleased();
     /// Button on the in-headset panel: "playPause", "nextFrame", "previousFrame", "grabUp", "grabDown",
-    /// and the simulation buttons "simStartMD", "simStartOpt", "simStop", "simPause", "simTempUp", "simTempDown", "simMethod:<key>".
+    /// and the simulation buttons "simStartMD", "simStartOpt", "simStop", "simPause", "simMethod:<key>", "simTemp:<K>" (thermostat target)
+    /// and "simTempRange:<min>:<max>" (the temperature slider's range, K).
     void command(const QString& name);
     void statusTextChanged();
     void temperatureChanged();
+    void temperatureRangeChanged();
     void methodChanged();
     void currentDirChanged();
     /// Absolute path of a structure file picked in the headset file browser.
@@ -156,6 +164,8 @@ private:
     QString m_statusText;
     bool m_simulationActive = false;
     double m_temperature = 0.0;
+    double m_temperatureMin = 1.0;
+    double m_temperatureMax = 1000.0;
     QString m_method;
     QString m_currentDir;
     QVariantList m_entries;

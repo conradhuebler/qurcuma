@@ -15,6 +15,8 @@ QtObject {
     property bool simulationPaused: false
     property string simulationMessage: ""
     property double temperature: 300
+    property double temperatureMin: 1
+    property double temperatureMax: 1000
     property string method: "gfnff"
     property int frame: 0
     property int frameCount: 1
@@ -81,8 +83,13 @@ QtObject {
             simulationMessage = "Finished: stopped by the user."
         } else if (name.indexOf("simMethod:") === 0) {
             if (!simulationActive) method = name.substring(10)
-        } else if (name === "simTempUp") temperature += 25
-        else if (name === "simTempDown") temperature = Math.max(0, temperature - 25)
+        } else if (name.indexOf("simTempRange:") === 0) {
+            var range = name.split(":")
+            temperatureMin = Number(range[1]); temperatureMax = Number(range[2])
+            temperature = Math.max(temperatureMin, Math.min(temperatureMax, temperature))
+        } else if (name.indexOf("simTemp:") === 0) {
+            temperature = Math.max(temperatureMin, Math.min(temperatureMax, Number(name.slice(8))))
+        }
     }
 
     Component.onCompleted: {

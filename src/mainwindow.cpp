@@ -1659,10 +1659,21 @@ void MainWindow::createMenus()
             m_simulationControlWidget->onStopClicked();
         else if (name == QLatin1String("simPause"))
             m_simulationControlWidget->onPauseClicked();
-        else if (name == QLatin1String("simTempUp"))
-            m_simulationControlWidget->setTemperature(m_simulationControlWidget->temperature() + 25.0);
-        else if (name == QLatin1String("simTempDown"))
-            m_simulationControlWidget->setTemperature(m_simulationControlWidget->temperature() - 25.0);
+        else if (name.startsWith(QLatin1String("simTempRange:"))) {
+            // headset slider's min/max steppers: "simTempRange:<min>:<max>"
+            const QStringList parts = name.split(QLatin1Char(':'));
+            bool okMin = false, okMax = false;
+            const double minimum = parts.value(1).toDouble(&okMin);
+            const double maximum = parts.value(2).toDouble(&okMax);
+            if (okMin && okMax)
+                m_simulationControlWidget->setTemperatureRange(minimum, maximum);
+        } else if (name.startsWith(QLatin1String("simTemp:"))) {
+            // headset slider drag: like a drag of the dock's slider (live during a run)
+            bool ok = false;
+            const double kelvin = name.mid(int(strlen("simTemp:"))).toDouble(&ok);
+            if (ok)
+                m_simulationControlWidget->setTemperature(kelvin);
+        }
         else if (name.startsWith(QLatin1String("simMethod:")))
             m_simulationControlWidget->setMethod(name.mid(int(strlen("simMethod:"))));
         m_moleculeView->setVrTemperature(m_simulationControlWidget->temperature());
@@ -1674,6 +1685,8 @@ void MainWindow::createMenus()
     if (m_simulationControlWidget) {
         connect(m_simulationControlWidget, &SimulationControlWidget::temperatureChanged, this,
             [this](double kelvin) { m_moleculeView->setVrTemperature(kelvin); });
+        connect(m_simulationControlWidget, &SimulationControlWidget::temperatureRangeChanged, this,
+            [this](double minimum, double maximum) { m_moleculeView->setVrTemperatureRange(minimum, maximum); });
         connect(m_simulationControlWidget, &SimulationControlWidget::configChanged, this,
             [this](SimulationConfig cfg) { m_moleculeView->setVrMethod(cfg.method); });
         connect(m_simulationControlWidget, &SimulationControlWidget::pauseStateChanged, this,
@@ -1699,6 +1712,8 @@ void MainWindow::createMenus()
         m_moleculeView->setVrStartDirectory(dir);
         if (m_simulationControlWidget) {
             m_moleculeView->setVrTemperature(m_simulationControlWidget->temperature());
+            m_moleculeView->setVrTemperatureRange(m_simulationControlWidget->temperatureMinimum(),
+                                                  m_simulationControlWidget->temperatureMaximum());
             m_moleculeView->setVrMethod(m_simulationControlWidget->method());
         }
     });

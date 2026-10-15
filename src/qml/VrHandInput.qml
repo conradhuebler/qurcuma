@@ -8,6 +8,8 @@
 // Both hands work the same. A hand's pinch point is the midpoint between thumb tip and index tip, so
 // it marks where a pinch lands; a small sphere shows it:
 //   pinch on a panel button             = click (on release, on the same button: a mouse click's rule)
+//   pinch on the thermostat track, move = drag the temperature
+//   pinch on a panel's handle, move     = move the panel (it keeps facing the head)
 //   pinch and hold an atom, simulation  = pull it with a spring force (one atom at a time); the
 //                                         molecule itself never moves while a simulation runs
 //   pinch and hold an atom, otherwise   = hold the molecule: it moves and turns with the hand
@@ -87,12 +89,19 @@ Node {
 
         /// What the pinch point is at: a panel (and its button), or an atom (-1 = none)
         property bool onPanel: false
-        property VrButton hoverButton: null
-        /// What the current pinch does: "" (no pinch), "button", "hold" (the molecule), "atom" (pull)
+        property Item hoverButton: null
+        /// What the current pinch does: "" (no pinch), "button", "slide" (a drag target such as the
+        /// thermostat track), "move" (a panel by its handle), "hold" (the molecule), "atom" (pull)
         /// or "none" (it started touching nothing, or an atom the other hand already pulls)
         property string action: ""
         readonly property bool holding: action === "hold"
-        property VrButton pressedButton: null
+        property Item pressedButton: null
+        /// last panel touch (VrPanelHost.touchHit), the panel whose handle the pinch point touches,
+        /// and the panel a "slide" or "move" works on, with the pinch's offset to the panel centre
+        property var panelHitResult: null
+        property var hoverHandleHost: null
+        property var actionHost: null
+        property vector3d moveOffset
         property int hoverAtom: -1
         property int grabAtom: -1
         /// pinch point minus atom at the start of a pull (Angstrom), so the atom is not yanked onto it
@@ -101,6 +110,8 @@ Node {
         property int tapAtom: -1
         property real pressTime: 0
         property vector3d pressPoint
+        /// key of this hand's atom highlight in VrScene.setHighlight
+        readonly property string highlightKey: side === XrController.LeftHand ? "leftHand" : "rightHand"
         /// pinch point and palm orientation of the previous update (hold = follow their change)
         property vector3d lastPoint
         property quaternion lastRotation: Qt.quaternion(1, 0, 0, 0)
@@ -148,6 +159,7 @@ Node {
             }
             if (root.twoHanded && !root.session.simulationActive)
                 root.spread()
+            updateHighlight()
             lastPoint = pinchPoint
             lastRotation = palmRotation
         }
@@ -157,11 +169,28 @@ Node {
         // stays on it.
         function updateTarget() {
             var hit = root.vrScene.panelTouch(pinchPoint)
+            panelHitResult = hit
             onPanel = hit !== null
             setHoverButton(hit ? hit.button : null)
-            if (pressedButton)
+            setHoverHandle(hit && hit.handle ? hit.host : null)
+            if (pressedButton && action === "button")
                 pressedButton.rayDown = pressedButton === hoverButton
             hoverAtom = onPanel || action !== "" ? -1 : atomAtPinch()
+        }
+
+        // Highlight the atom this hand would take or is pulling (VrScene draws it).
+        function updateHighlight() {
+            root.vrScene.setHighlight(highlightKey, grabAtom >= 0 ? grabAtom : hoverAtom, grabAtom >= 0)
+        }
+
+        function setHoverHandle(panelHost) {
+            if (panelHost === hoverHandleHost)
+                return
+            if (hoverHandleHost)
+                hoverHandleHost.handleHoverCount--
+            hoverHandleHost = panelHost
+            if (hoverHandleHost)
+                hoverHandleHost.handleHoverCount++
         }
 
         function setHoverButton(button) {
@@ -186,10 +215,24 @@ Node {
             pressPoint = pinchPoint
             tapAtom = -1
             if (onPanel) {
+                var hit = panelHitResult
+                if (hit.handle) {
+                    // hold the panel by its handle: keep the pinch's offset to the panel centre
+                    action = "move"
+                    actionHost = hit.host
+                    moveOffset = actionHost.centreScenePosition().minus(pinchPoint)
+                    actionHost.handleHeld = true
+                    return
+                }
                 pressedButton = hoverButton && hoverButton.enabled ? hoverButton : null
-                action = pressedButton ? "button" : "none"
+                action = !pressedButton ? "none" : pressedButton.vrDragTarget === true ? "slide" : "button"
                 if (pressedButton)
                     pressedButton.rayDown = true
+                if (action === "slide") {
+                    actionHost = hit.host
+                    var local = pressedButton.mapFromItem(hit.host.panel, hit.x, hit.y)
+                    pressedButton.vrDragStart(local.x, local.y)
+                }
                 return
             }
             if (hoverAtom < 0) {
@@ -216,7 +259,19 @@ Node {
         // Hold, one hand: the molecule turns with the palm about the pinch point and moves with it,
         // anchor' = pinch + d (anchor - lastPinch), rotation' = d rotation, d = palm * lastPalm^-1.
         // With both hands holding, spread() moves it instead; a simulation started meanwhile stops it.
+        // Slide: the pinch point, projected onto the panel, drives the drag target (also off the
+        // track, like a mouse drag). Move: the panel centre follows the pinch point.
         function drag() {
+            if (action === "slide" && pressedButton) {
+                var p = actionHost.panelPointAt(pinchPoint)
+                var local = pressedButton.mapFromItem(actionHost.panel, p.x, p.y)
+                pressedButton.vrDragMove(local.x, local.y)
+                return
+            }
+            if (action === "move") {
+                actionHost.moveCentreTo(pinchPoint.plus(moveOffset))
+                return
+            }
             if (action !== "hold" || root.twoHanded || root.session.simulationActive)
                 return
             var d = palmRotation.times(lastRotation.inverted())
@@ -233,9 +288,14 @@ Node {
             pressedButton = null
             if (button) {
                 button.rayDown = false
-                if (!cancelled && button === hoverButton && button.enabled)
+                if (action === "slide")
+                    button.vrDragEnd()   // a drag target is never clicked
+                else if (!cancelled && button === hoverButton && button.enabled)
                     button.clicked()
             }
+            if (action === "move" && actionHost)
+                actionHost.handleHeld = false
+            actionHost = null
             if (grabAtom >= 0) {
                 grabAtom = -1
                 root.grabHand = null
@@ -251,8 +311,10 @@ Node {
                 release(true)
             pinching = false
             setHoverButton(null)
+            setHoverHandle(null)
             onPanel = false
             hoverAtom = -1
+            root.vrScene.setHighlight(highlightKey, -1, false)
         }
 
         // Spring target of a pull: the pinch point (less the offset at the start), in atom
@@ -284,7 +346,7 @@ Node {
             }
         }
         // Pinch point: red while pulling an atom, orange while holding the molecule, blue on a
-        // panel, yellow touching an atom, green otherwise (a pinch now does nothing).
+        // panel (or moving one), yellow touching an atom, green otherwise (a pinch now does nothing).
         Model {
             visible: hand.tracked
             position: hand.pinchPointLocal
@@ -294,7 +356,7 @@ Node {
             materials: PrincipledMaterial {
                 baseColor: hand.action === "atom" ? Style.markerGrab
                          : hand.action === "hold" ? Style.markerRotate
-                         : hand.onPanel || hand.action === "button" ? Style.markerPanel
+                         : hand.onPanel || hand.action === "button" || hand.action === "slide" || hand.action === "move" ? Style.markerPanel
                          : hand.hoverAtom >= 0 ? Style.markerAtom : Style.markerIdle
                 lighting: PrincipledMaterial.NoLighting
             }

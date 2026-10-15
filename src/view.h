@@ -502,6 +502,7 @@ public slots:
     void setVrStartDirectory(const QString& dir);  // file browser root in the headset
     void setVrMethod(const QString& key);          // method key shown on the headset panel
     void setVrTemperature(double kelvin);          // thermostat target shown on the headset panel
+    void setVrTemperatureRange(double minimum, double maximum);  // range of the headset temperature slider
     void setVrSimulationStatus(bool paused, const QString& message);  // run paused / last run's end line
     /// Headset sky box panorama and 3D scene; @p sceneScale = cm per scene unit (100 = metres).
     void setVrSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale);
@@ -816,6 +817,8 @@ private:
     VrSession* m_vr = nullptr;  // non-null while a headset session runs
     QString m_vrStartDir;       // file browser root handed to the next session
     double m_vrTemperature = 0.0;
+    double m_vrTemperatureMin = 1.0;
+    double m_vrTemperatureMax = 1000.0;
     QString m_vrMethod;
     bool m_vrSimPaused = false;
     QString m_vrSimMessage;     // "Finished: ..." / "Aborted: ..." of the last run, for the headset

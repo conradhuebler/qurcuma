@@ -18,13 +18,15 @@
 //   Surroundings    world-fixed at the floor, does not follow "Recenter" (a room stays a room)
 // The three console panels sit below the molecule, where a controller ray reaches them from a relaxed
 // arm; the file browser and the help open where the user is already looking. The menu bar never
-// hides, so hidden panels are always one click away.
+// hides, so hidden panels are always one click away. Every panel can be moved by the handle below it
+// (the menu bar's is above it); "Recenter" puts them back.
 // Hand input (session.handInput, Claude Generated 2026) touches instead of pointing, so everything
 // moves within arm's reach: molecule 65 cm, console panels 45 cm, file browser and help 45 cm, menu
 // bar 40 cm (directions unchanged). The hands can also carry the molecule (moleculeOffset).
 import QtQuick
 import QtQuick3D
 import QtQuick3D.AssetUtils
+import "VrStyle.js" as Style
 
 Node {
     id: scene
@@ -77,6 +79,60 @@ Node {
 
     signal recenterRequested()
 
+    /// Every panel and the menu bar, for the hit tests; each can be moved by its handle.
+    readonly property var panelHosts: [keypadHost, structureHost, simulationHost, viewHost, filesHost, helpHost, menuHost]
+    /// "Recenter" also brings moved panels back to their place in the layout (Claude Generated 2026).
+    onRecenterRequested: {
+        for (var i = 0; i < panelHosts.length; ++i)
+            panelHosts[i].resetPlacement()
+    }
+
+    // ---- atom highlights (Claude Generated 2026) ----------------------------------------------------
+    /// Atoms a controller ray or a fingertip is on, per source ("rightController", "leftHand", ...):
+    /// { atom, grabbed }; setHighlight() keeps it, highlights is the list drawn (one per atom,
+    /// grabbed wins). Plain Models under the atom node (not instancing), so they always carry the
+    /// molecule's transform; a frame tick moves them along with MD and trajectory frames.
+    property var highlightSources: ({})
+    property var highlights: []
+    property int highlightTick: 0
+
+    function setHighlight(source, atom, grabbed) {
+        var old = highlightSources[source]
+        if (old ? (old.atom === atom && old.grabbed === grabbed) : atom < 0)
+            return
+        if (atom < 0)
+            delete highlightSources[source]
+        else
+            highlightSources[source] = { atom: atom, grabbed: grabbed === true }
+        var byAtom = {}
+        for (var key in highlightSources) {
+            var h = highlightSources[key]
+            byAtom[h.atom] = byAtom[h.atom] === true || h.grabbed
+        }
+        var list = []
+        for (var a in byAtom)
+            list.push({ atom: Number(a), grabbed: byAtom[a] })
+        highlights = list
+    }
+
+    FrameAnimation {
+        running: scene.highlights.length > 0
+        onTriggered: scene.highlightTick++
+    }
+
+    // ---- number pad for the thermostat range (Claude Generated 2026) ------------------------------
+    /// "min" or "max" while the pad edits that end of the temperature slider, "" = closed.
+    property string keypadTarget: ""
+    onSimulationVisibleChanged: if (!simulationVisible) keypadTarget = ""
+
+    /// Opacity of the selection and touch shells, pulsing so a selected atom catches the eye.
+    property real haloOpacity   // driven by the animation below
+    SequentialAnimation on haloOpacity {
+        loops: Animation.Infinite
+        NumberAnimation { from: 0.25; to: 0.6; duration: 700; easing.type: Easing.InOutSine }
+        NumberAnimation { from: 0.6; to: 0.25; duration: 700; easing.type: Easing.InOutSine }
+    }
+
     /// B / Y: hide the three console panels if any is shown, otherwise show all three.
     function togglePanels() {
         var show = !(structureVisible || simulationVisible || viewVisible)
@@ -89,27 +145,25 @@ Node {
     onHelpVisibleChanged: if (helpVisible) filesVisible = false
     onFilesVisibleChanged: if (filesVisible) helpVisible = false
 
-    /// Panel (or menu bar) a tracked hand's pinch point touches: { depth, button } of the panel whose
-    /// surface is closest to the point, null if it touches none. Claude Generated 2026.
+    /// Panel (or menu bar, or a handle) a tracked hand's pinch point touches: the VrPanelHost.touchHit
+    /// result of the surface closest to the point, null if it touches none. Claude Generated 2026.
     function panelTouch(point) {
-        var hosts = [structureHost, simulationHost, viewHost, filesHost, helpHost, menuHost]
         var best = null
-        for (var i = 0; i < hosts.length; ++i) {
-            var hit = hosts[i].touchHit(point)
+        for (var i = 0; i < panelHosts.length; ++i) {
+            var hit = panelHosts[i].touchHit(point)
             if (hit && (!best || Math.abs(hit.depth) < Math.abs(best.depth)))
                 best = hit
         }
         return best
     }
 
-    /// Nearest visible panel (or the menu bar) on a scene-space ray: { distance (cm), button (the
-    /// VrButton under the ray or null) }, null if the ray hits none. Used by both hands to decide
-    /// whether the trigger clicks or turns the molecule, and which button it clicks.
+    /// Nearest visible panel (or the menu bar, or a handle) on a scene-space ray: the VrPanelHost.rayHit
+    /// result, null if the ray hits none. Used by both controllers to decide whether the trigger
+    /// clicks, drags or moves a panel, or turns the molecule.
     function panelHit(origin, direction) {
-        var hosts = [structureHost, simulationHost, viewHost, filesHost, helpHost, menuHost]
         var best = null
-        for (var i = 0; i < hosts.length; ++i) {
-            var hit = hosts[i].rayHit(origin, direction)
+        for (var i = 0; i < panelHosts.length; ++i) {
+            var hit = panelHosts[i].rayHit(origin, direction)
             if (hit && (!best || hit.distance < best.distance))
                 best = hit
         }
@@ -164,6 +218,53 @@ Node {
                         inst: scene.instancing
                         atomsPickable: true   // required for rayPick
                     }
+
+                    // Selected atoms (Claude Generated 2026): a pulsing see-through shell around
+                    // each, unlit so it reads the same in any light or sky box. Shown only with a
+                    // selection, and moved on showing: Qt 6.11 draws a Model that had nothing to
+                    // draw at the first sync without its parents' transform (ToggledModel in
+                    // MoleculeModels.qml), which put the first shells tiny at the scene origin.
+                    Model {
+                        visible: scene.sceneController.selectionCount > 0
+                        position: visible ? Qt.vector3d(0, 0, 0) : Qt.vector3d(0, 0, 1e-3)
+                        source: "#Sphere"
+                        instancing: scene.instancing.selectionHaloInstancing
+                        pickable: false
+                        materials: PrincipledMaterial {
+                            baseColor: Style.selectionHalo
+                            lighting: PrincipledMaterial.NoLighting
+                            alphaMode: PrincipledMaterial.Blend
+                            depthDrawMode: Material.NeverDepthDraw
+                            opacity: scene.haloOpacity
+                        }
+                    }
+
+                    // Atom under a controller ray or a fingertip: a bright shell sized from the
+                    // radius the atom is drawn with (space-filling, ball-and-stick, atom scale), so
+                    // it hugs the atom in every representation; red while that atom is pulled.
+                    Repeater3D {
+                        model: scene.highlights
+                        delegate: Model {
+                            required property var modelData
+                            readonly property real drawnRadius: scene.highlightTick >= 0
+                                ? scene.sceneController.atomDrawnRadius(modelData.atom) : 0
+                            readonly property real radius: Math.max(drawnRadius * Style.highlightScale,
+                                                                    drawnRadius + Style.highlightMargin)
+                            visible: drawnRadius > 0
+                            position: scene.highlightTick >= 0 ? scene.sceneController.atomPosition(modelData.atom)
+                                                               : Qt.vector3d(0, 0, 0)
+                            source: "#Sphere"
+                            scale: Qt.vector3d(radius / 50, radius / 50, radius / 50)   // #Sphere: radius 50
+                            pickable: false
+                            materials: PrincipledMaterial {
+                                baseColor: modelData.grabbed ? Style.markerGrab : Style.highlight
+                                lighting: PrincipledMaterial.NoLighting
+                                alphaMode: PrincipledMaterial.Blend
+                                depthDrawMode: Material.NeverDepthDraw
+                                opacity: 0.35 + 0.5 * scene.haloOpacity
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -193,6 +294,7 @@ Node {
                 distance: scene.handInput ? 45 : 58
                 panel: VrPanelSimulation {
                     session: scene.session
+                    onTemperatureEditRequested: (which) => scene.keypadTarget = which
                 }
             }
 
@@ -237,9 +339,40 @@ Node {
                 }
             }
 
+            // Number pad: in front of the Simulation panel (wherever it was moved), a little closer,
+            // so it covers the panel while it is open.
+            VrPanelHost {
+                id: keypadHost
+                visible: scene.keypadTarget !== ""
+                yaw: simulationHost.placeYaw
+                pitch: simulationHost.placePitch + 4
+                distance: simulationHost.placeDistance - 6
+                panel: VrNumberPad {
+                    readonly property bool editsMax: scene.keypadTarget === "max"
+                    title: editsMax ? "Max temperature" : "Min temperature"
+                    unit: "K"
+                    initialValue: editsMax ? scene.session.temperatureMax : scene.session.temperatureMin
+                    maximumValue: 100000
+                    minimumValue: editsMax ? scene.session.temperatureMin + 1 : 0
+                    rangeHint: editsMax ? "above the minimum (" + scene.session.temperatureMin.toFixed(0) + " K)"
+                                        : "0 K or more"
+                    open: scene.keypadTarget !== ""
+                    onAccepted: (value) => {
+                        if (editsMax)
+                            scene.session.command("simTempRange:" + scene.session.temperatureMin.toFixed(0) + ":" + value.toFixed(0))
+                        else   // a minimum at or above the maximum pushes the maximum up (as the dock does)
+                            scene.session.command("simTempRange:" + value.toFixed(0) + ":"
+                                                  + Math.max(scene.session.temperatureMax, value + 1).toFixed(0))
+                        scene.keypadTarget = ""
+                    }
+                    onCancelled: scene.keypadTarget = ""
+                }
+            }
+
             // closer than the panels, so its buttons win where it overlaps one
             VrPanelHost {
                 id: menuHost
+                handleAbove: true   // below it sit the console panels
                 yaw: 0
                 pitch: -12
                 distance: scene.handInput ? 40 : 50

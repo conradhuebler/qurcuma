@@ -78,5 +78,29 @@ var atomTouch = 0.5          // an atom's drawn surface this close to the pinch 
 var tapMilliseconds = 300    // a pinch shorter than this...
 var tapDistance = 1.5        // ...that moved less than this (cm) is a tap: select
 var handLostMilliseconds = 250  // no joint data for this long: the hand is not tracked
-var markerAtom = "#ffe040"   // pinch point over an atom
+var markerAtom = "#ffe040"
+var selectionHalo = "#ff66ff"   // shell around selected atoms (the desktop selection is magenta)
+var highlight = "#fff4b0"       // bright shell around the atom under a ray or fingertip
+var highlightScale = 1.3        // highlight radius = max(scale x drawn radius, drawn radius + margin)
+var highlightMargin = 0.2       // Angstrom   // pinch point over an atom
 var handJoint = "#c8d4e0"
+
+// ---- thermostat slider (Claude Generated 2026) ---------------------------------------------------
+var tempTrackHeight = 200    // px = mm: a 20 cm track, 1000 K range = 5 K per mm
+var tempRangeStep = 50       // K per press of the min / max buttons
+
+// ---- movable panels (Claude Generated 2026) ------------------------------------------------------
+var handleWidth = 16         // cm: target area of a panel's handle (the pill drawn inside is smaller)
+var handleHeight = 3
+var handleGap = 1            // cm between panel edge and handle
+var handle = "#80a0a0a0"
+var handleHover = "#e0e0e0"
+var handleHeld = "#1565c0"
+var panelMinDistance = 25    // cm from the head a moved panel may come...
+var panelMaxDistance = 200   // ...or go
+
+// ---- number pad and edit fields (Claude Generated 2026) ------------------------------------------
+var field = "#121212"
+var fieldHover = "#1c2430"
+var fieldBorder = "#5a7fa8"
+var padMaxDigits = 6

@@ -5476,6 +5476,7 @@ bool MoleculeViewer::setVrActive(bool on)
     m_vr->setSimulationActive(m_simulationActive);
     m_vr->setSimulationStatus(m_vrSimPaused, m_vrSimMessage);
     m_vr->setTemperature(m_vrTemperature);
+    m_vr->setTemperatureRange(m_vrTemperatureMin, m_vrTemperatureMax);
     m_vr->setMethod(m_vrMethod);
     m_vr->setStartDirectory(m_vrStartDir);
     m_vr->setSurroundings(m_vrPanorama, m_vrSurroundings, m_vrSurroundingsScale);
@@ -5563,6 +5564,16 @@ void MoleculeViewer::setVrTemperature(double kelvin)
 #ifdef QURCUMA_HAS_XR
     if (m_vr)
         m_vr->setTemperature(kelvin);
+#endif
+}
+
+void MoleculeViewer::setVrTemperatureRange(double minimum, double maximum)
+{
+    m_vrTemperatureMin = minimum;
+    m_vrTemperatureMax = maximum;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setTemperatureRange(minimum, maximum);
 #endif
 }
 

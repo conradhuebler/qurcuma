@@ -8,8 +8,9 @@ import "VrStyle.js" as Style
 T.Button {
     id: control
 
-    /// "normal", "primary" (starts something), "danger" (stops something) or "ghost" (see-through
-    /// toggle of the menu bar; highlighted = the thing it toggles is shown)
+    /// "normal", "primary" (starts something), "danger" (stops something), "ghost" (see-through
+    /// toggle of the menu bar; highlighted = the thing it toggles is shown) or "field" (a value that
+    /// opens the number pad when pressed, drawn like an edit field)
     property string tone: "normal"
     /// Text alignment of the label; file list rows use Text.AlignLeft.
     property int alignment: Text.AlignHCenter
@@ -46,8 +47,10 @@ T.Button {
              : control.tone === "danger" ? (lit ? Style.dangerHover : Style.danger)
              : control.tone === "ghost" ? (control.highlighted ? (lit ? Style.ghostOnHover : Style.ghostOn)
                                                                : (lit ? Style.ghostHover : Style.ghost))
+             : control.tone === "field" ? (lit ? Style.fieldHover : Style.field)
              : (lit ? Style.buttonHover : Style.button)
         border.width: lit ? 3 : 1
-        border.color: lit ? Style.hoverRing : control.tone === "ghost" ? Style.barBorder : Style.buttonBorder
+        border.color: lit ? Style.hoverRing : control.tone === "ghost" ? Style.barBorder
+                    : control.tone === "field" ? Style.fieldBorder : Style.buttonBorder
     }
 }

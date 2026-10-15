@@ -1,5 +1,12 @@
 # AIChangelog - Qurcuma Improvements
 
+## October 2026 - VR: Auswahl, Thermostat-Schieber, verschiebbare Panels
+
+- Ausgewählte Atome tragen im Headset eine pulsierende Hülle (eigene Instanztabelle, gespiegelt, erst bei Auswahl sichtbar geschaltet); das Atom unter Controller-Strahl oder Fingerspitze eine helle Hülle passend zur Darstellung (rot beim Ziehen).
+- Min/Max des Temperatur-Schiebers sind im Headset per Ziffernblock eintippbar (Eingabefeld antippen).
+- Simulation-Panel: Temperatur-Schieber wie im Dock (linear, blau→rot, Min/Max in 50-K-Schritten), teilt Bereich und Wert mit dem Dock-Schieber; per Strahl oder Pinch ziehbar.
+- Jedes Panel (auch die Menüleiste) hat einen Griff wie eine Fenster-Titelleiste; Trigger oder Pinch darauf verschiebt das Panel, es bleibt dem Kopf zugewandt; Recenter stellt das Layout wieder her.
+
 ## October 2026 - VR: Hand-Tracking als Eingabe
 
 - View ▸ VR Input (und Input-Zeile im View-Panel im Headset): Controller (Strahl + Trigger) oder getrackte Hände (`VrHandInput.qml`); gespeichert in `vr/handInput`. Pinch (Daumen–Zeigefinger aus den Gelenken, mit Hysterese) wirkt nur auf das, was er beim Schließen berührt (Knopf oder gezeichnete Atomkugel, keine Strahlen): Knopf klicken; im Simulationslauf Atom ziehen (Molekül bleibt stehen), sonst Molekül halten/drehen/tragen, mit zwei Händen skalieren; kurzer Pinch auf ein Atom wählt es. Panels und Molekül rücken in Armreichweite; B/Y am Controller schaltet zurück.

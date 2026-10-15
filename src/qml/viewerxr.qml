@@ -8,7 +8,8 @@
 // preview (spikes/vr_preview) renders without a headset. Units are centimetres.
 //
 // Both hands work the same (Hand below), so left- and right-handed users need nothing to learn:
-//   trigger on a panel              = click the button under the ray (each hand clicks on its own)
+//   trigger on a panel              = click the button under the ray (each hand clicks on its own),
+//                                     or drag the thermostat track; on a handle: move that panel
 //   trigger on an atom (simulation) = grab it with a spring force (one atom at a time)
 //   trigger elsewhere, or grip      = rotate the molecule with the hand
 //   A / X                           = select the atom under the ray
@@ -198,10 +199,23 @@ XrView {
         /// distance (cm) to the panel under the ray, -1 = not on a panel
         property real panelDistance: -1
         readonly property bool pointsAtPanel: panelDistance >= 0
-        /// VrButton under the ray, and the one the trigger went down on (typed: nulls itself when a
-        /// file list row is destroyed under the ray)
-        property VrButton hoverButton: null
-        property VrButton pressedButton: null
+        /// VrButton (or drag target, e.g. the thermostat track) under the ray, and the one the
+        /// trigger went down on (typed: nulls itself when a file list row is destroyed under the ray)
+        property Item hoverButton: null
+        property Item pressedButton: null
+        /// panel host of the pressed drag target: its plane turns the ray into track coordinates
+        property var pressedHost: null
+        /// panel whose handle is under the ray, and the one the trigger holds by its handle; while
+        /// held, the panel centre follows the ray point at the grab distance plus the grab offset
+        property var hoverHandleHost: null
+        property var movingHost: null
+        property real moveDistance: 0
+        property vector3d moveOffset
+        /// last panel hit (VrPanelHost.rayHit), for the press
+        property var panelHitResult: null
+        /// atom under the ray (-1 = none), highlighted by VrScene under this key (Claude Generated 2026)
+        property int hoverAtom: -1
+        readonly property string highlightKey: inputHand === XrInputAction.LeftHand ? "leftController" : "rightController"
         /// trigger pulled while on a panel: a click in progress, never a rotation
         property bool pressing: false
         property int grabAtom: -1
@@ -250,10 +264,27 @@ XrView {
         }
 
         // Panel and button under the ray. Lights the button (rayHoverCount: both hands may point at
-        // it), and shows a held button as pressed only while the ray stays on it, like a mouse.
+        // it), and shows a held button as pressed only while the ray stays on it, like a mouse. A
+        // held drag target or panel handle follows the ray (Claude Generated 2026).
         function updatePanelHit() {
             var hit = active ? thisHand.vrScene.panelHit(thisHand.scenePosition, aimDirection()) : null
+            panelHitResult = hit
             panelDistance = hit ? hit.distance : -1
+            setHoverHandle(hit && hit.handle ? hit.host : null)
+            if (movingHost) {
+                var target = thisHand.scenePosition.plus(aimDirection().times(moveDistance))
+                movingHost.moveCentreTo(target.plus(moveOffset))
+            } else if (pressedButton && pressedHost) {
+                var p = pressedHost.panelPointOnRay(thisHand.scenePosition, aimDirection())
+                if (p) {
+                    var local = pressedButton.mapFromItem(pressedHost.panel, p.x, p.y)
+                    pressedButton.vrDragMove(local.x, local.y)
+                }
+            }
+            // Atom under the ray, not while a panel is in front of it or the trigger works a panel.
+            // One ray pick per pose update, against the atom model only.
+            hoverAtom = active && !pressing ? atomUnderRay() : -1
+            thisHand.vrScene.setHighlight(highlightKey, grabAtom >= 0 ? grabAtom : hoverAtom, grabAtom >= 0)
             var button = hit ? hit.button : null
             if (button === hoverButton)
                 return
@@ -262,8 +293,18 @@ XrView {
             hoverButton = button
             if (hoverButton)
                 hoverButton.rayHoverCount++
-            if (pressedButton)
+            if (pressedButton && !pressedHost)
                 pressedButton.rayDown = pressedButton === hoverButton
+        }
+
+        function setHoverHandle(panelHost) {
+            if (panelHost === hoverHandleHost)
+                return
+            if (hoverHandleHost)
+                hoverHandleHost.handleHoverCount--
+            hoverHandleHost = panelHost
+            if (hoverHandleHost)
+                hoverHandleHost.handleHoverCount++
         }
         onScenePositionChanged: updatePanelHit()
         onActiveChanged: updatePanelHit()   // off: drops the hover light of the button under the ray
@@ -283,9 +324,24 @@ XrView {
             if (triggerDown) {
                 if (pointsAtPanel) {
                     pressing = true
+                    var hit = panelHitResult
+                    if (hit && hit.handle) {
+                        // hold the panel by its handle: keep the ray point's offset to its centre
+                        movingHost = hit.host
+                        moveDistance = hit.distance
+                        var grabPoint = thisHand.scenePosition.plus(aimDirection().times(hit.distance))
+                        moveOffset = movingHost.centreScenePosition().minus(grabPoint)
+                        movingHost.handleHeld = true
+                        return
+                    }
                     pressedButton = hoverButton && hoverButton.enabled ? hoverButton : null
                     if (pressedButton)
                         pressedButton.rayDown = true
+                    if (pressedButton && pressedButton.vrDragTarget === true && hit) {
+                        pressedHost = hit.host
+                        var local = pressedButton.mapFromItem(hit.host.panel, hit.x, hit.y)
+                        pressedButton.vrDragStart(local.x, local.y)
+                    }
                     return
                 }
                 var atom = atomUnderRay()
@@ -296,11 +352,19 @@ XrView {
             } else {
                 // Click = trigger released on the button it went down on (a mouse click's rule).
                 var button = pressedButton
+                var dragged = pressedHost !== null
                 pressedButton = null
+                pressedHost = null
                 pressing = false
+                if (movingHost) {
+                    movingHost.handleHeld = false
+                    movingHost = null
+                }
                 if (button) {
                     button.rayDown = false
-                    if (button === hoverButton && button.enabled && active)   // not when the mode switched mid-press
+                    if (dragged)
+                        button.vrDragEnd()   // a drag target is never clicked
+                    else if (button === hoverButton && button.enabled && active)   // not when the mode switched mid-press
                         button.clicked()
                 }
                 if (grabAtom >= 0) {
@@ -329,7 +393,8 @@ XrView {
         // Aim ray along -Z (Cylinder axis is Y, 100 units tall). It ends on the panel it points at,
         // so the user sees exactly which button the trigger will press.
         Model {
-            readonly property real length: thisHand.pointsAtPanel ? thisHand.panelDistance : 150
+            readonly property real length: thisHand.movingHost ? thisHand.moveDistance
+                                         : thisHand.pointsAtPanel ? thisHand.panelDistance : 150
             source: "#Cylinder"
             position: Qt.vector3d(0, 0, -length / 2)
             eulerRotation.x: 90
@@ -346,7 +411,7 @@ XrView {
             materials: PrincipledMaterial {
                 baseColor: thisHand.grabAtom >= 0 ? Style.markerGrab
                          : thisHand.rotating ? Style.markerRotate
-                         : thisHand.pointsAtPanel || thisHand.pressing ? Style.markerPanel : Style.markerIdle
+                         : thisHand.pointsAtPanel || thisHand.pressing || thisHand.movingHost ? Style.markerPanel : Style.markerIdle
                 lighting: PrincipledMaterial.NoLighting
             }
         }

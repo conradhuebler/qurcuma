@@ -64,6 +64,10 @@ class SceneController : public QObject
     // structure. nciLabels uses the same {px,py,pz,text} map shape as atomLabels
     // (plus a "color" key) and is drawn by the same reprojecting QML delegate.
     Q_PROPERTY(QQuick3DInstancing* nciInstancing READ nciInstancing CONSTANT)
+    /// Claude Generated 2026 - Shells around the selected atoms (drawn by the headset scene only).
+    Q_PROPERTY(QQuick3DInstancing* selectionHaloInstancing READ selectionHaloInstancing CONSTANT)
+    /// Number of selected atoms; the headset shows the selection shells only while it is > 0.
+    Q_PROPERTY(int selectionCount READ selectionCount NOTIFY selectionChanged)
     Q_PROPERTY(bool nciVisible READ nciVisible NOTIFY nciChanged)
     Q_PROPERTY(QVariantList nciLabels READ nciLabels NOTIFY nciChanged)
     // Rubber-band (box) selection rectangle in viewport pixels (structure editing).
@@ -166,6 +170,7 @@ public:
     // shift over the base, element identity preserved) and an individual size scale. All
     // visible overlays are packed into the two combined overlay instancing buffers.
     QQuick3DInstancing* overlayAtomInstancing() const;
+    QQuick3DInstancing* selectionHaloInstancing() const;
     QQuick3DInstancing* overlayBondInstancing() const;
     bool overlayVisible() const { return m_overlayVisible; }
     int overlayCount() const { return m_overlays.size(); }
@@ -275,6 +280,8 @@ public:
     /// nearest to the model-local point @p point (Angstrom), if within @p margin (Angstrom) of it, or
     /// inside it; -1 if none. Only atoms as drawn count: hidden ones and hidden spheres do not.
     Q_INVOKABLE int atomAtPoint(const QVector3D& point, float margin) const;
+    /// Claude Generated 2026 - Radius (Angstrom) atom @p index is drawn with; 0 if it is not drawn.
+    Q_INVOKABLE float atomDrawnRadius(int index) const;
     int atomCount() const { return m_atoms.size(); }
     const QVector<AtomDatum>& atoms() const { return m_atoms; }
 
@@ -300,6 +307,7 @@ public:
     void setAtomTransparency(float a);
     void setBackgroundColor(const QColor& c);
     void setSelection(const QVector<int>& indices);
+    int selectionCount() const { return m_selection.size(); }
     void setHoverAtom(int index);  // mouse-over highlight (-1 = none)
     // Claude Generated 2026 - Coarse-grained bead types. VTF beads carry a type
     // label instead of an element; the "By Type" scheme derives a stable colour
@@ -480,6 +488,7 @@ signals:
     void nciChanged();
     void rubberBandChanged();
     void editHintChanged();
+    void selectionChanged();   // Claude Generated 2026
 
 private:
     void rebuildGeometry();        // recompute atom items + bond segments
@@ -493,6 +502,7 @@ private:
     float atomDrawRadius(const AtomDatum& a) const;  // per-atom radius (bead override or vdW)
 
     AtomInstancing* m_atomInstancing = nullptr;
+    AtomInstancing* m_selectionHaloInstancing = nullptr;   // shells around selected atoms (VR)
     BondInstancing* m_bondInstancing = nullptr;
     BondInstancing* m_arrowShaft = nullptr; // force-vector shafts (#Cylinder)
     BondInstancing* m_arrowTip = nullptr;   // force-vector tips (#Cone)

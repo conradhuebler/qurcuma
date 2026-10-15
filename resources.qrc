@@ -25,6 +25,8 @@
         <file>src/qml/VrButton.qml</file>
         <file>src/qml/VrStepper.qml</file>
         <file>src/qml/VrHandInput.qml</file>
+        <file>src/qml/VrTemperatureSlider.qml</file>
+        <file>src/qml/VrNumberPad.qml</file>
         <file>src/qml/VrStyle.js</file>
     </qresource>
 

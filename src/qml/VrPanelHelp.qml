@@ -18,13 +18,17 @@ VrPanel {
         { keys: "Hold atom (MD)", text: "while a simulation runs pinch and hold an atom to pull it" },
         { keys: "Hold atom", text: "otherwise the molecule moves and turns with your hand" },
         { keys: "Both hands", text: "hold atoms with both, then pull apart or together: the molecule grows or shrinks" },
-        { keys: "Quick pinch", text: "on an atom selects it" },
+        { keys: "Fingertip on atom", text: "a bright shell shows the atom a pinch takes" },
+        { keys: "Quick pinch", text: "on an atom selects it (it gets a pulsing shell)" },
+        { keys: "Pinch handle", text: "the bar below a panel, then move your hand: the panel follows" },
         { keys: "B / Y", text: "on a controller switches back to controllers" }
     ]
     readonly property var controllerActions: [
         { keys: "Point + Trigger", text: "on a button presses it" },
         { keys: "Hold Trigger or Grip", text: "away from the panels and turn your hand: the molecule turns with it" },
-        { keys: "A / X", text: "on an atom selects it (shown in Structure)" },
+        { keys: "Ray on atom", text: "a bright shell shows the atom the ray is on" },
+        { keys: "A / X", text: "on an atom selects it (it gets a pulsing shell)" },
+        { keys: "Trigger on handle", text: "the bar below a panel: hold and point elsewhere to move it" },
         { keys: "Hold Trigger", text: "on an atom while a simulation runs pulls the atom" },
         { keys: "B / Y", text: "hides or shows all panels" },
         { keys: "Left stick", text: "walks where you look" },
