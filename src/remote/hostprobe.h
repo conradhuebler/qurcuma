@@ -33,6 +33,7 @@ struct ProbeResult {
     int threads = 0;             ///< hardware threads reported by the server
     QStringList gpuBackends;     ///< GPU backends the server was built with and can load
     int rttMs = -1;              ///< round trip of a ping through the tunnel
+    QString correctedCommand;    ///< the typed server command with a directory completed to the server file in it
     QString message;             ///< one line for the whole result
 };
 
@@ -54,7 +55,8 @@ public:
     static QString explainSshFailure(const QString& stderrText, const HostProfile& profile);
     /// The script run on the remote side (`sh -s`); it takes no input from this program.
     /// With @p typedCommand (the user's own server command) the script also reports whether its
-    /// executable exists there: `CUSTOM=ok|dir|missing`. Only the first word is used and only when
+    /// executable exists there: `CUSTOM=ok|dir|missing`, or `CUSTOM=dirfix:<path>` when it is a
+    /// directory that holds qurcuma-server. Only the first word is used and only when
     /// it has no characters a shell would interpret, so nothing typed can end up as shell syntax.
     static QByteArray findServerScript(const QString& typedCommand = QString());
 

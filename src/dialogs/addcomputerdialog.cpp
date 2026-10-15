@@ -309,8 +309,12 @@ void AddComputerDialog::onProbeFinished(const remote::ProbeResult& result)
     m_probe = nullptr;
     m_tested = true;
     m_testedOk = result.sessionOk;
-    if (!result.serverPath.isEmpty() && m_serverCommand->text().trimmed().isEmpty()) {
-        m_filling = true;  // the found path is part of this result, not a new entry
+    if (!result.correctedCommand.isEmpty()) {
+        m_filling = true;  // the completed command is part of this result, not a new entry
+        m_serverCommand->setText(result.correctedCommand);
+        m_filling = false;
+    } else if (!result.serverPath.isEmpty() && m_serverCommand->text().trimmed().isEmpty()) {
+        m_filling = true;
         m_serverCommand->setText(result.serverPath);
         m_filling = false;
     }

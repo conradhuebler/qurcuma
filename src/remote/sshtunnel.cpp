@@ -102,8 +102,15 @@ void SshTunnel::start()
     connect(m_server, &QProcess::finished, this, [this](int code, QProcess::ExitStatus) {
         if (m_done)
             return;
-        // exit 127 / "not found": the command does not exist there (a wrong path, or no server built)
         const QString err = m_stderr.trimmed();
+        // exit 126: found but not executable, usually a directory given instead of the file
+        if (code == 126 || err.contains(QStringLiteral("Permission denied")) || err.contains(QStringLiteral("Is a directory"))) {
+            fail(tr("The server command '%1' on %2 cannot be run (exit %3), for example because it is a directory. "
+                    "Give the path of the qurcuma-server file, or use Test next to \"Compute on\" to have it completed.")
+                     .arg(m_serverCommand.section(QLatin1Char(' '), 0, 0), m_host).arg(code));
+            return;
+        }
+        // exit 127 / "not found": the command does not exist there (a wrong path, or no server built)
         if (code == 127 || err.contains(QStringLiteral("Unknown command")) || err.contains(QStringLiteral("command not found"))
             || err.contains(QStringLiteral("No such file or directory"))) {
             fail(tr("The server command '%1' does not exist on %2 (exit %3). Use Test next to \"Compute on\" to look for qurcuma-server "

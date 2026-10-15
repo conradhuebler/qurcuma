@@ -317,11 +317,26 @@ else:
         CHECK(o.steps.contains("1:3") && o.steps.contains("2:4"));
         CHECK(o.result.message.contains("does not exist") && o.result.message.contains(bin + "/qurcuma-server"));
     }
-    {   // it is a directory (the file name is missing)
+    {   // a directory without a server in it is refused
+        const QString empty = dir.path() + "/empty";
+        QDir().mkpath(empty);
         remote::HostProfile typed = prof;
-        typed.serverCommand = bin;
+        typed.serverCommand = empty;
         const Outcome o = probe(typed);
         CHECK(o.done && !o.result.sessionOk && o.result.message.contains("is a directory"));
+    }
+    {   // a directory that holds qurcuma-server is completed, the arguments stay, the session works
+        remote::HostProfile typed = prof;
+        typed.serverCommand = bin + "/ --grace 5";  // trailing slash, as typed
+        const Outcome o = probe(typed);
+        CHECK(o.done && o.result.sessionOk);
+        CHECK(o.result.correctedCommand == bin + "/qurcuma-server --grace 5");
+        // the same with a directory given as ~/...: expanded on the remote side
+        QDir().mkpath(emptyHome + "/rel");
+        QFile::link(realServer, emptyHome + "/rel/qurcuma-server");
+        typed.serverCommand = QStringLiteral("~/rel");
+        const Outcome o2 = probe(typed);
+        CHECK(o2.done && o2.result.sessionOk && o2.result.correctedCommand == emptyHome + "/rel/qurcuma-server");
     }
     {   // it exists, with arguments: the first word is checked, the session works
         remote::HostProfile typed = prof;
@@ -349,6 +364,22 @@ else:
         tunnel.start();
         loop.exec();
         CHECK(failure.contains("does not exist") && failure.contains("/nonexistent/qurcuma-server") && failure.contains("Test"));
+    }
+    {   // a directory saved as the server command: the tunnel says so
+        remote::HostProfile typed = prof;
+        typed.serverCommand = dir.path() + "/empty";
+        remote::SshTunnel tunnel(typed);
+        QString failure;
+        QEventLoop loop;
+        QTimer limit;
+        limit.setSingleShot(true);
+        QObject::connect(&limit, &QTimer::timeout, &loop, &QEventLoop::quit);
+        QObject::connect(&tunnel, &remote::SshTunnel::failed, [&](const QString& m) { failure = m; loop.quit(); });
+        QObject::connect(&tunnel, &remote::SshTunnel::ready, &loop, &QEventLoop::quit);
+        limit.start(30000);
+        tunnel.start();
+        loop.exec();
+        CHECK(failure.contains("cannot be run") && failure.contains("directory"));
     }
     {   // ssh refuses: step 1 fails with the way out, the rest is not tried
         remote::HostProfile denied = prof;

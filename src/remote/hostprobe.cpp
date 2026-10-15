@@ -30,7 +30,8 @@ QByteArray HostProbe::findServerScript(const QString& typedCommand)
     if (!word.isEmpty() && safe.match(word).hasMatch()) {
         check = "tok='" + word.toUtf8() + "'\n"
                 "case \"$tok\" in \"~/\"*) tok=\"$HOME/${tok#\"~/\"}\";; esac\n"
-                "if [ -d \"$tok\" ]; then echo CUSTOM=dir\n"
+                "if [ -d \"$tok\" ]; then\n"
+                "  if [ -x \"${tok%/}/qurcuma-server\" ]; then echo \"CUSTOM=dirfix:${tok%/}/qurcuma-server\"; else echo CUSTOM=dir; fi\n"
                 "elif [ -x \"$tok\" ] || command -v \"$tok\" >/dev/null 2>&1; then echo CUSTOM=ok\n"
                 "else echo CUSTOM=missing; fi\n";
     }
@@ -212,7 +213,20 @@ void HostProbe::start()
             }
             m_result.serverRuns = runs;
             // A server command typed by the user wins over the one found.
-            const QString custom = m_profile.serverCommand.trimmed();
+            QString custom = m_profile.serverCommand.trimmed();
+            // A directory that holds qurcuma-server is a clear request: the file name is completed
+            // (the rest of the command stays), and the corrected command is part of the result.
+            QString fixedNote;
+            if (!custom.isEmpty() && custom_state.startsWith(QStringLiteral("dirfix:"))) {
+                const QString word = custom.section(QLatin1Char(' '), 0, 0);
+                const QString fixed = custom_state.mid(7);
+                custom = fixed + custom.mid(word.size());
+                m_result.correctedCommand = custom;
+                m_result.serverPath = fixed;
+                m_result.serverRuns = true;
+                runs = true;
+                fixedNote = tr("'%1' is a directory; using %2 in it.").arg(word, fixed);
+            }
             // The command the user typed is checked first: a wrong one would otherwise only show up
             // as a failed session. If the search found a server, its path is offered.
             if (!custom.isEmpty() && (custom_state == QStringLiteral("missing") || custom_state == QStringLiteral("dir"))) {
@@ -236,8 +250,9 @@ void HostProbe::start()
                 failSession(tr("Found %1, but it does not start (missing libraries?). Try it with --help on that computer.").arg(m_result.serverPath));
                 return;
             }
-            setStep(Server, Ok, !custom.isEmpty() ? tr("The server command you entered exists.")
-                                                  : tr("Found %1.").arg(m_result.serverPath));
+            setStep(Server, Ok, !fixedNote.isEmpty() ? fixedNote
+                                 : !custom.isEmpty() ? tr("The server command you entered exists.")
+                                                     : tr("Found %1.").arg(m_result.serverPath));
             runSession(custom.isEmpty() ? m_result.serverPath : custom);
         });
     });
