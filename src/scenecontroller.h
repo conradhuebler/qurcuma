@@ -271,6 +271,10 @@ public:
     /// Claude Generated 2026 - Atom drawn by row @p instance of the atom instance table (-1 = none).
     /// Hidden atoms have no row, so a ray pick's instanceIndex must be mapped through this.
     Q_INVOKABLE int atomIndexForInstance(int instance) const;
+    /// Claude Generated 2026 - Direct touch (VR hand input): the drawn atom whose sphere surface is
+    /// nearest to the model-local point @p point (Angstrom), if within @p margin (Angstrom) of it, or
+    /// inside it; -1 if none. Only atoms as drawn count: hidden ones and hidden spheres do not.
+    Q_INVOKABLE int atomAtPoint(const QVector3D& point, float margin) const;
     int atomCount() const { return m_atoms.size(); }
     const QVector<AtomDatum>& atoms() const { return m_atoms; }
 

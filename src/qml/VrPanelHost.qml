@@ -12,7 +12,8 @@
 // Headset input does not use XrVirtualMouse: Qt 6.11 ray-picks an XrItem against its infinite plane
 // and stops at the first plane that has no item under the hit, so a nearer panel (the menu bar, or
 // a hidden one) swallowed clicks meant for the panel behind it. rayHit() below tests the real
-// rectangle and hands the button under the ray to the controller (viewerxr.qml Hand).
+// rectangle and hands the button under the ray to the controller (viewerxr.qml Hand); touchHit()
+// does the same for a tracked hand's pinch point (VrHandInput.qml).
 import QtQuick
 import QtQuick3D
 import QtQuick3D.Xr
@@ -65,6 +66,21 @@ Node {
         if (x < 0 || x > surface.width || y > 0 || y < -surface.height)
             return null
         return { distance: t, button: buttonAt(x * Style.pixelsPerCm, -y * Style.pixelsPerCm) }
+    }
+
+    /// Direct touch (hand input): whether a scene point is at this panel, within Style.touchFront in
+    /// front of it to Style.touchBehind behind it: { depth (cm, > 0 = in front), button (VrButton at
+    /// that spot or null) }, or null. Claude Generated 2026.
+    function touchHit(point) {
+        if (!host.visible || !host.panel)
+            return null
+        // XrItem space as in rayHit; the head is on the +z side
+        var p = surface.mapPositionFromScene(point)
+        if (p.z > Style.touchFront || p.z < -Style.touchBehind)
+            return null
+        if (p.x < 0 || p.x > surface.width || p.y > 0 || p.y < -surface.height)
+            return null
+        return { depth: p.z, button: buttonAt(p.x * Style.pixelsPerCm, -p.y * Style.pixelsPerCm) }
     }
 
     /// Topmost visible VrButton at a point of the panel (panel pixels), null if none.

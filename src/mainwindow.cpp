@@ -1142,6 +1142,27 @@ void MainWindow::createMenus()
     });
     connect(m_moleculeView, &MoleculeViewer::vrActiveChanged, vrAction, &QAction::setChecked);
 
+    // Claude Generated 2026 - Headset input: controllers (ray + trigger) or tracked hands (pinch,
+    // direct manipulation). Remembered; the headset's View panel switches it as well.
+    QMenu* vrInputMenu = viewMenu->addMenu(tr("VR &Input"));
+    auto* vrInputGroup = new QActionGroup(this);
+    QAction* vrControllersAction = vrInputMenu->addAction(tr("&Controllers (Ray + Trigger)"));
+    QAction* vrHandsAction = vrInputMenu->addAction(tr("&Hands (Pinch)"));
+    vrHandsAction->setToolTip(tr("Use tracked hands: pinch clicks panel buttons and holds the molecule. "
+                                 "Needs hand tracking in the OpenXR runtime."));
+    for (QAction* action : { vrControllersAction, vrHandsAction }) {
+        action->setCheckable(true);
+        vrInputGroup->addAction(action);
+    }
+    connect(vrHandsAction, &QAction::toggled, this, [this](bool on) { m_moleculeView->setVrHandInput(on); });
+    connect(m_moleculeView, &MoleculeViewer::vrHandInputChanged, this,
+        [this, vrControllersAction, vrHandsAction](bool on) {
+            (on ? vrHandsAction : vrControllersAction)->setChecked(true);
+            m_settings.setVrHandInput(on);
+        });
+    m_moleculeView->setVrHandInput(m_settings.vrHandInput());
+    (m_settings.vrHandInput() ? vrHandsAction : vrControllersAction)->setChecked(true);
+
     // Claude Generated 2026 - Surroundings of the headset scene: a 360 degree panorama as the sky
     // box and/or a 3D scene file around the user. Remembered; a file that is gone is skipped.
     QMenu* vrSurroundingsMenu = viewMenu->addMenu(tr("VR &Surroundings"));

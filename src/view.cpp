@@ -5425,6 +5425,7 @@ bool MoleculeViewer::setVrActive(bool on)
         return true;
     }
     m_vr = new VrSession(m_scene, this);
+    m_vr->setHandInput(m_vrHandInput);   // before start(): the scene is laid out for the right mode
     if (!m_vr->start()) {
         delete m_vr;
         m_vr = nullptr;
@@ -5452,6 +5453,8 @@ bool MoleculeViewer::setVrActive(bool on)
         emit atomForceRequested(atom, -force, m_grabAlpha, m_grabMaxShells);
     });
     connect(m_vr, &VrSession::fileRequested, this, &MoleculeViewer::vrFileRequested);
+    // The input mode can be switched in the headset (View panel, or B / Y in hands mode).
+    connect(m_vr, &VrSession::handInputChanged, this, [this] { setVrHandInput(m_vr->handInput()); });
     connect(m_vr, &VrSession::grabReleased, this, [this] { emit atomGrabReleased(); });
     connect(m_vr, &VrSession::command, this, [this](const QString& name) {
         if (name == QLatin1String("playPause"))
@@ -5527,6 +5530,19 @@ void MoleculeViewer::setVrStartDirectory(const QString& dir)
     if (m_vr)
         m_vr->setStartDirectory(dir);
 #endif
+}
+
+// Claude Generated 2026 - Headset input mode; kept for the next session when none runs.
+void MoleculeViewer::setVrHandInput(bool on)
+{
+    if (on == m_vrHandInput)
+        return;
+    m_vrHandInput = on;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setHandInput(on);
+#endif
+    emit vrHandInputChanged(on);
 }
 
 // Claude Generated 2026 - Sky box panorama and 3D surroundings of the headset scene.

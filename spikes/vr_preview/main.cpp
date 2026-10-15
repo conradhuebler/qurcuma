@@ -80,7 +80,7 @@ int main(int argc, char** argv)
     QCommandLineParser parser;
     parser.setApplicationDescription("Offline preview of the qurcuma headset scene");
     parser.addHelpOption();
-    QCommandLineOption stateOpt("state", "Mock state: idle, trajectory, running, paused, aborted, files, help, hidden.", "name", "idle");
+    QCommandLineOption stateOpt("state", "Mock state: idle, trajectory, running, paused, aborted, files, help, hidden, hands.", "name", "idle");
     QCommandLineOption shotOpt("shot", "Render a PNG to <file> and quit.", "file");
     QCommandLineOption sizeOpt("size", "Window size in pixels.", "WxH", "1600x1000");
     QCommandLineOption fovOpt("fov", "Horizontal field of view in degrees.", "deg", "100");

@@ -73,6 +73,9 @@ public:
     void setVrSurroundings(const QString& path);
     bool vrSurroundingsInCentimetres() const; // its units: false = metres (glTF convention)
     void setVrSurroundingsInCentimetres(bool on);
+    // Claude Generated 2026 - VR input: false = controllers (ray + trigger), true = tracked hands (pinch)
+    bool vrHandInput() const;
+    void setVrHandInput(bool on);
 
     // Claude Generated 2026 - "Use Invocation Directory" preference.
     // When enabled, the directory from which qurcuma was launched

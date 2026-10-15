@@ -183,3 +183,11 @@ void VrSession::setMethod(const QString& key)
     m_method = key;
     emit methodChanged();
 }
+
+void VrSession::setHandInput(bool on)
+{
+    if (on == m_handInput)
+        return;
+    m_handInput = on;
+    emit handInputChanged();
+}

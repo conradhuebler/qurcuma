@@ -68,6 +68,10 @@ class VrSession : public QObject {
     Q_PROPERTY(QUrl surroundings READ surroundings NOTIFY surroundingsChanged)
     /// Centimetres per unit of the surroundings file: 100 = metres (glTF convention), 1 = centimetres.
     Q_PROPERTY(double surroundingsScale READ surroundingsScale NOTIFY surroundingsChanged)
+    /// Input mode (Claude Generated 2026): false = controllers (ray + trigger, viewerxr.qml Hand),
+    /// true = tracked hands (pinch, direct manipulation, VrHandInput.qml). Written by the desktop menu
+    /// and by the headset's View panel.
+    Q_PROPERTY(bool handInput READ handInput WRITE setHandInput NOTIFY handInputChanged)
 public:
     /// @p scene is the desktop viewer's controller; it must outlive the session (or stop() first).
     explicit VrSession(SceneController* scene, QObject* parent = nullptr);
@@ -107,6 +111,9 @@ public:
     /// the scene's units in centimetres.
     void setSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale);
 
+    bool handInput() const { return m_handInput; }
+    void setHandInput(bool on);
+
     QString currentDir() const { return m_currentDir; }
     QVariantList entries() const { return m_entries; }
     /// Directory the browser opens in (falls back to the home directory).
@@ -139,6 +146,7 @@ signals:
     void statusChanged();
     void simulationStatusChanged();
     void surroundingsChanged();
+    void handInputChanged();
 
 private:
     SceneController* m_scene = nullptr;      // desktop controller, not owned
@@ -161,6 +169,7 @@ private:
     QUrl m_panorama;
     QUrl m_surroundings;
     double m_surroundingsScale = 100.0;
+    bool m_handInput = false;
 
     void refreshEntries();
 };

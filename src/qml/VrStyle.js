@@ -66,3 +66,17 @@ var listRowHeight = 36
 var walkSpeed = 150          // cm/s at full left-stick tilt, a brisk walk
 var snapTurnDegrees = 45     // right-stick snap turn
 var eyeHeight = 160          // cm, floor below the starting head when the runtime has no floor
+
+// ---- hand input: pinch and direct touch (Claude Generated 2026) ---------------------------------
+// Distances in cm between OpenXR joint centres; the tip joints sit about 1 cm apart when the pads
+// touch. Two thresholds (hysteresis) so a pinch held near the limit does not flicker.
+var pinchPress = 2.0         // thumb tip to index tip below this: pinch starts
+var pinchRelease = 3.0       // above this: pinch ends
+var touchFront = 1.5         // the pinch point touches a panel this close in front of its surface...
+var touchBehind = 1.5        // ...or this far behind it (hands pass through panels)
+var atomTouch = 0.5          // an atom's drawn surface this close to the pinch point (or the point inside it) is touched
+var tapMilliseconds = 300    // a pinch shorter than this...
+var tapDistance = 1.5        // ...that moved less than this (cm) is a tap: select
+var handLostMilliseconds = 250  // no joint data for this long: the hand is not tracked
+var markerAtom = "#ffe040"   // pinch point over an atom
+var handJoint = "#c8d4e0"

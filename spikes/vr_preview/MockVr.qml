@@ -23,6 +23,7 @@ QtObject {
     property double grabStrength: 0.1
     property string currentDir: "/home/user/structures"
     property var entries: []
+    property bool handInput: stateName === "hands"   // layout within arm's reach (Claude Generated 2026)
 
     // ---- VrSession signals (callable from the panels, as on the C++ object) ---------------------
     signal command(string name)

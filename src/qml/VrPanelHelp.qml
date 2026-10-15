@@ -1,7 +1,7 @@
 // Copyright (C) 2025 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
-// Headset panel "How to use" (Claude Generated 2026): a short controller cheat sheet for first-time
-// VR users. Opens at session start and from "Help" in the menu bar; Close or Help hides it again.
-// Keep it in sync with the input handling in viewerxr.qml.
+// Headset panel "How to use" (Claude Generated 2026): a short cheat sheet for first-time VR users, for
+// controllers or tracked hands (handInput). Opens at session start and from "Help" in the menu bar;
+// Close or Help hides it again. Keep it in sync with viewerxr.qml (controllers) and VrHandInput.qml.
 pragma ComponentBehavior: Bound
 import QtQuick
 import "VrStyle.js" as Style
@@ -9,9 +9,19 @@ import "VrStyle.js" as Style
 VrPanel {
     id: panel
 
+    required property bool handInput
     signal closeRequested()
 
-    readonly property var actions: [
+    readonly property var actions: handInput ? handActions : controllerActions
+    readonly property var handActions: [
+        { keys: "Pinch", text: "on a button presses it. The dot between thumb and index finger shows where the pinch lands; a pinch that touches nothing does nothing" },
+        { keys: "Hold atom (MD)", text: "while a simulation runs pinch and hold an atom to pull it" },
+        { keys: "Hold atom", text: "otherwise the molecule moves and turns with your hand" },
+        { keys: "Both hands", text: "hold atoms with both, then pull apart or together: the molecule grows or shrinks" },
+        { keys: "Quick pinch", text: "on an atom selects it" },
+        { keys: "B / Y", text: "on a controller switches back to controllers" }
+    ]
+    readonly property var controllerActions: [
         { keys: "Point + Trigger", text: "on a button presses it" },
         { keys: "Hold Trigger or Grip", text: "away from the panels and turn your hand: the molecule turns with it" },
         { keys: "A / X", text: "on an atom selects it (shown in Structure)" },
@@ -32,7 +42,8 @@ VrPanel {
 
     Text {
         width: parent.width
-        text: "Both controllers work the same – use whichever hand you like. Only the sticks differ."
+        text: panel.handInput ? "No controllers needed – both hands work the same. Walk around in the room to move."
+                              : "Both controllers work the same – use whichever hand you like. Only the sticks differ."
         color: Style.text
         font.pixelSize: Style.fontBody
         wrapMode: Text.Wrap

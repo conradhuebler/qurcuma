@@ -17,6 +17,11 @@
 //   left stick                      = walk (horizontal, relative to where the head looks)
 //   right stick left / right        = snap turn by 45 degrees about the head
 // The help panel (VrPanelHelp.qml) explains the same; keep both in sync.
+//
+// Input mode (vr.handInput, Claude Generated 2026): the above is the controller mode. In hand mode the
+// tracked hands (VrHandInput.qml) pinch and touch instead; the controllers' rays, triggers and sticks
+// are off then, except B / Y, which switches back to controllers (a way out when the runtime does
+// not track hands).
 import QtQuick
 import QtQuick3D
 import QtQuick3D.Xr
@@ -63,6 +68,13 @@ XrView {
             view: xrView
             vrScene: scene
         }
+
+        // Tracked hands; joint data arrive in XrOrigin space, so they live in it (Claude Generated 2026)
+        VrHandInput {
+            vrScene: scene
+            session: vr
+            active: vr.handInput
+        }
     }
 
     /// The hand holding an atom (null = none); VrSession knows a single grab only.
@@ -72,9 +84,10 @@ XrView {
     // The user moves, not the scene: both act on the XrOrigin, which carries head and hands, so the
     // molecule, the panels and the surroundings stay where they are. Qt Quick 3D is y-up, -z forward;
     // walking stays in the horizontal x/z plane.
-    XrInputAction { id: walkX; hand: XrInputAction.LeftHand; actionId: XrInputAction.ThumbstickX }
-    XrInputAction { id: walkY; hand: XrInputAction.LeftHand; actionId: XrInputAction.ThumbstickY }
-    XrInputAction { id: turnX; hand: XrInputAction.RightHand; actionId: XrInputAction.ThumbstickX }
+    // Controller mode only: a hand holding the molecule must not be turned under it.
+    XrInputAction { id: walkX; enabled: !vr.handInput; hand: XrInputAction.LeftHand; actionId: XrInputAction.ThumbstickX }
+    XrInputAction { id: walkY; enabled: !vr.handInput; hand: XrInputAction.LeftHand; actionId: XrInputAction.ThumbstickY }
+    XrInputAction { id: turnX; enabled: !vr.handInput; hand: XrInputAction.RightHand; actionId: XrInputAction.ThumbstickX }
 
     /// Stick deflection below this is ignored (resting sticks never read exactly 0).
     readonly property real stickDeadzone: 0.15
@@ -82,7 +95,7 @@ XrView {
     property bool turning: false
 
     FrameAnimation {
-        running: Math.hypot(walkX.value, walkY.value) > xrView.stickDeadzone
+        running: !vr.handInput && Math.hypot(walkX.value, walkY.value) > xrView.stickDeadzone
         onTriggered: xrView.walk(frameTime)
     }
 
@@ -105,7 +118,7 @@ XrView {
     }
 
     // One turn per push: the stick has to come back towards the centre before the next one.
-    readonly property int turnDirection: turnX.value > 0.6 ? 1 : turnX.value < -0.6 ? -1 : 0
+    readonly property int turnDirection: vr.handInput ? 0 : turnX.value > 0.6 ? 1 : turnX.value < -0.6 ? -1 : 0
     onTurnDirectionChanged: if (turnDirection !== 0) snapTurn(-turnDirection * Style.snapTurnDegrees)
 
     /// Turn the user by @p degrees (> 0 = left) about the vertical axis through the head, so the
@@ -138,6 +151,7 @@ XrView {
         var forward = headCamera.sceneRotation.times(Qt.vector3d(0, 0, -1))
         scene.headPosition = headCamera.scenePosition
         scene.headYaw = Math.atan2(-forward.x, -forward.z) * 180 / Math.PI
+        scene.moleculeOffset = Qt.vector3d(0, 0, 0)   // carried by the hands: back to its place
     }
     Timer {
         id: placeOnStart
@@ -176,6 +190,11 @@ XrView {
 
         poseSpace: XrController.AimPose
 
+        /// Controller mode (Claude Generated 2026): in hand mode the ray, the trigger and the grip
+        /// are off; triggerDown dropping to false releases whatever the trigger held.
+        readonly property bool active: !vr.handInput
+        visible: active
+
         /// distance (cm) to the panel under the ray, -1 = not on a panel
         property real panelDistance: -1
         readonly property bool pointsAtPanel: panelDistance >= 0
@@ -186,22 +205,30 @@ XrView {
         /// trigger pulled while on a panel: a click in progress, never a rotation
         property bool pressing: false
         property int grabAtom: -1
-        readonly property bool triggerDown: trigger.value > 0.5
-        readonly property bool squeezeDown: squeeze.value > 0.5
+        readonly property bool triggerDown: active && trigger.value > 0.5
+        readonly property bool squeezeDown: active && squeeze.value > 0.5
         readonly property bool rotating: !pressing && grabAtom < 0 && (triggerDown || squeezeDown)
         property quaternion lastRotation: Qt.quaternion(1, 0, 0, 0)
 
-        XrInputAction { id: trigger; hand: thisHand.inputHand; actionId: XrInputAction.TriggerValue }
-        XrInputAction { id: squeeze; hand: thisHand.inputHand; actionId: XrInputAction.SqueezeValue }
+        XrInputAction { id: trigger; enabled: thisHand.active; hand: thisHand.inputHand; actionId: XrInputAction.TriggerValue }
+        XrInputAction { id: squeeze; enabled: thisHand.active; hand: thisHand.inputHand; actionId: XrInputAction.SqueezeValue }
         XrInputAction {
+            enabled: thisHand.active
             hand: thisHand.inputHand
             actionId: XrInputAction.Button1Pressed   // A (right) / X (left)
             onPressedChanged: if (pressed) vr.atomPicked(thisHand.atomUnderRay())
         }
         XrInputAction {
             hand: thisHand.inputHand
-            actionId: XrInputAction.Button2Pressed   // B (right) / Y (left)
-            onPressedChanged: if (pressed) thisHand.vrScene.togglePanels()
+            actionId: XrInputAction.Button2Pressed   // B (right) / Y (left), in both modes
+            onPressedChanged: {
+                if (!pressed)
+                    return
+                if (vr.handInput)
+                    vr.handInput = false   // picked up a controller: back to controller input
+                else
+                    thisHand.vrScene.togglePanels()
+            }
         }
 
         function aimDirection() {
@@ -225,7 +252,7 @@ XrView {
         // Panel and button under the ray. Lights the button (rayHoverCount: both hands may point at
         // it), and shows a held button as pressed only while the ray stays on it, like a mouse.
         function updatePanelHit() {
-            var hit = thisHand.vrScene.panelHit(thisHand.scenePosition, aimDirection())
+            var hit = active ? thisHand.vrScene.panelHit(thisHand.scenePosition, aimDirection()) : null
             panelDistance = hit ? hit.distance : -1
             var button = hit ? hit.button : null
             if (button === hoverButton)
@@ -239,6 +266,7 @@ XrView {
                 pressedButton.rayDown = pressedButton === hoverButton
         }
         onScenePositionChanged: updatePanelHit()
+        onActiveChanged: updatePanelHit()   // off: drops the hover light of the button under the ray
         onSceneRotationChanged: {
             updatePanelHit()
             if (!rotating || thisHand.view.turning)
@@ -272,7 +300,7 @@ XrView {
                 pressing = false
                 if (button) {
                     button.rayDown = false
-                    if (button === hoverButton && button.enabled)
+                    if (button === hoverButton && button.enabled && active)   // not when the mode switched mid-press
                         button.clicked()
                 }
                 if (grabAtom >= 0) {

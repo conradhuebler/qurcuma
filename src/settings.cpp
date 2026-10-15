@@ -366,6 +366,18 @@ void Settings::setVrSurroundingsInCentimetres(bool on)
     m_settings.sync();
 }
 
+// Claude Generated 2026 - VR input mode
+bool Settings::vrHandInput() const
+{
+    return m_settings.value(QStringLiteral("vr/handInput"), false).toBool();
+}
+
+void Settings::setVrHandInput(bool on)
+{
+    m_settings.setValue(QStringLiteral("vr/handInput"), on);
+    m_settings.sync();
+}
+
 // Claude Generated 2026 - "Use Invocation Directory" preference
 bool Settings::useInvocationDirectoryEnabled() const
 {

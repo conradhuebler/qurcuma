@@ -1,5 +1,9 @@
 # AIChangelog - Qurcuma Improvements
 
+## October 2026 - VR: Hand-Tracking als Eingabe
+
+- View ▸ VR Input (und Input-Zeile im View-Panel im Headset): Controller (Strahl + Trigger) oder getrackte Hände (`VrHandInput.qml`); gespeichert in `vr/handInput`. Pinch (Daumen–Zeigefinger aus den Gelenken, mit Hysterese) wirkt nur auf das, was er beim Schließen berührt (Knopf oder gezeichnete Atomkugel, keine Strahlen): Knopf klicken; im Simulationslauf Atom ziehen (Molekül bleibt stehen), sonst Molekül halten/drehen/tragen, mit zwei Händen skalieren; kurzer Pinch auf ein Atom wählt es. Panels und Molekül rücken in Armreichweite; B/Y am Controller schaltet zurück.
+
 ## October 2026 - VR: Bewegen und Umgebung
 
 - Linker Stick läuft (horizontal, in Blickrichtung, bis 1,5 m/s), rechter Stick dreht in 45°-Schritten um den Kopf; beides verschiebt den `XrOrigin`, Molekül, Panels und Umgebung bleiben stehen. Ein Snap-Turn während Trigger/Grip dreht das Molekül nicht mit.

@@ -1743,6 +1743,30 @@ int SceneController::atomIndexForInstance(int instance) const
     return m_atomInstancing->atomIndexOf(instance);
 }
 
+// Claude Generated 2026 - Overlap test for the VR hands: the same visibility and radius rules as
+// rebuildAtoms(), so an atom counts as touched exactly where it is drawn. Linear in the atom count,
+// which stays far below a millisecond for any structure the viewer draws at frame rate.
+int SceneController::atomAtPoint(const QVector3D& point, float margin) const
+{
+    if (!m_atomsVisible || !m_primaryVisible)
+        return -1;
+    const float radiusFactor = (m_renderingMode == SpaceFilling) ? 1.0f : 0.30f;
+    ensureVisibilityMask();
+    int best = -1;
+    float bestGap = margin;   // distance from the sphere surface; < 0 = inside
+    for (int i = 0; i < m_atoms.size(); ++i) {
+        if (isAtomHidden(i))
+            continue;
+        const float radius = radiusFactor * m_atomScaleFactor * atomDrawRadiusFor(i);
+        const float gap = (m_atoms[i].position - point).length() - radius;
+        if (gap <= bestGap) {
+            bestGap = gap;
+            best = i;
+        }
+    }
+    return best;
+}
+
 void SceneController::setSelection(const QVector<int>& indices)
 {
     m_selection = indices;

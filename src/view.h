@@ -505,10 +505,15 @@ public slots:
     void setVrSimulationStatus(bool paused, const QString& message);  // run paused / last run's end line
     /// Headset sky box panorama and 3D scene; @p sceneScale = cm per scene unit (100 = metres).
     void setVrSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale);
+    /// Headset input: tracked hands (pinch) instead of controllers (ray + trigger). Claude Generated 2026.
+    void setVrHandInput(bool on);
+    bool vrHandInput() const { return m_vrHandInput; }
     void updateVrStatus();  // refresh the in-headset panel text (no-op without a session)
 
 signals:
     void vrActiveChanged(bool active);
+    /// The headset input mode changed (desktop menu or the headset's View panel).
+    void vrHandInputChanged(bool on);
     /// Headset panel asked for a simulation action ("simStartMD", "simStartOpt", "simStop", "simPause",
     /// "simTempUp", "simTempDown"); MainWindow owns the simulation and carries it out.
     void vrSimulationCommand(const QString& name);
@@ -817,6 +822,7 @@ private:
     QString m_vrPanorama;       // sky box panorama file of the headset scene (empty = colour)
     QString m_vrSurroundings;   // 3D scene file around the headset user (empty = none)
     double m_vrSurroundingsScale = 100.0;  // cm per unit of that file (100 = metres)
+    bool m_vrHandInput = false;            // headset input: hands (pinch) instead of controllers
     QWidget* m_controlPanel = nullptr;
 
     // Claude Generated - Frame control widgets (shown/hidden based on frame count)
