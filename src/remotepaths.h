@@ -11,7 +11,9 @@
 #include <QDateTime>
 #include <QList>
 #include <QMetaType>
+#include <QSet>
 #include <QString>
+#include <QStringList>
 
 struct SshConfigEntry;
 namespace remote {
@@ -67,6 +69,29 @@ QString displayPath(const QString& path, const QString& home);
 /// Clickable parts of @p path: "Home" (= @p home) when the path lies inside @p home, otherwise
 /// "Root" (= "/") for absolute paths, or the first component (a drive such as "C:") for others.
 QList<PathSegment> breadcrumbSegments(const QString& path, const QString& home);
+
+/// Extension of a file name as the file lists use it: the part after the last '.', lower case;
+/// empty when the name has no '.' (the "<no extension>" entry of the Extensions menu).
+QString entrySuffix(const QString& fileName);
+/// Extensions of the files (not folders) in @p entries, as entrySuffix() gives them.
+QSet<QString> collectSuffixes(const QList<RemoteEntry>& entries);
+/// File filter shared by the local and the remote file list: with an extension selection
+/// (@p hasExtensionSelection) only suffixes in @p patterns pass; a non-empty @p namePattern must
+/// occur in the name (case-insensitive, surrounding blanks ignored).
+bool fileFilterAccepts(const QString& fileName, const QString& namePattern, bool hasExtensionSelection,
+                       const QStringList& patterns);
+
+/// Key of a connection for per-source settings: its bookmark source id, or "host:user@host:port"
+/// for a host that was not saved.
+QString sourceKey(const RemoteConnection& connection);
+/// QSettings key of the remote working directory of a source ("remote/workdir/<encoded key>"; the
+/// key is percent-encoded so that '/', ':' or braces in it do not split the settings path).
+QString workDirSettingsKey(const QString& sourceKey);
+/// A name for "+ New Directory": not empty, not "." or "..", no '/' and no NUL character.
+bool isValidNewDirectoryName(const QString& name, QString* why = nullptr);
+/// "<base>_1", "<base>_2", ... : the first one not in @p existing (as the local New Calculation
+/// Directory suggests a name).
+QString nextFreeName(const QString& base, const QStringList& existing);
 
 /// Bookmark source id of a computer of the list ("computer:<name>").
 QString computerSourceId(const QString& computerName);

@@ -13,6 +13,7 @@
 
 class BreadcrumbBar;
 class BookmarkWidget;
+class FileFilterBar;
 class QComboBox;
 class QFileSystemModel;
 class QMenu;
@@ -119,9 +120,7 @@ public slots:
 private:
     void setupUI();
     void resetContentRoot();
-    void refreshExtensionMenu();
-    void updateExtensionFilterFromMenu();
-    void setAllExtensionsChecked(bool checked);
+    void collectContentSuffixes();
 
     QPushButton* m_chooseDirectory = nullptr;
     BreadcrumbBar* m_breadcrumbBar = nullptr;
@@ -140,16 +139,9 @@ private:
     QListView* m_directoryContentView = nullptr;
     QFileSystemModel* m_directoryContentModel = nullptr;
     QSortFilterProxyModel* m_directoryContentProxyModel = nullptr;
-    QLineEdit* m_fileSearchEdit = nullptr;
-    QToolButton* m_extensionFilterButton = nullptr;
-    QMenu* m_extensionMenu = nullptr;
-    QToolButton* m_clearFilterButton = nullptr;
+    FileFilterBar* m_fileFilterBar = nullptr;  // search + Extensions + clear (directoryfilter.h)
     QWidget* m_lessonMetaWidget = nullptr;
 
-    // Session-only extension filter state (remembers checked/unchecked suffixes
-    // across directory changes). Claude Generated 2026.
-    QSet<QString> m_checkedExtensions;
-    QSet<QString> m_uncheckedExtensions;
     QLineEdit* m_lessonTitleEdit = nullptr;
     QLineEdit* m_lessonDescEdit = nullptr;
     QLabel* m_lessonAuthorsLabel = nullptr;

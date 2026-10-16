@@ -39,8 +39,12 @@ public slots:
     void answerHostKey(bool trust);
     /// Answer to passwordRequired(): one password (or keyboard-interactive) attempt.
     void authenticateWithPassword(const QString& password);
-    /// Lists @p path; emits listed() or listFailed().
-    void list(const QString& path);
+    /// Lists @p path; emits listed() or listFailed() with the caller's @p requestId (the panel has
+    /// several lists and the directory chooser asking the same session).
+    void list(int requestId, const QString& path);
+    /// Creates the directory @p path (mode 0755, the server's umask applies); emits
+    /// directoryCreated() or makeDirectoryFailed(). An existing entry of that name is refused.
+    void makeDirectory(const QString& path);
     /// Downloads @p remotePath to @p localPath (via "<localPath>.part"); @p expectedSize is used for
     /// the progress when the server does not report a size.
     void download(const QString& remotePath, const QString& localPath, qint64 expectedSize);
@@ -52,8 +56,10 @@ signals:
     void passwordRequired(const QString& account);
     void connected(const QString& homePath);
     void connectFailed(const QString& message);
-    void listed(const QString& path, const QList<RemoteEntry>& entries);
-    void listFailed(const QString& path, const QString& message);
+    void listed(int requestId, const QString& path, const QList<RemoteEntry>& entries);
+    void listFailed(int requestId, const QString& path, const QString& message);
+    void directoryCreated(const QString& path);
+    void makeDirectoryFailed(const QString& path, const QString& message);
     void downloadProgress(const QString& remotePath, qint64 received, qint64 total);
     void downloaded(const QString& remotePath, const QString& localPath);
     void downloadFailed(const QString& remotePath, const QString& message);

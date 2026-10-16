@@ -24,20 +24,22 @@
 - The app mode sets visibility **per dock** (`DockManager::showPanels` → `setDockVisible`, hides before shows, then `raise()` the mode's front tab). Never toggle via `tabifiedDockWidgets()`: Structure/Simulation/Interactions share one tab bar, so a group toggle hid Structure with Simulation and surfaced the hidden-by-default Interactions/Images docks.
 
 ## ProjectDock File Browser Filter
-- `DirectoryFilterProxyModel` sits between `QFileSystemModel` and `QListView`; combines live name search with extension subset filtering.
-- Embedded compact bar above the content list: search field + `Extensions` popup menu with all suffixes in the current directory + clear button; session-only (resets on restart).
+- `DirectoryFilterProxyModel` and `FileFilterBar` (`directoryfilter.*`) are shared by the local and the remote file list: the proxy reads a `QFileSystemModel` directly, other models through `IsDirRole` and the display name; the rule is `remotepaths::fileFilterAccepts` (test `test_remotepaths`).
+- Compact bar above each file list: search field + `Extensions` popup with all suffixes of the shown directory ("<no extension>" = empty suffix) + clear button; session-only (resets on restart). The owner reports the suffixes (`setAvailableSuffixes`).
 - `MainWindow` resolves view indices back to source indices via `filePathFromContentIndex()`; the Lesson mode bypasses the proxy.
 
 ## Remote Segment (`remotebrowserpanel.*`, only with `USE_SFTP`)
-- `RemoteBrowserPanel` browses remote folders like the Files segment: source combo (computers of `remote/hostprofiles.h`, then SFTP profiles, then "Other host..." with "Save as SFTP profile"), Connect/Disconnect, status line, `BreadcrumbBar` (Home = remote home), Up, Refresh, listing with folders first.
-- In this segment `ProjectDock::setCurrentSegment` hides the local breadcrumb and the local file list.
-- Double click enters a folder or downloads a file into the SFTP cache (`<cache>/<sha256>/<name>`; a copy with the listed size and no older mtime is reused) and emits `openFileRequested` → `MainWindow::loadMoleculeFile`. Context menu: Open, Download to Working Directory, Copy Remote Path, Add to Bookmarks.
-- Bookmarks: the star toggles the current folder, the menu opens or removes them; stored as `Settings::RemoteMountPoint`, `profileId` = SFTP profile id or `computer:<name>`. Unsaved hosts cannot be bookmarked.
-- libssh lives in `SftpClient` (`src/sftpclient.*`), one client per connection on its own `QThread`; Disconnect abandons it (cancel flag, results dropped, client and thread delete themselves once the blocking call returns).
-- Login: host key against `~/.ssh/known_hosts` (unknown: fingerprint question, changed: refused), then agent and standard keys, then one password prompt (password or keyboard-interactive), never stored.
-- Only address, user and port of a computer are used, `qurcuma-server` is never contacted; a host that is a `~/.ssh/config` alias takes HostName/User/Port/ProxyJump from it (`remotepaths::connectionForHost`).
+- Same structure as the Files segment: remote "Choose working directory" button (ProjectDock shows it in its top row instead of the local one), breadcrumb of the remote working directory, list of its subdirectories with ".." and "+ New Directory", below the shared filter bar and the files of the directory selected above. Local breadcrumb and local file list are hidden in this segment.
+- Interaction copied from the local list: click or current change on a directory shows its files below, context menu Add to Bookmarks / Set as Working Directory, breadcrumb click sets the working directory. Double click on a file downloads it into the SFTP cache (`<cache>/<sha256>/<name>`, an unchanged copy is reused) and emits `openFileRequested` → `MainWindow::loadMoleculeFile` (local files load on a single click).
+- Extra compared with local: compact row with source combo (computers of `remote/hostprofiles.h`, SFTP profiles, "Other host..." with "Save as SFTP profile"), Connect/Disconnect and status line; Refresh; file context menu Open / Download to Local Working Directory / Copy Remote Path / Add This Folder to Bookmarks.
+- The remote working directory is remembered per source in QSettings (`remotepaths::workDirSettingsKey`, source key = bookmark id or "host:user@host:port"), stored only after it was listed; default the remote home, a missing one falls back to home with the error shown.
+- "Choose" opens a modal chooser (breadcrumb, folder list, path field, Select checks a typed path by listing it) on the open connection; without one it connects the selected source first.
+- Bookmarks: the star toggles the remote working directory, choosing a bookmark makes it the working directory; stored as `Settings::RemoteMountPoint`, `profileId` = SFTP profile id or `computer:<name>`. Unsaved hosts cannot be bookmarked.
+- "+ New Directory": name checked by `remotepaths::isValidNewDirectoryName` (not empty, not "."/"..", no '/'), refused if the name exists, then `SftpClient::makeDirectory` (`sftp_mkdir`, mode 0755) and the new directory is selected.
+- libssh lives in `SftpClient` (`src/sftpclient.*`), one client per connection on its own `QThread`; listings carry a request id (working directory, selected directory, chooser). Disconnect abandons the client (cancel flag, results dropped, client and thread delete themselves once the blocking call returns).
+- Login: host key against `~/.ssh/known_hosts` (unknown: fingerprint question, changed: refused), then agent and standard keys, then one password prompt (password or keyboard-interactive), never stored. Only address, user and port of a computer are used, `qurcuma-server` is never contacted; a `~/.ssh/config` alias supplies HostName/User/Port/ProxyJump (`remotepaths::connectionForHost`).
 - File ▸ Open Remote File... (Ctrl+Shift+R) shows this segment; File ▸ Recent Remote Connections selects and connects a profile.
-- Qt-only helpers in `src/remotepaths.*` (test `test_remotepaths`). 🤖 SftpClient and the panel are only compiled (no SFTP server in the test setup), not checked in the GUI.
+- Qt-only helpers in `src/remotepaths.*` (test `test_remotepaths`). 🤖 SftpClient, the panel and the chooser are only compiled (no SFTP server in the test setup), not checked in the GUI.
 - `USE_SFTP` is ON by default; without libssh CMake warns and builds without it. Built with libssh 0.12.2.
 
 ## AppearanceDock Views (camera)

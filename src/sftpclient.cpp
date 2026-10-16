@@ -268,21 +268,21 @@ QString SftpClient::sftpErrorText(const QString& path) const
     case SSH_FX_NO_SUCH_PATH:
         return tr("No such file or directory: %1").arg(path);
     default:
-        return tr("Cannot read %1: %2").arg(path, sshError());
+        return tr("SFTP request on %1 failed: %2").arg(path, sshError());
     }
 }
 
 /** @brief Lists one directory; links to directories count as directories. Claude Generated 2026 */
-void SftpClient::list(const QString& path)
+void SftpClient::list(int requestId, const QString& path)
 {
     const QString dirPath = remotepaths::normalise(path);
     if (!m_sftp) {
-        emit listFailed(dirPath, tr("Not connected."));
+        emit listFailed(requestId, dirPath, tr("Not connected."));
         return;
     }
     sftp_dir dir = sftp_opendir(m_sftp, dirPath.toUtf8().constData());
     if (!dir) {
-        emit listFailed(dirPath, sftpErrorText(dirPath));
+        emit listFailed(requestId, dirPath, sftpErrorText(dirPath));
         return;
     }
 
@@ -314,11 +314,11 @@ void SftpClient::list(const QString& path)
     if (m_cancel)
         return;
     if (!complete) {
-        emit listFailed(dirPath, tr("Listing %1 stopped: %2").arg(dirPath, sftpErrorText(dirPath)));
+        emit listFailed(requestId, dirPath, tr("Listing %1 stopped: %2").arg(dirPath, sftpErrorText(dirPath)));
         return;
     }
     remotepaths::sortEntries(entries);
-    emit listed(dirPath, entries);
+    emit listed(requestId, dirPath, entries);
 }
 
 /** @brief Copies a remote file in 64 KiB chunks; the target appears only when complete. Claude Generated 2026 */
@@ -384,6 +384,27 @@ void SftpClient::download(const QString& remotePath, const QString& localPath, q
     }
     emit downloadProgress(remotePath, received, total);
     emit downloaded(remotePath, localPath);
+}
+
+/** @brief Creates one remote directory after checking that the name is free. Claude Generated 2026 */
+void SftpClient::makeDirectory(const QString& path)
+{
+    const QString dirPath = remotepaths::normalise(path);
+    if (!m_sftp) {
+        emit makeDirectoryFailed(dirPath, tr("Not connected."));
+        return;
+    }
+    const QByteArray encoded = dirPath.toUtf8();
+    if (sftp_attributes existing = sftp_lstat(m_sftp, encoded.constData())) {
+        sftp_attributes_free(existing);
+        emit makeDirectoryFailed(dirPath, tr("%1 already exists.").arg(dirPath));
+        return;
+    }
+    if (sftp_mkdir(m_sftp, encoded.constData(), 0755) != SSH_OK) {
+        emit makeDirectoryFailed(dirPath, sftpErrorText(dirPath));
+        return;
+    }
+    emit directoryCreated(dirPath);
 }
 
 void SftpClient::disconnectFromHost()

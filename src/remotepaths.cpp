@@ -7,7 +7,9 @@
 #include "remote/hostprofiles.h"
 #include "sshconfig.h"
 
+#include <QCoreApplication>
 #include <QStringList>
+#include <QUrl>
 
 #include <algorithm>
 
@@ -138,6 +140,69 @@ QList<PathSegment> breadcrumbSegments(const QString& rawPath, const QString& raw
         out.append({ part, base });
     }
     return out;
+}
+
+/** @brief Lower-case extension after the last '.'. Claude Generated 2026 */
+QString entrySuffix(const QString& fileName)
+{
+    const int dot = fileName.lastIndexOf(QLatin1Char('.'));
+    return dot < 0 ? QString() : fileName.mid(dot + 1).toLower();
+}
+
+/** @brief Extensions of the files of a listing. Claude Generated 2026 */
+QSet<QString> collectSuffixes(const QList<RemoteEntry>& entries)
+{
+    QSet<QString> suffixes;
+    for (const RemoteEntry& entry : entries)
+        if (!entry.isDir)
+            suffixes.insert(entrySuffix(entry.name));
+    return suffixes;
+}
+
+/** @brief Search text plus extension subset, the rule of DirectoryFilterProxyModel. Claude Generated 2026 */
+bool fileFilterAccepts(const QString& fileName, const QString& namePattern, bool hasExtensionSelection,
+                       const QStringList& patterns)
+{
+    if (hasExtensionSelection && !patterns.contains(entrySuffix(fileName)))
+        return false;
+    const QString needle = namePattern.trimmed();
+    return needle.isEmpty() || fileName.contains(needle, Qt::CaseInsensitive);
+}
+
+QString sourceKey(const RemoteConnection& connection)
+{
+    return connection.sourceId.isEmpty() ? QStringLiteral("host:") + connection.cacheKey() : connection.sourceId;
+}
+
+QString workDirSettingsKey(const QString& sourceKey)
+{
+    return QStringLiteral("remote/workdir/") + QString::fromLatin1(QUrl::toPercentEncoding(sourceKey));
+}
+
+/** @brief Checks a directory name typed for "+ New Directory". Claude Generated 2026 */
+bool isValidNewDirectoryName(const QString& name, QString* why)
+{
+    QString reason;
+    if (name.trimmed().isEmpty())
+        reason = QCoreApplication::translate("remotepaths", "The name is empty.");
+    else if (name == QLatin1String(".") || name == QLatin1String(".."))
+        reason = QCoreApplication::translate("remotepaths", "\".\" and \"..\" are not allowed.");
+    else if (name.contains(QLatin1Char('/')))
+        reason = QCoreApplication::translate("remotepaths", "The name must not contain '/'.");
+    else if (name.contains(QChar(0)))
+        reason = QCoreApplication::translate("remotepaths", "The name contains a NUL character.");
+    if (why)
+        *why = reason;
+    return reason.isEmpty();
+}
+
+QString nextFreeName(const QString& base, const QStringList& existing)
+{
+    for (int counter = 1;; ++counter) {
+        const QString candidate = base + QLatin1Char('_') + QString::number(counter);
+        if (!existing.contains(candidate))
+            return candidate;
+    }
 }
 
 QString computerSourceId(const QString& computerName)

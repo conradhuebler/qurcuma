@@ -209,8 +209,72 @@ static void testConnections()
     CHECK(!connectionForHost(QString(), "x", "  ", QString(), 0, nullptr).isValid());
 }
 
+// Remote-segment additions (Oct 2026): extensions and the file filter shared with the local list,
+// the per-source work-directory key, the "+ New Directory" name rules.
+static void testSuffixesAndFilter()
+{
+    using namespace remotepaths;
+    CHECK(entrySuffix("water.xyz") == "xyz");
+    CHECK(entrySuffix("Traj.VTF") == "vtf");
+    CHECK(entrySuffix("archive.tar.gz") == "gz");
+    CHECK(entrySuffix("README").isEmpty());
+    CHECK(entrySuffix(".bashrc") == "bashrc");  // as QFileInfo::suffix
+    CHECK(entrySuffix("name.").isEmpty());
+
+    const QList<RemoteEntry> listing = { entry("runs", true), entry("a.xyz", false), entry("B.XYZ", false),
+                                         entry("md.log", false), entry("README", false), entry("data.d", true) };
+    CHECK(collectSuffixes(listing) == QSet<QString>({ "xyz", "log", "" }));  // folders do not count
+    CHECK(collectSuffixes({}).isEmpty());
+
+    auto shown = [&listing](const QString& search, bool hasSelection, const QStringList& patterns) {
+        QStringList out;
+        for (const RemoteEntry& e : listing)
+            if (!e.isDir && fileFilterAccepts(e.name, search, hasSelection, patterns))
+                out << e.name;
+        return out;
+    };
+    CHECK(shown(QString(), false, {}) == QStringList({ "a.xyz", "B.XYZ", "md.log", "README" }));
+    CHECK(shown(QString(), true, { "xyz" }) == QStringList({ "a.xyz", "B.XYZ" }));
+    CHECK(shown(QString(), true, { "" }) == QStringList({ "README" }));  // "<no extension>" entry
+    CHECK(shown(QString(), true, {}).isEmpty());                         // "Select none"
+    CHECK(shown("  b. ", false, {}) == QStringList({ "B.XYZ" }));        // trimmed, case-insensitive
+    CHECK(shown("a", true, { "xyz", "log" }) == QStringList({ "a.xyz" }));
+}
+
+static void testWorkDirKeyAndNames()
+{
+    using namespace remotepaths;
+    RemoteConnection saved = connectionForHost("{1b4e28ba-2fa1}", "P", "h", "u", 0, nullptr);
+    CHECK(sourceKey(saved) == "{1b4e28ba-2fa1}");
+    RemoteConnection unsaved = connectionForHost(QString(), "x", "10.0.0.5", "bob", 2222, nullptr);
+    CHECK(sourceKey(unsaved) == "host:bob@10.0.0.5:2222");
+
+    const QString key = workDirSettingsKey(computerSourceId("my box/1"));
+    CHECK(key.startsWith("remote/workdir/"));
+    CHECK(!key.mid(QString("remote/workdir/").size()).contains('/'));  // one settings level only
+    CHECK(key == "remote/workdir/computer%3Amy%20box%2F1");
+    CHECK(workDirSettingsKey("a") != workDirSettingsKey("b"));
+    CHECK(workDirSettingsKey(sourceKey(unsaved)) == "remote/workdir/host%3Abob%4010.0.0.5%3A2222");
+
+    QString why;
+    CHECK(isValidNewDirectoryName("md_run1", &why) && why.isEmpty());
+    CHECK(isValidNewDirectoryName("with space"));
+    CHECK(!isValidNewDirectoryName("", &why) && !why.isEmpty());
+    CHECK(!isValidNewDirectoryName("   "));
+    CHECK(!isValidNewDirectoryName("."));
+    CHECK(!isValidNewDirectoryName(".."));
+    CHECK(!isValidNewDirectoryName("a/b", &why) && !why.isEmpty());
+    CHECK(!isValidNewDirectoryName(QString("a") + QChar(0) + "b"));
+    CHECK(isValidNewDirectoryName("..hidden"));
+
+    CHECK(nextFreeName("calc", {}) == "calc_1");
+    CHECK(nextFreeName("calc", { "calc_1", "calc_2", "calc_4" }) == "calc_3");
+}
+
 int main()
 {
+    testSuffixesAndFilter();
+    testWorkDirKeyAndNames();
     testSorting();
     testPaths();
     testBreadcrumb();

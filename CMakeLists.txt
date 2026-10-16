@@ -213,6 +213,7 @@ set(SOURCES
     src/docks/bookmarkwidget.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/workspacepanel.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/projectdock.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/directoryfilter.cpp  # Claude Generated 2026 - file filter shared by the local and the remote file list
     src/docks/imagegallerydock.cpp  # Claude Generated 2026 - batch border-trim gallery
     src/docks/chartdock.cpp  # Claude Generated 2026 - live charts dock
     src/docks/ncidock.cpp  # Claude Generated 2026 - non-covalent interaction dock
