@@ -95,6 +95,7 @@ private:
     // results of the SftpClient (queued to the GUI thread)
     void onHostKeyUnknown(const QString& host, const QString& fingerprint);
     void onPasswordRequired(const QString& account);
+    void onPassphraseRequired(const QString& keyPath);
     void onConnected(const QString& homePath);
     void onConnectFailed(const QString& message);
     void onListed(int requestId, const QString& path, const QList<RemoteEntry>& entries);

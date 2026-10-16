@@ -716,6 +716,7 @@ void RemoteBrowserPanel::startConnection(const RemoteConnection& connection, con
     m_client->moveToThread(m_thread);
     connect(m_client, &SftpClient::hostKeyUnknown, this, &RemoteBrowserPanel::onHostKeyUnknown);
     connect(m_client, &SftpClient::passwordRequired, this, &RemoteBrowserPanel::onPasswordRequired);
+    connect(m_client, &SftpClient::passphraseRequired, this, &RemoteBrowserPanel::onPassphraseRequired);
     connect(m_client, &SftpClient::connected, this, &RemoteBrowserPanel::onConnected);
     connect(m_client, &SftpClient::connectFailed, this, &RemoteBrowserPanel::onConnectFailed);
     connect(m_client, &SftpClient::listed, this, &RemoteBrowserPanel::onListed);
@@ -792,6 +793,25 @@ void RemoteBrowserPanel::onHostKeyUnknown(const QString& host, const QString& fi
     }
     setStatus(tr("Logging in to %1...").arg(m_connection.account()));
     QMetaObject::invokeMethod(client, [client]() { client->answerHostKey(true); }, Qt::QueuedConnection);
+}
+
+/** @brief Asks once for the passphrase of the computer's key file; cancelling goes on without the key
+ *  (ssh agent, standard keys, password). The passphrase is not stored. Claude Generated 2026 */
+void RemoteBrowserPanel::onPassphraseRequired(const QString& keyPath)
+{
+    if (!fromCurrentClient())
+        return;
+    SftpClient* client = m_client;
+    bool ok = false;
+    const QString passphrase = QInputDialog::getText(this, tr("Key File Passphrase"),
+        tr("The key file %1 is protected by a passphrase (or cannot be read without one).\nPassphrase:").arg(keyPath),
+        QLineEdit::Password, QString(), &ok);
+    if (client != m_client)
+        return;
+    setStatus(tr("Logging in..."));
+    QMetaObject::invokeMethod(client, [client, passphrase, ok]() {
+        client->authenticateWithPassphrase(ok ? passphrase : QString());
+    }, Qt::QueuedConnection);
 }
 
 void RemoteBrowserPanel::onPasswordRequired(const QString& account)

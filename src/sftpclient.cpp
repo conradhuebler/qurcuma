@@ -8,6 +8,8 @@
 
 #include "sftpclient.h"
 
+#include <QFileInfo>
+
 #include <QByteArray>
 #include <QElapsedTimer>
 #include <QFile>
@@ -167,6 +169,59 @@ void SftpClient::authenticateWithKeys()
         return;
     }
     m_authMethods = ssh_userauth_list(m_ssh, nullptr);
+    // A key file given for the computer is tried first: a rejected or unreadable one only means that the
+    // agent, the standard keys and the password follow, a protected one asks for its passphrase once.
+    if ((m_authMethods & SSH_AUTH_METHOD_PUBLICKEY) && !m_connection.identityFile.trimmed().isEmpty()) {
+        switch (tryExplicitKey(QString(), false)) {
+        case KeyResult::Success:
+            openSftp();
+            return;
+        case KeyResult::NeedsPassphrase:
+            emit passphraseRequired(remotepaths::privateKeyPath(m_connection.identityFile));
+            return;
+        case KeyResult::Rejected:
+        case KeyResult::Unusable:
+            break;
+        }
+    }
+    continueAuthentication();
+}
+
+/** @brief Loads the computer's key file and offers it to the server. Claude Generated 2026 */
+SftpClient::KeyResult SftpClient::tryExplicitKey(const QString& passphrase, bool passphraseGiven)
+{
+    const QString path = remotepaths::privateKeyPath(m_connection.identityFile);
+    const QFileInfo info(path);
+    if (!info.isFile() || !info.isReadable())
+        return KeyResult::Unusable;
+    ssh_key key = nullptr;
+    const QByteArray secret = passphrase.toUtf8();
+    const int imported = ssh_pki_import_privkey_file(path.toUtf8().constData(),
+        secret.isEmpty() ? nullptr : secret.constData(), nullptr, nullptr, &key);
+    if (imported != SSH_OK || !key)
+        return passphraseGiven ? KeyResult::Unusable : KeyResult::NeedsPassphrase;
+    const int rc = ssh_userauth_publickey(m_ssh, nullptr, key);
+    ssh_key_free(key);
+    return rc == SSH_AUTH_SUCCESS ? KeyResult::Success : KeyResult::Rejected;
+}
+
+/** @brief After the passphrase prompt: one attempt with the key file, then the rest. Claude Generated 2026 */
+void SftpClient::authenticateWithPassphrase(const QString& passphrase)
+{
+    if (!m_ssh)
+        return;
+    if (!passphrase.isEmpty() && tryExplicitKey(passphrase, true) == KeyResult::Success) {
+        openSftp();
+        return;
+    }
+    continueAuthentication();
+}
+
+/** @brief The ssh agent and the standard keys, then the password prompt. Claude Generated 2026 */
+void SftpClient::continueAuthentication()
+{
+    const QString account = m_connection.account();
+    int rc = SSH_AUTH_DENIED;
     if (m_authMethods & SSH_AUTH_METHOD_PUBLICKEY) {
         rc = ssh_userauth_publickey_auto(m_ssh, nullptr, nullptr);
         if (rc == SSH_AUTH_SUCCESS) {

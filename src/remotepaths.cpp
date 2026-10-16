@@ -4,6 +4,9 @@
 
 #include "remotepaths.h"
 
+#include <QDir>
+#include <QFileInfo>
+
 #include "remote/hostprofiles.h"
 #include "sshconfig.h"
 
@@ -222,7 +225,8 @@ QString computerNameFromSourceId(const QString& sourceId)
 
 /** @brief Alias values first, explicit user/port of the source on top. Claude Generated 2026 */
 RemoteConnection connectionForHost(const QString& sourceId, const QString& label, const QString& host,
-                                   const QString& user, int port, const SshConfigEntry* alias)
+                                   const QString& user, int port, const SshConfigEntry* alias,
+                                   const QString& identityFile)
 {
     RemoteConnection c;
     c.sourceId = sourceId;
@@ -236,7 +240,10 @@ RemoteConnection connectionForHost(const QString& sourceId, const QString& label
         if (alias->port > 0)
             c.port = alias->port;
         c.proxyCommand = alias->proxyCommand;
+        c.identityFile = alias->identityFile;
     }
+    if (!identityFile.trimmed().isEmpty())
+        c.identityFile = identityFile.trimmed();
     if (!user.trimmed().isEmpty())
         c.user = user.trimmed();
     if (port > 0)
@@ -248,7 +255,21 @@ RemoteConnection connectionForHost(const QString& sourceId, const QString& label
 RemoteConnection connectionForComputer(const remote::HostProfile& computer, const SshConfigEntry* alias)
 {
     return connectionForHost(computerSourceId(computer.name), computer.name, computer.hostPart(),
-                             computer.userPart(), computer.port, alias);
+                             computer.userPart(), computer.port, alias, computer.identityFile);
+}
+
+/** @brief Key file to load: expands "~/", prefers the private key next to a ".pub" path. Claude Generated 2026 */
+QString privateKeyPath(const QString& configured)
+{
+    QString path = configured.trimmed();
+    if (path.startsWith(QLatin1String("~/")))
+        path = QDir::homePath() + path.mid(1);
+    if (path.endsWith(QLatin1String(".pub"))) {
+        const QString privatePath = path.chopped(4);
+        if (QFileInfo(privatePath).isFile())
+            return privatePath;
+    }
+    return path;
 }
 
 } // namespace remotepaths

@@ -39,6 +39,9 @@ public slots:
     void answerHostKey(bool trust);
     /// Answer to passwordRequired(): one password (or keyboard-interactive) attempt.
     void authenticateWithPassword(const QString& password);
+    /// Answer to passphraseRequired(): one attempt with the key file's passphrase; an empty passphrase
+    /// (dialog cancelled) goes on with the ssh agent, the standard keys and the password.
+    void authenticateWithPassphrase(const QString& passphrase);
     /// Lists @p path; emits listed() or listFailed() with the caller's @p requestId (the panel has
     /// several lists and the directory chooser asking the same session).
     void list(int requestId, const QString& path);
@@ -54,6 +57,7 @@ public slots:
 signals:
     void hostKeyUnknown(const QString& host, const QString& fingerprint);
     void passwordRequired(const QString& account);
+    void passphraseRequired(const QString& keyPath);
     void connected(const QString& homePath);
     void connectFailed(const QString& message);
     void listed(int requestId, const QString& path, const QList<RemoteEntry>& entries);
@@ -65,7 +69,10 @@ signals:
     void downloadFailed(const QString& remotePath, const QString& message);
 
 private:
+    enum class KeyResult { Success, Rejected, NeedsPassphrase, Unusable };
+    KeyResult tryExplicitKey(const QString& passphrase, bool passphraseGiven);
     void authenticateWithKeys();
+    void continueAuthentication();
     int authenticateKeyboardInteractive(const QByteArray& password);
     void openSftp();
     void fail(const QString& message);

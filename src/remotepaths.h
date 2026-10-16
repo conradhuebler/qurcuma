@@ -38,6 +38,7 @@ struct RemoteConnection {
     QString user;          ///< empty = libssh default (the local user name)
     int port = 22;
     QString proxyCommand;  ///< from a matching ~/.ssh/config entry (ProxyJump/ProxyCommand)
+    QString identityFile;  ///< private key file to try first (a computer's key); empty = ssh agent and standard keys only
 
     bool isValid() const { return !host.isEmpty(); }
     /// "user@host", or "host" without a user.
@@ -101,11 +102,17 @@ QString computerNameFromSourceId(const QString& sourceId);
 
 /// Connection for a computer of the list: address, user and port of the computer; when its host is
 /// an alias of ~/.ssh/config (@p alias, may be null) the alias supplies HostName, User, Port and
-/// ProxyJump first and the computer's own user and port come on top. The key file is not used.
+/// ProxyJump first and the computer's own user and port come on top. The computer's key file is carried
+/// along (an alias' IdentityFile when the computer has none).
 RemoteConnection connectionForComputer(const remote::HostProfile& computer, const SshConfigEntry* alias);
 /// Connection for an SFTP profile or a host typed in: @p port 0 means "not given" (alias port or 22),
 /// an empty @p user means "not given" (alias user or the libssh default).
 RemoteConnection connectionForHost(const QString& sourceId, const QString& label, const QString& host,
-                                   const QString& user, int port, const SshConfigEntry* alias);
+                                   const QString& user, int port, const SshConfigEntry* alias,
+                                   const QString& identityFile = QString());
+
+/// The private key file to load for a configured key path: `~/` is expanded, and a `.pub` path is replaced
+/// by the private key next to it when that exists (as `ssh -i` does). The result is not checked for existence.
+QString privateKeyPath(const QString& configured);
 
 } // namespace remotepaths

@@ -8,6 +8,9 @@
 #include "remote/hostprofiles.h"
 #include "sshconfig.h"
 
+#include <QDir>
+#include <QFile>
+#include <QTemporaryDir>
 #include <iostream>
 
 static int failures = 0;
@@ -271,6 +274,49 @@ static void testWorkDirKeyAndNames()
     CHECK(nextFreeName("calc", { "calc_1", "calc_2", "calc_4" }) == "calc_3");
 }
 
+/// The key file of a computer reaches the connection, and the path to load is the private key.
+/// Claude Generated 2026
+static void testKeyFiles()
+{
+    using namespace remotepaths;
+    QTemporaryDir dir;
+    CHECK(dir.isValid());
+    const QString priv = dir.path() + "/id_test";
+    for (const QString& p : { priv, priv + ".pub" }) {
+        QFile f(p);
+        CHECK(f.open(QIODevice::WriteOnly));
+        f.write("x");
+    }
+    // a ".pub" path leads to the private key next to it, a lone ".pub" stays, "~/" is expanded
+    CHECK(privateKeyPath(priv + ".pub") == priv);
+    CHECK(privateKeyPath(priv) == priv);
+    CHECK(privateKeyPath("  " + priv + "  ") == priv);
+    CHECK(privateKeyPath(dir.path() + "/only.pub") == dir.path() + "/only.pub");
+    CHECK(privateKeyPath("~/id_x") == QDir::homePath() + "/id_x");
+    CHECK(privateKeyPath(QString()).isEmpty());
+
+    // computer -> connection carries the key file; an alias' IdentityFile is the fallback
+    remote::HostProfile computer;
+    computer.name = "box";
+    computer.target = "alice@box.example.org";
+    RemoteConnection c = connectionForComputer(computer, nullptr);
+    CHECK(c.identityFile.isEmpty());
+    computer.identityFile = priv + ".pub";
+    c = connectionForComputer(computer, nullptr);
+    CHECK(c.identityFile == priv + ".pub");  // stored as configured, resolved when the key is loaded
+
+    SshConfigEntry alias;
+    alias.host = "box";
+    alias.hostName = "10.0.0.5";
+    alias.identityFile = "/keys/alias_key";
+    computer.identityFile.clear();
+    c = connectionForComputer(computer, &alias);
+    CHECK(c.identityFile == "/keys/alias_key");
+    computer.identityFile = "/keys/own_key";
+    c = connectionForComputer(computer, &alias);
+    CHECK(c.identityFile == "/keys/own_key");  // the computer's own key wins
+}
+
 int main()
 {
     testSuffixesAndFilter();
@@ -280,6 +326,7 @@ int main()
     testBreadcrumb();
     testSourceIds();
     testConnections();
+    testKeyFiles();
     if (failures == 0)
         std::cout << "test_remotepaths: all " << checks << " checks passed" << std::endl;
     else
