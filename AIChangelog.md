@@ -1,5 +1,26 @@
 # AIChangelog - Qurcuma Improvements
 
+## October 2026 - VR: Auswahl, Thermostat-Schieber, verschiebbare Panels
+
+- Ausgewählte Atome tragen im Headset eine pulsierende Hülle (eigene Instanztabelle, gespiegelt, erst bei Auswahl sichtbar geschaltet); das Atom unter Controller-Strahl oder Fingerspitze eine helle Hülle passend zur Darstellung (rot beim Ziehen).
+- Min/Max des Temperatur-Schiebers sind im Headset per Ziffernblock eintippbar (Eingabefeld antippen).
+- Simulation-Panel: Temperatur-Schieber wie im Dock (linear, blau→rot, Min/Max in 50-K-Schritten), teilt Bereich und Wert mit dem Dock-Schieber; per Strahl oder Pinch ziehbar.
+- Jedes Panel (auch die Menüleiste) hat einen Griff wie eine Fenster-Titelleiste; Trigger oder Pinch darauf verschiebt das Panel, es bleibt dem Kopf zugewandt; Recenter stellt das Layout wieder her.
+
+## October 2026 - VR: Hand-Tracking als Eingabe
+
+- View ▸ VR Input (und Input-Zeile im View-Panel im Headset): Controller (Strahl + Trigger) oder getrackte Hände (`VrHandInput.qml`); gespeichert in `vr/handInput`. Pinch (Daumen–Zeigefinger aus den Gelenken, mit Hysterese) wirkt nur auf das, was er beim Schließen berührt (Knopf oder gezeichnete Atomkugel, keine Strahlen): Knopf klicken; im Simulationslauf Atom ziehen (Molekül bleibt stehen), sonst Molekül halten/drehen/tragen, mit zwei Händen skalieren; kurzer Pinch auf ein Atom wählt es. Panels und Molekül rücken in Armreichweite; B/Y am Controller schaltet zurück.
+
+## October 2026 - VR: Bewegen und Umgebung
+
+- Linker Stick läuft (horizontal, in Blickrichtung, bis 1,5 m/s), rechter Stick dreht in 45°-Schritten um den Kopf; beides verschiebt den `XrOrigin`, Molekül, Panels und Umgebung bleiben stehen. Ein Snap-Turn während Trigger/Grip dreht das Molekül nicht mit.
+- View ▸ VR Surroundings: 360°-Panorama als Skybox (equirektangular, .hdr/.jpg/.png; beleuchtet die Szene mit) und/oder eine 3D-Szene (glTF/GLB/OBJ/FBX per `RuntimeLoader`, Einheit Meter oder Zentimeter) auf dem Boden des Tracking-Raums; Auswahl wird gespeichert.
+
+## October 2026 - VR: Panel-Knöpfe per Controller-Strahl
+
+- Headset-Panels reagieren jetzt zuverlässig auf beide Controller („Open structure…“, Dateiliste, Stop usw.): Qt 6.11 pickt ein XrItem gegen seine unendliche Ebene und bricht beim ersten Treffer ohne Item ab, sodass die Menüleiste und versteckte Panels Klicks auf die Panels dahinter schluckten. `XrVirtualMouse` entfällt; `VrPanelHost::rayHit`/`buttonAt` testet das echte Rechteck, `Hand` (viewerxr.qml) setzt Hover/Down am `VrButton` und löst `clicked()` beim Loslassen aus.
+- Atom-Auswahl (A/X) und Grab picken nur noch das Atom-Modell (`rayPick(..., atomModel)`), dieselben Panel-Ebenen lagen vor dem Molekül.
+
 ## September 2026 - WASD im View- und Measure-Werkzeug
 
 - Q und E rollen jetzt in die jeweils andere Richtung als zuvor (getauscht); das Verschieben mit Shift+Q/E im Edit-Werkzeug bleibt, wie es war.
@@ -714,3 +735,8 @@ Zwei Bugs zusammen verhinderten jede Wirkung des Maus-Grabs im Opt-Modus:
 - 2026-10-13: VR output in qurcuma (View > Show in VR Headset): OpenXR session with a mirrored SceneController, controller-ray atom picking feeds the viewer selection
 - 2026-10-13: VR panels redesigned as one console (Structure, Simulation, View; file browser on demand in front) built from separate QML files (VrScene/VrPanel*), laid out around the tracked head; the file browser was unreachable because its button sat under the coplanar simulation panel and it opened about 77° away; offline preview in spikes/vr_preview
 - 2026-10-13: VR headset draws the desktop SceneController's instance tables through MirrorInstancing (TableInstancing base, XrSceneBridge, MoleculeModels.qml shared with viewer3d.qml) instead of a second controller, so overlays, NCI, walls, measurement lines and the selection reach the headset without recomputation; measurement lines and grab arrows are model-local now and turn with the molecule on the desktop as well; Models switched on after a rotation (seen for the confinement wall) were drawn unrotated, MoleculeModels.qml's ToggledModel makes Qt recompute their transform
+- 2026-10-14: VR usability for first-time users: see-through menu bar under the molecule toggles Structure/Simulation/View and a new "How to use" help panel (open at session start); B / Y hides or shows all panels; both controllers now do everything (panel clicks, rotate, grab, select), the panel mouse follows the hand pointing at a panel and the ray ends on the panel it hits
+- 2026-10-16: VR demo mode (View ▸ VR Demo Mode, on automatically when VR starts): loading another file discards an MD/Opt-modified structure without the modal "Unsaved changes" prompt that froze the headset view
+- 2026-10-16: VR panels: menu bar ordered Simulation/Structure/View; the file browser is anchored to the Structure panel and follows it when moved; the running MD/Opt and the chosen method stay lit during a run; the Structure panel shows the molecule name from the file and the file name
+- 2026-10-16: VR molecule handling without a simulation: controller trigger on the molecule carries it along the ray (offset kept), grip rotates; a pinch near the molecule (not only on an atom) holds it and turns it with the hand; the headset thermostat slider also shows the system temperature of the running MD
+- 2026-10-16: VR multi-grab: each hand/controller (and the desktop mouse) holds its own grab force, summed in the worker, so two atoms (or one atom with both hands) can be pulled at once; console panels spaced from their widths so they no longer clip when VR starts

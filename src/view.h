@@ -39,6 +39,9 @@ class Settings;  // Claude Generated 2026 - operator metadata + view presets for
 class QQuickWidget;
 class QQuickWindow;
 
+/// Grab source of the desktop mouse (VR hands use 1 = right, 2 = left). Claude Generated 2026.
+constexpr int kMouseGrabSource = 0;
+
 class MoleculeViewer : public QWidget
 {
     Q_OBJECT
@@ -502,11 +505,22 @@ public slots:
     void setVrStartDirectory(const QString& dir);  // file browser root in the headset
     void setVrMethod(const QString& key);          // method key shown on the headset panel
     void setVrTemperature(double kelvin);          // thermostat target shown on the headset panel
+    void setVrSystemTemperature(double kelvin);    // instantaneous MD temperature (0 = none)
+    void setVrTemperatureRange(double minimum, double maximum);  // range of the headset temperature slider
     void setVrSimulationStatus(bool paused, const QString& message);  // run paused / last run's end line
+    void setVrSimulationMode(const QString& mode);  // "md" / "opt" while a run is active, else empty
+    void setVrStructure(const QString& fileName, const QString& title);  // structure named on the headset panel
+    /// Headset sky box panorama and 3D scene; @p sceneScale = cm per scene unit (100 = metres).
+    void setVrSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale);
+    /// Headset input: tracked hands (pinch) instead of controllers (ray + trigger). Claude Generated 2026.
+    void setVrHandInput(bool on);
+    bool vrHandInput() const { return m_vrHandInput; }
     void updateVrStatus();  // refresh the in-headset panel text (no-op without a session)
 
 signals:
     void vrActiveChanged(bool active);
+    /// The headset input mode changed (desktop menu or the headset's View panel).
+    void vrHandInputChanged(bool on);
     /// Headset panel asked for a simulation action ("simStartMD", "simStartOpt", "simStop", "simPause",
     /// "simTempUp", "simTempDown"); MainWindow owns the simulation and carries it out.
     void vrSimulationCommand(const QString& name);
@@ -533,8 +547,10 @@ signals:
     /// or bonds edited), so a fragment selector has to be rebuilt.
     void fragmentsChanged();
 
-    void atomForceRequested(int atomIndex, QVector3D force, double alpha, int maxShells);
-    void atomGrabReleased();
+    /// Grab force of @p source (kMouseGrabSource, or a VR hand: VrSession grab sources); several
+    /// sources act at once. Claude Generated 2026 (multi-grab).
+    void atomForceRequested(int source, int atomIndex, QVector3D force, double alpha, int maxShells);
+    void atomGrabReleased(int source);
     void grabStatusChanged(QString message);
 
     // Claude Generated 2026 - Display-dock sync: emitted when these change via any
@@ -809,9 +825,19 @@ private:
     VrSession* m_vr = nullptr;  // non-null while a headset session runs
     QString m_vrStartDir;       // file browser root handed to the next session
     double m_vrTemperature = 0.0;
+    double m_vrSystemTemperature = 0.0;
+    double m_vrTemperatureMin = 1.0;
+    double m_vrTemperatureMax = 1000.0;
     QString m_vrMethod;
     bool m_vrSimPaused = false;
     QString m_vrSimMessage;     // "Finished: ..." / "Aborted: ..." of the last run, for the headset
+    QString m_vrSimMode;        // "md" / "opt" while a run is active
+    QString m_vrStructureFile;  // file name and molecule name of the structure shown
+    QString m_vrStructureTitle;
+    QString m_vrPanorama;       // sky box panorama file of the headset scene (empty = colour)
+    QString m_vrSurroundings;   // 3D scene file around the headset user (empty = none)
+    double m_vrSurroundingsScale = 100.0;  // cm per unit of that file (100 = metres)
+    bool m_vrHandInput = false;            // headset input: hands (pinch) instead of controllers
     QWidget* m_controlPanel = nullptr;
 
     // Claude Generated - Frame control widgets (shown/hidden based on frame count)

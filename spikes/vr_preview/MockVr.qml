@@ -14,7 +14,13 @@ QtObject {
     property bool simulationActive: false
     property bool simulationPaused: false
     property string simulationMessage: ""
+    property string simulationMode: ""
+    property string structureFile: "caffeine.xyz"
+    property string structureTitle: "Caffeine"
     property double temperature: 300
+    property double systemTemperature: 0
+    property double temperatureMin: 1
+    property double temperatureMax: 1000
     property string method: "gfnff"
     property int frame: 0
     property int frameCount: 1
@@ -23,11 +29,14 @@ QtObject {
     property double grabStrength: 0.1
     property string currentDir: "/home/user/structures"
     property var entries: []
+    property bool handInput: stateName === "hands"   // layout within arm's reach (Claude Generated 2026)
 
     // ---- VrSession signals (callable from the panels, as on the C++ object) ---------------------
     signal command(string name)
     signal atomPicked(int atomIndex)
     signal fileRequested(string path)
+    signal grabForce(int source, int atomIndex, vector3d displacement)
+    signal grabReleased(int source)
 
     readonly property var tree: ({
         "/home/user": ["structures/"],
@@ -62,6 +71,7 @@ QtObject {
     }
     function choose(name) {
         console.log("preview: open", currentDir + "/" + name)
+        structureFile = name; structureTitle = ""
         fileRequested(currentDir + "/" + name)
     }
 
@@ -74,14 +84,20 @@ QtObject {
         else if (name === "grabDown") grabStrength *= 0.8
         else if (name === "simStartMD" || name === "simStartOpt") {
             simulationActive = true; simulationPaused = false; simulationMessage = ""
+            simulationMode = name === "simStartMD" ? "md" : "opt"
         } else if (name === "simPause") simulationPaused = !simulationPaused
         else if (name === "simStop") {
-            simulationActive = false; simulationPaused = false
+            simulationActive = false; simulationPaused = false; simulationMode = ""
             simulationMessage = "Finished: stopped by the user."
         } else if (name.indexOf("simMethod:") === 0) {
             if (!simulationActive) method = name.substring(10)
-        } else if (name === "simTempUp") temperature += 25
-        else if (name === "simTempDown") temperature = Math.max(0, temperature - 25)
+        } else if (name.indexOf("simTempRange:") === 0) {
+            var range = name.split(":")
+            temperatureMin = Number(range[1]); temperatureMax = Number(range[2])
+            temperature = Math.max(temperatureMin, Math.min(temperatureMax, temperature))
+        } else if (name.indexOf("simTemp:") === 0) {
+            temperature = Math.max(temperatureMin, Math.min(temperatureMax, Number(name.slice(8))))
+        }
     }
 
     Component.onCompleted: {
@@ -89,8 +105,8 @@ QtObject {
         if (stateName === "trajectory" || stateName === "files") {
             frameCount = 240; frame = 41; selectionText = "C #12 (+2)"
         } else if (stateName === "running" || stateName === "paused") {
-            simulationActive = true; simulationPaused = stateName === "paused"
-            temperature = 350; selectionText = "N #3"; grabStrength = 0.156
+            simulationActive = true; simulationPaused = stateName === "paused"; simulationMode = "md"
+            temperature = 350; systemTemperature = 342; selectionText = "N #3"; grabStrength = 0.156
         } else if (stateName === "aborted") {
             simulationMessage = "Aborted: the temperature ran away (above 5000 K)."
         }

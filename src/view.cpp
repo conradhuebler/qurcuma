@@ -408,7 +408,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 }
                 if (m_grabbedAtom >= 0) {
                     m_grabbedAtom = -1;
-                    emit atomGrabReleased();
+                    emit atomGrabReleased(kMouseGrabSource);
                     if (m_scene) m_scene->setForceArrows({}); // clear arrows on release
                     Qt::CursorShape shape = m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor;
                     setViewportCursor(shape);
@@ -620,7 +620,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 QVector3D modelLocalForce = computeGrabForce(pos, m_grabbedAtom);
                 // curcuma adds force to the gradient; accel = -gradient, so negate
                 // to make the atom follow the cursor.
-                emit atomForceRequested(m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
+                emit atomForceRequested(kMouseGrabSource, m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
                 updateForceVectors();
                 return true;
             }
@@ -2080,7 +2080,7 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
     // Re-send the grab force at sim cadence while a grab is active.
     if (m_grabbedAtom >= 0) {
         QVector3D modelLocalForce = computeGrabForce(m_lastMousePos, m_grabbedAtom);
-        emit atomForceRequested(m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
+        emit atomForceRequested(kMouseGrabSource, m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
         updateForceVectors();
     }
 
@@ -5421,10 +5421,14 @@ bool MoleculeViewer::setVrActive(bool on)
         // from inside the session's own QML handlers (ended() is queued below).
         delete m_vr;
         m_vr = nullptr;
+        // a headset grab held when the session ended must not keep pulling
+        emit atomGrabReleased(VrSession::RightGrabSource);
+        emit atomGrabReleased(VrSession::LeftGrabSource);
         emit vrActiveChanged(false);
         return true;
     }
     m_vr = new VrSession(m_scene, this);
+    m_vr->setHandInput(m_vrHandInput);   // before start(): the scene is laid out for the right mode
     if (!m_vr->start()) {
         delete m_vr;
         m_vr = nullptr;
@@ -5443,16 +5447,18 @@ bool MoleculeViewer::setVrActive(bool on)
     }, Qt::QueuedConnection);
     // Grab: the headset sends the displacement of the controller target from the atom; this is the
     // same spring as the mouse drag (force ~ displacement * grabStrength, Angstrom -> Bohr).
-    connect(m_vr, &VrSession::grabForce, this, [this](int atom, QVector3D displacement) {
+    connect(m_vr, &VrSession::grabForce, this, [this](int source, int atom, QVector3D displacement) {
         if (!m_simulationActive)
             return;
         static constexpr float Angstrom2Bohr = 1.8897259886f;
         const QVector3D force = displacement * Angstrom2Bohr * float(m_grabStrength);
         // curcuma adds force to the gradient; accel = -gradient, so negate (as in the mouse path)
-        emit atomForceRequested(atom, -force, m_grabAlpha, m_grabMaxShells);
+        emit atomForceRequested(source, atom, -force, m_grabAlpha, m_grabMaxShells);
     });
     connect(m_vr, &VrSession::fileRequested, this, &MoleculeViewer::vrFileRequested);
-    connect(m_vr, &VrSession::grabReleased, this, [this] { emit atomGrabReleased(); });
+    // The input mode can be switched in the headset (View panel, or B / Y in hands mode).
+    connect(m_vr, &VrSession::handInputChanged, this, [this] { setVrHandInput(m_vr->handInput()); });
+    connect(m_vr, &VrSession::grabReleased, this, [this](int source) { emit atomGrabReleased(source); });
     connect(m_vr, &VrSession::command, this, [this](const QString& name) {
         if (name == QLatin1String("playPause"))
             toggleAnimation();
@@ -5472,9 +5478,14 @@ bool MoleculeViewer::setVrActive(bool on)
     connect(this, &MoleculeViewer::animationStateChanged, m_vr, [this] { updateVrStatus(); });
     m_vr->setSimulationActive(m_simulationActive);
     m_vr->setSimulationStatus(m_vrSimPaused, m_vrSimMessage);
+    m_vr->setSimulationMode(m_vrSimMode);
+    m_vr->setStructure(m_vrStructureFile, m_vrStructureTitle);
     m_vr->setTemperature(m_vrTemperature);
+    m_vr->setSystemTemperature(m_vrSystemTemperature);
+    m_vr->setTemperatureRange(m_vrTemperatureMin, m_vrTemperatureMax);
     m_vr->setMethod(m_vrMethod);
     m_vr->setStartDirectory(m_vrStartDir);
+    m_vr->setSurroundings(m_vrPanorama, m_vrSurroundings, m_vrSurroundingsScale);
     updateVrStatus();
     emit vrActiveChanged(true);
     return true;
@@ -5519,6 +5530,27 @@ void MoleculeViewer::setVrSimulationStatus(bool paused, const QString& message)
 #endif
 }
 
+// Claude Generated 2026 - Kind of the active run, lights the MD or Opt button in the headset.
+void MoleculeViewer::setVrSimulationMode(const QString& mode)
+{
+    m_vrSimMode = mode;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setSimulationMode(mode);
+#endif
+}
+
+// Claude Generated 2026 - Structure named on the headset's Structure panel.
+void MoleculeViewer::setVrStructure(const QString& fileName, const QString& title)
+{
+    m_vrStructureFile = fileName;
+    m_vrStructureTitle = title;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setStructure(fileName, title);
+#endif
+}
+
 void MoleculeViewer::setVrStartDirectory(const QString& dir)
 {
     m_vrStartDir = dir;
@@ -5528,12 +5560,57 @@ void MoleculeViewer::setVrStartDirectory(const QString& dir)
 #endif
 }
 
+// Claude Generated 2026 - Headset input mode; kept for the next session when none runs.
+void MoleculeViewer::setVrHandInput(bool on)
+{
+    if (on == m_vrHandInput)
+        return;
+    m_vrHandInput = on;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setHandInput(on);
+#endif
+    emit vrHandInputChanged(on);
+}
+
+// Claude Generated 2026 - Sky box panorama and 3D surroundings of the headset scene.
+void MoleculeViewer::setVrSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale)
+{
+    m_vrPanorama = panoramaPath;
+    m_vrSurroundings = scenePath;
+    m_vrSurroundingsScale = sceneScale;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setSurroundings(panoramaPath, scenePath, sceneScale);
+#endif
+}
+
 void MoleculeViewer::setVrTemperature(double kelvin)
 {
     m_vrTemperature = kelvin;
 #ifdef QURCUMA_HAS_XR
     if (m_vr)
         m_vr->setTemperature(kelvin);
+#endif
+}
+
+// Claude Generated 2026 - System temperature of the running MD, below the headset thermostat.
+void MoleculeViewer::setVrSystemTemperature(double kelvin)
+{
+    m_vrSystemTemperature = kelvin;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setSystemTemperature(kelvin);
+#endif
+}
+
+void MoleculeViewer::setVrTemperatureRange(double minimum, double maximum)
+{
+    m_vrTemperatureMin = minimum;
+    m_vrTemperatureMax = maximum;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setTemperatureRange(minimum, maximum);
 #endif
 }
 

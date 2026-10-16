@@ -65,6 +65,7 @@
 #include <QTime>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <memory>
 #include <QToolBar>
 #include <QToolButton>
 
@@ -1141,6 +1142,91 @@ void MainWindow::createMenus()
         }
     });
     connect(m_moleculeView, &MoleculeViewer::vrActiveChanged, vrAction, &QAction::setChecked);
+
+    // Claude Generated 2026 - VR demo mode: no modal "Unsaved changes" prompt when a new file is
+    // loaded (it would halt the headset view); modified structures are discarded. Turned on
+    // whenever a VR session starts, can be switched off again by hand.
+    QAction* vrDemoAction = viewMenu->addAction(tr("VR &Demo Mode"));
+    vrDemoAction->setCheckable(true);
+    vrDemoAction->setChecked(m_vrDemoMode);
+    vrDemoAction->setToolTip(tr("Loading another file discards an unsaved (MD/optimized) structure "
+                                "without asking, so no dialog interrupts the headset user. "
+                                "Enabled automatically by Show in VR Headset."));
+    connect(vrDemoAction, &QAction::toggled, this, [this](bool on) { m_vrDemoMode = on; });
+    connect(m_moleculeView, &MoleculeViewer::vrActiveChanged, vrDemoAction, [vrDemoAction](bool active) {
+        if (active)
+            vrDemoAction->setChecked(true);
+    });
+
+    // Claude Generated 2026 - Headset input: controllers (ray + trigger) or tracked hands (pinch,
+    // direct manipulation). Remembered; the headset's View panel switches it as well.
+    QMenu* vrInputMenu = viewMenu->addMenu(tr("VR &Input"));
+    auto* vrInputGroup = new QActionGroup(this);
+    QAction* vrControllersAction = vrInputMenu->addAction(tr("&Controllers (Ray + Trigger)"));
+    QAction* vrHandsAction = vrInputMenu->addAction(tr("&Hands (Pinch)"));
+    vrHandsAction->setToolTip(tr("Use tracked hands: pinch clicks panel buttons and holds the molecule. "
+                                 "Needs hand tracking in the OpenXR runtime."));
+    for (QAction* action : { vrControllersAction, vrHandsAction }) {
+        action->setCheckable(true);
+        vrInputGroup->addAction(action);
+    }
+    connect(vrHandsAction, &QAction::toggled, this, [this](bool on) { m_moleculeView->setVrHandInput(on); });
+    connect(m_moleculeView, &MoleculeViewer::vrHandInputChanged, this,
+        [this, vrControllersAction, vrHandsAction](bool on) {
+            (on ? vrHandsAction : vrControllersAction)->setChecked(true);
+            m_settings.setVrHandInput(on);
+        });
+    m_moleculeView->setVrHandInput(m_settings.vrHandInput());
+    (m_settings.vrHandInput() ? vrHandsAction : vrControllersAction)->setChecked(true);
+
+    // Claude Generated 2026 - Surroundings of the headset scene: a 360 degree panorama as the sky
+    // box and/or a 3D scene file around the user. Remembered; a file that is gone is skipped.
+    QMenu* vrSurroundingsMenu = viewMenu->addMenu(tr("VR &Surroundings"));
+    const auto applyVrSurroundings = [this] {
+        const QString panorama = m_settings.vrPanorama();
+        const QString scene = m_settings.vrSurroundings();
+        m_moleculeView->setVrSurroundings(QFileInfo::exists(panorama) ? panorama : QString(),
+                                          QFileInfo::exists(scene) ? scene : QString(),
+                                          m_settings.vrSurroundingsInCentimetres() ? 1.0 : 100.0);
+    };
+    QAction* panoramaAction = vrSurroundingsMenu->addAction(tr("&Panorama (Sky Box)..."));
+    panoramaAction->setToolTip(tr("360° equirectangular image (.hdr, .exr, .jpg, .png) shown around the headset user"));
+    connect(panoramaAction, &QAction::triggered, this, [this, applyVrSurroundings] {
+        const QString path = QFileDialog::getOpenFileName(this, tr("VR Panorama"),
+            QFileInfo(m_settings.vrPanorama()).absolutePath(),
+            tr("Panoramas (*.hdr *.exr *.jpg *.jpeg *.png *.ktx);;All files (*)"));
+        if (path.isEmpty())
+            return;
+        m_settings.setVrPanorama(path);
+        applyVrSurroundings();
+    });
+    QAction* sceneAction = vrSurroundingsMenu->addAction(tr("3D &Scene..."));
+    sceneAction->setToolTip(tr("3D scene file (glTF/GLB, OBJ, FBX) placed around the headset user"));
+    connect(sceneAction, &QAction::triggered, this, [this, applyVrSurroundings] {
+        const QString path = QFileDialog::getOpenFileName(this, tr("VR 3D Scene"),
+            QFileInfo(m_settings.vrSurroundings()).absolutePath(),
+            tr("3D scenes (*.gltf *.glb *.obj *.fbx);;All files (*)"));
+        if (path.isEmpty())
+            return;
+        m_settings.setVrSurroundings(path);
+        applyVrSurroundings();
+    });
+    // glTF is defined in metres, but many exported scenes are in centimetres.
+    QAction* centimetresAction = vrSurroundingsMenu->addAction(tr("3D Scene Units in &Centimetres"));
+    centimetresAction->setCheckable(true);
+    centimetresAction->setChecked(m_settings.vrSurroundingsInCentimetres());
+    centimetresAction->setToolTip(tr("Off: one unit of the 3D scene is a metre (glTF convention). "
+                                     "On: one unit is a centimetre."));
+    connect(centimetresAction, &QAction::toggled, this, [this, applyVrSurroundings](bool on) {
+        m_settings.setVrSurroundingsInCentimetres(on);
+        applyVrSurroundings();
+    });
+    vrSurroundingsMenu->addSeparator();
+    connect(vrSurroundingsMenu->addAction(tr("Clear Panorama")), &QAction::triggered, this,
+        [this, applyVrSurroundings] { m_settings.setVrPanorama(QString()); applyVrSurroundings(); });
+    connect(vrSurroundingsMenu->addAction(tr("Clear 3D Scene")), &QAction::triggered, this,
+        [this, applyVrSurroundings] { m_settings.setVrSurroundings(QString()); applyVrSurroundings(); });
+    applyVrSurroundings();
     viewMenu->addSeparator();
 #endif
 
@@ -1589,10 +1675,21 @@ void MainWindow::createMenus()
             m_simulationControlWidget->onStopClicked();
         else if (name == QLatin1String("simPause"))
             m_simulationControlWidget->onPauseClicked();
-        else if (name == QLatin1String("simTempUp"))
-            m_simulationControlWidget->setTemperature(m_simulationControlWidget->temperature() + 25.0);
-        else if (name == QLatin1String("simTempDown"))
-            m_simulationControlWidget->setTemperature(m_simulationControlWidget->temperature() - 25.0);
+        else if (name.startsWith(QLatin1String("simTempRange:"))) {
+            // headset slider's min/max steppers: "simTempRange:<min>:<max>"
+            const QStringList parts = name.split(QLatin1Char(':'));
+            bool okMin = false, okMax = false;
+            const double minimum = parts.value(1).toDouble(&okMin);
+            const double maximum = parts.value(2).toDouble(&okMax);
+            if (okMin && okMax)
+                m_simulationControlWidget->setTemperatureRange(minimum, maximum);
+        } else if (name.startsWith(QLatin1String("simTemp:"))) {
+            // headset slider drag: like a drag of the dock's slider (live during a run)
+            bool ok = false;
+            const double kelvin = name.mid(int(strlen("simTemp:"))).toDouble(&ok);
+            if (ok)
+                m_simulationControlWidget->setTemperature(kelvin);
+        }
         else if (name.startsWith(QLatin1String("simMethod:")))
             m_simulationControlWidget->setMethod(name.mid(int(strlen("simMethod:"))));
         m_moleculeView->setVrTemperature(m_simulationControlWidget->temperature());
@@ -1604,6 +1701,8 @@ void MainWindow::createMenus()
     if (m_simulationControlWidget) {
         connect(m_simulationControlWidget, &SimulationControlWidget::temperatureChanged, this,
             [this](double kelvin) { m_moleculeView->setVrTemperature(kelvin); });
+        connect(m_simulationControlWidget, &SimulationControlWidget::temperatureRangeChanged, this,
+            [this](double minimum, double maximum) { m_moleculeView->setVrTemperatureRange(minimum, maximum); });
         connect(m_simulationControlWidget, &SimulationControlWidget::configChanged, this,
             [this](SimulationConfig cfg) { m_moleculeView->setVrMethod(cfg.method); });
         connect(m_simulationControlWidget, &SimulationControlWidget::pauseStateChanged, this,
@@ -1612,6 +1711,9 @@ void MainWindow::createMenus()
             [this](bool running) {
                 if (running)
                     m_moleculeView->setVrSimulationStatus(false, QString());
+                const bool md = m_simulationControlWidget->runMode() == SimulationConfig::Mode::MolecularDynamics;
+                m_moleculeView->setVrSimulationMode(!running ? QString()
+                                                    : md ? QStringLiteral("md") : QStringLiteral("opt"));
             });
         connect(m_simulationControlWidget, &SimulationControlWidget::runEnded, this,
             [this](const QString& reason, bool aborted) {
@@ -1629,6 +1731,8 @@ void MainWindow::createMenus()
         m_moleculeView->setVrStartDirectory(dir);
         if (m_simulationControlWidget) {
             m_moleculeView->setVrTemperature(m_simulationControlWidget->temperature());
+            m_moleculeView->setVrTemperatureRange(m_simulationControlWidget->temperatureMinimum(),
+                                                  m_simulationControlWidget->temperatureMaximum());
             m_moleculeView->setVrMethod(m_simulationControlWidget->method());
         }
     });
@@ -3399,6 +3503,7 @@ void MainWindow::newScene()
     }
     m_moleculeView->newScene();
     m_structureModified = false;
+    m_moleculeView->setVrStructure(QString(), QString());
     if (m_statusFileLabel)
         m_statusFileLabel->clear();
     m_moleculeView->setBuildMode(true);
@@ -4494,6 +4599,51 @@ void MainWindow::restoreWorkspaceState(const Settings::Workspace& ws)
     statusBar()->showMessage(tr("Workspace '%1' restored").arg(ws.name), 3000);
 }
 
+// Claude Generated 2026 - Name of the molecule as the file states it, for the headset's Structure
+// panel: XYZ comment line, PDB TITLE (else COMPND MOLECULE:, else HEADER classification), MOL2
+// molecule name. Empty when the file has none, or when it holds no letters (an XYZ comment that is
+// only an energy) or just repeats the file name.
+static QString structureTitleFromFile(const QString& filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return QString();
+    const QString suffix = QFileInfo(filePath).suffix().toLower();
+    QString title;
+    if (suffix == QLatin1String("xyz")) {
+        file.readLine();                                   // atom count
+        title = QString::fromUtf8(file.readLine()).trimmed();
+    } else if (suffix == QLatin1String("mol2")) {
+        for (int i = 0; i < 200 && !file.atEnd(); ++i) {
+            if (QString::fromUtf8(file.readLine()).trimmed() == QLatin1String("@<TRIPOS>MOLECULE")) {
+                title = QString::fromUtf8(file.readLine()).trimmed();
+                break;
+            }
+        }
+    } else if (suffix == QLatin1String("pdb")) {
+        QString pdbTitle, compound, header;
+        for (int i = 0; i < 200 && !file.atEnd(); ++i) {
+            const QString line = QString::fromUtf8(file.readLine());
+            if (line.startsWith(QLatin1String("ATOM")) || line.startsWith(QLatin1String("HETATM")))
+                break;
+            const QString text = line.mid(10).trimmed();
+            if (line.startsWith(QLatin1String("TITLE")))
+                pdbTitle += (pdbTitle.isEmpty() ? QString() : QStringLiteral(" ")) + text;
+            else if (line.startsWith(QLatin1String("COMPND")) && compound.isEmpty()
+                     && text.contains(QLatin1String("MOLECULE:")))
+                compound = text.section(QLatin1String("MOLECULE:"), 1).remove(QLatin1Char(';')).trimmed();
+            else if (line.startsWith(QLatin1String("HEADER")) && header.isEmpty())
+                header = line.mid(10, 40).trimmed();
+        }
+        title = !pdbTitle.isEmpty() ? pdbTitle : !compound.isEmpty() ? compound : header;
+    }
+    title = title.simplified();
+    const bool hasLetter = std::any_of(title.cbegin(), title.cend(), [](QChar c) { return c.isLetter(); });
+    if (!hasLetter || title.compare(QFileInfo(filePath).completeBaseName(), Qt::CaseInsensitive) == 0)
+        return QString();
+    return title;
+}
+
 // Claude Generated - SFTP: Load molecule file from local or remote path
 void MainWindow::loadMoleculeFile(const QString& filePath)
 {
@@ -4513,7 +4663,11 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     // running an MD/Opt), prompt before discarding those changes. Save runs
     // through the central saveStructure() helper which itself may show a
     // Save-As dialog; if the user cancels that, the load is aborted.
-    if (m_structureModified) {
+    // In VR demo mode the changes are discarded without asking (a modal
+    // dialog would freeze the headset view).
+    if (m_structureModified && m_vrDemoMode) {
+        statusBar()->showMessage(tr("VR demo mode: unsaved structure changes discarded"), 3000);
+    } else if (m_structureModified) {
         QMessageBox box(this);
         box.setIcon(QMessageBox::Warning);
         box.setWindowTitle(tr("Unsaved changes"));
@@ -4593,6 +4747,7 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     if (fileLoaded) {
         if (m_statusFileLabel)
             m_statusFileLabel->setText(QFileInfo(filePath).fileName());
+        m_moleculeView->setVrStructure(QFileInfo(filePath).fileName(), structureTitleFromFile(filePath));
         // A fresh molecule resets the scene (clears any RMSD overlays); reset the RMSD
         // workspace too so it does not keep stale aligned structures.
         if (m_rmsdWidget)
@@ -5803,6 +5958,24 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
         if (!liveAtoms.isEmpty())
             m_simulationControlWidget->setMolecule(liveAtoms,
                 m_moleculeView->getCurrentFrameBonds());
+    }
+
+    // Claude Generated 2026 - System temperature for the headset's thermostat slider: the
+    // instantaneous value the Temperature chart plots (0 for optimizations), reset at the
+    // start of each run, ~4 Hz so the number stays readable.
+    if (m_moleculeView) {   // also when the headset is put on during a run
+        m_moleculeView->setVrSystemTemperature(0.0);
+        auto vrTemperatureTimer = std::make_shared<QElapsedTimer>();
+        connect(worker, &SimulationWorker::frameReady,
+            this, [this, vrTemperatureTimer](SimulationFramePtr frame) {
+                if (!frame)
+                    return;
+                if (vrTemperatureTimer->isValid() && vrTemperatureTimer->elapsed() < 250)
+                    return;
+                vrTemperatureTimer->restart();
+                m_moleculeView->setVrSystemTemperature(frame->temperature);
+            },
+            Qt::QueuedConnection);
     }
 
     // Status-bar slot is a lambda so we don't need a Qt slot declaration.
