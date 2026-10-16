@@ -55,6 +55,10 @@ public:
     void focusSourceCombo();
     /// Selects the computer ("computer:<name>") or SFTP profile id @p sourceId and connects to it.
     void connectToSource(const QString& sourceId);
+    /// Selects the computer @p computerName of the computer list as source, connects if needed and makes
+    /// @p remotePath the remote working directory (results of a remote run). Says so in the status line
+    /// when the computer is no longer in the list.
+    void showLocation(const QString& computerName, const QString& remotePath);
 
 signals:
     /// A remote file was downloaded (or found unchanged in the cache) and should be opened.

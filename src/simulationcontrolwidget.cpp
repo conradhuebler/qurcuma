@@ -439,7 +439,9 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     m_serverTrajectoryCheck = new QCheckBox(tr("Also write the full trajectory on the server"), this);
     m_serverTrajectoryCheck->setToolTip(tr("The trajectory file on this computer is made from the frames that arrive "
                                            "and can have gaps on a slow connection. This also keeps a complete file in "
-                                           "the server's session directory; fetch it with File > Remote Files."));
+                                           "the server's session directory. With an SFTP build, \"Show results in Remote\" "
+                                           "opens that directory in the Project panel, Remote segment, where the file can be "
+                                           "opened or downloaded."));
     methodForm->addRow(QString(), m_serverTrajectoryCheck);
     {
         QSettings settings;
@@ -1032,6 +1034,18 @@ void SimulationControlWidget::setupUI()
     m_statusLabel->setStyleSheet("color: gray; font-size: 11px;");
     m_statusLabel->setWordWrap(true);
     innerLayout->addWidget(m_statusLabel);
+#if defined(QURCUMA_REMOTE) && defined(USE_SFTP)
+    // Claude Generated 2026 - after a remote run: open its session directory in the Remote segment of
+    // the Project dock (SFTP browser). Hidden until a run reported its session directory.
+    m_showResultsButton = new QPushButton(tr("Show results in Remote"), this);
+    m_showResultsButton->setFlat(true);
+    m_showResultsButton->setIcon(QIcon::fromTheme(QStringLiteral("folder-remote")));
+    m_showResultsButton->setVisible(false);
+    connect(m_showResultsButton, &QPushButton::clicked, this, [this]() {
+        emit showRemoteResultsRequested(m_resultsComputer, m_resultsDir);
+    });
+    innerLayout->addWidget(m_showResultsButton, 0, Qt::AlignLeft);
+#endif
 
     // Initial state pill
     setState(tr("○ Ready"), "gray");
@@ -1723,6 +1737,19 @@ void SimulationControlWidget::connectBackend()
             m_statusLabel->setText(text);
         });
         connect(rb, &remote::RemoteBackend::logMessage, this, &SimulationControlWidget::remoteLog);
+#ifdef USE_SFTP
+        if (m_showResultsButton)
+            m_showResultsButton->setVisible(false);  // a new run: the old results button goes
+        connect(rb, &remote::RemoteBackend::sessionResultsAvailable, this,
+                [this](const QString& computer, const QString& dir) {
+                    m_resultsComputer = computer;
+                    m_resultsDir = dir;
+                    if (m_showResultsButton) {
+                        m_showResultsButton->setToolTip(tr("Open %1 on %2 in the Project panel, Remote segment (SFTP)").arg(dir, computer));
+                        m_showResultsButton->setVisible(true);
+                    }
+                });
+#endif
         connect(rb, &remote::RemoteBackend::capabilities, this, [this](const QJsonObject& welcome) {
             const QString host = m_computeCombo->currentData().toString();
             QStringList gpus;

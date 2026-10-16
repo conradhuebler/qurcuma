@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 // Claude Generated 2026 (WP remote compute): name, address, port and key of a computer, a test
 // in three visible steps (ssh login, qurcuma-server found, a session opened), and the host list
-// shared by the Simulation dock and the Remote Files dialog. Saved computers live in the qurcuma
+// of the Simulation dock. Saved computers live in the qurcuma
 // settings (remote/hostprofiles.h); ~/.ssh/config is not read.
 
 #pragma once

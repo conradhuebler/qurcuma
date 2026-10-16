@@ -9,6 +9,8 @@
 #include "generated/parameter_registry.h"  // initialize_generated_registry()
 
 #include <QCoreApplication>
+#include <QDirIterator>
+#include <QFileInfo>
 #include <QEventLoop>
 #include <QRegularExpression>
 #include <QJsonDocument>
@@ -206,6 +208,40 @@ int main(int argc, char* argv[])
         CHECK(!lines.isEmpty() && lines[0] == "3");
         // the reference file reached the session directory under its upload name
         CHECK(QFile::exists(sessionDirSeen + "/in/rmsd_mtd_ref_file-ref.xyz"));
+    }
+
+    // full trajectory written on the server (serverTrajectory): the finished message lists it among the
+    // session files and the file lies in the session directory (taken over from the removed
+    // test_remote_files; the trajectory is now browsed over SFTP, which needs no server support).
+    {
+        CHECK(waitFor([&] { return session() == nullptr; }, 10000));
+        SimulationConfig cfg;
+        cfg.mode = SimulationConfig::Mode::MolecularDynamics;
+        cfg.method = "gfnff";
+        cfg.steps = 30;
+        cfg.fpsLimit = 0;
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())), token);
+        rb.setTrajectoryPath(work.path() + "/server-run.trj.xyz");
+        rb.setMolecule(distortedWater());
+        rb.setConfig(cfg);
+        rb.setServerTrajectory(true);
+        QStringList status, errs;
+        bool done = false;
+        QString dir;
+        QObject::connect(&rb, &remote::RemoteBackend::statusText, [&](const QString& t) { status << t; });
+        QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
+        QObject::connect(&rb, &SimulationBackend::finished, [&](const QString&, bool) { done = true; });
+        rb.start();
+        waitFor([&] { return session() != nullptr; }, 5000);
+        if (session()) dir = session()->sessionDir();
+        CHECK(waitFor([&] { return done || !errs.isEmpty(); }, 120000));
+        CHECK(errs.isEmpty() && done);
+        QString filesLine;
+        for (const QString& t : status) if (t.startsWith("Files on")) filesLine = t;
+        CHECK(filesLine.contains(".trj.xyz") && filesLine.contains(dir));
+        QDirIterator it(dir, { "*.trj.xyz" }, QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
+        const QString trajectory = it.hasNext() ? it.next() : QString();
+        CHECK(!dir.isEmpty() && !trajectory.isEmpty() && QFileInfo(trajectory).size() > 0);
     }
 
     // link measurement: a run longer than a second yields `perf:` lines with the client side

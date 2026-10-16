@@ -47,7 +47,7 @@ public:
     void requestResume() override;
 
     /// Also let the server write the complete trajectory into its session directory (kept
-    /// there; fetch it with RemoteFiles / the Remote Files dialog). Default off.
+    /// there; with an SFTP build it can be browsed in the Remote segment of the Project dock). Default off.
     void setServerTrajectory(bool on) { m_serverTrajectory = on; }
 
     /// Where the trajectory is written (default: remote-<timestamp>.trj.xyz in the working directory).
@@ -68,6 +68,10 @@ signals:
     void capabilities(const QJsonObject& welcome);
     /// Short link description for a status line ("Remote host: 12 frames, 0 dropped ...").
     void statusText(const QString& text);
+    /// The run ended and the server named its session directory: @p computerName is the name the
+    /// backend was started with (a computer of the list), @p sessionDir a path on that computer.
+    /// Not emitted for a backend made from a bare URL (no name). Claude Generated 2026
+    void sessionResultsAvailable(const QString& computerName, const QString& sessionDir);
 
 private:
     struct Upload { QString name; QByteArray data; };

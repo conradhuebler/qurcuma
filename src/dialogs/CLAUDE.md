@@ -23,7 +23,7 @@ Specialized dialog windows and analysis tools for molecular visualization.
 - Remote files are browsed in the Remote segment of the Project dock (`src/docks/CLAUDE.md`), not in a dialog. Shared pieces outside `dialogs/`: `src/sshconfig.h` (~/.ssh/config parser), `src/sftpcache.h` (download cache), `Settings::SftpConnectionProfile` (saved profiles, a list of their own next to the computer list).
 
 ### Add Computer Dialog (addcomputerdialog.*)
-- **Purpose**: add a computer for remote runs (address, port, key), test ssh and `qurcuma-server`; also holds the computer list shared by the Simulation dock and the Remote Files dialog (`fillHostCombo`; ~/.ssh/config is not read). Details: `src/remote/CLAUDE.md`. 🤖 built, not checked in the GUI.
+- **Purpose**: add a computer for remote runs (address, port, key), test ssh and `qurcuma-server`; also holds the host list of the Simulation dock (`fillHostCombo`; ~/.ssh/config is not read). Details: `src/remote/CLAUDE.md`. 🤖 built, not checked in the GUI.
 
 ### Settings Dialog (settingsdialog.*)
 - **Purpose**: one dialog (Edit ▸ Preferences ▸ Settings..., Ctrl+,) with tabs Programs (path, Browse, Detect, live status per program), General (working directory and known ones, invocation directory, dark mode, clear recent files), Display (`centerOnLoad`), Computers (`QURCUMA_REMOTE` only) and Operator (name, ORCID with check digit, institution, license); writes `Settings` only on OK.

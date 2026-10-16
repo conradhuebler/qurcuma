@@ -19,8 +19,6 @@
 
 #pragma once
 
-#include <QCryptographicHash>
-#include <QFile>
 #include <QJsonObject>
 #include <QObject>
 #include <QSet>
@@ -41,10 +39,7 @@ namespace remote {
 class ServerSession : public QObject {
     Q_OBJECT
 public:
-    /// @p browseRoots: directories a client may list and download from (the session root is
-    /// always included).
-    ServerSession(const QString& token, const QString& rootDir, int graceSeconds,
-        const QStringList& browseRoots = {}, QObject* parent = nullptr);
+    ServerSession(const QString& token, const QString& rootDir, int graceSeconds, QObject* parent = nullptr);
     ~ServerSession() override;
 
     /// Take a freshly accepted connection (it still has to authenticate with hello).
@@ -72,10 +67,6 @@ private:
     void handleStart(const QJsonObject& msg);
     void stopRun();
     void endSession();
-    void handleList(const QJsonObject& msg);
-    void handleGetFile(const QJsonObject& msg);
-    void pumpTransfer();
-    void finishTransfer(bool cancelled);
     QJsonObject sessionFilesJson() const;
 
     QWebSocket* m_socket = nullptr;
@@ -87,10 +78,6 @@ private:
     bool m_everAuthenticated = false;
     bool m_ended = false;
     SimulationBackend* m_backend = nullptr;
-    QStringList m_browseRoots;
-    QFile m_transferFile;           // the file being downloaded by the client, if any
-    quint32 m_transferId = 0;
-    QCryptographicHash m_transferHash{ QCryptographicHash::Sha256 };
     QJsonObject m_finishedMsg;  // kept until a client has been told
     QSet<QString> m_uploaded;
     qint64 m_uploadedBytes = 0;
@@ -130,8 +117,7 @@ private:
 class RemoteServer : public QObject {
     Q_OBJECT
 public:
-    RemoteServer(const QString& token, const QString& rootDir, int graceSeconds,
-        const QStringList& browseRoots = {}, QObject* parent = nullptr);
+    RemoteServer(const QString& token, const QString& rootDir, int graceSeconds, QObject* parent = nullptr);
 
     bool listen(quint16 port = 0);  ///< 127.0.0.1 only; 0 = any free port
     quint16 port() const;
@@ -149,7 +135,6 @@ private:
     QWebSocketServer m_server;
     QString m_token, m_root;
     int m_graceSeconds;
-    QStringList m_browseRoots;
     ServerSession* m_active = nullptr;
 };
 

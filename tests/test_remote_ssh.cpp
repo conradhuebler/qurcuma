@@ -125,10 +125,18 @@ int main(int argc, char* argv[])
         QObject::connect(&rb, &SimulationBackend::frameReady, [&](SimulationFramePtr f) { last = *f; ++n; });
         QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
         QObject::connect(&rb, &SimulationBackend::finished, [&](const QString&, bool a) { done = true; aborted = a; });
+        // Claude Generated 2026: the session directory reaches the dock ("Show results in Remote")
+        // together with the name of the computer the backend was started for
+        QString resultsComputer, resultsDir;
+        QObject::connect(&rb, &remote::RemoteBackend::sessionResultsAvailable, [&](const QString& c, const QString& d) {
+            resultsComputer = c;
+            resultsDir = d;
+        });
         rb.start();
         CHECK(waitFor([&] { return done || !errs.isEmpty(); }, 120000));
         for (const QString& e : errs) std::cerr << "error: " << e.toStdString() << std::endl;
         CHECK(errs.isEmpty() && done && !aborted);
+        CHECK(resultsComputer == "testhost" && resultsDir.startsWith(work.path() + "/sessions/"));
         std::cout << "via fake ssh: " << n << " frames, final step " << last.step << ", E " << last.energy << " Eh" << std::endl;
         CHECK(n > 0 && last.step == 8 && std::fabs(last.energy - (-0.327657)) < 1e-5);  // value of the local run (test_remote_loopback)
     }

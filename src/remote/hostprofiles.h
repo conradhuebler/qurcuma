@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 // Claude Generated 2026 (WP remote compute): a profile is what ssh needs to reach a computer
 // that is not in ~/.ssh/config: address, port, key file. SshTunnel looks a host name up here
-// first, so the dock, the Remote Files dialog and the tests keep passing a plain name.
+// first, so the dock and the tests keep passing a plain name.
 // Profiles live in the qurcuma settings (key `remote/hosts`, a JSON array); ~/.ssh/config is
 // never written.
 

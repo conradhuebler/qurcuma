@@ -2,6 +2,16 @@
 
 Newest first; one line per fact. Entries from August 2026 and earlier: [docs/changelog/AIChangelog_2026-08-and-earlier.md](docs/changelog/AIChangelog_2026-08-and-earlier.md).
 
+## Oktober 2026 - Remote Files entfernt
+
+- **Zweiter Remote-Dateibrowser entfernt**: File > "Remote Files (qurcuma-server)...", `RemoteFilesDialog`, der Client `remote::RemoteFiles` (eigener Tunnel und eigener Serverprozess) und `test_remote_files` sind gelöscht, auch aus der Quellliste von `qurcuma` und `qurcuma_remote`.
+- **Server ohne Dateibrowsen**: `list`, `getFile`, `cancelFile` mit `handleList`, `handleGetFile`, `pumpTransfer`, `finishTransfer` und dem Übertragungszustand, `resolveBrowsePath`, `encodeChunk`/`decodeChunk`, `kChunkBytes`, `MsgKind::FileChunk` (Wert 3 bleibt gesperrt), der Konstruktorparameter `browseRoots` von `ServerSession`/`RemoteServer` und die Option `--browse` von qurcuma-server sind entfernt. Behalten: Uploads (`encodeFile`, `applyFilePolicy`, `uploadParamKeys`/`blockedParamKeys`) und `sessionDir`/`sessionFiles` in `finished`.
+- **`kProtocolVersion` bleibt 1**: Läufe nutzen keine der entfernten Nachrichten; ein alter Client, der noch `list` schickt, bekommt eine Fehlermeldung statt einer Liste. Ein von Hand mit `--browse` gestarteter Server startet nicht mehr (unbekannte Option).
+- **"Show results in Remote"**: nach einem Remote-Lauf meldet `RemoteBackend::sessionResultsAvailable(Computer, Sitzungsverzeichnis)`; mit SFTP-Build zeigt das Simulation-Panel darunter einen flachen Knopf, der den Project-Dock im Remote-Segment öffnet, den Computer (`computer:<Name>`) wählt, bei Bedarf verbindet und das Sitzungsverzeichnis zum Remote-Arbeitsverzeichnis macht (`RemoteBrowserPanel::showLocation`). Ist der Computer nicht mehr in der Liste, sagt das die Statuszeile des Panels. Ohne SFTP bleibt nur der Statustext. 🤖 gebaut, GUI nicht geprüft, nicht gegen einen SFTP-Server geprüft.
+- **Tooltip** von "Also write the full trajectory on the server": die Datei liegt im Sitzungsverzeichnis und lässt sich mit SFTP-Build über "Show results in Remote" im Remote-Segment öffnen oder herunterladen.
+- **Testabdeckung umgezogen**: `test_remote_loopback` prüft jetzt, dass die vollständige Trajektorie im Sitzungsverzeichnis liegt und in `finished` steht (vorher in `test_remote_files`); `test_remote_ssh` prüft, dass `sessionResultsAvailable` Computername und Sitzungsverzeichnis liefert.
+- **Prüfung**: `qurcuma`, `qurcuma-server`, `test_remotepaths` (109 Prüfungen), `test_remote_protocol`, `test_remote_loopback`, `test_remote_reconnect`, `test_remote_ssh`, `test_remote_hosts`, `test_sshconfig`, `test_programpaths` (78) bauen und laufen grün; die Remote-Tests geben keine Anzahl aus. Nicht geprüft: GUI, ein SFTP-Server, ein Build ohne libssh.
+
 ## Oktober 2026 - Remote-Segment wie lokal
 
 - **Aufbau wie das Files-Segment**: Remote-Knopf "Choose working directory" an der Stelle des lokalen in der oberen Zeile, Breadcrumb des Remote-Arbeitsverzeichnisses, Liste seiner Unterordner mit ".." und "+ New Directory", darunter Filterzeile und die Dateien des oben gewählten Ordners. Darüber bleibt eine kompakte Zeile mit Quelle, Connect/Disconnect und Statuszeile. 🤖 gebaut, GUI nicht geprüft.

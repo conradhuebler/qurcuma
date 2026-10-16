@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 // Claude Generated 2026: parseFile kept only the last entry of a file (the previous entry was
 // checked after parseLine had already replaced it with the new, still empty one). The host
-// lists of the Simulation dock, Remote Files and SFTP all depend on it.
+// aliases offered by the SFTP remote browser depend on it.
 
 #include "sshconfig.h"
 

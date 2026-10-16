@@ -33,13 +33,11 @@ constexpr int kMaxSendFps = 60;
 constexpr double kPendingSeconds = 0.25;
 }
 
-ServerSession::ServerSession(const QString& token, const QString& rootDir, int graceSeconds,
-    const QStringList& browseRoots, QObject* parent)
+ServerSession::ServerSession(const QString& token, const QString& rootDir, int graceSeconds, QObject* parent)
     : QObject(parent)
     , m_token(token)
     , m_graceMs(qMax(1, graceSeconds) * 1000)
 {
-    m_browseRoots = QStringList{ rootDir } + browseRoots;
     const QString name = QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd-HHmmss-"))
         + QUuid::createUuid().toString(QUuid::Id128).left(6);
     m_sessionDir = QDir(rootDir).absoluteFilePath(name);
@@ -76,10 +74,7 @@ void ServerSession::bindSocket(QWebSocket* socket)
     connect(m_socket, &QWebSocket::textMessageReceived, this, &ServerSession::onText);
     connect(m_socket, &QWebSocket::binaryMessageReceived, this, &ServerSession::onBinary);
     connect(m_socket, &QWebSocket::disconnected, this, &ServerSession::onDisconnected);
-    connect(m_socket, &QWebSocket::bytesWritten, this, [this](qint64 n) {
-        m_drainBytesIv += n;
-        pumpTransfer();
-    });
+    connect(m_socket, &QWebSocket::bytesWritten, this, [this](qint64 n) { m_drainBytesIv += n; });
 }
 
 void ServerSession::closeClientConnection()
@@ -150,13 +145,6 @@ void ServerSession::onText(const QString& text)
         send({ { "type", "pong" }, { "t", msg.value("t") } });
     } else if (type == QLatin1String("start")) {
         handleStart(msg);
-    } else if (type == QLatin1String("list")) {
-        handleList(msg);
-    } else if (type == QLatin1String("getFile")) {
-        handleGetFile(msg);
-    } else if (type == QLatin1String("cancelFile")) {
-        if (m_transferFile.isOpen() && quint32(msg.value("id").toDouble()) == m_transferId)
-            finishTransfer(true);
     } else if (!m_backend) {
         sendError(QStringLiteral("'%1' needs a running simulation").arg(type));
     } else if (type == QLatin1String("stop")) {
@@ -422,91 +410,6 @@ QJsonObject ServerSession::sessionFilesJson() const
     return QJsonObject{ { "files", files } };
 }
 
-void ServerSession::handleList(const QJsonObject& msg)
-{
-    const QString requested = msg.value("path").toString();
-    QString err;
-    const QString dir = resolveBrowsePath(requested, m_browseRoots, &err);
-    QJsonObject reply{ { "type", "listing" }, { "request", requested } };
-    if (dir.isEmpty()) {
-        reply["error"] = err;
-        send(reply);
-        return;
-    }
-    const QFileInfo fi(dir);
-    if (!fi.isDir()) {
-        reply["error"] = QStringLiteral("not a directory");
-        send(reply);
-        return;
-    }
-    constexpr int kMaxEntries = 5000;
-    QJsonArray entries;
-    const QFileInfoList list = QDir(dir).entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden,
-        QDir::DirsFirst | QDir::Name);
-    for (const QFileInfo& e : list) {
-        if (entries.size() >= kMaxEntries)
-            break;
-        entries.append(QJsonObject{ { "name", e.fileName() }, { "dir", e.isDir() }, { "size", double(e.size()) },
-            { "mtime", double(e.lastModified().toSecsSinceEpoch()) } });
-    }
-    QJsonArray roots;
-    for (const QString& r : m_browseRoots)
-        roots.append(QFileInfo(r).canonicalFilePath());
-    reply["path"] = dir;
-    reply["entries"] = entries;
-    reply["truncated"] = list.size() > kMaxEntries;
-    reply["roots"] = roots;
-    send(reply);
-}
-
-void ServerSession::handleGetFile(const QJsonObject& msg)
-{
-    const quint32 id = quint32(msg.value("id").toDouble());
-    auto fail = [&](const QString& why) {
-        send({ { "type", "fileError" }, { "id", double(id) }, { "message", why } });
-    };
-    if (m_transferFile.isOpen())
-        return fail(QStringLiteral("another download is in progress"));
-    QString err;
-    const QString path = resolveBrowsePath(msg.value("path").toString(), m_browseRoots, &err);
-    if (path.isEmpty())
-        return fail(err);
-    if (!QFileInfo(path).isFile())
-        return fail(QStringLiteral("not a regular file"));
-    m_transferFile.setFileName(path);
-    if (!m_transferFile.open(QIODevice::ReadOnly))
-        return fail(QStringLiteral("cannot read the file"));
-    m_transferId = id;
-    m_transferHash.reset();
-    send({ { "type", "fileBegin" }, { "id", double(id) }, { "name", QFileInfo(path).fileName() },
-        { "size", double(m_transferFile.size()) } });
-    pumpTransfer();
-}
-
-void ServerSession::pumpTransfer()
-{
-    // Chunks are sent while the socket has room, so a slow link never makes the server
-    // hold the whole file in memory.
-    while (m_transferFile.isOpen() && m_socket && m_socket->isValid() && m_socket->bytesToWrite() < 4 * 1024 * 1024) {
-        const QByteArray chunk = m_transferFile.read(kChunkBytes);
-        if (chunk.isEmpty()) {
-            send({ { "type", "fileEnd" }, { "id", double(m_transferId) },
-                { "sha256", QString::fromLatin1(m_transferHash.result().toHex()) } });
-            finishTransfer(false);
-            return;
-        }
-        m_transferHash.addData(chunk);
-        m_socket->sendBinaryMessage(encodeChunk(m_transferId, chunk));
-    }
-}
-
-void ServerSession::finishTransfer(bool cancelled)
-{
-    if (cancelled)
-        send({ { "type", "fileError" }, { "id", double(m_transferId) }, { "message", QStringLiteral("cancelled") } });
-    m_transferFile.close();
-}
-
 void ServerSession::onDisconnected()
 {
     const bool hadClient = m_authenticated;
@@ -516,7 +419,6 @@ void ServerSession::onDisconnected()
         m_socket = nullptr;
     }
     m_authenticated = false;
-    m_transferFile.close();
     if (!hadClient) {  // a probe or a refused hello: keep waiting for the real client
         m_graceTimer.start(qMax(m_graceMs, 60000));
         return;
@@ -544,14 +446,12 @@ void ServerSession::endSession()
 
 // ---- RemoteServer -------------------------------------------------------------------
 
-RemoteServer::RemoteServer(const QString& token, const QString& rootDir, int graceSeconds,
-    const QStringList& browseRoots, QObject* parent)
+RemoteServer::RemoteServer(const QString& token, const QString& rootDir, int graceSeconds, QObject* parent)
     : QObject(parent)
     , m_server(QStringLiteral("qurcuma-server"), QWebSocketServer::NonSecureMode)
     , m_token(token)
     , m_root(rootDir)
     , m_graceSeconds(graceSeconds)
-    , m_browseRoots(browseRoots)
 {
     connect(&m_server, &QWebSocketServer::newConnection, this, &RemoteServer::onNewConnection);
 }
@@ -582,7 +482,7 @@ void RemoteServer::onNewConnection()
         socket->deleteLater();
         return;
     }
-    m_active = new ServerSession(m_token, m_root, m_graceSeconds, m_browseRoots, this);
+    m_active = new ServerSession(m_token, m_root, m_graceSeconds, this);
     connect(m_active, &ServerSession::ended, this, [this] {
         m_active->deleteLater();
         m_active = nullptr;

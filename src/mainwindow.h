@@ -458,7 +458,6 @@ private:
     QElapsedTimer m_simStatusBarTimer;  // Throttle status bar updates to ~5 Hz
     void wireSimulationWorker(SimulationBackend* worker);
 #ifdef QURCUMA_REMOTE
-    class RemoteFilesDialog* m_remoteFilesDialog = nullptr;  // Claude Generated 2026: File > Remote Files
 #endif  // Claude Generated - Direct worker->view wiring
 
     // Claude Generated 2026 - Non-covalent interaction analysis. The worker lives

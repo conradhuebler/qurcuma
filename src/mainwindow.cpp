@@ -99,9 +99,6 @@
 #include "ncianalysisworker.h"
 #include "nciwidget.h"  // Claude Generated 2026 - batch border-trim gallery
 #include "mainwindow.h"
-#ifdef QURCUMA_REMOTE
-#include "dialogs/remotefilesdialog.h"
-#endif
 
 #include "dialogs/fillcontainerdialog.h"
 #include "scenefiller.h"
@@ -866,22 +863,6 @@ void MainWindow::createMenus()
     m_recentConnectionsMenu = fileMenu->addMenu(QIcon::fromTheme("network-server"), tr("Recent Remote &Connections"));
     m_recentConnectionsMenu->setEnabled(false);
     updateRecentConnectionsMenu();
-#endif
-
-#ifdef QURCUMA_REMOTE
-    // Claude Generated 2026 (WP remote compute R4) - files on a computer running qurcuma-server.
-    QAction* remoteFilesAction = fileMenu->addAction(QIcon::fromTheme("folder-remote"), tr("Remote Files (qurcuma-server)..."));
-    connect(remoteFilesAction, &QAction::triggered, this, [this]() {
-        if (!m_remoteFilesDialog) {
-            m_remoteFilesDialog = new RemoteFilesDialog(this);
-            connect(m_remoteFilesDialog, &RemoteFilesDialog::openFileRequested, this, [this](const QString& path) {
-                loadMoleculeFile(path);
-                statusBar()->showMessage(tr("Loaded remote file: %1").arg(QFileInfo(path).fileName()), 3000);
-            });
-        }
-        m_remoteFilesDialog->show();
-        m_remoteFilesDialog->raise();
-    });
 #endif
 
     fileMenu->addSeparator();
@@ -4808,6 +4789,16 @@ void MainWindow::createDockWidgets()
             if (m_outputViewDock)
                 m_outputViewDock->appendOutput(text);
         });
+#ifdef USE_SFTP
+    // Claude Generated 2026 - "Show results in Remote" after a remote run: the session directory of the
+    // computer that ran it becomes the remote working directory of the Project dock's Remote segment.
+    connect(m_simulationControlWidget, &SimulationControlWidget::showRemoteResultsRequested,
+        this, [this](const QString& computerName, const QString& remotePath) {
+            showRemoteBrowser();
+            if (m_projectDock && m_projectDock->remotePanel())
+                m_projectDock->remotePanel()->showLocation(computerName, remotePath);
+        });
+#endif
     connect(m_simulationControlWidget, &SimulationControlWidget::runEnded,
         this, [this](const QString& reason, bool aborted) {
             const QString line = aborted ? tr("Run aborted: %1").arg(reason)

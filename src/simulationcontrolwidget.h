@@ -110,6 +110,10 @@ signals:
     /** @brief Diagnostic text of the remote connection (ssh messages, errors); MainWindow
      *  puts it into the Output panel. */
     void remoteLog(const QString& text);
+    /** @brief "Show results in Remote" was clicked after a remote run: MainWindow opens the
+     *  Remote segment of the Project dock on @p remotePath of @p computerName (SFTP builds only).
+     *  Claude Generated 2026 */
+    void showRemoteResultsRequested(const QString& computerName, const QString& remotePath);
 
     /** @brief Emitted whenever the temperature slider moves. During a run MainWindow
      *  forwards it live to the worker (SimulationWorker::setTargetTemperature).
@@ -315,6 +319,8 @@ private:
     QToolButton* m_resetBtn = nullptr;      // Claude Generated 2026 - in-dock reset
     QLabel* m_modifiedLabel = nullptr;      // Claude Generated 2026 - "● Modified" hint
     QLabel* m_statusLabel = nullptr;
+    class QPushButton* m_showResultsButton = nullptr;  // "Show results in Remote" (QURCUMA_REMOTE + USE_SFTP)
+    QString m_resultsComputer, m_resultsDir;           // session directory of the last remote run
 
     // --- State ---
     bool m_structureModifiedState = false;  // Claude Generated 2026 - tracked separately from button state

@@ -455,6 +455,8 @@ void RemoteBackend::endRun(const QString& reason, bool aborted, const QJsonObjec
         emit statusText(tr("Files on %1 in %2: %3").arg(m_host.isEmpty() ? m_url.host() : m_host,
             stats.value("sessionDir").toString(), names.join(QStringLiteral(", "))));
     }
+    if (!m_host.isEmpty() && !stats.value("sessionDir").toString().isEmpty())
+        emit sessionResultsAvailable(m_host, stats.value("sessionDir").toString());
     if (m_socket)
         m_socket->close();
     emit finished(reason, aborted);

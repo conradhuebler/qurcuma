@@ -648,6 +648,35 @@ void RemoteBrowserPanel::connectToSource(const QString& sourceId)
     startConnection(connectionForSource(sourceId), QString());
 }
 
+/** @brief Opens a directory of a computer of the list (session directory of a remote run), reusing the
+ *  connect and working-directory path of bookmarks. Claude Generated 2026 */
+void RemoteBrowserPanel::showLocation(const QString& computerName, const QString& remotePath)
+{
+    const QString sourceId = remotepaths::computerSourceId(computerName);
+    reloadSources();
+    const int index = m_sourceCombo->findData(sourceId);
+    if (computerName.isEmpty() || remotePath.isEmpty() || index < 0) {
+        setStatus(tr("Cannot show %1: the computer \"%2\" is not in the computer list any more. Add it again "
+                     "with \"Add computer\" in the Simulation panel to browse its files.").arg(remotePath, computerName), true);
+        return;
+    }
+    {
+        const QSignalBlocker blocker(m_sourceCombo);
+        m_sourceCombo->setCurrentIndex(index);
+        m_lastSourceIndex = index;
+    }
+    if (m_connection.sourceId == sourceId && m_state == State::Connected) {
+        setWorkingDirectory(remotePath);
+        return;
+    }
+    if (m_connection.sourceId == sourceId && m_state == State::Connecting) {
+        m_startPath = remotePath;  // used once the running connect has succeeded
+        updateControls();
+        return;
+    }
+    startConnection(connectionForSource(sourceId), remotePath);
+}
+
 void RemoteBrowserPanel::clearListing()
 {
     m_workDir.clear();

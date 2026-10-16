@@ -316,20 +316,16 @@ if(USE_REMOTE AND TARGET Qt6::WebSockets)
     list(APPEND SOURCES
         src/remote/protocol.cpp
         src/remote/remotebackend.cpp
-        src/remote/remotefiles.cpp
         src/remote/remotelog.cpp
         src/remote/hostprobe.cpp
         src/remote/sshtunnel.cpp
-        src/dialogs/remotefilesdialog.cpp
         src/dialogs/addcomputerdialog.cpp)
     list(APPEND HEADERS
         src/remote/protocol.h
         src/remote/remotebackend.h
-        src/remote/remotefiles.h
         src/remote/remotelog.h
         src/remote/sshtunnel.h
         src/remote/hostprobe.h
-        src/dialogs/remotefilesdialog.h
         src/dialogs/addcomputerdialog.h)
 endif()
 
@@ -488,7 +484,7 @@ target_include_directories(test_fragments PRIVATE
 )
 
 # Look round-trip test - Claude Generated 2026 (look.h is header-only).
-# ~/.ssh/config parser (host lists of the dock, Remote Files and SFTP) - Claude Generated 2026.
+# ~/.ssh/config parser (SFTP: aliases of the remote browser) - Claude Generated 2026.
 add_executable(test_sshconfig tests/test_sshconfig.cpp src/sshconfig.cpp)
 target_link_libraries(test_sshconfig PRIVATE Qt6::Core)
 target_include_directories(test_sshconfig PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -681,7 +677,6 @@ if(TARGET Qt6::WebSockets)
     add_library(qurcuma_remote STATIC
         src/remote/protocol.cpp
         src/remote/remotebackend.cpp
-        src/remote/remotefiles.cpp
         src/remote/remotelog.cpp
         src/remote/hostprofiles.cpp
         src/remote/hostprobe.cpp
@@ -726,8 +721,6 @@ if(TARGET Qt6::WebSockets)
     target_link_libraries(test_remote_loopback PRIVATE qurcuma_remote)
     add_executable(test_remote_reconnect tests/test_remote_reconnect.cpp)
     target_link_libraries(test_remote_reconnect PRIVATE qurcuma_remote)
-    add_executable(test_remote_files tests/test_remote_files.cpp)
-    target_link_libraries(test_remote_files PRIVATE qurcuma_remote)
     add_executable(test_remote_hosts tests/test_remote_hosts.cpp)
     target_link_libraries(test_remote_hosts PRIVATE qurcuma_remote)
     add_executable(test_remote_ssh tests/test_remote_ssh.cpp)

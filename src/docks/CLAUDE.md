@@ -39,6 +39,7 @@
 - libssh lives in `SftpClient` (`src/sftpclient.*`), one client per connection on its own `QThread`; listings carry a request id (working directory, selected directory, chooser). Disconnect abandons the client (cancel flag, results dropped, client and thread delete themselves once the blocking call returns).
 - Login: host key against `~/.ssh/known_hosts` (unknown: fingerprint question, changed: refused), then agent and standard keys, then one password prompt (password or keyboard-interactive), never stored. Only address, user and port of a computer are used, `qurcuma-server` is never contacted; a `~/.ssh/config` alias supplies HostName/User/Port/ProxyJump (`remotepaths::connectionForHost`).
 - File ▸ Open Remote File... (Ctrl+Shift+R) shows this segment; File ▸ Recent Remote Connections selects and connects a profile.
+- Results of a remote run: "Show results in Remote" in the Simulation dock (after the run reported its session directory) calls `RemoteBrowserPanel::showLocation(computer, dir)`: selects `computer:<name>`, connects if needed and makes the session directory the working directory; a computer no longer in the list is reported in the status line.
 - Qt-only helpers in `src/remotepaths.*` (test `test_remotepaths`). 🤖 SftpClient, the panel and the chooser are only compiled (no SFTP server in the test setup), not checked in the GUI.
 - `USE_SFTP` is ON by default; without libssh CMake warns and builds without it. Built with libssh 0.12.2.
 
