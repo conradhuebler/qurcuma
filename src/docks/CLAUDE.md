@@ -6,7 +6,7 @@
 - Each wrapper inherits `QDockWidget` and exposes its content widgets so existing logic can stay in `MainWindow` while construction moves here.
 
 ## Wrapper Classes
-- `ProjectDock` — working directory chooser, breadcrumb, segmented directory list (Files / Bookmarks / Workspaces / Remote), file/content browser (always files); on top a Lesson section (metadata, lesson structure list, per-structure editor), shown in Teaching mode and whenever the lesson has structures.
+- `ProjectDock` — working directory chooser, breadcrumb, segmented directory list (Files / Bookmarks / Workspaces / Remote, see below), file/content browser (always files); on top a Lesson section (metadata, lesson structure list, per-structure editor), shown in Teaching mode and whenever the lesson has structures.
 - `StructureDock` — right-side dock with a segmented [Structure | Atoms] area (XYZ editor + atom table).
 - `AppearanceDock` (UX stage 4) — the Display panel + camera views; tabified on the right, **closed by default** (Look ▸ Details…). Old layouts/workspace dock states were reset once (`DockConfig::UiLayoutVersion` = 2).
 - `SimulationDock` — right-side dock with tabs [Simulation | All parameters | Snapshots | RMSD / Align | Input]; tabs are switched by page (`setCurrentWidget`), never by position.
@@ -26,7 +26,19 @@
 ## ProjectDock File Browser Filter
 - `DirectoryFilterProxyModel` sits between `QFileSystemModel` and `QListView`; combines live name search with extension subset filtering.
 - Embedded compact bar above the content list: search field + `Extensions` popup menu with all suffixes in the current directory + clear button; session-only (resets on restart).
-- `MainWindow` resolves view indices back to source indices via `filePathFromContentIndex()`; Lesson/SFTP modes bypass the proxy.
+- `MainWindow` resolves view indices back to source indices via `filePathFromContentIndex()`; the Lesson mode bypasses the proxy.
+
+## Remote Segment (`remotebrowserpanel.*`, only with `USE_SFTP`)
+- `RemoteBrowserPanel` browses remote folders like the Files segment: source combo (computers of `remote/hostprofiles.h`, then SFTP profiles, then "Other host..." with "Save as SFTP profile"), Connect/Disconnect, status line, `BreadcrumbBar` (Home = remote home), Up, Refresh, listing with folders first.
+- In this segment `ProjectDock::setCurrentSegment` hides the local breadcrumb and the local file list.
+- Double click enters a folder or downloads a file into the SFTP cache (`<cache>/<sha256>/<name>`; a copy with the listed size and no older mtime is reused) and emits `openFileRequested` → `MainWindow::loadMoleculeFile`. Context menu: Open, Download to Working Directory, Copy Remote Path, Add to Bookmarks.
+- Bookmarks: the star toggles the current folder, the menu opens or removes them; stored as `Settings::RemoteMountPoint`, `profileId` = SFTP profile id or `computer:<name>`. Unsaved hosts cannot be bookmarked.
+- libssh lives in `SftpClient` (`src/sftpclient.*`), one client per connection on its own `QThread`; Disconnect abandons it (cancel flag, results dropped, client and thread delete themselves once the blocking call returns).
+- Login: host key against `~/.ssh/known_hosts` (unknown: fingerprint question, changed: refused), then agent and standard keys, then one password prompt (password or keyboard-interactive), never stored.
+- Only address, user and port of a computer are used, `qurcuma-server` is never contacted; a host that is a `~/.ssh/config` alias takes HostName/User/Port/ProxyJump from it (`remotepaths::connectionForHost`).
+- File ▸ Open Remote File... (Ctrl+Shift+R) shows this segment; File ▸ Recent Remote Connections selects and connects a profile.
+- Qt-only helpers in `src/remotepaths.*` (test `test_remotepaths`). 🤖 SftpClient and the panel are only compiled (no SFTP server in the test setup), not checked in the GUI.
+- `USE_SFTP` is ON by default; without libssh CMake warns and builds without it. Built with libssh 0.12.2.
 
 ## AppearanceDock Views (camera)
 - `ViewPresetWidget` lives below the `DisplayPanel`; manages reproducible **camera views** only (UX stage 3; the appearance is a Look, see `src/CLAUDE.md`).

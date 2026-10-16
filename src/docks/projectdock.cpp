@@ -10,7 +10,7 @@
 #include "bookmarkwidget.h"
 #include "workspacepanel.h"
 #ifdef USE_SFTP
-#include "remotedirectoriespanel.h"
+#include "remotebrowserpanel.h"
 #endif
 #include "settings.h"
 #include "widgets/breadcrumbbar.h"
@@ -267,10 +267,8 @@ void ProjectDock::setupUI()
     m_segmentStack->addWidget(m_workspacePanel);
 
 #ifdef USE_SFTP
-    // Remote page
-    m_remotePanel = new RemoteDirectoriesPanel(this);
-    connect(m_remotePanel, &RemoteDirectoriesPanel::addRemoteRequested,
-            this, &ProjectDock::addRemoteRequested);
+    // Remote page: a browser of its own (source, breadcrumb, listing). Claude Generated 2026
+    m_remotePanel = new RemoteBrowserPanel(m_settings, this);
     m_segmentStack->addWidget(m_remotePanel);
 #endif
 
@@ -290,6 +288,7 @@ void ProjectDock::setupUI()
     projectSplitter->addWidget(m_segmentStack);
 
     QWidget* calcFilesWidget = new QWidget;
+    m_calcFilesWidget = calcFilesWidget;
     QVBoxLayout* calcFilesLayout = new QVBoxLayout(calcFilesWidget);
     calcFilesLayout->setContentsMargins(0, 0, 0, 0);
 
@@ -522,6 +521,11 @@ void ProjectDock::setCurrentSegment(ProjectSegment segment)
     }
     if (index < m_segmentStack->count()) {
         m_segmentStack->setCurrentIndex(index);
+        // Claude Generated 2026 - the Remote segment brings its own breadcrumb and listing; the local
+        // breadcrumb and the local file list below would only confuse there.
+        const bool remote = segment == ProjectSegment::Remote;
+        if (m_breadcrumbBar) m_breadcrumbBar->setVisible(!remote);
+        if (m_calcFilesWidget) m_calcFilesWidget->setVisible(!remote);
         if (m_filesSegmentBtn) m_filesSegmentBtn->setChecked(segment == ProjectSegment::Files);
         if (m_bookmarksSegmentBtn) m_bookmarksSegmentBtn->setChecked(segment == ProjectSegment::Bookmarks);
         if (m_workspacesSegmentBtn) m_workspacesSegmentBtn->setChecked(segment == ProjectSegment::Workspaces);
@@ -605,7 +609,7 @@ QStackedWidget* ProjectDock::segmentStack() const { return m_segmentStack; }
 BookmarkWidget* ProjectDock::bookmarkWidget() const { return m_bookmarkWidget; }
 WorkspacePanel* ProjectDock::workspacePanel() const { return m_workspacePanel; }
 #ifdef USE_SFTP
-RemoteDirectoriesPanel* ProjectDock::remotePanel() const { return m_remotePanel; }
+RemoteBrowserPanel* ProjectDock::remotePanel() const { return m_remotePanel; }
 #endif
 
 #include "projectdock.moc"

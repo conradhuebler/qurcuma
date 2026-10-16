@@ -4,8 +4,7 @@
 #include "selectionmanager.h"  // Claude Generated - Phase 2A
 #include "atomlistpanel.h"  // Claude Generated - Phase 2C
 #ifdef USE_SFTP
-#include "sftpmodel.hpp"
-#include "dialogs/sftpdialog.h"
+#include "docks/remotebrowserpanel.h"  // Claude Generated 2026 - Remote segment of the Project dock
 #endif
 #include "simulationcontrolwidget.h"  // Claude Generated - Interactive Simulation Integration
 #include "snapshotswidget.h"  // Claude Generated 2026 - Snapshot history foundation
@@ -83,9 +82,6 @@
 #include "dialogs/nmrspectrumdialog.h"
 #include "dialogs/settingsdialog.h"  // Claude Generated 2026 - Settings dialog (programs + operator)
 #include "rmsdwidget.h"  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
-#ifdef USE_SFTP
-#include "dialogs/sftpdialog.h"
-#endif
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "docks/dockmanager.h"  // Claude Generated 2026 - Dock system restructuring
 #include "recipe.h"              // Claude Generated 2026 - simulation recipes (UX stage 6 S2)
@@ -97,7 +93,6 @@
 #include "docks/outputdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/bookmarkwidget.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/workspacepanel.h"  // Claude Generated 2026 - Dock system restructuring
-#include "docks/remotedirectoriespanel.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/projectdock.h"  // Claude Generated 2026 - Dock system restructuring
 #include "docks/imagegallerydock.h"
 #include "docks/ncidock.h"
@@ -241,11 +236,6 @@ void MainWindow::setupUI()
 
     // Setup context menu for file list
     setupContextMenu();
-
-    // Update initial state
-#ifdef USE_SFTP
-    updateRemoteDirectoriesView();
-#endif
 
     // Claude Generated 2026 - Every other shortcut sits on a menu QAction (createMenus),
     // so it is visible, palette-listed and registered exactly once. Esc steps back
@@ -871,17 +861,8 @@ void MainWindow::createMenus()
 #ifdef USE_SFTP
     QAction *openRemoteAction = fileMenu->addAction(QIcon::fromTheme("folder-remote"), tr("Open &Remote File..."));
     openRemoteAction->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R));
-    connect(openRemoteAction, &QAction::triggered, this, [this]() {
-        SftpDialog dialog(this);
-        if (dialog.exec() == QDialog::Accepted) {
-            QString localPath = dialog.getLocalPath();
-            if (!localPath.isEmpty()) {
-                loadMoleculeFile(localPath);
-                statusBar()->showMessage(tr("Loaded remote file: %1").arg(QFileInfo(localPath).fileName()), 3000);
-                updateRecentConnectionsMenu();
-            }
-        }
-    });
+    openRemoteAction->setToolTip(tr("Browse files on another computer over SFTP (Project panel, Remote)"));
+    connect(openRemoteAction, &QAction::triggered, this, &MainWindow::showRemoteBrowser);
     m_recentConnectionsMenu = fileMenu->addMenu(QIcon::fromTheme("network-server"), tr("Recent Remote &Connections"));
     m_recentConnectionsMenu->setEnabled(false);
     updateRecentConnectionsMenu();
@@ -1803,13 +1784,6 @@ void MainWindow::setupConnections()
         connect(m_workspaceListView, &QListWidget::customContextMenuRequested,
             this, &MainWindow::onWorkspaceContextMenu);
     }
-
-#ifdef USE_SFTP
-    if (m_remoteDirectoriesView) {
-        connect(m_remoteDirectoriesView, &QTreeWidget::itemClicked,
-                this, &MainWindow::onRemoteDirectoryClicked);
-    }
-#endif
 
     // Claude Generated - Removed duplicate click handler, using projectSelected() slot instead
     // Navigation is now handled in projectSelected() which calls updateDirectoryContent()
@@ -4476,8 +4450,11 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
 
 #ifdef USE_SFTP
 // Claude Generated - Phase SFTP Integration: Recent remote connections menu management
+// Claude Generated 2026 - the entries select the profile in the Remote segment of the Project dock.
 void MainWindow::updateRecentConnectionsMenu()
 {
+    if (!m_recentConnectionsMenu)
+        return;
     m_recentConnectionsMenu->clear();
 
     Settings settings;
@@ -4491,10 +4468,10 @@ void MainWindow::updateRecentConnectionsMenu()
     m_recentConnectionsMenu->setEnabled(true);
 
     for (const auto& connection : recentConnections) {
-        QString displayText = QString("%1 (%2@%3)")
-            .arg(connection.name)
-            .arg(connection.username)
-            .arg(connection.host);
+        const QString account = connection.username.isEmpty()
+            ? connection.host
+            : QStringLiteral("%1@%2").arg(connection.username, connection.host);
+        QString displayText = QString("%1 (%2)").arg(connection.name, account);
 
         // Show last used time
         QString timeAgo;
@@ -4518,208 +4495,38 @@ void MainWindow::updateRecentConnectionsMenu()
         });
     }
 
+    // There is no separate list of recent connections: the menu shows the saved SFTP profiles by
+    // their last use, so clearing it means deleting those profiles (the computer list is not touched).
     m_recentConnectionsMenu->addSeparator();
-    QAction* clearAction = m_recentConnectionsMenu->addAction(tr("Clear Recent Connections"));
+    QAction* clearAction = m_recentConnectionsMenu->addAction(tr("Delete Saved SFTP Profiles..."));
     connect(clearAction, &QAction::triggered, this, [this]() {
+        if (QMessageBox::question(this, tr("Delete Saved SFTP Profiles"),
+                tr("Delete all saved SFTP profiles? Computers of the computer list are kept.")) != QMessageBox::Yes)
+            return;
         Settings settings;
-        settings.setSftpProfiles({});  // Clear all profiles
+        settings.setSftpProfiles({});
         updateRecentConnectionsMenu();
+        if (m_projectDock && m_projectDock->remotePanel())
+            m_projectDock->remotePanel()->reloadSources();
     });
 }
 
 void MainWindow::openRecentConnection(const QString& profileId)
 {
-    // This would be better with profile pre-selection in SftpDialog
-    // For now, just open the dialog
-    SftpDialog dialog(this);
-    if (dialog.exec() == QDialog::Accepted) {
-        QString localPath = dialog.getLocalPath();
-        if (!localPath.isEmpty()) {
-            loadMoleculeFile(localPath);
-            statusBar()->showMessage(tr("Loaded remote file: %1").arg(QFileInfo(localPath).fileName()), 3000);
-            updateRecentConnectionsMenu();
-        }
-    }
+    showRemoteBrowser();
+    if (m_projectDock && m_projectDock->remotePanel())
+        m_projectDock->remotePanel()->connectToSource(profileId);
 }
 
-// Claude Generated - Remote Directory Mounting
-void MainWindow::onAddRemoteDirectoryClicked()
+void MainWindow::showRemoteBrowser()
 {
-    SftpDialog dialog(this);
-    dialog.setMode(SftpDialog::Mode::SelectDirectory);
-
-    if (dialog.exec() != QDialog::Accepted) {
+    if (!m_projectDock)
         return;
-    }
-
-    QString remotePath = dialog.getSelectedDirectory();
-    QString profileId = dialog.getSelectedProfileId();
-
-    if (remotePath.isEmpty() || profileId.isEmpty()) {
-        QMessageBox::warning(this, tr("Invalid Selection"), tr("Could not get directory path or profile."));
-        return;
-    }
-
-    // Ask for name
-    bool ok;
-    QString name = QInputDialog::getText(this, tr("Remote Directory Name"),
-        tr("Name for this remote directory:"), QLineEdit::Normal,
-        remotePath, &ok);
-    if (!ok || name.isEmpty()) return;
-
-    // Save mount
-    Settings::RemoteMountPoint mount;
-    mount.id = QUuid::createUuid().toString();
-    mount.name = name;
-    mount.profileId = profileId;
-    mount.remotePath = remotePath;
-    mount.mounted = QDateTime::currentDateTime();
-    mount.lastAccessed = QDateTime::currentDateTime();
-
-    m_settings.addRemoteMount(mount);
-    updateRemoteDirectoriesView();
-    statusBar()->showMessage(tr("Remote directory added: %1").arg(name), 3000);
-}
-
-void MainWindow::updateRemoteDirectoriesView()
-{
-    m_remoteDirectoriesView->clear();
-    Settings settings;
-    auto mounts = settings.remoteMounts();
-
-    for (const auto& mount : mounts) {
-        QTreeWidgetItem* item = new QTreeWidgetItem(m_remoteDirectoriesView);
-        item->setText(0, QString("📡 %1").arg(mount.name));
-        item->setData(0, Qt::UserRole, mount.id);
-        item->setToolTip(0, mount.remotePath);
-    }
-}
-
-void MainWindow::onRemoteDirectoryClicked(QTreeWidgetItem* item, int column)
-{
-    if (!item) return;
-    QString mountId = item->data(0, Qt::UserRole).toString();
-    if (mountId.isEmpty()) return;
-
-    Settings settings;
-    auto mounts = settings.remoteMounts();
-    Settings::RemoteMountPoint mount;
-    for (const auto& m : mounts) {
-        if (m.id == mountId) {
-            mount = m;
-            break;
-        }
-    }
-    if (!mount.isValid()) return;
-
-    auto profiles = settings.sftpProfiles();
-    Settings::SftpConnectionProfile profile;
-    for (const auto& p : profiles) {
-        if (p.id == mount.profileId) {
-            profile = p;
-            break;
-        }
-    }
-    if (!profile.isValid()) {
-        QMessageBox::warning(this, tr("Error"), tr("Connection profile not found."));
-        return;
-    }
-
-    QString password = QInputDialog::getText(this, tr("Password"),
-        tr("Password for %1@%2:").arg(profile.username, profile.host),
-        QLineEdit::Password);
-    if (password.isEmpty()) return;
-
-    // Create/get SFTP model
-    if (!m_remoteSftpModels.contains(mountId)) {
-        m_remoteSftpModels[mountId] = new SftpItemModel(profile.host, profile.username, password, profile.port, this);
-        if (profile.useKeyAuth) {
-            m_remoteSftpModels[mountId]->setUseKeyAuth(true);
-        }
-    }
-
-    SftpItemModel* model = m_remoteSftpModels[mountId];
-    if (!model->isConnected()) {
-        QMessageBox::critical(this, tr("Connection Failed"), tr("Could not connect to server."));
-        return;
-    }
-
-    m_directoryContentView->setModel(model);
-    m_currentRemoteMountId = mountId;
-    settings.updateRemoteMountLastAccessed(mountId);
-    updateRemoteDirectoriesView();
-    statusBar()->showMessage(tr("Browsing: %1 (%2)").arg(mount.name, mount.remotePath));
-}
-
-// Claude Generated - Remote File Double-Click Handler
-void MainWindow::onRemoteFileDoubleClicked(const QModelIndex& index)
-{
-    // Check if we have an active SFTP model
-    if (m_currentRemoteMountId.isEmpty()) return;
-    if (!m_remoteSftpModels.contains(m_currentRemoteMountId)) return;
-
-    SftpItemModel* model = m_remoteSftpModels[m_currentRemoteMountId];
-    if (!model || !model->isConnected()) return;
-
-    // Get the file path from the SFTP model
-    QString filePath = model->getItemPath(index);
-    if (filePath.isEmpty()) return;
-
-    // Check if it's a directory
-    if (model->isDirectory(index)) {
-        // For directories, we would need to navigate, but SftpItemModel
-        // doesn't support cd() yet. This is for file downloads.
-        statusBar()->showMessage(tr("Directory navigation not yet supported for SFTP."));
-        return;
-    }
-
-    // Download and load the file
-    downloadAndLoadRemoteFile(filePath);
-}
-
-// Claude Generated - Download Remote File and Load into Viewer
-void MainWindow::downloadAndLoadRemoteFile(const QString& filePath)
-{
-    if (m_currentRemoteMountId.isEmpty()) return;
-    if (!m_remoteSftpModels.contains(m_currentRemoteMountId)) return;
-
-    SftpItemModel* model = m_remoteSftpModels[m_currentRemoteMountId];
-    if (!model) return;
-
-    // Extract filename from path
-    QString fileName = filePath.split("/").last();
-    if (fileName.isEmpty()) return;
-
-    // Create cache directory in system temp
-    QString cacheDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/qurcuma_remote/";
-    QDir().mkpath(cacheDir);
-
-    // Download file to cache
-    QString localPath = cacheDir + fileName;
-    statusBar()->showMessage(tr("Downloading: %1...").arg(fileName));
-
-    if (!model->downloadFile(filePath, localPath)) {
-        QMessageBox::critical(this, tr("Download Failed"),
-            tr("Failed to download file: %1").arg(fileName));
-        return;
-    }
-
-    // Load the downloaded file (first frame) into the viewer via the shared loader.
-    const MoleculeFileLoader::Result r = MoleculeFileLoader::load(localPath);
-    if (!r.supported) {
-        QMessageBox::warning(this, tr("Unsupported Format"),
-            tr("File format not supported: %1").arg(filePath));
-        return;
-    }
-    if (r.ok) {
-        m_moleculeView->setFrameCount(r.frameCount());
-        m_moleculeView->addMolecule(r.frames.first(), r.frameBonds.first());
-    } else if (!r.error.isEmpty()) {
-        // pdb/mol2 surface a parse error; xyz/vtf fail silently (as before).
-        QMessageBox::warning(this, tr("Error"), tr("Failed to parse file: %1").arg(r.error));
-    }
-
-    statusBar()->showMessage(tr("Loaded: %1 (from %2)").arg(fileName, filePath));
+    m_projectDock->show();
+    m_projectDock->raise();
+    m_projectDock->setCurrentSegment(ProjectDock::ProjectSegment::Remote);
+    if (auto* panel = m_projectDock->remotePanel())
+        panel->focusSourceCombo();
 }
 #endif // USE_SFTP
 
@@ -4860,8 +4667,16 @@ void MainWindow::createDockWidgets()
         if (auto* wp = m_projectDock->workspacePanel())
             m_workspaceListView = wp->listView();
 #ifdef USE_SFTP
-        if (auto* rp = m_projectDock->remotePanel())
-            m_remoteDirectoriesView = rp->treeView();
+        // Claude Generated 2026 - Remote segment: files opened there are downloaded into the SFTP cache
+        // and loaded like a local file; "Download to Working Directory" saves into m_workingDirectory.
+        if (auto* rp = m_projectDock->remotePanel()) {
+            rp->setWorkingDirectoryProvider([this]() { return m_workingDirectory; });
+            connect(rp, &RemoteBrowserPanel::openFileRequested, this, [this](const QString& localPath) {
+                loadMoleculeFile(localPath);
+                statusBar()->showMessage(tr("Loaded remote file: %1").arg(QFileInfo(localPath).fileName()), 3000);
+            });
+            connect(rp, &RemoteBrowserPanel::sftpProfilesChanged, this, &MainWindow::updateRecentConnectionsMenu);
+        }
 #endif
 
         // Breadcrumb navigation
@@ -4871,12 +4686,6 @@ void MainWindow::createDockWidgets()
         // Copy current calculation path
         connect(m_projectDock->copyPathButton(), &QPushButton::clicked,
                 this, &MainWindow::copyCurrentPath);
-
-        // Content view remote-file handling
-#ifdef USE_SFTP
-        connect(m_directoryContentView, &QListView::doubleClicked,
-                this, &MainWindow::onRemoteFileDoubleClicked);
-#endif
 
         // Lesson: the "Authors/License…" button opens the metadata dialog. The inline
         // title/desc/detail editors + the in-memory structure model are wired inside the
@@ -4889,10 +4698,6 @@ void MainWindow::createDockWidgets()
                 this, &MainWindow::switchWorkingDirectory);
         connect(m_projectDock, &ProjectDock::saveWorkspaceRequested,
                 this, &MainWindow::saveCurrentWorkspace);
-#ifdef USE_SFTP
-        connect(m_projectDock, &ProjectDock::addRemoteRequested,
-                this, &MainWindow::onAddRemoteDirectoryClicked);
-#endif
     }
 
     // ==================== STRUCTURE & DISPLAY DOCK (right) ====================

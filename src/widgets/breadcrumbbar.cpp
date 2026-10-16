@@ -1,4 +1,5 @@
 #include "breadcrumbbar.h"
+#include "remotepaths.h"
 
 #include <QVBoxLayout>
 #include <QPainter>
@@ -37,59 +38,14 @@ void BreadcrumbBar::setPath(const QString& path) {
 void BreadcrumbBar::calculateSegments() {
     m_segments.clear();
 
-    if (m_currentPath.isEmpty()) {
-        return;
-    }
-
-    // Replace home directory with ~
-    QString displayPath = m_currentPath;
-    if (!m_homeDir.isEmpty() && m_currentPath.startsWith(m_homeDir)) {
-        displayPath = "~" + m_currentPath.mid(m_homeDir.length());
-    }
-
-    // Split path into segments
-    QStringList parts;
-    if (displayPath.startsWith("~")) {
-        parts << "Home";
-        QString remainder = displayPath.mid(1);
-        if (!remainder.isEmpty() && remainder != "/") {
-            remainder.remove(0, 1);  // Remove leading /
-            parts << remainder.split('/');
-        }
-    } else if (displayPath.startsWith("/")) {
-        parts << "Root";
-        QString remainder = displayPath.mid(1);
-        if (!remainder.isEmpty()) {
-            remainder.remove(remainder.length() - 1, 1);  // Remove trailing /
-            parts << remainder.split('/');
-        }
-    } else {
-        parts = displayPath.split('/');
-    }
-
-    // Build segments with their full paths
-    QString currentPath;
-    for (int i = 0; i < parts.size(); ++i) {
-        const QString& part = parts[i];
-
-        if (i == 0) {
-            if (part == "Home") {
-                currentPath = m_homeDir;
-            } else if (part == "Root") {
-                currentPath = "/";
-            } else {
-                currentPath = part;
-            }
-        } else {
-            if (!currentPath.endsWith("/")) {
-                currentPath += "/";
-            }
-            currentPath += part;
-        }
-
+    // Claude Generated 2026 - the split lives in remotepaths::breadcrumbSegments (tested in
+    // test_remotepaths) and is shared with the remote browser. It keeps the last component of a path
+    // outside the home directory whole (the former split cut one character off when the path had no
+    // trailing slash) and treats "/home/ab" as outside a home "/home/a".
+    for (const PathSegment& part : remotepaths::breadcrumbSegments(m_currentPath, m_homeDir)) {
         Segment seg;
-        seg.displayText = part;
-        seg.fullPath = currentPath;
+        seg.displayText = part.label;
+        seg.fullPath = part.path;
         m_segments.append(seg);
     }
 

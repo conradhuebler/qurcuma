@@ -29,7 +29,7 @@ class QWidget;
 class WorkspacePanel;
 
 #ifdef USE_SFTP
-class RemoteDirectoriesPanel;
+class RemoteBrowserPanel;
 #endif
 
 class Settings;
@@ -102,7 +102,7 @@ public:
     BookmarkWidget* bookmarkWidget() const;
     WorkspacePanel* workspacePanel() const;
 #ifdef USE_SFTP
-    RemoteDirectoriesPanel* remotePanel() const;
+    RemoteBrowserPanel* remotePanel() const;
 #endif
 
 signals:
@@ -112,9 +112,6 @@ signals:
     void bookmarkDirectorySelected(const QString& path);
     void bookmarksChanged();
     void saveWorkspaceRequested();
-#ifdef USE_SFTP
-    void addRemoteRequested();
-#endif
 
 public slots:
     void setCurrentSegment(ProjectSegment segment);
@@ -172,7 +169,8 @@ private:
 
     BookmarkWidget* m_bookmarkWidget = nullptr;
     WorkspacePanel* m_workspacePanel = nullptr;
+    QWidget* m_calcFilesWidget = nullptr;  // lower half (local files); hidden in the Remote segment
 #ifdef USE_SFTP
-    RemoteDirectoriesPanel* m_remotePanel = nullptr;
+    RemoteBrowserPanel* m_remotePanel = nullptr;
 #endif
 };

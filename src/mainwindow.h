@@ -64,9 +64,6 @@ class NciDock;                // Claude Generated 2026 - non-covalent interactio
 class NciAnalysisWorker;      // Claude Generated 2026 - off-thread NCI analysis
 class QThread;
 class QSortFilterProxyModel;  // Claude Generated 2026 - ProjectDock file filter proxy
-#ifdef USE_SFTP
-class SftpItemModel;  // Claude Generated - Remote Directory Mounting
-#endif
 class SimulationControlWidget;  // Claude Generated - Interactive Simulation Integration
 class LessonController;          // Claude Generated 2026 - WP T4 lesson feature controller
 class ChartDock;                // Claude Generated 2026 - live charts dock
@@ -408,6 +405,8 @@ private:
     QMenu* m_recentConnectionsMenu = nullptr;
     void updateRecentConnectionsMenu();
     void openRecentConnection(const QString& profileId);
+    /// Shows the Project dock on its Remote segment (File > Open Remote File...). Claude Generated 2026
+    void showRemoteBrowser();
 #endif
 
     // Claude Generated Phase 4 - Workspace management
@@ -429,13 +428,6 @@ private:
     bool m_useInvocationDirectoryEnabled = false;  // mirror of the QSettings bool
     QAction* m_useInvocationDirAction = nullptr;   // settings-menu checkable action
     void applyUseInvocationDirectoryState(bool enabled);
-
-    // Claude Generated - Remote Directory Mounting
-    QTreeWidget* m_remoteDirectoriesView = nullptr;
-#ifdef USE_SFTP
-    QMap<QString, SftpItemModel*> m_remoteSftpModels;
-    QString m_currentRemoteMountId;
-#endif
 
     // Claude Generated 2026 - Dock system restructuring: manager owns all docks,
     // layout presets and the Explore/Compute mode. MainWindow coordinates via signals.
@@ -539,14 +531,6 @@ private:
     QLabel* m_statusFrameLabel = nullptr;
     void updateStatusIndicators();
     void onSimulationConfigChanged(SimulationConfig cfg);
-
-#ifdef USE_SFTP
-    void updateRemoteDirectoriesView();
-    void onRemoteDirectoryClicked(QTreeWidgetItem* item, int column);
-    void onAddRemoteDirectoryClicked();
-    void onRemoteFileDoubleClicked(const QModelIndex& index);
-    void downloadAndLoadRemoteFile(const QString& filePath);
-#endif
 
 protected:
     // Claude Generated - Quick Win: Drag & Drop support

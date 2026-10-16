@@ -172,6 +172,7 @@ set(SOURCES
     src/mainwindow.cpp
     src/settings.cpp
     src/remote/hostprofiles.cpp  # Claude Generated 2026 - the computer list (Qt core only), read by the remote dock and by SFTP
+    src/remotepaths.cpp  # Claude Generated 2026 - path/listing helpers of the remote browser, breadcrumb split (Qt core only)
     src/vtfparser.cpp
     src/xyzparser.cpp
     src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
@@ -211,7 +212,6 @@ set(SOURCES
     src/docks/appearancedock.cpp  # Claude Generated 2026 - UX stage 4
     src/docks/bookmarkwidget.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/workspacepanel.cpp  # Claude Generated 2026 - Dock system restructuring
-    src/docks/remotedirectoriespanel.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/projectdock.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/imagegallerydock.cpp  # Claude Generated 2026 - batch border-trim gallery
     src/docks/chartdock.cpp  # Claude Generated 2026 - live charts dock
@@ -243,6 +243,7 @@ set(HEADERS
     src/mainwindow.h
     src/settings.h
     src/remote/hostprofiles.h
+    src/remotepaths.h  # Claude Generated 2026
     src/view.h
     src/vtfparser.h
     src/xyzparser.h
@@ -289,14 +290,17 @@ set(HEADERS
 )
 
 if(USE_SFTP)
+    # Claude Generated 2026 - remote browser of the Project dock (Remote segment): the libssh session
+    # runs in SftpClient on its own thread, RemoteBrowserPanel is the widget.
     list(APPEND SOURCES
-        src/dialogs/sftpdialog.cpp
+        src/sftpclient.cpp
+        src/docks/remotebrowserpanel.cpp
         src/sshconfig.cpp
         src/sftpcache.cpp
     )
     list(APPEND HEADERS
-        src/dialogs/sftpdialog.h
-        src/sftpmodel.hpp
+        src/sftpclient.h
+        src/docks/remotebrowserpanel.h
         src/sshconfig.h
         src/sftpcache.h
     )
@@ -487,6 +491,12 @@ target_include_directories(test_fragments PRIVATE
 add_executable(test_sshconfig tests/test_sshconfig.cpp src/sshconfig.cpp)
 target_link_libraries(test_sshconfig PRIVATE Qt6::Core)
 target_include_directories(test_sshconfig PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# Remote browser helpers: sorting, paths, breadcrumb parts, bookmark ids, connection mapping - Claude Generated 2026.
+add_executable(test_remotepaths tests/test_remotepaths.cpp src/remotepaths.cpp src/remote/hostprofiles.cpp)
+target_link_libraries(test_remotepaths PRIVATE Qt6::Core)
+target_include_directories(test_remotepaths PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_test(NAME remotepaths COMMAND test_remotepaths)
 
 # Program path detection/validation, ORCID check, ORCA settings-key migration - Claude Generated 2026.
 add_executable(test_programpaths tests/test_programpaths.cpp src/programpaths.cpp)
