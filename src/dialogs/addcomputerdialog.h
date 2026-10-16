@@ -11,8 +11,6 @@
 #include "remote/hostprofiles.h"
 
 #include <QDialog>
-#include <QIcon>
-#include <QStyle>
 
 #include <optional>
 
@@ -40,8 +38,6 @@ public:
     static bool isSavedComputer(const QString& name);
     /// Server command to show for @p host when the user has not typed one for it before.
     static QString defaultServerCommand(const QString& host);
-    /// An icon of the desktop theme, or the style's standard icon when the theme has none.
-    static QIcon icon(const QString& themeName, QStyle::StandardPixmap fallback);
 
 private:
     void toggleTest();

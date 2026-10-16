@@ -8,6 +8,7 @@
 #include "remote/remotebackend.h"
 #include "remote/remotelog.h"
 #include "dialogs/addcomputerdialog.h"
+#include "widgets/themeicon.h"
 #include "core/energy_calculators/gpu_plugin.h"
 #include <QJsonArray>
 #include <QSettings>
@@ -405,14 +406,14 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     m_computeCombo->setToolTip(tr("Where simulations run. Another computer is reached over ssh "
                                   "(key or agent, no password prompt) and needs qurcuma-server."));
     auto* addComputer = new QToolButton(this);
-    addComputer->setIcon(AddComputerDialog::icon(QStringLiteral("list-add"), QStyle::SP_FileDialogNewFolder));
+    addComputer->setIcon(themeIcon(QStringLiteral("list-add"), QStyle::SP_FileDialogNewFolder));
     addComputer->setAccessibleName(tr("Add computer"));
     addComputer->setToolTip(tr("Add a computer (address, key, test of the connection and of qurcuma-server)."));
     m_editComputer = new QToolButton(this);
-    m_editComputer->setIcon(AddComputerDialog::icon(QStringLiteral("document-edit"), QStyle::SP_FileDialogContentsView));
+    m_editComputer->setIcon(themeIcon(QStringLiteral("document-edit"), QStyle::SP_FileDialogContentsView));
     m_editComputer->setAccessibleName(tr("Edit computer"));
     m_removeComputer = new QToolButton(this);
-    m_removeComputer->setIcon(AddComputerDialog::icon(QStringLiteral("list-remove"), QStyle::SP_TrashIcon));
+    m_removeComputer->setIcon(themeIcon(QStringLiteral("list-remove"), QStyle::SP_TrashIcon));
     m_removeComputer->setAccessibleName(tr("Remove computer"));
     auto* computerRow = new QHBoxLayout;
     computerRow->addWidget(m_computeCombo, 1);

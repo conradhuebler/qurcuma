@@ -222,6 +222,8 @@ set(SOURCES
     src/lessonstructuremodel.cpp  # Claude Generated 2026 - in-memory lesson structure list model
     src/lessoncontroller.cpp  # Claude Generated 2026 - WP T4 lesson feature controller
     src/dialogs/lessonmetadatadialog.cpp  # Claude Generated 2026 - lesson metadata editor
+    src/programpaths.cpp  # Claude Generated 2026 - external program table, path checks, ORCID check
+    src/dialogs/settingsdialog.cpp  # Claude Generated 2026 - Settings dialog (programs + operator)
 )
 
 # Header-Dateien
@@ -267,6 +269,8 @@ set(HEADERS
     src/lessoncontroller.h  # Claude Generated 2026 - WP T4 lesson feature controller (Q_OBJECT)
     src/dialogs/lessonmetadatadialog.h  # Claude Generated 2026 - lesson metadata editor (Q_OBJECT)
     src/dialogs/fillcontainerdialog.h  # Claude Generated 2026 - fill-container dialog (Q_OBJECT)
+    src/programpaths.h  # Claude Generated 2026 - external program table, path checks, ORCID check
+    src/dialogs/settingsdialog.h  # Claude Generated 2026 - Settings dialog (Q_OBJECT)
     #src/dialogs/nmrstructuremodel.h
 
 )
@@ -472,6 +476,12 @@ target_include_directories(test_fragments PRIVATE
 add_executable(test_sshconfig tests/test_sshconfig.cpp src/sshconfig.cpp)
 target_link_libraries(test_sshconfig PRIVATE Qt6::Core)
 target_include_directories(test_sshconfig PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# Program path detection/validation, ORCID check, ORCA settings-key migration - Claude Generated 2026.
+add_executable(test_programpaths tests/test_programpaths.cpp src/programpaths.cpp)
+target_link_libraries(test_programpaths PRIVATE Qt6::Core)
+target_include_directories(test_programpaths PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_test(NAME programpaths COMMAND test_programpaths)
 
 # Cell-list bond detection (src/bonddetect.h) against the all-pairs loop - Claude Generated 2026.
 add_executable(test_bonddetect tests/test_bonddetect.cpp)

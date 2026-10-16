@@ -43,6 +43,10 @@ Specialized dialog windows and analysis tools for molecular visualization.
 ### Add Computer Dialog (addcomputerdialog.*)
 - **Purpose**: add a computer for remote runs (address, port, key), test ssh and `qurcuma-server`; also holds the computer list shared by the Simulation dock and the Remote Files dialog (`fillHostCombo`; ~/.ssh/config is not read). Details: `src/remote/CLAUDE.md`. 🤖 built, not checked in the GUI.
 
+### Settings Dialog (settingsdialog.*)
+- **Purpose**: one dialog (Edit ▸ Preferences ▸ Settings..., Ctrl+,) with tabs Programs (path, Browse, Detect, live status per program) and Operator (name, ORCID with check digit, institution, license); writes `Settings` only on OK.
+- GUI-free logic in `src/programpaths.*` (program table, `detect`, `validate`, `checkOrcid`, ORCA key migration), test `test_programpaths`. Paths live under `programs/<name>`; ORCA is a folder that must hold `orca` plus an `orca_*` helper. 🤖 built, ⚙️ logic tested, not checked in the GUI.
+
 ## Architecture
 
 ```

@@ -27,18 +27,13 @@ public:
     QString workingDirectory() const;
     void setWorkingDirectory(const QString &path);
 
-    // Programmpfade
+    // Programmpfade, key "programs/<name>" (programpaths.h); empty when not configured
     QString getProgramPath(const QString &program) const;
     void setProgramPath(const QString &program, const QString &path);
 
-    // Spezifisch für orca
+    // ORCA install folder (orca and orca_* live there); wrapper for getProgramPath("orca").
+    // Written through setProgramPath("orca", ...) by the Settings dialog.
     QString orcaBinaryPath() const;
-    void setOrcaBinaryPath(const QString &path);
-
-
-    // Standard-Einstellungen laden/speichern
-    void loadDefaults();
-    void saveSettings();
 
     QStringList workingDirectories() const;
     void addWorkingDirectory(const QString& path);
@@ -163,14 +158,6 @@ public:
     void deleteWorkspace(const QString& id);
     Workspace loadWorkspace(const QString& id) const;
     void updateWorkspaceLastUsed(const QString& id);
-    QString lastActiveWorkspaceId() const;
-    void setLastActiveWorkspaceId(const QString& id);
-
-    // Workspace preferences
-    bool autoSaveWorkspaceEnabled() const;
-    void setAutoSaveWorkspace(bool enabled);
-    bool restoreLastWorkspaceEnabled() const;
-    void setRestoreLastWorkspace(bool enabled);
 
 #ifdef USE_SFTP
     // Claude Generated - Phase SFTP Integration: Connection profile management
@@ -236,7 +223,6 @@ private:
 
     // Konstanten für Settings-Keys
     static const QString WORKING_DIR_KEY;
-    static const QString PROGRAM_PATH_PREFIX;
     static const QString WORKING_DIRS_KEY;
     static const QString LAST_USED_DIR_KEY;
     static const QString VIZ_SETTINGS_PREFIX;
@@ -245,15 +231,11 @@ private:
     // Claude Generated 2026 - promoted from inline magic strings so read/write
     // sites can't drift. Values are the exact legacy keys (do NOT change them:
     // they are what existing user configs are stored under).
-    static const QString ORCA_BINARY_KEY;
     static const QString DARK_MODE_KEY;
     static const QString RECENT_FILES_LEGACY_KEY;  // V1, read once for migration
     static const QString RECENT_FILES_V2_KEY;
     static const QString BOOKMARKS_KEY;
     static const QString WORKSPACES_KEY;
-    static const QString LAST_ACTIVE_WORKSPACE_KEY;
-    static const QString AUTO_SAVE_WORKSPACE_KEY;
-    static const QString RESTORE_LAST_WORKSPACE_KEY;
     static const QString OPERATOR_NAME_KEY;
     static const QString OPERATOR_ORCID_KEY;
     static const QString OPERATOR_INSTITUTION_KEY;

@@ -7,3 +7,4 @@
 - `commandpalette.*`: Ctrl+K palette; collects every menu action by walking `menuBar()`.
 - `breadcrumbbar.*`, `colorswatch.h`: path bar and shared colour-swatch helpers.
 - Widgets carry no viewer logic; they emit signals that `MainWindow` wires. Architecture notes: `docs/architecture/viewer-ui.md`.
+- `themeicon.h`: `themeIcon(name, fallback)`, a desktop-theme icon with the style's standard icon as fallback (settings, add computer, dock buttons).

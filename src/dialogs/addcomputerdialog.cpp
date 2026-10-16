@@ -5,6 +5,7 @@
 #include "addcomputerdialog.h"
 
 #include "remote/hostprobe.h"
+#include "widgets/themeicon.h"
 
 #include <QApplication>
 #include <QComboBox>
@@ -59,12 +60,6 @@ const char* const kStepNames[3] = { QT_TRANSLATE_NOOP("AddComputerDialog", "Logi
     QT_TRANSLATE_NOOP("AddComputerDialog", "Server"), QT_TRANSLATE_NOOP("AddComputerDialog", "Session") };
 }
 
-QIcon AddComputerDialog::icon(const QString& themeName, QStyle::StandardPixmap fallback)
-{
-    const QIcon themed = QIcon::fromTheme(themeName);
-    return themed.isNull() ? QApplication::style()->standardIcon(fallback) : themed;
-}
-
 AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote::HostProfile>& edit)
     : QDialog(parent)
 {
@@ -91,7 +86,7 @@ AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote
     form->addRow(tr("ssh port:"), m_port);
     m_key = new QLineEdit(this);
     m_key->setPlaceholderText(tr("empty: ssh agent and default keys"));
-    m_browse = new QPushButton(icon(QStringLiteral("document-open"), QStyle::SP_DirOpenIcon), tr("Browse..."), this);
+    m_browse = new QPushButton(themeIcon(QStringLiteral("document-open"), QStyle::SP_DirOpenIcon), tr("Browse..."), this);
     auto* keyRow = new QHBoxLayout;
     keyRow->addWidget(m_key);
     keyRow->addWidget(m_browse);
@@ -104,7 +99,7 @@ AddComputerDialog::AddComputerDialog(QWidget* parent, const std::optional<remote
     layout->addLayout(form);
 
     // The test, in three steps that each show their own state.
-    m_test = new QPushButton(icon(QStringLiteral("network-connect"), QStyle::SP_DriveNetIcon), tr("Test connection"), this);
+    m_test = new QPushButton(themeIcon(QStringLiteral("network-connect"), QStyle::SP_DriveNetIcon), tr("Test connection"), this);
     m_problem = new QLabel(this);
     m_problem->setWordWrap(true);
     auto* testRow = new QHBoxLayout;
@@ -269,7 +264,7 @@ void AddComputerDialog::onStep(int step, int state, const QString& text)
         { "dialog-error", QStyle::SP_MessageBoxCritical, "#c62828" },
         { "go-next", QStyle::SP_ArrowForward, "#757575" } };
     const Look& l = looks[qBound(0, state, 4)];
-    m_stepIcons[step]->setPixmap(icon(QString::fromLatin1(l.theme), l.fallback).pixmap(16, 16));
+    m_stepIcons[step]->setPixmap(themeIcon(QString::fromLatin1(l.theme), l.fallback).pixmap(16, 16));
     const QString name = QCoreApplication::translate("AddComputerDialog", kStepNames[step]);
     const QString detail = state == int(remote::HostProbe::Pending) ? tr("not tried yet") : text;
     m_stepLabels[step]->setText(QStringLiteral("<span style='color:%1'><b>%2</b> &nbsp;%3</span>")

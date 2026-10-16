@@ -81,6 +81,7 @@
 #include "docks/chartdock.h"  // Claude Generated 2026 - live MD temperature/energy charts
 
 #include "dialogs/nmrspectrumdialog.h"
+#include "dialogs/settingsdialog.h"  // Claude Generated 2026 - Settings dialog (programs + operator)
 #include "rmsdwidget.h"  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
 #ifdef USE_SFTP
 #include "dialogs/sftpdialog.h"
@@ -1136,12 +1137,13 @@ void MainWindow::createMenus()
     });
 
     preferencesMenu->addSeparator();
-    // Claude Generated 2026 - Operator metadata (name/ORCID/institution/license),
-    // reused as default authorship for image exports and lessons.
-    QAction *operatorAction = preferencesMenu->addAction(QIcon::fromTheme("user-identity"), tr("Operator Metadata..."));
-    operatorAction->setToolTip(tr("Set your name, ORCID, institution and default license. "
-                                  "Used as authorship for exported images and lessons."));
-    connect(operatorAction, &QAction::triggered, this, &MainWindow::configureOperatorMetadata);
+    // Claude Generated 2026 - one Settings dialog for program paths and operator metadata.
+    QAction *settingsAction = preferencesMenu->addAction(QIcon::fromTheme("preferences-system"), tr("&Settings..."));
+    settingsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Comma));
+    settingsAction->setMenuRole(QAction::PreferencesRole);
+    settingsAction->setToolTip(tr("Paths to external programs (curcuma, ORCA, xtb, IboView, Avogadro) and the "
+                                  "author/license metadata embedded into exported images."));
+    connect(settingsAction, &QAction::triggered, this, [this]() { openSettingsDialog(); });
 
     // ------------------------------------------------------------------ View
     QMenu *viewMenu = menuBar->addMenu(tr("&View"));
@@ -1656,10 +1658,6 @@ void MainWindow::createMenus()
                                "default over the logged runs."));
     connect(usageAction, &QAction::triggered, this, &MainWindow::showParameterUsage);
 
-    toolsMenu->addSeparator();
-    QAction *configAction = toolsMenu->addAction(QIcon::fromTheme("preferences-system"), tr("Configure &Programs..."));
-    connect(configAction, &QAction::triggered, this, &MainWindow::configurePrograms);
-
     // ------------------------------------------------------------------ Help
     QMenu *helpMenu = menuBar->addMenu(tr("&Help"));
     QAction *shortcutsAction = helpMenu->addAction(QIcon::fromTheme("input-keyboard"), tr("&Keyboard Shortcuts"));
@@ -2069,120 +2067,12 @@ void MainWindow::setupProgramSpecificDirectory(const QString &dirPath, const QSt
         }
     }
 }
-// In mainwindow.cpp, die configurePrograms-Funktion anpassen:
-void MainWindow::configurePrograms()
+// Claude Generated 2026 - one Settings dialog (Programs and Operator tabs) replaces the former
+// "Configure Programs" and "Operator Metadata" dialogs; it writes to m_settings only on OK.
+void MainWindow::openSettingsDialog()
 {
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Configure Programs"));
-    QVBoxLayout *layout = new QVBoxLayout(&dialog);
-
-    // Spezielle Behandlung für ORCA
-    {
-        QHBoxLayout *hbox = new QHBoxLayout();
-        QLineEdit* pathEdit = new QLineEdit(m_settings.orcaBinaryPath());
-        QPushButton *browseBtn = new QPushButton(tr("..."));
-        
-        hbox->addWidget(new QLabel(tr("ORCA Binary Directory")));
-        hbox->addWidget(pathEdit);
-        hbox->addWidget(browseBtn);
-        layout->addLayout(hbox);
-
-        connect(browseBtn, &QPushButton::clicked, [=]() {
-            QString path = QFileDialog::getExistingDirectory(this,
-                tr("Select ORCA Binary Directory"),
-                QDir::homePath());
-            if (!path.isEmpty()) {
-                pathEdit->setText(path);
-            }
-        });
-
-        // Speichern des ORCA-Pfads
-        connect(&dialog, &QDialog::accepted, [=]() {
-            m_settings.setOrcaBinaryPath(pathEdit->text());
-        });
-    }
-
-    // Andere Programme (außer orca)
-    for (const QString& program : m_simulationPrograms + m_visualizerPrograms) {
-        if (program != "orca") {  // ORCA überspringen, da bereits behandelt
-            QHBoxLayout *hbox = new QHBoxLayout();
-            QLineEdit* pathEdit = new QLineEdit(m_settings.getProgramPath(program));
-            QPushButton *browseBtn = new QPushButton(tr("..."));
-            
-            hbox->addWidget(new QLabel(program));
-            hbox->addWidget(pathEdit);
-            hbox->addWidget(browseBtn);
-            layout->addLayout(hbox);
-
-            connect(browseBtn, &QPushButton::clicked, [=]() {
-                QString path = QFileDialog::getOpenFileName(this,
-                    tr("Path for ") + program,
-                    QDir::homePath());
-                if (!path.isEmpty()) {
-                    pathEdit->setText(path);
-                    m_settings.setProgramPath(program, path);
-                }
-            });
-        }
-    }
-
-    // OK und Abbrechen Buttons
-    QDialogButtonBox *buttonBox = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-    layout->addWidget(buttonBox);
-
-    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
+    SettingsDialog dialog(m_settings, this, SettingsDialog::ProgramsTab);
     dialog.exec();
-}
-
-// Claude Generated 2026 - Operator metadata (name/ORCID/institution/license),
-// stored once and reused as default authorship for image exports and lessons.
-void MainWindow::configureOperatorMetadata()
-{
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("Operator Metadata"));
-    auto* form = new QFormLayout(&dialog);
-
-    auto* nameEdit = new QLineEdit(m_settings.operatorName(), &dialog);
-    nameEdit->setPlaceholderText(tr("Your name"));
-    form->addRow(tr("Name:"), nameEdit);
-
-    auto* orcidEdit = new QLineEdit(m_settings.operatorOrcid(), &dialog);
-    orcidEdit->setPlaceholderText(tr("0000-0000-0000-0000"));
-    form->addRow(tr("ORCID:"), orcidEdit);
-
-    auto* institutionEdit = new QLineEdit(m_settings.operatorInstitution(), &dialog);
-    institutionEdit->setPlaceholderText(tr("Institution / affiliation"));
-    form->addRow(tr("Institution:"), institutionEdit);
-
-    auto* licenseCombo = new QComboBox(&dialog);
-    licenseCombo->setEditable(true);
-    licenseCombo->addItems({ QStringLiteral("CC-BY-4.0"), QStringLiteral("CC0-1.0"),
-                             QStringLiteral("CC-BY-SA-4.0"), QStringLiteral("CC-BY-ND-4.0"),
-                             QStringLiteral("CC-BY-NC-4.0") });
-    const QString currentLicense = m_settings.operatorLicense();
-    int licIdx = licenseCombo->findText(currentLicense);
-    if (licIdx >= 0)
-        licenseCombo->setCurrentIndex(licIdx);
-    else if (!currentLicense.isEmpty())
-        licenseCombo->setEditText(currentLicense);
-    licenseCombo->setToolTip(tr("Default license embedded into exported images."));
-    form->addRow(tr("License:"), licenseCombo);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    form->addRow(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-    if (dialog.exec() != QDialog::Accepted)
-        return;
-
-    m_settings.setOperatorName(nameEdit->text().trimmed());
-    m_settings.setOperatorOrcid(orcidEdit->text().trimmed());
-    m_settings.setOperatorInstitution(institutionEdit->text().trimmed());
-    m_settings.setOperatorLicense(licenseCombo->currentText().trimmed());
 }
 
 // In mainwindow.cpp:
@@ -2367,7 +2257,7 @@ void MainWindow::runSimulation()
                 tr("ORCA binary path is not configured."),
                 tr("Please configure the ORCA binary directory in the settings."),
                 [this]() {
-                    configurePrograms();
+                    openSettingsDialog();
                 });
             return;
         }

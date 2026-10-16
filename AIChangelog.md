@@ -2,6 +2,18 @@
 
 Newest first; one line per fact. Entries from August 2026 and earlier: [docs/changelog/AIChangelog_2026-08-and-earlier.md](docs/changelog/AIChangelog_2026-08-and-earlier.md).
 
+## Oktober 2026 - Einstellungsdialog
+
+- **Alte Platzhalter-Pfade werden aufgeräumt**: die Migration entfernt für jedes Programm die Werte des früheren Erststart-Standards (`/usr/local/bin/<programm>`, `C:/Program Files/<programm>`), wenn sie nicht gültig sind, damit "nicht gesetzt" und Detect erscheinen statt eines rot markierten Fantasiepfads. ⚙️ `test_programpaths`.
+- **Ein Icon-Helfer**: `themeIcon()` in `src/widgets/themeicon.h` ersetzt die zwei Kopien (Einstellungsdialog, `AddComputerDialog::icon`).
+- **Ein Einstellungsdialog** (`src/dialogs/settingsdialog.*`, Edit ▸ Preferences ▸ Settings..., Strg+,): Reiter "Programs" (Pfad, Browse, Detect, Statuszeile je Programm) und "Operator" (Name, ORCID, Institution, Lizenz) ersetzen "Configure Programs" und "Operator Metadata". 🤖 gebaut, GUI nicht geprüft.
+- **Speichern erst bei OK**: Cancel verwirft alle Änderungen beider Reiter; vorher schrieb "..." einen Programmpfad sofort, auch wenn der Dialog danach abgebrochen wurde. 🤖 im Code so umgesetzt, GUI nicht geprüft.
+- **Programmpfade ohne GUI prüfbar** (`src/programpaths.*`): Programmtabelle, `detect()` (PATH, übliche Ordner, `/opt/<name>*`, `~/<name>*`; Avogadro auch als `avogadro2`) und `validate()` (nicht gesetzt, ok, fehlt, nicht ausführbar, falsche Art). ⚙️ `test_programpaths` (72 Prüfungen) grün.
+- **ORCA-Ordner braucht `orca_*`**: ein Ordner gilt nur als ORCA-Ordner, wenn neben `orca` mindestens ein ausführbares `orca_*` liegt; so wird der Screenreader Orca (`/usr/bin/orca` unter GNOME) nicht als ORCA erkannt. ⚙️ `test_programpaths`.
+- **ORCID-Prüfung**: Format `0000-0000-0000-000X` und Prüfziffer nach ISO 7064 MOD 11-2, live im Reiter "Operator"; ob die iD registriert ist, wird nicht geprüft. ⚙️ `test_programpaths`.
+- **ORCA unter `programs/orca`**: wie die anderen Programme; `orca/binaryPath` wird beim Start einmal übernommen und gelöscht, der Platzhalter `/usr/local/bin/orca` der alten Startwerte verworfen (außer dort liegt ein gültiger ORCA-Ordner); `orcaBinaryPath()` bleibt als Hülle, `setOrcaBinaryPath()` entfällt (letzter Aufrufer war der alte Dialog). ⚙️ 6 Migrationsfälle in `test_programpaths`, an einer echten Einstellungsdatei nicht geprüft.
+- **Settings ohne tote Zugriffe**: `loadDefaults()` (schrieb beim ersten Start feste Pfade `/usr/local/bin/<programm>`), `saveSettings()` und die drei Workspace-Einstellungen `lastActiveWorkspaceId`, `autoSaveWorkspace`, `restoreLastWorkspace` samt Settern entfernt; keiner hatte einen Aufrufer.
+
 ## Oktober 2026 - Remote: Messpunkte
 
 - **Remote-Link messbar**: der Client schreibt einmal pro Sekunde eine `perf:`-Zeile ins Remote-Log (Frames/s, kB/s, Anteil des GUI-Threads, Round-Trip) samt `linkStats` des Servers (erzeugt/gesendet/verworfen, Pending-Bytes, Kodierzeit); `ping`/`pong` ist neu im Protokoll. ⚙️ Loopback-Test, nicht über echtes ssh.

@@ -142,8 +142,7 @@ private slots:
     void projectSelected(const QModelIndex &index);
     // Claude Generated 2026 - WP T3: finish handling for a CalculationRunner run.
     void onCalculationFinished(const CalculationEntry& entry, int exitCode);
-    void configurePrograms();
-    void configureOperatorMetadata();  // Claude Generated 2026 - operator name/ORCID/institution/license
+    void openSettingsDialog();  ///< Settings dialog on the Programs tab. Claude Generated 2026
     void runSimulation();
 
 
