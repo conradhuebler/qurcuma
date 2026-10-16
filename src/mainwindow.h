@@ -382,6 +382,7 @@ private:
     // the Lesson section it fills sits at the top of the Project dock.
     LessonController* m_lessonController = nullptr;
     bool m_centerOnLoad = true;  // shift COM to origin after loading (from VisualizationSettings)
+    QAction* m_centerOnLoadAction = nullptr;  // Preferences quick toggle, kept in sync with the Settings dialog
     QAction* m_saveAction = nullptr;
     QAction* m_saveAsAction = nullptr;
     bool saveStructure(const QString& path = QString());

@@ -254,8 +254,6 @@ public:
 
     // Claude Generated 2026 - Configurable GPU-instancing threshold (kept for API
     // compatibility; Quick3D always instances, so this is informational only).
-    void setInstancingThreshold(int n);
-    int getInstancingThreshold() const { return m_instancingThreshold; }
 
     // Frame navigation support for trajectories
     void setFrameCount(int frameCount) { m_frameCount = frameCount; }
@@ -1014,10 +1012,6 @@ private:
     /// Above this atom count the per-frame geometric scan is skipped unless the
     /// user explicitly asks for it (the close-contact pass is a full O(N^2)).
     static constexpr int kNciAtomLimit = 5000;
-
-    // Instancing threshold kept for API compatibility (informational).
-    static constexpr int kAtomInstancingThresholdDefault = 500;
-    int m_instancingThreshold = kAtomInstancingThresholdDefault;
 
     // Rotation / camera state
     RotationMode m_rotationMode = RotationMode::Model;

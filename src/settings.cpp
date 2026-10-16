@@ -200,6 +200,7 @@ Settings::Settings(QObject* parent)
     // first-start defaults (fixed /usr/local/bin/<program> paths) are cleaned out; the Settings
     // dialog offers detection instead.
     programpaths::migrateLegacyKeys(m_settings);
+    m_settings.remove(QStringLiteral("visualization/instancingThreshold"));  // stored but never read; removed 2026
 }
 
 QString Settings::workingDirectory() const
@@ -320,7 +321,6 @@ void writeVizSettings(QSettings& s, const QString& prefix, const Settings::Visua
     s.setValue(prefix + "hdrEnabled", v.hdrEnabled);
     s.setValue(prefix + "exposure", v.exposure);
     s.setValue(prefix + "rotationMode", v.rotationMode);
-    s.setValue(prefix + "instancingThreshold", v.instancingThreshold);
     s.setValue(prefix + "wallVisible", v.wallVisible);
     s.setValue(prefix + "wallOpacity", v.wallOpacity);
     s.setValue(prefix + "centerOnLoad", v.centerOnLoad);
@@ -367,7 +367,6 @@ Settings::VisualizationSettings readVizSettings(const QSettings& s, const QStrin
     v.hdrEnabled = s.value(prefix + "hdrEnabled", v.hdrEnabled).toBool();
     v.exposure = s.value(prefix + "exposure", v.exposure).toFloat();
     v.rotationMode = s.value(prefix + "rotationMode", v.rotationMode).toInt();
-    v.instancingThreshold = s.value(prefix + "instancingThreshold", v.instancingThreshold).toInt();
     v.wallVisible = s.value(prefix + "wallVisible", v.wallVisible).toBool();
     v.wallOpacity = s.value(prefix + "wallOpacity", v.wallOpacity).toDouble();
     v.centerOnLoad = s.value(prefix + "centerOnLoad", v.centerOnLoad).toBool();

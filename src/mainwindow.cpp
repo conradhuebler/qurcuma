@@ -208,7 +208,6 @@ void MainWindow::setupUI()
     m_settings.dropLegacyDisplayPresetsOnce();  // UX stage 3: old presets are not migrated
     const Settings::VisualizationSettings vizSettings = m_settings.getVisualizationSettings();
     m_moleculeView->applyDisplaySettings(vizSettings);
-    m_moleculeView->setInstancingThreshold(vizSettings.instancingThreshold);
     m_moleculeView->setBeadTypeColors(m_settings.beadTypeColors());
     m_moleculeView->setNciPalette(m_settings.nciPalette());
     m_centerOnLoad = vizSettings.centerOnLoad;
@@ -1085,12 +1084,12 @@ void MainWindow::createMenus()
     connect(m_darkModeAction, &QAction::triggered, this, &MainWindow::toggleDarkMode);
 
     preferencesMenu->addSeparator();
-    QAction* centerOnLoadAction = preferencesMenu->addAction(tr("&Center Molecule on Load"));
-    centerOnLoadAction->setCheckable(true);
-    centerOnLoadAction->setChecked(m_centerOnLoad);
-    centerOnLoadAction->setToolTip(tr("When opening a file, translate all frames so the "
-                                      "mass-weighted centre of mass is at the origin."));
-    connect(centerOnLoadAction, &QAction::toggled, this, [this](bool on) {
+    m_centerOnLoadAction = preferencesMenu->addAction(tr("&Center Molecule on Load"));
+    m_centerOnLoadAction->setCheckable(true);
+    m_centerOnLoadAction->setChecked(m_centerOnLoad);
+    m_centerOnLoadAction->setToolTip(tr("When opening a file, translate all frames so the "
+                                        "mass-weighted centre of mass is at the origin."));
+    connect(m_centerOnLoadAction, &QAction::toggled, this, [this](bool on) {
         m_centerOnLoad = on;
         if (m_lessonController)
             m_lessonController->setCenterOnLoad(on);
@@ -1137,12 +1136,17 @@ void MainWindow::createMenus()
     });
 
     preferencesMenu->addSeparator();
-    // Claude Generated 2026 - one Settings dialog for program paths and operator metadata.
+    // Claude Generated 2026 - one Settings dialog (openSettingsDialog lists its tabs).
     QAction *settingsAction = preferencesMenu->addAction(QIcon::fromTheme("preferences-system"), tr("&Settings..."));
     settingsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Comma));
     settingsAction->setMenuRole(QAction::PreferencesRole);
-    settingsAction->setToolTip(tr("Paths to external programs (curcuma, ORCA, xtb, IboView, Avogadro) and the "
-                                  "author/license metadata embedded into exported images."));
+#ifdef QURCUMA_REMOTE
+    settingsAction->setToolTip(tr("Paths to external programs, the working directory, loading behaviour, "
+                                  "computers for remote runs and the author/license metadata of exported images."));
+#else
+    settingsAction->setToolTip(tr("Paths to external programs, the working directory, loading behaviour "
+                                  "and the author/license metadata of exported images."));
+#endif
     connect(settingsAction, &QAction::triggered, this, [this]() { openSettingsDialog(); });
 
     // ------------------------------------------------------------------ View
@@ -2067,11 +2071,44 @@ void MainWindow::setupProgramSpecificDirectory(const QString &dirPath, const QSt
         }
     }
 }
-// Claude Generated 2026 - one Settings dialog (Programs and Operator tabs) replaces the former
-// "Configure Programs" and "Operator Metadata" dialogs; it writes to m_settings only on OK.
+// Claude Generated 2026 - one Settings dialog (Programs, General, Display, Computers, Operator).
+// It writes m_settings on OK (the Computers tab at once) and reports what the running window has
+// to apply through signals; the Preferences quick toggles are synced without re-running their handlers.
 void MainWindow::openSettingsDialog()
 {
     SettingsDialog dialog(m_settings, this, SettingsDialog::ProgramsTab);
+    dialog.setCurrentWorkingDirectory(m_workingDirectory);
+    connect(&dialog, &SettingsDialog::darkModeChanged, this, [this](bool on) {
+        applyStylesheet(on);
+        const QSignalBlocker block(m_darkModeAction);
+        if (m_darkModeAction)
+            m_darkModeAction->setChecked(on);
+    });
+    connect(&dialog, &SettingsDialog::useInvocationDirectoryChanged, this, [this](bool on) {
+        const QSignalBlocker block(m_useInvocationDirAction);
+        applyUseInvocationDirectoryState(on);  // also sets the menu check state
+    });
+    connect(&dialog, &SettingsDialog::workingDirectoryChosen, this, [this](const QString& path) {
+        switchWorkingDirectory(path);  // as "Set as Working Directory" in the Project panel
+        if (m_workingDirectory == path)
+            m_settings.addWorkingDirectory(path);
+    });
+    connect(&dialog, &SettingsDialog::centerOnLoadChanged, this, [this](bool on) {
+        m_centerOnLoad = on;
+        if (m_lessonController)
+            m_lessonController->setCenterOnLoad(on);
+        const QSignalBlocker block(m_centerOnLoadAction);
+        if (m_centerOnLoadAction)
+            m_centerOnLoadAction->setChecked(on);
+    });
+    connect(&dialog, &SettingsDialog::recentFilesCleared, this, [this]() {
+        m_recentFiles = m_settings.recentFilesV2();
+        updateRecentFilesMenu();
+    });
+    connect(&dialog, &SettingsDialog::computersChanged, this, [this]() {
+        if (m_simulationControlWidget)
+            m_simulationControlWidget->refreshComputers();
+    });
     dialog.exec();
 }
 
@@ -5082,7 +5119,6 @@ void MainWindow::closeEvent(QCloseEvent* event)
     if (m_moleculeView) {
         Settings::VisualizationSettings c = m_settings.getVisualizationSettings();
         static_cast<DisplaySettings&>(c) = m_moleculeView->currentDisplaySettings();
-        c.instancingThreshold = m_moleculeView->getInstancingThreshold();
         m_settings.setVisualizationSettings(c);
     }
     QMainWindow::closeEvent(event);

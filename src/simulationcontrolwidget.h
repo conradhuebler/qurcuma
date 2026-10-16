@@ -68,6 +68,11 @@ public:
     /** @brief True while an MD or optimization run is active. */
     bool isRunning() const { return m_running; }
 
+    /** @brief Refill "Compute on" from the saved computers after they were changed elsewhere
+     *  (Settings dialog), keeping the selected computer (a rename is followed); a removed one
+     *  falls back to "This computer". No-op without QURCUMA_REMOTE. Claude Generated 2026. */
+    void refreshComputers();
+
 public slots:
     /** @brief Take the non-default simplemd values of the All parameters tab
      *  (SimulationConfig::mdExtraParams). Claude Generated 2026 (UX stage 6 S3). */

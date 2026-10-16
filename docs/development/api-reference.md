@@ -518,7 +518,6 @@ public:
 
         // Phase 5D (TODO)
         // bool gpuInstancingEnabled = true;
-        // int instancingThreshold = 1000;
         // bool frustumCullingEnabled = true;
         // bool asyncLoadingEnabled = true;
     };

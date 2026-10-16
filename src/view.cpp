@@ -2445,11 +2445,6 @@ void MoleculeViewer::setRotationMode(int mode)
     m_rotationMode = (mode == 1) ? RotationMode::CameraOrbit : RotationMode::Model;
 }
 
-void MoleculeViewer::setInstancingThreshold(int n)
-{
-    m_instancingThreshold = qMax(1, n);
-}
-
 void MoleculeViewer::refreshVisualization()
 {
     if (m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size())

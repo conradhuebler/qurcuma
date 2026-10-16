@@ -1653,6 +1653,19 @@ SimulationBackend* SimulationControlWidget::createBackend()
     return new LocalBackend(this);
 }
 
+// Claude Generated 2026 - the computer list was changed in the Settings dialog. The selection is
+// taken from "remote/host", which the combo handler writes and HostProfiles::update renames; the
+// handler is run again so that server command, buttons and GPU choices follow the new list.
+void SimulationControlWidget::refreshComputers()
+{
+#ifdef QURCUMA_REMOTE
+    if (!m_computeCombo)
+        return;
+    AddComputerDialog::fillHostCombo(m_computeCombo, true, QSettings().value(QStringLiteral("remote/host")).toString());
+    emit m_computeCombo->currentIndexChanged(m_computeCombo->currentIndex());
+#endif
+}
+
 // Claude Generated 2026 (WP remote compute R3) - GPU choices of the machine that computes:
 // this build's backends locally; for a host what its server reported on the last connection
 // (all three until the host has been connected once).

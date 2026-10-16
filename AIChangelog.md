@@ -2,6 +2,15 @@
 
 Newest first; one line per fact. Entries from August 2026 and earlier: [docs/changelog/AIChangelog_2026-08-and-earlier.md](docs/changelog/AIChangelog_2026-08-and-earlier.md).
 
+## Oktober 2026 - Einstellungsdialog erweitert
+
+- **Tote Instancing-Schwelle entfernt**: `instancingThreshold` wurde gesetzt und gespeichert, aber nirgends ausgewertet (Quick3D instanziert immer); Feld, Setter/Getter im Viewer und der gespeicherte Schlüssel sind weg, der alte Schlüssel wird beim Start gelöscht. ⚙️ gebaut.
+- **Reiter "General"** im Einstellungsdialog: Arbeitsverzeichnis (aktuelles, Browse, Liste der bekannten mit Use/Remove), "Use the directory qurcuma was started from", Dark mode, Leeren von File ▸ Recent Files mit Anzahl und Rückfrage. Alles gilt erst mit OK. 🤖 gebaut, GUI nicht geprüft.
+- **Reiter "Display"**: "Move the structure's center of mass to the origin after loading" (`VisualizationSettings::centerOnLoad`, die übrigen Felder bleiben unverändert); der Menüpunkt Preferences ▸ Center Molecule on Load bleibt und wird nachgeführt. 🤖 gebaut, GUI nicht geprüft.
+- **Kein Regler für die Instancing-Schwelle**: `instancingThreshold` wird gespeichert, aber vom Viewer nicht gelesen (Quick3D instanziert immer, `view.h`); ein Regler hätte keine Wirkung.
+- **Reiter "Computers"** (nur mit `QURCUMA_REMOTE`): Liste der gespeicherten Rechner mit Add/Edit/Remove über `AddComputerDialog`, wirkt sofort (nicht über OK/Cancel); "Compute on" im Simulation-Panel wird über `SimulationControlWidget::refreshComputers()` neu gefüllt. 🤖 gebaut, GUI nicht geprüft, Build ohne `QURCUMA_REMOTE` nicht geprüft.
+- **Dialog kennt MainWindow nicht**: Signale `darkModeChanged`, `useInvocationDirectoryChanged`, `workingDirectoryChosen`, `centerOnLoadChanged`, `recentFilesCleared`, `computersChanged`; MainWindow wendet sie an und hält die Menü-Schalter mit blockierten Signalen synchron. ⚙️ `qurcuma`, `test_programpaths`, `test_sshconfig`, `test_remote_hosts` bauen und laufen grün; keine neue GUI-freie Logik, daher kein neuer Test.
+
 ## Oktober 2026 - Einstellungsdialog
 
 - **Alte Platzhalter-Pfade werden aufgeräumt**: die Migration entfernt für jedes Programm die Werte des früheren Erststart-Standards (`/usr/local/bin/<programm>`, `C:/Program Files/<programm>`), wenn sie nicht gültig sind, damit "nicht gesetzt" und Detect erscheinen statt eines rot markierten Fantasiepfads. ⚙️ `test_programpaths`.

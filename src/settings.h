@@ -74,7 +74,6 @@ public:
     // they can't drift from ViewPreset; only the extra live-settings fields are
     // declared here. Claude Generated 2026.
     struct VisualizationSettings : public DisplaySettings {
-        int instancingThreshold = 500; // Atom count >= threshold switches to GPU instancing (picking disabled)
         bool centerOnLoad = true;      // translate COM to origin after loading
     };
 
