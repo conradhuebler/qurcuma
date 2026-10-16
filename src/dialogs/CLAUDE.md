@@ -32,7 +32,7 @@ Specialized dialog windows and analysis tools for molecular visualization.
   - **Progress Feedback**: QProgressDialog for connect/download operations
   - **Error Reporting**: Detailed SSH error messages from libssh
   - Keyboard shortcut: Ctrl+Shift+R
-- **Dependencies**: libssh 0.11.3+ (system-wide installation required)
+- **Dependencies**: libssh 0.11.3+. CMake option `USE_SFTP` is ON by default since Oct 2026; without libssh the configuration prints a warning and builds without SFTP (`-DUSE_SFTP=OFF` forces that). Compiled and linked with libssh 0.12.2; not run against a server in that change.
 - **Architecture**:
   - `sftpdialog.cpp/h` - Main dialog with profile/SSH config dropdowns
   - `sftpmodel.hpp` - QAbstractItemModel with lazy loading + key auth

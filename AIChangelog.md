@@ -2,6 +2,10 @@
 
 Newest first; one line per fact. Entries from August 2026 and earlier: [docs/changelog/AIChangelog_2026-08-and-earlier.md](docs/changelog/AIChangelog_2026-08-and-earlier.md).
 
+## Oktober 2026 - SFTP standardmäßig an
+
+- **SFTP (Open Remote File) ist jetzt standardmäßig gebaut**: `USE_SFTP` steht auf ON; fehlt libssh, meldet CMake eine Warnung und baut ohne SFTP, statt abzubrechen (CI, Windows). ⚙️ mit libssh 0.12.2 konfiguriert, gebaut und gelinkt; nicht gegen einen echten Server ausgeführt, der Dialog nicht im GUI geprüft.
+
 ## Oktober 2026 - Einstellungsdialog erweitert
 
 - **Tote Instancing-Schwelle entfernt**: `instancingThreshold` wurde gesetzt und gespeichert, aber nirgends ausgewertet (Quick3D instanziert immer); Feld, Setter/Getter im Viewer und der gespeicherte Schlüssel sind weg, der alte Schlüssel wird beim Start gelöscht. ⚙️ gebaut.
