@@ -137,6 +137,7 @@ before committing, or enable the hook with `git config core.hooksPath scripts/gi
   - Use: Performance testing, final deployment, production runs
   - Build: `cmake --build release 2>&1 | tail -20`
   - Executable: `./release/qurcuma`
+- **Switching a CMake option in an existing build directory** (`USE_SFTP`, `USE_REMOTE`): the cached value wins over a new default, so pass `-DUSE_SFTP=ON` once. If the link then fails with `undefined reference to X::staticMetaObject` or `vtable for X`, the Qt MOC cache is stale: delete `<build>/CMakeFiles/qurcuma_autogen.dir/ParseCache.txt` and `<build>/qurcuma_autogen/timestamp`, then build again (seen with `RemoteBrowserPanel` and `SftpClient`).
 
 #### Git Best Practices
 - **Only commit source files**: Use `git add <file>` for specific files, never `git add -A` without review
