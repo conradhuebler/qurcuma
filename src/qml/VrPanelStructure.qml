@@ -1,7 +1,8 @@
 // Copyright (C) 2025 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 // Headset panel "Structure" (Claude Generated 2026): trajectory transport, the selected atom and the
 // way into the file browser. Mirrors the desktop viewer bar's frame navigation.
-//   session: VrSession (or the preview's MockVr): frame, frameCount, playing, selectionText, command()
+//   session: VrSession (or the preview's MockVr): frame, frameCount, playing, selectionText,
+//            structureFile, structureTitle, command()
 import QtQuick
 import "VrStyle.js" as Style
 
@@ -24,6 +25,32 @@ VrPanel {
             : "single structure"
         color: Style.textDim
         font.pixelSize: Style.fontBody
+    }
+
+    // Claude Generated 2026 - which structure this is: the molecule's name from the file, else the
+    // file name; the file name below it when both exist.
+    Column {
+        width: parent.width
+        readonly property string fileName: panel.session.structureFile || ""
+        readonly property string moleculeName: panel.session.structureTitle || ""
+        Text {
+            width: parent.width
+            text: parent.moleculeName !== "" ? parent.moleculeName
+                : parent.fileName !== "" ? parent.fileName
+                : panel.session.frameCount > 0 ? "unsaved structure" : "no structure"
+            color: parent.moleculeName !== "" || parent.fileName !== "" ? Style.title : Style.textDim
+            font.pixelSize: Style.fontButton
+            font.weight: Font.DemiBold
+            elide: Text.ElideRight
+        }
+        Text {
+            width: parent.width
+            visible: parent.moleculeName !== "" && parent.fileName !== ""
+            text: parent.fileName
+            color: Style.textDim
+            font.pixelSize: Style.fontSmall
+            elide: Text.ElideMiddle
+        }
     }
 
     Row {

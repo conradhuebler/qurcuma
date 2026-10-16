@@ -67,7 +67,7 @@ VrPanel {
 
     Text {
         width: parent.width
-        text: panel.handInput ? "Pinch and hold an atom to carry and turn the molecule (in a simulation: to pull the atom); hold with both hands to resize."
+        text: panel.handInput ? "Pinch on or near the molecule to carry and turn it (in a simulation: pull an atom, both hands at once); hold with both hands to resize."
                               : "Trigger or grip (either hand) turns the molecule."
         color: Style.textDim
         font.pixelSize: Style.fontSmall

@@ -9,11 +9,13 @@
 //
 // Units are centimetres. Layout around the head (yaw > 0 = left, pitch > 0 = up):
 //   molecule        straight ahead, 80 cm, at eye height, fitted to moleculeSize (default 40 cm)
-//   Structure       yaw   0, pitch -28, 58 cm   frames, selection, "Open structure…"
-//   Simulation      yaw +37, pitch -28, 58 cm   MD/Opt/Pause/Stop, temperature, grab strength
-//   View            yaw -34, pitch -28, 58 cm   size, reset, recenter
-//   Open structure  yaw   0, pitch  +5, 55 cm   on demand, in front of the molecule
-//   How to use      yaw   0, pitch  +8, 55 cm   help, open at start; shares the spot with the files
+//   Structure       yaw   0, pitch -28, 58 cm (hands: -32)   frames, selection, "Open structure…"
+//   Simulation      yaw ~+45, pitch -28, 58 cm  MD/Opt/Pause/Stop, temperature, grab strength
+//   View            yaw ~-35, pitch -28, 58 cm  size, reset, recenter
+//                   (side yaws from the panel widths: edges Style.panelGapDegrees apart, besideYaw)
+//   Open structure  yaw   0, pitch  +5, 55 cm   on demand, in front of the molecule; a child of
+//                                               Structure (offset +33 deg, -3 cm), moves along with it
+//   How to use      yaw   0, pitch +17, 55 cm   help, open at start; shares the spot with the files
 //   Menu bar        yaw   0, pitch -12, 50 cm   see-through toggles for the panels and Help
 //   Surroundings    world-fixed at the floor, does not follow "Recenter" (a room stays a room)
 // The three console panels sit below the molecule, where a controller ray reaches them from a relaxed
@@ -50,6 +52,9 @@ Node {
     /// Tracked hands instead of controllers: panels and molecule within reach (Claude Generated 2026).
     readonly property bool handInput: session.handInput === true
     readonly property real moleculeDistance: handInput ? 65 : 80
+    /// Pitch of the three console panels: lower in hand mode, where the closer panels look taller and
+    /// would reach up into the menu bar (Claude Generated 2026).
+    readonly property real consolePitch: handInput ? -32 : -28
     /// Where the hands carried the molecule (cm, scene axes) from its place in the layout; cleared by
     /// "Reset" and "Recenter".
     property vector3d moleculeOffset: Qt.vector3d(0, 0, 0)
@@ -170,6 +175,22 @@ Node {
         return best
     }
 
+    /// Move the molecule anchor to a scene position, through moleculeOffset (which the layout adds
+    /// to the anchor's place). Used by controllers and hands that carry the molecule. Claude Generated 2026.
+    function moveMoleculeTo(target) {
+        moleculeOffset = moleculeOffset.plus(target.minus(anchorNode.scenePosition))
+    }
+
+    /// Yaw (degrees) between the centres of two side-by-side console panels so their edges stay
+    /// Style.panelGapDegrees apart: each half width w/2 spans atan(w/2 / r) about the head, with
+    /// r = distance * cos(pitch) the horizontal distance of the tilted panel. Claude Generated 2026.
+    function besideYaw(widthA, widthB, distance, pitch) {
+        var r = distance * Math.cos(pitch * Math.PI / 180)
+        var halfA = widthA / Style.pixelsPerCm / 2
+        var halfB = widthB / Style.pixelsPerCm / 2
+        return (Math.atan(halfA / r) + Math.atan(halfB / r)) * 180 / Math.PI + Style.panelGapDegrees
+    }
+
     function resetView() {
         anchorNode.rotation = Qt.quaternion(1, 0, 0, 0)
         moleculeSize = defaultMoleculeSize
@@ -277,7 +298,7 @@ Node {
                 id: structureHost
                 visible: scene.structureVisible
                 yaw: 0
-                pitch: -28
+                pitch: scene.consolePitch
                 distance: scene.handInput ? 45 : 58
                 panel: VrPanelStructure {
                     session: scene.session
@@ -289,8 +310,8 @@ Node {
             VrPanelHost {
                 id: simulationHost
                 visible: scene.simulationVisible
-                yaw: 37
-                pitch: -28
+                yaw: scene.besideYaw(panel.width, structureHost.panel.width, distance, pitch)
+                pitch: scene.consolePitch
                 distance: scene.handInput ? 45 : 58
                 panel: VrPanelSimulation {
                     session: scene.session
@@ -301,8 +322,8 @@ Node {
             VrPanelHost {
                 id: viewHost
                 visible: scene.viewVisible
-                yaw: -34
-                pitch: -28
+                yaw: -scene.besideYaw(panel.width, structureHost.panel.width, distance, pitch)
+                pitch: scene.consolePitch
                 distance: scene.handInput ? 45 : 58
                 panel: VrPanelView {
                     moleculeSize: scene.moleculeSize
@@ -315,12 +336,15 @@ Node {
                 }
             }
 
+            // Claude Generated 2026 - child of the Structure panel (its "Open structure…" button):
+            // placed relative to it, follows it when it is moved, hidden with it.
             VrPanelHost {
                 id: filesHost
-                visible: scene.filesVisible
+                anchorHost: structureHost
+                visible: scene.filesVisible && scene.structureVisible
                 yaw: 0
-                pitch: 5
-                distance: scene.handInput ? 45 : 55
+                pitch: 33   // above the Structure panel and the menu bar: pitch +5 in the layout
+                distance: scene.handInput ? 0 : -3
                 panel: VrPanelFiles {
                     session: scene.session
                     onCloseRequested: scene.filesVisible = false
@@ -331,7 +355,7 @@ Node {
                 id: helpHost
                 visible: scene.helpVisible
                 yaw: 0
-                pitch: 8   // taller than the file browser: clears the menu bar
+                pitch: 17   // taller than the file browser: clears the menu bar
                 distance: scene.handInput ? 45 : 55
                 panel: VrPanelHelp {
                     handInput: scene.handInput

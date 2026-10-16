@@ -28,6 +28,8 @@ var primaryHover = "#1565c0"
 var danger = "#8e2a20"
 var dangerHover = "#c0392b"
 var hoverRing = "#64b5f6"
+var selected = "#0d47a1"      // button in use (running MD/Opt, chosen method), also while disabled
+var selectedRing = "#90caf9"
 var folder = "#90caf9"
 // see-through menu bar and its "ghost" buttons (#AARRGGBB), so it never hides the molecule
 var barColor = "#661e1e1e"
@@ -43,6 +45,7 @@ var markerIdle = "#40ff80"
 var markerPanel = "#64b5f6"
 var markerRotate = "#ffa030"
 var markerGrab = "#ff4040"
+var markerMove = "#c080ff"      // carrying the molecule (Claude Generated 2026)
 // run states, as in the Simulation dock
 var running = "#27ae60"
 var paused = "#d4a017"
@@ -60,6 +63,7 @@ var radius = 12
 var headerHeight = 24
 var buttonHeight = 44
 var buttonRadius = 8
+var panelGapDegrees = 3      // gap between the edges of neighbouring console panels (Claude Generated 2026)
 var listRowHeight = 36
 
 // ---- locomotion and surroundings (Claude Generated 2026) ----------------------------------------
@@ -74,6 +78,7 @@ var pinchPress = 2.0         // thumb tip to index tip below this: pinch starts
 var pinchRelease = 3.0       // above this: pinch ends
 var touchFront = 1.5         // the pinch point touches a panel this close in front of its surface...
 var touchBehind = 1.5        // ...or this far behind it (hands pass through panels)
+var moleculeTouch = 4.0      // pinch point this close (cm) to an atom's surface holds the molecule (no simulation)
 var atomTouch = 0.5          // an atom's drawn surface this close to the pinch point (or the point inside it) is touched
 var tapMilliseconds = 300    // a pinch shorter than this...
 var tapDistance = 1.5        // ...that moved less than this (cm) is a tap: select

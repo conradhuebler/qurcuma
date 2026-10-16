@@ -372,6 +372,10 @@ private:
     // user with Save/Discard/Cancel.
     QString m_currentMoleculeFilePath;
     bool m_structureModified = false;
+    // Claude Generated 2026 - VR demo mode: loading a new file discards a modified
+    // structure without the Save/Discard/Cancel prompt, which would block the
+    // desktop while someone is in the headset. Switched on when VR starts.
+    bool m_vrDemoMode = false;
     bool m_structSyncing = false;  // Claude Generated 2026 - re-entrancy guard for viewer/table/text sync
 
     // Resolves a view index from the content list to a filesystem path. Handles

@@ -77,6 +77,8 @@ public:
     void setTemperatureRange(double minimum, double maximum);
     /** @brief True while an MD or optimization run is active. */
     bool isRunning() const { return m_running; }
+    /** @brief Mode of the active (or last) run. Claude Generated 2026 (headset panel). */
+    SimulationConfig::Mode runMode() const { return m_config.mode; }
 
 public slots:
     /** @brief Take the non-default simplemd values of the All parameters tab

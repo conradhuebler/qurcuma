@@ -20,6 +20,9 @@
 // (trigger or pinch) calls moveCentreTo(), which turns the target point into yaw, pitch and distance
 // (placeYaw/placePitch/placeDistance), so a moved panel still faces the head. The layout's own
 // yaw/pitch/distance come back with resetPlacement() ("Recenter").
+//
+// Child panels (Claude Generated 2026): with anchorHost set, yaw/pitch/distance (and a move by the
+// handle) are offsets from that panel's place, so the child travels along when the anchor is moved.
 import QtQuick
 import QtQuick3D
 import QtQuick3D.Xr
@@ -33,15 +36,17 @@ Node {
     property real pitch: 0
     property real distance: 60
     property Item panel: null
+    /// Panel this one belongs to (null = placed on its own); its place is then relative to the anchor's.
+    property Node anchorHost: null
 
     /// Place the user moved the panel to (moved = true), else the layout's
     property bool moved: false
     property real movedYaw: 0
     property real movedPitch: 0
     property real movedDistance: 60
-    readonly property real placeYaw: moved ? movedYaw : yaw
-    readonly property real placePitch: moved ? movedPitch : pitch
-    readonly property real placeDistance: moved ? movedDistance : distance
+    readonly property real placeYaw: (anchorHost ? anchorHost.placeYaw : 0) + (moved ? movedYaw : yaw)
+    readonly property real placePitch: (anchorHost ? anchorHost.placePitch : 0) + (moved ? movedPitch : pitch)
+    readonly property real placeDistance: (anchorHost ? anchorHost.placeDistance : 0) + (moved ? movedDistance : distance)
 
     /// Handle state, driven by the hands and controllers: rays/pinch points on it, and held
     property int handleHoverCount: 0
@@ -201,9 +206,11 @@ Node {
         var d = p.length()
         if (d < 1e-3)
             return
-        movedYaw = Math.atan2(-p.x, -p.z) * 180 / Math.PI
+        movedYaw = Math.atan2(-p.x, -p.z) * 180 / Math.PI - (anchorHost ? anchorHost.placeYaw : 0)
         movedPitch = Math.asin(Math.max(-1, Math.min(1, p.y / d))) * 180 / Math.PI
+                   - (anchorHost ? anchorHost.placePitch : 0)
         movedDistance = Math.max(Style.panelMinDistance, Math.min(Style.panelMaxDistance, d))
+                      - (anchorHost ? anchorHost.placeDistance : 0)
         moved = true
     }
 

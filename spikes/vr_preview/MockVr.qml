@@ -14,7 +14,11 @@ QtObject {
     property bool simulationActive: false
     property bool simulationPaused: false
     property string simulationMessage: ""
+    property string simulationMode: ""
+    property string structureFile: "caffeine.xyz"
+    property string structureTitle: "Caffeine"
     property double temperature: 300
+    property double systemTemperature: 0
     property double temperatureMin: 1
     property double temperatureMax: 1000
     property string method: "gfnff"
@@ -31,6 +35,8 @@ QtObject {
     signal command(string name)
     signal atomPicked(int atomIndex)
     signal fileRequested(string path)
+    signal grabForce(int source, int atomIndex, vector3d displacement)
+    signal grabReleased(int source)
 
     readonly property var tree: ({
         "/home/user": ["structures/"],
@@ -65,6 +71,7 @@ QtObject {
     }
     function choose(name) {
         console.log("preview: open", currentDir + "/" + name)
+        structureFile = name; structureTitle = ""
         fileRequested(currentDir + "/" + name)
     }
 
@@ -77,9 +84,10 @@ QtObject {
         else if (name === "grabDown") grabStrength *= 0.8
         else if (name === "simStartMD" || name === "simStartOpt") {
             simulationActive = true; simulationPaused = false; simulationMessage = ""
+            simulationMode = name === "simStartMD" ? "md" : "opt"
         } else if (name === "simPause") simulationPaused = !simulationPaused
         else if (name === "simStop") {
-            simulationActive = false; simulationPaused = false
+            simulationActive = false; simulationPaused = false; simulationMode = ""
             simulationMessage = "Finished: stopped by the user."
         } else if (name.indexOf("simMethod:") === 0) {
             if (!simulationActive) method = name.substring(10)
@@ -97,8 +105,8 @@ QtObject {
         if (stateName === "trajectory" || stateName === "files") {
             frameCount = 240; frame = 41; selectionText = "C #12 (+2)"
         } else if (stateName === "running" || stateName === "paused") {
-            simulationActive = true; simulationPaused = stateName === "paused"
-            temperature = 350; selectionText = "N #3"; grabStrength = 0.156
+            simulationActive = true; simulationPaused = stateName === "paused"; simulationMode = "md"
+            temperature = 350; systemTemperature = 342; selectionText = "N #3"; grabStrength = 0.156
         } else if (stateName === "aborted") {
             simulationMessage = "Aborted: the temperature ran away (above 5000 K)."
         }

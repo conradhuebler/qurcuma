@@ -3,7 +3,7 @@
 // live thermostat target (VrTemperatureSlider, the dock's slider with its min/max) and the grab strength, with the run state as in the dock (Running, Paused,
 // Finished, Aborted) and the last run's end line ("Finished: ..." / "Aborted: ...").
 //   session: VrSession (or MockVr): simulationActive, simulationPaused, simulationMessage,
-//            temperature, temperatureMin/Max, method, grabStrength, handInput, command()
+//            simulationMode, temperature, temperatureMin/Max, method, grabStrength, handInput, command()
 import QtQuick
 import "VrStyle.js" as Style
 
@@ -58,6 +58,7 @@ VrPanel {
                     width: runRow.buttonWidth
                     text: "MD"
                     tone: "primary"
+                    selected: panel.active && panel.session.simulationMode === "md"
                     enabled: !panel.active
                     onClicked: panel.session.command("simStartMD")
                 }
@@ -65,6 +66,7 @@ VrPanel {
                     width: runRow.buttonWidth
                     text: "Opt"
                     tone: "primary"
+                    selected: panel.active && panel.session.simulationMode === "opt"
                     enabled: !panel.active
                     onClicked: panel.session.command("simStartOpt")
                 }
@@ -97,6 +99,7 @@ VrPanel {
                         width: methodRow.buttonWidth
                         text: modelData.label
                         tone: panel.session.method === modelData.key ? "primary" : "normal"
+                        selected: panel.session.method === modelData.key
                         enabled: !panel.active   // the dock locks the method during a run
                         onClicked: panel.session.command("simMethod:" + modelData.key)
                     }

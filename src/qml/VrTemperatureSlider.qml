@@ -9,6 +9,10 @@
 // and the scene opens a number pad (VrNumberPad.qml). A drag sends "simTemp:<K>" (whole kelvin, only
 // on a change), which acts like a drag of the dock's slider, also live during a run.
 //
+// System temperature (Claude Generated 2026): the running MD's instantaneous temperature
+// (session.systemTemperature, the Temperature chart's curve) is a white notch beside the track and
+// a second number below the thermostat value; "–" until the first MD frame of a run.
+//
 // The track is a drag target for the controller rays and the hands (vrDragTarget: viewerxr.qml Hand
 // and VrHandInput.qml call vrDragStart / vrDragMove / vrDragEnd with track coordinates); a mouse
 // drives it too (offline preview).
@@ -28,6 +32,8 @@ Column {
     property bool dragging: false
     property real dragValue: 0
     readonly property real value: dragging ? dragValue : session.temperature
+    /// Instantaneous temperature of the system (K), 0 = none (no MD frame yet, or an optimization)
+    readonly property real systemValue: session.systemTemperature || 0
 
     width: 132
     spacing: 6
@@ -138,6 +144,23 @@ Column {
             border.width: 2
             border.color: Qt.darker(color, 1.6)
         }
+        // system temperature: a white notch right of the bar, pointing at it; pinned to the end of
+        // the track (hollow) when the system is outside the slider's range
+        Item {
+            readonly property real rawFraction: (slider.systemValue - slider.minimum) / (slider.maximum - slider.minimum)
+            readonly property bool outside: rawFraction < 0 || rawFraction > 1
+            visible: slider.systemValue > 0
+            x: bar.x + bar.width + 12
+            y: track.margin + (1 - Math.max(0, Math.min(1, rawFraction))) * track.barHeight - height / 2
+            width: 16
+            height: 14
+            Text {
+                anchors.centerIn: parent
+                text: parent.outside ? "◁" : "◀"
+                color: Style.title
+                font.pixelSize: 14
+            }
+        }
         MouseArea {
             anchors.fill: parent
             onPressed: (mouse) => track.vrDragStart(mouse.x, mouse.y)
@@ -162,6 +185,15 @@ Column {
         color: Qt.lighter(slider.colorAt(slider.value), 1.2)
         font.pixelSize: Style.fontTitle
         font.weight: Font.Bold
+    }
+
+    // the system's own temperature (Temperature chart), below the thermostat target
+    Text {
+        width: parent.width
+        horizontalAlignment: Text.AlignHCenter
+        text: "system  " + (slider.systemValue > 0 ? slider.systemValue.toFixed(0) + " K" : "–")
+        color: slider.systemValue > 0 ? Style.title : Style.textDim
+        font.pixelSize: Style.fontBody
     }
 
     // label, then − [value field] + for min and max; the field opens the number pad

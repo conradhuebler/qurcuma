@@ -15,8 +15,8 @@ VrPanel {
     readonly property var actions: handInput ? handActions : controllerActions
     readonly property var handActions: [
         { keys: "Pinch", text: "on a button presses it. The dot between thumb and index finger shows where the pinch lands; a pinch that touches nothing does nothing" },
-        { keys: "Hold atom (MD)", text: "while a simulation runs pinch and hold an atom to pull it" },
-        { keys: "Hold atom", text: "otherwise the molecule moves and turns with your hand" },
+        { keys: "Hold atom (MD)", text: "while a simulation runs pinch and hold an atom to pull it; both hands at once work" },
+        { keys: "Pinch molecule", text: "otherwise pinch on or near the molecule and hold: it moves and turns with your hand" },
         { keys: "Both hands", text: "hold atoms with both, then pull apart or together: the molecule grows or shrinks" },
         { keys: "Fingertip on atom", text: "a bright shell shows the atom a pinch takes" },
         { keys: "Quick pinch", text: "on an atom selects it (it gets a pulsing shell)" },
@@ -25,11 +25,12 @@ VrPanel {
     ]
     readonly property var controllerActions: [
         { keys: "Point + Trigger", text: "on a button presses it" },
-        { keys: "Hold Trigger or Grip", text: "away from the panels and turn your hand: the molecule turns with it" },
+        { keys: "Trigger on molecule", text: "hold: the molecule follows the ray (no simulation)" },
+        { keys: "Hold Grip", text: "hold and turn your hand: the molecule turns along" },
         { keys: "Ray on atom", text: "a bright shell shows the atom the ray is on" },
         { keys: "A / X", text: "on an atom selects it (it gets a pulsing shell)" },
         { keys: "Trigger on handle", text: "the bar below a panel: hold and point elsewhere to move it" },
-        { keys: "Hold Trigger", text: "on an atom while a simulation runs pulls the atom" },
+        { keys: "Hold Trigger", text: "on an atom while a simulation runs pulls it; both at once work" },
         { keys: "B / Y", text: "hides or shows all panels" },
         { keys: "Left stick", text: "walks where you look" },
         { keys: "Right stick", text: "left / right turns you by 45°" }

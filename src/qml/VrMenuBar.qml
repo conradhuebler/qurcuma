@@ -1,5 +1,6 @@
 // Copyright (C) 2025 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
 // See-through menu bar of the headset scene (Claude Generated 2026): one toggle per panel plus Help.
+// Order as the panels stand, left to right: Simulation, Structure, View.
 // It stays visible when the panels are hidden, so the way back is always in sight. A lit button means
 // the panel is shown. B / Y on either controller hides or shows all panels at once (viewerxr.qml).
 //   vrScene: VrScene (structureVisible, simulationVisible, viewVisible, helpVisible)
@@ -28,17 +29,17 @@ Rectangle {
 
         VrButton {
             width: bar.buttonWidth
-            text: "Structure"
-            tone: "ghost"
-            highlighted: bar.vrScene.structureVisible
-            onClicked: bar.vrScene.structureVisible = !bar.vrScene.structureVisible
-        }
-        VrButton {
-            width: bar.buttonWidth
             text: "Simulation"
             tone: "ghost"
             highlighted: bar.vrScene.simulationVisible
             onClicked: bar.vrScene.simulationVisible = !bar.vrScene.simulationVisible
+        }
+        VrButton {
+            width: bar.buttonWidth
+            text: "Structure"
+            tone: "ghost"
+            highlighted: bar.vrScene.structureVisible
+            onClicked: bar.vrScene.structureVisible = !bar.vrScene.structureVisible
         }
         VrButton {
             width: bar.buttonWidth

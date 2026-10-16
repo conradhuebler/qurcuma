@@ -185,6 +185,34 @@ void VrSession::setSurroundings(const QString& panoramaPath, const QString& scen
     emit surroundingsChanged();
 }
 
+// Claude Generated 2026 - Instantaneous MD temperature for the headset thermostat slider.
+void VrSession::setSystemTemperature(double kelvin)
+{
+    if (kelvin == m_systemTemperature)
+        return;
+    m_systemTemperature = kelvin;
+    emit systemTemperatureChanged();
+}
+
+// Claude Generated 2026 - Kind of the active run ("md" / "opt" / empty), for the Simulation panel.
+void VrSession::setSimulationMode(const QString& mode)
+{
+    if (mode == m_simulationMode)
+        return;
+    m_simulationMode = mode;
+    emit simulationStatusChanged();
+}
+
+// Claude Generated 2026 - File name and molecule name of the structure shown, for the Structure panel.
+void VrSession::setStructure(const QString& fileName, const QString& title)
+{
+    if (fileName == m_structureFile && title == m_structureTitle)
+        return;
+    m_structureFile = fileName;
+    m_structureTitle = title;
+    emit structureChanged();
+}
+
 void VrSession::setMethod(const QString& key)
 {
     if (key == m_method)

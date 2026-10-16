@@ -10,9 +10,12 @@
 //   pinch on a panel button             = click (on release, on the same button: a mouse click's rule)
 //   pinch on the thermostat track, move = drag the temperature
 //   pinch on a panel's handle, move     = move the panel (it keeps facing the head)
-//   pinch and hold an atom, simulation  = pull it with a spring force (one atom at a time); the
-//                                         molecule itself never moves while a simulation runs
-//   pinch and hold an atom, otherwise   = hold the molecule: it moves and turns with the hand
+//   pinch and hold an atom, simulation  = pull it with a spring force; both hands may pull at once
+//                                         (two atoms or the same one); the molecule itself never moves
+//                                         while a simulation runs
+//   pinch on or near the molecule,      = hold the molecule: it moves with the pinch point and turns
+//     no simulation                       with the hand, both relative to where the pinch started
+//                                         (within Style.moleculeTouch of an atom, not only on one)
 //   both hands holding atoms, pull apart = resize the molecule about the point between the hands
 //   quick pinch (tap) on an atom        = select it
 // A pinch is read from the tracked joints (thumb-to-index distance with hysteresis, Style.pinch*),
@@ -32,9 +35,6 @@ Node {
     required property var vrScene    // VrScene: panels, molecule anchor, atoms
     required property var session    // VrSession: atomPicked, grabForce, grabReleased
     property bool active: false
-
-    /// The hand pulling an atom (null = none); VrSession knows a single grab only.
-    property var grabHand: null
 
     TrackedHand { id: rightHand; side: XrController.RightHand }
     TrackedHand { id: leftHand; side: XrController.LeftHand }
@@ -64,7 +64,7 @@ Node {
     /// Move the molecule anchor to a scene position (through VrScene.moleculeOffset, which the
     /// layout adds to the anchor's place).
     function carry(target) {
-        vrScene.moleculeOffset = vrScene.moleculeOffset.plus(target.minus(vrScene.moleculeAnchor.scenePosition))
+        vrScene.moveMoleculeTo(target)
     }
 
     // ---- one tracked hand -------------------------------------------------------------------------
@@ -92,7 +92,7 @@ Node {
         property Item hoverButton: null
         /// What the current pinch does: "" (no pinch), "button", "slide" (a drag target such as the
         /// thermostat track), "move" (a panel by its handle), "hold" (the molecule), "atom" (pull)
-        /// or "none" (it started touching nothing, or an atom the other hand already pulls)
+        /// or "none" (it started touching nothing)
         property string action: ""
         readonly property bool holding: action === "hold"
         property Item pressedButton: null
@@ -103,6 +103,8 @@ Node {
         property var actionHost: null
         property vector3d moveOffset
         property int hoverAtom: -1
+        /// no simulation: the pinch point is near enough to the molecule to hold it (Claude Generated 2026)
+        property bool hoverMolecule: false
         property int grabAtom: -1
         /// pinch point minus atom at the start of a pull (Angstrom), so the atom is not yanked onto it
         property vector3d grabOffset
@@ -112,6 +114,8 @@ Node {
         property vector3d pressPoint
         /// key of this hand's atom highlight in VrScene.setHighlight
         readonly property string highlightKey: side === XrController.LeftHand ? "leftHand" : "rightHand"
+        /// grab source for session.grabForce (1 = right, 2 = left): both hands pull at once (Claude Generated 2026)
+        readonly property int grabSource: side === XrController.LeftHand ? 2 : 1
         /// pinch point and palm orientation of the previous update (hold = follow their change)
         property vector3d lastPoint
         property quaternion lastRotation: Qt.quaternion(1, 0, 0, 0)
@@ -176,6 +180,8 @@ Node {
             if (pressedButton && action === "button")
                 pressedButton.rayDown = pressedButton === hoverButton
             hoverAtom = onPanel || action !== "" ? -1 : atomAtPinch()
+            hoverMolecule = hoverAtom >= 0 || (!onPanel && action === "" && !root.session.simulationActive
+                                                && atomAtPinch(Style.moleculeTouch) >= 0)
         }
 
         // Highlight the atom this hand would take or is pulling (VrScene draws it).
@@ -205,9 +211,9 @@ Node {
 
         // Atom the pinch point touches (inside its drawn sphere, or within Style.atomTouch of its
         // surface), -1 if none. A plain overlap test in atom coordinates, no ray.
-        function atomAtPinch() {
+        function atomAtPinch(touchCm) {
             var point = root.vrScene.atomsNode.mapPositionFromScene(pinchPoint)
-            return root.vrScene.sceneController.atomAtPoint(point, Style.atomTouch / root.vrScene.cmPerAngstrom)
+            return root.vrScene.sceneController.atomAtPoint(point, (touchCm || Style.atomTouch) / root.vrScene.cmPerAngstrom)
         }
 
         function press() {
@@ -236,19 +242,15 @@ Node {
                 return
             }
             if (hoverAtom < 0) {
-                action = "none"   // an accidental pinch in the air
+                // near the molecule without a simulation: hold it; else an accidental pinch in the air
+                action = hoverMolecule && !root.session.simulationActive ? "hold" : "none"
                 return
             }
             tapAtom = hoverAtom
             if (root.session.simulationActive) {
-                // a running simulation: atoms are pulled, the molecule stays where it is
-                if (root.grabHand !== null) {
-                    action = "none"
-                    return
-                }
+                // a running simulation: atoms are pulled (each hand its own), the molecule stays
                 action = "atom"
                 grabAtom = hoverAtom
-                root.grabHand = hand
                 var atom = root.vrScene.sceneController.atomPosition(grabAtom)
                 grabOffset = root.vrScene.atomsNode.mapPositionFromScene(pinchPoint).minus(atom)
                 return
@@ -298,8 +300,7 @@ Node {
             actionHost = null
             if (grabAtom >= 0) {
                 grabAtom = -1
-                root.grabHand = null
-                root.session.grabReleased()
+                root.session.grabReleased(hand.grabSource)
             }
             action = ""
             if (tap)
@@ -314,6 +315,7 @@ Node {
             setHoverHandle(null)
             onPanel = false
             hoverAtom = -1
+            hoverMolecule = false
             root.vrScene.setHighlight(highlightKey, -1, false)
         }
 
@@ -326,7 +328,7 @@ Node {
             onTriggered: {
                 var atom = root.vrScene.sceneController.atomPosition(hand.grabAtom)
                 var target = root.vrScene.atomsNode.mapPositionFromScene(hand.pinchPoint).minus(hand.grabOffset)
-                root.session.grabForce(hand.grabAtom, target.minus(atom))
+                root.session.grabForce(hand.grabSource, hand.grabAtom, target.minus(atom))
             }
         }
 
@@ -346,7 +348,7 @@ Node {
             }
         }
         // Pinch point: red while pulling an atom, orange while holding the molecule, blue on a
-        // panel (or moving one), yellow touching an atom, green otherwise (a pinch now does nothing).
+        // panel (or moving one), yellow touching an atom (or near the molecule, no simulation), green otherwise (a pinch now does nothing).
         Model {
             visible: hand.tracked
             position: hand.pinchPointLocal
@@ -357,7 +359,7 @@ Node {
                 baseColor: hand.action === "atom" ? Style.markerGrab
                          : hand.action === "hold" ? Style.markerRotate
                          : hand.onPanel || hand.action === "button" || hand.action === "slide" || hand.action === "move" ? Style.markerPanel
-                         : hand.hoverAtom >= 0 ? Style.markerAtom : Style.markerIdle
+                         : hand.hoverAtom >= 0 || hand.hoverMolecule ? Style.markerAtom : Style.markerIdle
                 lighting: PrincipledMaterial.NoLighting
             }
         }

@@ -14,6 +14,9 @@ T.Button {
     property string tone: "normal"
     /// Text alignment of the label; file list rows use Text.AlignLeft.
     property int alignment: Text.AlignHCenter
+    /// In use (Claude Generated 2026): the running MD/Opt, the chosen method. Drawn lit (Style.selected,
+    /// with a ring) also while the button is disabled, e.g. during a run.
+    property bool selected: false
     /// Controller rays (viewerxr.qml Hand) drive the button directly, not through mouse events:
     /// rays on it (both hands count) and a trigger held on it. Claude Generated 2026.
     property int rayHoverCount: 0
@@ -31,7 +34,8 @@ T.Button {
     contentItem: Text {
         text: control.text
         font: control.font
-        color: !control.enabled ? Style.textDisabled
+        color: control.selected ? Style.title
+             : !control.enabled ? Style.textDisabled
              : control.tone === "ghost" && !control.highlighted ? Style.textDim : Style.text
         horizontalAlignment: control.alignment
         verticalAlignment: Text.AlignVCenter
@@ -41,7 +45,8 @@ T.Button {
     background: Rectangle {
         readonly property bool lit: (control.hovered || control.rayHoverCount > 0) && control.enabled
         radius: Style.buttonRadius
-        color: !control.enabled ? Style.buttonDisabled
+        color: control.selected && !control.enabled ? Style.selected
+             : !control.enabled ? Style.buttonDisabled
              : control.down || control.rayDown ? Style.buttonDown
              : control.tone === "primary" ? (lit ? Style.primaryHover : Style.primary)
              : control.tone === "danger" ? (lit ? Style.dangerHover : Style.danger)
@@ -49,8 +54,8 @@ T.Button {
                                                                : (lit ? Style.ghostHover : Style.ghost))
              : control.tone === "field" ? (lit ? Style.fieldHover : Style.field)
              : (lit ? Style.buttonHover : Style.button)
-        border.width: lit ? 3 : 1
-        border.color: lit ? Style.hoverRing : control.tone === "ghost" ? Style.barBorder
+        border.width: lit || control.selected ? 3 : 1
+        border.color: lit ? Style.hoverRing : control.selected ? Style.selectedRing : control.tone === "ghost" ? Style.barBorder
                     : control.tone === "field" ? Style.fieldBorder : Style.buttonBorder
     }
 }

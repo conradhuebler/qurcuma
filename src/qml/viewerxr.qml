@@ -10,8 +10,12 @@
 // Both hands work the same (Hand below), so left- and right-handed users need nothing to learn:
 //   trigger on a panel              = click the button under the ray (each hand clicks on its own),
 //                                     or drag the thermostat track; on a handle: move that panel
-//   trigger on an atom (simulation) = grab it with a spring force (one atom at a time)
-//   trigger elsewhere, or grip      = rotate the molecule with the hand
+//   trigger on an atom (simulation) = grab it with a spring force; both hands may pull at once,
+//                                     different atoms or the same one (Claude Generated 2026)
+//   trigger on the molecule, no simulation = carry it: it follows the ray point, keeping its offset
+//                                     (Claude Generated 2026)
+//   grip                            = rotate the molecule with the hand (also while carrying it)
+//   trigger elsewhere               = rotate the molecule with the hand
 //   A / X                           = select the atom under the ray
 //   B / Y                           = hide / show the panels
 // The thumbsticks are the one exception (Claude Generated 2026), they move the user, not the scene:
@@ -77,9 +81,6 @@ XrView {
             active: vr.handInput
         }
     }
-
-    /// The hand holding an atom (null = none); VrSession knows a single grab only.
-    property Hand grabHand: null
 
     // ---- locomotion: left stick walks, right stick snap-turns (Claude Generated 2026) -----------
     // The user moves, not the scene: both act on the XrOrigin, which carries head and hands, so the
@@ -216,12 +217,19 @@ XrView {
         /// atom under the ray (-1 = none), highlighted by VrScene under this key (Claude Generated 2026)
         property int hoverAtom: -1
         readonly property string highlightKey: inputHand === XrInputAction.LeftHand ? "leftController" : "rightController"
+        /// grab source of this hand for VrSession.grabForce (1 = right, 2 = left; Claude Generated 2026)
+        readonly property int grabSource: inputHand === XrInputAction.LeftHand ? 2 : 1
         /// trigger pulled while on a panel: a click in progress, never a rotation
         property bool pressing: false
         property int grabAtom: -1
+        /// Carrying the molecule (trigger on it, no simulation; Claude Generated 2026): it follows the
+        /// ray point at the grab distance, plus the anchor's offset from that point at the start.
+        property bool movingMolecule: false
+        property real moleculeGrabDistance: 0
+        property vector3d moleculeGrabOffset
         readonly property bool triggerDown: active && trigger.value > 0.5
         readonly property bool squeezeDown: active && squeeze.value > 0.5
-        readonly property bool rotating: !pressing && grabAtom < 0 && (triggerDown || squeezeDown)
+        readonly property bool rotating: !pressing && grabAtom < 0 && (squeezeDown || (triggerDown && !movingMolecule))
         property quaternion lastRotation: Qt.quaternion(1, 0, 0, 0)
 
         XrInputAction { id: trigger; enabled: thisHand.active; hand: thisHand.inputHand; actionId: XrInputAction.TriggerValue }
@@ -261,6 +269,29 @@ XrView {
             if (pointsAtPanel && panelDistance < result.distance)
                 return -1
             return thisHand.vrScene.sceneController.atomIndexForInstance(result.instanceIndex)
+        }
+
+        // Distance along the ray to the molecule, -1 if the ray misses it (Claude Generated 2026): an
+        // atom hit, else the ray passing within half the molecule's fitted radius of its centre
+        // (sparse molecules have gaps between the atoms). Panels in front are handled by the caller.
+        function moleculeDistanceOnRay() {
+            var origin = thisHand.scenePosition
+            var direction = aimDirection()
+            var result = thisHand.view.rayPick(origin, direction, thisHand.vrScene.atomModel)
+            if (result.objectHit === thisHand.vrScene.atomModel)
+                return result.distance
+            var toCentre = thisHand.vrScene.moleculeAnchor.scenePosition.minus(origin)
+            var along = toCentre.dotProduct(direction)
+            if (along <= 0)
+                return -1
+            var miss = toCentre.minus(direction.times(along)).length()
+            return miss < 0.5 * thisHand.vrScene.moleculeSize ? along : -1
+        }
+
+        /// Molecule follows the ray point while carried (from the pose updates).
+        function carryMolecule() {
+            var target = thisHand.scenePosition.plus(aimDirection().times(moleculeGrabDistance))
+            thisHand.vrScene.moveMoleculeTo(target.plus(moleculeGrabOffset))
         }
 
         // Panel and button under the ray. Lights the button (rayHoverCount: both hands may point at
@@ -306,10 +337,16 @@ XrView {
             if (hoverHandleHost)
                 hoverHandleHost.handleHoverCount++
         }
-        onScenePositionChanged: updatePanelHit()
+        onScenePositionChanged: {
+            updatePanelHit()
+            if (movingMolecule)
+                carryMolecule()
+        }
         onActiveChanged: updatePanelHit()   // off: drops the hover light of the button under the ray
         onSceneRotationChanged: {
             updatePanelHit()
+            if (movingMolecule)
+                carryMolecule()
             if (!rotating || thisHand.view.turning)
                 return
             // delta = current * inverse(last), applied in world space (the anchor's parent only
@@ -344,11 +381,20 @@ XrView {
                     }
                     return
                 }
-                var atom = atomUnderRay()
-                if (vr.simulationActive && atom >= 0 && thisHand.view.grabHand === null) {
-                    grabAtom = atom
-                    thisHand.view.grabHand = thisHand
+                if (!vr.simulationActive) {
+                    // carry the molecule, keeping the anchor's offset from the ray point
+                    var distance = moleculeDistanceOnRay()
+                    if (distance >= 0) {
+                        moleculeGrabDistance = distance
+                        var grabAt = thisHand.scenePosition.plus(aimDirection().times(distance))
+                        moleculeGrabOffset = thisHand.vrScene.moleculeAnchor.scenePosition.minus(grabAt)
+                        movingMolecule = true
+                    }
+                    return
                 }
+                var atom = atomUnderRay()
+                if (atom >= 0)
+                    grabAtom = atom
             } else {
                 // Click = trigger released on the button it went down on (a mouse click's rule).
                 var button = pressedButton
@@ -356,6 +402,7 @@ XrView {
                 pressedButton = null
                 pressedHost = null
                 pressing = false
+                movingMolecule = false
                 if (movingHost) {
                     movingHost.handleHeld = false
                     movingHost = null
@@ -369,8 +416,7 @@ XrView {
                 }
                 if (grabAtom >= 0) {
                     grabAtom = -1
-                    thisHand.view.grabHand = null
-                    vr.grabReleased()
+                    vr.grabReleased(thisHand.grabSource)
                 }
             }
         }
@@ -386,7 +432,7 @@ XrView {
                 var origin = thisHand.scenePosition
                 var dist = atomScene.minus(origin).length()
                 var target = origin.plus(thisHand.aimDirection().times(dist))
-                vr.grabForce(thisHand.grabAtom, thisHand.vrScene.atomsNode.mapPositionFromScene(target).minus(atom))
+                vr.grabForce(thisHand.grabSource, thisHand.grabAtom, thisHand.vrScene.atomsNode.mapPositionFromScene(target).minus(atom))
             }
         }
 
@@ -394,6 +440,7 @@ XrView {
         // so the user sees exactly which button the trigger will press.
         Model {
             readonly property real length: thisHand.movingHost ? thisHand.moveDistance
+                                         : thisHand.movingMolecule ? thisHand.moleculeGrabDistance
                                          : thisHand.pointsAtPanel ? thisHand.panelDistance : 150
             source: "#Cylinder"
             position: Qt.vector3d(0, 0, -length / 2)
@@ -404,12 +451,14 @@ XrView {
                 lighting: PrincipledMaterial.NoLighting
             }
         }
-        // Marker: red while holding an atom, orange while rotating, blue on a panel, green idle.
+        // Marker: red while holding an atom, purple while carrying the molecule, orange while rotating,
+        // blue on a panel, green idle.
         Model {
             source: "#Sphere"
             scale: Qt.vector3d(0.03, 0.03, 0.03)
             materials: PrincipledMaterial {
                 baseColor: thisHand.grabAtom >= 0 ? Style.markerGrab
+                         : thisHand.movingMolecule ? Style.markerMove
                          : thisHand.rotating ? Style.markerRotate
                          : thisHand.pointsAtPanel || thisHand.pressing || thisHand.movingHost ? Style.markerPanel : Style.markerIdle
                 lighting: PrincipledMaterial.NoLighting
