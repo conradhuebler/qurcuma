@@ -105,6 +105,13 @@ int main(int argc, char* argv[])
         p.identityFile.clear();
         CHECK(p.sshArgs().isEmpty());
         CHECK(p.effectiveServerCommand() == "qurcuma-server");
+        // the address split used by the SFTP dialog
+        p.target = QStringLiteral("alice@gpu1.example.org");
+        CHECK(p.userPart() == "alice" && p.hostPart() == "gpu1.example.org");
+        p.target = QStringLiteral("gpu1.example.org");
+        CHECK(p.userPart().isEmpty() && p.hostPart() == "gpu1.example.org");
+        p.target = QStringLiteral("blaubaer");  // an ssh alias is a host part like any other
+        CHECK(p.userPart().isEmpty() && p.hostPart() == "blaubaer");
     }
 
     // ---- storage ----------------------------------------------------------------------------

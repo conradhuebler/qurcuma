@@ -4,6 +4,7 @@ Newest first; one line per fact. Entries from August 2026 and earlier: [docs/cha
 
 ## Oktober 2026 - SFTP standardmäßig an
 
+- **SFTP liest die Computerliste mit**: der SFTP-Dialog hat ein Feld "Computers" aus der Liste der Remote-Rechner und übernimmt Adresse, Benutzer und Port (ein ssh-Alias als Adresse wählt den Eintrag der `~/.ssh/config` mit); nichts davon braucht oder kontaktiert `qurcuma-server`. Die SFTP-Profile bleiben eine eigene Liste, die Schlüsseldatei eines Computers wird nicht benutzt (Agent und Standardschlüssel). ⚙️ `test_remote_hosts` für die Adressaufteilung; der Dialog ist gebaut, nicht im GUI geprüft.
 - **SFTP (Open Remote File) ist jetzt standardmäßig gebaut**: `USE_SFTP` steht auf ON; fehlt libssh, meldet CMake eine Warnung und baut ohne SFTP, statt abzubrechen (CI, Windows). ⚙️ mit libssh 0.12.2 konfiguriert, gebaut und gelinkt; nicht gegen einen echten Server ausgeführt, der Dialog nicht im GUI geprüft.
 
 ## Oktober 2026 - Einstellungsdialog erweitert

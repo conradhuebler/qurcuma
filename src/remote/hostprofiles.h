@@ -29,6 +29,9 @@ struct HostProfile {
     bool isValid(QString* why = nullptr) const;
     /// Options placed before the target: `-p <port>`, `-i <key>`.
     QStringList sshArgs() const;
+    /// `target` split at '@': the user (empty when the address has none) and the host or alias.
+    QString userPart() const;
+    QString hostPart() const;
     QString effectiveServerCommand() const { return serverCommand.trimmed().isEmpty() ? QStringLiteral("qurcuma-server") : serverCommand.trimmed(); }
 
     QJsonObject toJson() const;

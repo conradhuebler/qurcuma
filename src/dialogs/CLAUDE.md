@@ -32,6 +32,7 @@ Specialized dialog windows and analysis tools for molecular visualization.
   - **Progress Feedback**: QProgressDialog for connect/download operations
   - **Error Reporting**: Detailed SSH error messages from libssh
   - Keyboard shortcut: Ctrl+Shift+R
+- **Computers**: the dialog also lists the computers saved in qurcuma (the list of the Simulation dock; `remote/hostprofiles.h`) and takes over address, user and port; an address that is an `~/.ssh/config` alias selects that entry too. The SFTP profiles stay a separate list, and nothing here contacts or needs `qurcuma-server`. The computer's key file is not used (SFTP tries the agent and the standard keys).
 - **Dependencies**: libssh 0.11.3+. CMake option `USE_SFTP` is ON by default since Oct 2026; without libssh the configuration prints a warning and builds without SFTP (`-DUSE_SFTP=OFF` forces that). Compiled and linked with libssh 0.12.2; not run against a server in that change.
 - **Architecture**:
   - `sftpdialog.cpp/h` - Main dialog with profile/SSH config dropdowns

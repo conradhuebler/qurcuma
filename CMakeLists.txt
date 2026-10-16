@@ -171,6 +171,7 @@ set(SOURCES
     src/main.cpp
     src/mainwindow.cpp
     src/settings.cpp
+    src/remote/hostprofiles.cpp  # Claude Generated 2026 - the computer list (Qt core only), read by the remote dock and by SFTP
     src/vtfparser.cpp
     src/xyzparser.cpp
     src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
@@ -241,6 +242,7 @@ set(SOURCES
 set(HEADERS
     src/mainwindow.h
     src/settings.h
+    src/remote/hostprofiles.h
     src/view.h
     src/vtfparser.h
     src/xyzparser.h
@@ -311,7 +313,6 @@ if(USE_REMOTE AND TARGET Qt6::WebSockets)
         src/remote/remotebackend.cpp
         src/remote/remotefiles.cpp
         src/remote/remotelog.cpp
-        src/remote/hostprofiles.cpp
         src/remote/hostprobe.cpp
         src/remote/sshtunnel.cpp
         src/dialogs/remotefilesdialog.cpp
@@ -322,7 +323,6 @@ if(USE_REMOTE AND TARGET Qt6::WebSockets)
         src/remote/remotefiles.h
         src/remote/remotelog.h
         src/remote/sshtunnel.h
-        src/remote/hostprofiles.h
         src/remote/hostprobe.h
         src/dialogs/remotefilesdialog.h
         src/dialogs/addcomputerdialog.h)

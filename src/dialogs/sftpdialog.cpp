@@ -6,6 +6,7 @@
 #include "../sftpmodel.hpp"
 #include "../settings.h"
 #include "../sshconfig.h"
+#include "../remote/hostprofiles.h"  // Claude Generated 2026 - computer list shared with the remote dock
 #include "../sftpcache.h"  // Claude Generated - Cache integration
 
 #include <QVBoxLayout>
@@ -36,6 +37,7 @@ SftpDialog::SftpDialog(QWidget* parent)
     setupUI();
     connectSignals();
     loadProfiles();  // Claude Generated - Load saved profiles
+    loadComputers();
     loadSSHConfigHosts();  // Claude Generated - Load SSH config hosts
     updateConnectionState(false);
 }
@@ -59,6 +61,14 @@ void SftpDialog::setupUI()
     m_profileCombo = new QComboBox(this);
     m_profileCombo->setEditable(false);
     connectionLayout->addRow(tr("Saved Profiles:"), m_profileCombo);
+
+    // Computers saved in qurcuma (the list of the Simulation dock). Only address, user and port are
+    // used: SFTP needs nothing on that computer, in particular not qurcuma-server. Claude Generated 2026
+    m_computerCombo = new QComboBox(this);
+    m_computerCombo->setEditable(false);
+    m_computerCombo->setToolTip(tr("Computers added in qurcuma. Only the address, user and port are taken over; "
+                                   "SFTP does not need qurcuma-server on the computer."));
+    connectionLayout->addRow(tr("Computers:"), m_computerCombo);
 
     // SSH Config hosts dropdown (Claude Generated - Phase SFTP Integration)
     m_sshConfigCombo = new QComboBox(this);
@@ -138,6 +148,8 @@ void SftpDialog::connectSignals()
     // Claude Generated - Phase SFTP Integration: New signal connections
     connect(m_profileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SftpDialog::onProfileSelected);
+    connect(m_computerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SftpDialog::onComputerSelected);
     connect(m_sshConfigCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SftpDialog::onSSHConfigHostSelected);
     connect(m_saveProfileButton, &QPushButton::clicked, this, &SftpDialog::onSaveProfileClicked);
@@ -410,6 +422,7 @@ void SftpDialog::updateConnectionState(bool connected)
     m_portSpin->setEnabled(!connected);
     m_useSSHKeyCheckbox->setEnabled(!connected);  // Claude Generated
     m_profileCombo->setEnabled(!connected);  // Claude Generated
+    m_computerCombo->setEnabled(!connected);
     m_sshConfigCombo->setEnabled(!connected);  // Claude Generated
     m_openButton->setEnabled(connected);
     m_fileTreeView->setEnabled(connected);
@@ -427,6 +440,44 @@ void SftpDialog::loadProfiles()
     for (const auto& profile : profiles) {
         m_profileCombo->addItem(profile.name, profile.id);
     }
+}
+
+void SftpDialog::loadComputers()
+{
+    m_computerCombo->clear();
+    m_computerCombo->addItem(tr("-- Select Computer --"), QString());
+    for (const remote::HostProfile& p : remote::HostProfiles::load()) {
+        m_computerCombo->addItem(p.name, p.name);
+        m_computerCombo->setItemData(m_computerCombo->count() - 1, p.target, Qt::ToolTipRole);
+    }
+}
+
+/// Takes over address, user and port of a computer of the shared list. When its address is an alias of
+/// ~/.ssh/config, the alias is selected too, so that HostName, user and ProxyJump of that entry apply as
+/// they do for a chosen SSH config host; what the computer states itself (user, port) comes on top.
+/// The key file of a computer is not used here: SFTP tries the ssh agent and the standard keys.
+/// Claude Generated 2026
+void SftpDialog::onComputerSelected(int index)
+{
+    if (index <= 0)
+        return;
+    const auto computer = remote::HostProfiles::find(m_computerCombo->itemData(index).toString());
+    if (!computer)
+        return;
+    const QString host = computer->hostPart();
+    const int aliasIndex = m_sshConfigCombo->findData(host);
+    if (aliasIndex > 0)
+        m_sshConfigCombo->setCurrentIndex(aliasIndex);  // fills the form from the ssh config entry
+    else
+        m_hostEdit->setText(host);
+    if (!computer->userPart().isEmpty())
+        m_usernameEdit->setText(computer->userPart());
+    if (computer->port > 0)
+        m_portSpin->setValue(computer->port);
+    else if (aliasIndex <= 0)
+        m_portSpin->setValue(22);
+    if (!computer->identityFile.isEmpty())
+        m_useSSHKeyCheckbox->setChecked(true);
 }
 
 void SftpDialog::loadSSHConfigHosts()

@@ -67,12 +67,15 @@ private:
     void setupUI();
     void connectSignals();
     void updateConnectionState(bool connected);
+    void loadComputers();  // Claude Generated 2026 - fill the computers dropdown from the shared list
+    void onComputerSelected(int index);
     void loadProfiles();  // Claude Generated - Load saved profiles into dropdown
     void loadSSHConfigHosts();  // Claude Generated - Load SSH config hosts into dropdown
     void fillFormFromProfile(const QString& profileId);  // Claude Generated - Populate form fields
 
     // UI Components
     QComboBox* m_profileCombo = nullptr;  // Claude Generated - Saved profiles dropdown
+    QComboBox* m_computerCombo = nullptr;  // Claude Generated 2026 - computers of the shared list
     QComboBox* m_sshConfigCombo = nullptr;  // Claude Generated - SSH config hosts dropdown
     QLineEdit* m_hostEdit = nullptr;
     QLineEdit* m_usernameEdit = nullptr;

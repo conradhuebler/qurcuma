@@ -45,6 +45,16 @@ QStringList HostProfile::sshArgs() const
     return args;
 }
 
+QString HostProfile::userPart() const
+{
+    return target.contains(QLatin1Char('@')) ? target.section(QLatin1Char('@'), 0, 0) : QString();
+}
+
+QString HostProfile::hostPart() const
+{
+    return target.section(QLatin1Char('@'), -1);
+}
+
 QJsonObject HostProfile::toJson() const
 {
     return { { "name", name }, { "target", target }, { "port", port },
