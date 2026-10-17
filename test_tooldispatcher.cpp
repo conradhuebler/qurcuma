@@ -5,8 +5,8 @@
 // recorded.
 
 #include "core/loghub.h"
-#include "core/tooldispatcher.h"
-#include "core/toolregistry.h"
+#include <cutechat/tooldispatcher.h>
+#include <cutechat/toolregistry.h>
 
 #include <QCoreApplication>
 #include <QJsonDocument>
@@ -37,7 +37,11 @@ int main(int argc, char** argv)
 
     LogHub hub(1000);
     ToolRegistry registry;
-    ToolDispatcher dispatcher(&registry, &hub);  // lives on this, the "GUI", thread
+    ToolDispatcher dispatcher(&registry);  // lives on this, the "GUI", thread
+    // the shared dispatcher has no log hub; its audit line goes to ours, as in MainWindow
+    dispatcher.setLogSink([&hub](int level, const QString& line) {
+        hub.append(QStringLiteral("tool"), level == 0 ? LogLevel::Info : LogLevel::Warning, line);
+    });
 
     QThread* const guiThread = QThread::currentThread();
     std::atomic<QThread*> anyRanOn { nullptr };

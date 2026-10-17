@@ -5,8 +5,8 @@
 #include "tools_simulation.h"
 
 #include "atomselection.h"
-#include "core/tooldispatcher.h"
-#include "core/toolregistry.h"
+#include <cutechat/tooldispatcher.h>
+#include <cutechat/toolregistry.h>
 #include "measurements.h"
 #include "moleculebridge.h"
 #include "simulationcontrolwidget.h"

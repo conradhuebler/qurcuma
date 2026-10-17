@@ -5,7 +5,7 @@
 #include "tools_edit.h"
 
 #include "atomselection.h"
-#include "core/toolregistry.h"
+#include <cutechat/toolregistry.h>
 #include "fragmentlibrary.h"
 #include "moleculebridge.h"
 #include "scenefiller.h"

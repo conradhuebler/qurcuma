@@ -2,7 +2,7 @@
 // Claude Generated 2026 — ToolRegistry: what a schema may say, what registration
 // refuses, and that arguments are checked before a handler ever runs.
 
-#include "core/toolregistry.h"
+#include <cutechat/toolregistry.h>
 
 #include <QCoreApplication>
 #include <QJsonDocument>

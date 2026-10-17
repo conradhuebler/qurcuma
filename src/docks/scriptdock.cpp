@@ -11,8 +11,8 @@
 #include "dockconfig.h"
 
 #include "core/loghub.h"
-#include "core/tooldispatcher.h"
-#include "core/toolregistry.h"
+#include <cutechat/tooldispatcher.h>
+#include <cutechat/toolregistry.h>
 #include "script/scriptbuiltins.h"
 #include "script/scriptinterpreter.h"
 #include "script/scriptsyntax.h"

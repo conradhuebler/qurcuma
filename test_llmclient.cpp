@@ -4,8 +4,8 @@
 // reachable, and a test that silently passes when the machine is offline is worse
 // than no test.
 
-#include "llm/llmclient.h"
-#include "llm/llmconfig.h"
+#include <cutechat/llmclient.h>
+#include <cutechat/llmconfig.h>
 
 #include "test_stubserver.h"
 
@@ -278,6 +278,7 @@ int main(int argc, char** argv)
     // under an architecture-prefixed key.
     {
         LlmClient client;
+        client.setSortModels(true);  // as MainWindow does
         client.setProfile(profile);
         server.reply(200, R"JSON({"object":"list","data":[
             {"id":"zeta:latest"},{"id":"alpha:cloud"},{"id":"mid:9b"}]})JSON");
@@ -304,7 +305,7 @@ int main(int argc, char** argv)
 
         QEventLoop loop;
         LlmModelInfo info;
-        QObject::connect(&client, &LlmClient::modelDescribed, &loop, [&](const LlmModelInfo& i) {
+        QObject::connect(&client, &LlmClient::modelInfo, &loop, [&](const LlmModelInfo& i) {
             info = i;
             loop.quit();
         });
@@ -328,7 +329,7 @@ int main(int argc, char** argv)
         QEventLoop loop;
         LlmModelInfo info;
         info.detailsKnown = true;  // must be overwritten
-        QObject::connect(&client, &LlmClient::modelDescribed, &loop, [&](const LlmModelInfo& i) {
+        QObject::connect(&client, &LlmClient::modelInfo, &loop, [&](const LlmModelInfo& i) {
             info = i;
             loop.quit();
         });
@@ -345,10 +346,10 @@ int main(int argc, char** argv)
         withModel.model = QStringLiteral("from-profile");
         LlmClient client;
         client.setProfile(withModel);
-        check(client.effectiveModel() == QLatin1String("from-profile"),
+        check(client.model() == QLatin1String("from-profile"),
             "the profile's model is used when nothing overrides it");
         client.setModel(QStringLiteral("from-ui"));
-        check(client.effectiveModel() == QLatin1String("from-ui"),
+        check(client.model() == QLatin1String("from-ui"),
             "and the session's choice wins over it");
     }
     {

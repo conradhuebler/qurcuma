@@ -6,8 +6,8 @@
 // and not a comment.
 
 #include "core/loghub.h"
-#include "core/tooldispatcher.h"
-#include "core/toolregistry.h"
+#include <cutechat/tooldispatcher.h>
+#include <cutechat/toolregistry.h>
 #include "script/scriptsyntax.h"
 #include "script/tools_script.h"
 
@@ -162,7 +162,10 @@ int main(int argc, char** argv)
     // dispatcher is what this check needs; MainWindow registers the same way.
     {
         ToolRegistry wired;
-        ToolDispatcher dispatcher(&wired, &hub);
+        ToolDispatcher dispatcher(&wired);
+        dispatcher.setLogSink([&hub](int level, const QString& line) {
+            hub.append(QStringLiteral("tool"), level == 0 ? LogLevel::Info : LogLevel::Warning, line);
+        });
         ScriptToolContext wiredContext;
         wiredContext.dispatcher = &dispatcher;
         registerScriptTools(wired, wiredContext);

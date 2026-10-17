@@ -6,10 +6,10 @@
 // goes back in the shape the protocol wants. A fake would skip that seam.
 
 #include "core/loghub.h"
-#include "core/tooldispatcher.h"
-#include "core/toolregistry.h"
-#include "llm/llmclient.h"
-#include "llm/llmsession.h"
+#include <cutechat/tooldispatcher.h>
+#include <cutechat/toolregistry.h>
+#include <cutechat/llmclient.h>
+#include <cutechat/llmsession.h>
 #include "test_stubserver.h"
 
 #include <QCoreApplication>
@@ -74,7 +74,11 @@ int main(int argc, char** argv)
 
     LogHub hub(1000);
     ToolRegistry registry;
-    ToolDispatcher dispatcher(&registry, &hub);
+    ToolDispatcher dispatcher(&registry);
+    // the shared dispatcher has no log hub; its audit line goes to ours, as in MainWindow
+    dispatcher.setLogSink([&hub](int level, const QString& line) {
+        hub.append(QStringLiteral("tool"), level == 0 ? LogLevel::Info : LogLevel::Warning, line);
+    });
 
     int readCalls = 0;
     int computeCalls = 0;
@@ -114,7 +118,7 @@ int main(int argc, char** argv)
 
     LlmClient client;
     client.setProfile(profile);
-    LlmSession session(&client, &registry, &dispatcher, &hub);
+    LlmSession session(&client, &registry, &dispatcher);
     session.setSystemPrompt(QStringLiteral("You are a test."));
 
     QString answer;
@@ -475,7 +479,7 @@ int main(int argc, char** argv)
         QThread thread;
         thread.setObjectName(QStringLiteral("llm-test"));
         auto* threadedClient = new LlmClient;
-        auto* threadedSession = new LlmSession(threadedClient, &registry, &dispatcher, &hub);
+        auto* threadedSession = new LlmSession(threadedClient, &registry, &dispatcher);
         threadedClient->setProfile(profile);
         threadedSession->setSystemPrompt(QStringLiteral("You are a test."));
         threadedClient->moveToThread(&thread);

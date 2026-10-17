@@ -5,7 +5,7 @@
 #include "tools_files.h"
 
 #include "atomselection.h"
-#include "core/toolregistry.h"
+#include <cutechat/toolregistry.h>
 #include "lesson.h"              // atomsToXyz
 #include "moleculefileloader.h"
 #include "view.h"

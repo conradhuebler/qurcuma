@@ -4,8 +4,8 @@
 
 #include "tools_palette.h"
 
-#include "core/tooldispatcher.h"
-#include "core/toolregistry.h"
+#include <cutechat/tooldispatcher.h>
+#include <cutechat/toolregistry.h>
 
 #include <QJsonObject>
 

@@ -10,8 +10,8 @@
 // its interpreters with one; this is where the two paths divide.
 #include "tools_script.h"
 
-#include "core/tooldispatcher.h"
-#include "core/toolregistry.h"
+#include <cutechat/tooldispatcher.h>
+#include <cutechat/toolregistry.h>
 #include "scriptbuiltins.h"
 #include "scriptinterpreter.h"
 

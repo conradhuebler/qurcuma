@@ -1,5 +1,9 @@
 # AIChangelog - Qurcuma Improvements
 
+## Oktober 2026 - Gemeinsame Bibliothek CuteChat für die Werkzeugschicht
+
+- `src/core/tool*.{h,cpp}` und `src/llm/llm{client,config,session}.*` sind durch die Bibliothek **CuteChat** ersetzt (gleiche Quelle wie in SupraFit): `qurcuma_core` linkt nur `CuteChat::tools` (Qt Core), `qurcuma_llm` ist `CuteChat::core`. Der Dispatcher schreibt seine Audit-Zeile über `setLogSink` in den `LogHub`, die Sitzung meldet über `noted`. Neu aus SupraFit: Provider-Presets, Chat-Log/Export, Audit-Aufzeichnung, Chat-Verlauf mit Speicher-Backend, Fähigkeitsabfrage. Die bestehenden Tests `toolregistry`, `tooldispatcher`, `toolscore`, `llmclient`, `llmsession` laufen unverändert gegen die Bibliothek. Der `ChatDock` bleibt vorerst eigen (Worker-Thread-Modell, siehe `todo.md`). Branch `feature/shared-chat`.
+
 ## September 2026 - WASD im View- und Measure-Werkzeug
 
 - Q und E rollen jetzt in die jeweils andere Richtung als zuvor (getauscht); das Verschieben mit Shift+Q/E im Edit-Werkzeug bleibt, wie es war.

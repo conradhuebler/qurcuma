@@ -5,7 +5,7 @@
 #include "tools_view.h"
 
 #include "atomselection.h"
-#include "core/toolregistry.h"
+#include <cutechat/toolregistry.h>
 #include "measurements.h"
 #include "moleculebridge.h"
 #include "imagemetadata.h"

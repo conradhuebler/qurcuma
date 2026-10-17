@@ -415,6 +415,11 @@
 **Statistics:** 1,550+ lines | 2 commits (a91fd56, 6b2e241) | 9 components
 **Build:** ✅ Debug & Release passing, 0 warnings
 
+## Shared chat library (CuteChat)
+- [ ] `ChatDock`/`EndpointDialog` aus CuteChat übernehmen: braucht in der Bibliothek einen `ChatEngine` (Client + Session auf einem Worker-Thread, marshallte Setter), siehe `CuteChat/docs/DESIGN.md` §8.
+- [ ] Kein Remote für CuteChat: bis dahin `-DCUTECHAT_DIR=`/`../CuteChat`; mit Remote `git submodule add <url> external/CuteChat` (CMake sucht dort zuerst).
+- [ ] Danach entfallen `src/docks/chatdock.*`, die Rounds-/Thinking-Bedienung zieht in die Bibliothek.
+
 ---
 
 **Last Updated:** 2025-11-02 | Phase 4 Extended Complete

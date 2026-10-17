@@ -6,7 +6,7 @@
 // cannot enforce, this fails here rather than by promising a model something the
 // dispatcher will later reject.
 
-#include "core/toolregistry.h"
+#include <cutechat/toolregistry.h>
 #include "llm/curcuma_schemas.h"
 
 #include <QCoreApplication>

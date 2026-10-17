@@ -317,8 +317,34 @@ if(USE_SFTP)
     )
 endif()
 
+# --- CuteChat: the tool layer, the endpoint client, the agent loop and the chat log ----------------
+# Claude Generated 2026 - Shared with SupraFit (docs/DESIGN.md in the CuteChat repo). The library has no
+# remote yet, so it is found by path: -DCUTECHAT_DIR=<checkout>, external/CuteChat, then a sibling
+# checkout ../CuteChat. Once a remote exists this becomes a submodule at external/CuteChat and the
+# lookup below needs no change. Only the Qt-Core-only tool layer (CuteChat::tools) goes into
+# qurcuma_core; the client, session and config (CuteChat::core, needs Qt6::Network) into qurcuma_llm.
+set(CUTECHAT_DIR "" CACHE PATH "CuteChat checkout (default: external/CuteChat, then ../CuteChat)")
+if(NOT CUTECHAT_DIR)
+    foreach(_candidate ${CMAKE_CURRENT_SOURCE_DIR}/external/CuteChat ${CMAKE_CURRENT_SOURCE_DIR}/../CuteChat)
+        if(EXISTS ${_candidate}/CMakeLists.txt)
+            set(CUTECHAT_DIR ${_candidate})
+            break()
+        endif()
+    endforeach()
+endif()
+if(NOT CUTECHAT_DIR OR NOT EXISTS ${CUTECHAT_DIR}/CMakeLists.txt)
+    message(FATAL_ERROR "qurcuma needs the CuteChat library: set -DCUTECHAT_DIR=<path to CuteChat> "
+                        "(external/CuteChat or ../CuteChat are tried)")
+endif()
+message(STATUS "qurcuma: CuteChat from ${CUTECHAT_DIR}")
+set(CUTECHAT_BUILD_WIDGETS OFF)   # qurcuma keeps its own chat dock for now (see docs/WP-llm-tool-layer.md)
+set(CUTECHAT_BUILD_TESTS OFF)     # the library's own tests run in its repo; qurcuma's test_* cover its use of it
+set(CUTECHAT_INSTALL OFF)
+add_subdirectory(${CUTECHAT_DIR} ${CMAKE_BINARY_DIR}/external/CuteChat)
+
 # --- qurcuma_core: the widget-free core -------------------------------------
-# Claude Generated 2026 - The tool registry, the log hub and the molecule records.
+# Claude Generated 2026 - The log hub, the core tools and the molecule records; the tool registry and
+# dispatcher come from CuteChat::tools (Qt Core only).
 # Linking ONLY Qt6::Core and Qt6::Gui is the point of this target, not an accident:
 # it is what lets ctest drive the registry headlessly and turns "GUI-free" into a
 # property the build checks rather than a claim in a comment. Qt6::Gui is needed
@@ -330,35 +356,23 @@ endif()
 add_library(qurcuma_core STATIC
     src/core/loghub.cpp
     src/core/loghub.h
-    src/core/toolregistry.cpp
-    src/core/toolregistry.h
-    src/core/tooldispatcher.cpp
-    src/core/tooldispatcher.h
     src/core/tools_core.cpp
     src/core/tools_core.h
-    src/core/tool.h
     src/core/moleculedata.h
 )
-target_link_libraries(qurcuma_core PUBLIC Qt6::Core Qt6::Gui)
+target_link_libraries(qurcuma_core PUBLIC Qt6::Core Qt6::Gui CuteChat::tools)
 target_include_directories(qurcuma_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-# --- qurcuma_llm: the endpoint client ---------------------------------------
+# --- qurcuma_llm: the endpoint client (CuteChat::core) ----------------------
 # Claude Generated 2026 - Separate from qurcuma_core on purpose. The core's
 # verified property is that it links only Qt6::Core and Qt6::Gui; putting the
 # network stack in there would quietly end that. This target adds Qt6::Network and
 # nothing else, so it stays testable headlessly against a local stub server.
 if(USE_LLM)
     find_package(Qt6 COMPONENTS Network REQUIRED)
-    add_library(qurcuma_llm STATIC
-        src/llm/llmconfig.cpp
-        src/llm/llmconfig.h
-        src/llm/llmclient.cpp
-        src/llm/llmclient.h
-        src/llm/llmsession.cpp
-        src/llm/llmsession.h
-    )
-    target_link_libraries(qurcuma_llm PUBLIC qurcuma_core Qt6::Network)
-    target_include_directories(qurcuma_llm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    # nothing of its own any more: the client, config and session are CuteChat::core
+    add_library(qurcuma_llm INTERFACE)
+    target_link_libraries(qurcuma_llm INTERFACE qurcuma_core CuteChat::core)
 endif()
 
 # --- qurcuma_script: the script interpreter ----------------------------------

@@ -1,5 +1,9 @@
 # WP — LLM-Werkzeugschicht: Tool-Registry, Logs, curcuma in-process
 
+> **Nachtrag (17.10.2026):** `ToolRegistry`, `ToolDispatcher`, `LlmClient`, `LlmConfig` und `LlmSession` leben seit
+> `feature/shared-chat` in der gemeinsamen Bibliothek **CuteChat** (`<cutechat/...>`, siehe `CuteChat/docs/DESIGN.md`); die
+> Pfade `src/core/tool*` und `src/llm/llm*` unten sind der Stand davor.
+>
 > **Status (09.09.2026):** Phase 0 und Phase 1 sind umgesetzt (WP0.1–0.3, WP1.1–1.4), Phase 2
 > ist in Arbeit. Branch: `feature/llm-tools`. Abschnitt 2 („Ausgangslage") beschreibt den Stand
 > **vor** dieser Arbeit und bleibt als Begründung stehen; was inzwischen existiert, steht in den

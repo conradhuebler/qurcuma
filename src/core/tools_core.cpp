@@ -5,7 +5,7 @@
 #include "tools_core.h"
 
 #include "loghub.h"
-#include "toolregistry.h"
+#include <cutechat/toolregistry.h>
 
 #include <QJsonArray>
 #include <QJsonDocument>

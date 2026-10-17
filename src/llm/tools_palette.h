@@ -11,7 +11,7 @@
 // trips over it.
 #pragma once
 
-#include "core/tool.h"
+#include <cutechat/tool.h>
 #include "widgets/commandpalette.h"
 
 #include <QString>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "moleculefileloader.h"  // Claude Generated 2026 - CifOptions member
-#include "core/tool.h"  // Claude Generated 2026 - ToolAutonomy
+#include <cutechat/tool.h>  // Claude Generated 2026 - ToolAutonomy
 #include "docks/dockconfig.h"  // Claude Generated 2026 - Dock system restructuring
 #include "settings.h"
 #include "vtfparser.h"

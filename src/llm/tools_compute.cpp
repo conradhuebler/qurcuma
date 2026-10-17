@@ -5,8 +5,8 @@
 #include "tools_compute.h"
 
 #include "atomselection.h"
-#include "core/tooldispatcher.h"
-#include "core/toolregistry.h"
+#include <cutechat/tooldispatcher.h>
+#include <cutechat/toolregistry.h>
 #include "curcumajob.h"
 #include "curcuma_schemas.h"
 #include "moleculefileloader.h"

@@ -75,8 +75,8 @@
 #include "moleculefileloader.h"  // Claude Generated 2026 - unified structure-file reader
 #include "calculationrunner.h"  // Claude Generated 2026 - WP T3 external-process orchestration
 #include "core/loghub.h"       // Claude Generated 2026 - Output dock follows the log hub
-#include "core/tooldispatcher.h"  // Claude Generated 2026 - tool layer
-#include "core/toolregistry.h"
+#include <cutechat/tooldispatcher.h>  // Claude Generated 2026 - tool layer
+#include <cutechat/toolregistry.h>
 #include "core/tools_core.h"
 #include "script/tools_script.h"
 #include "llm/tools_view.h"
@@ -88,9 +88,9 @@
 #include "llm/tools_simulation.h"
 #ifdef USE_LLM
 #include "docks/chatdock.h"
-#include "llm/llmclient.h"
-#include "llm/llmconfig.h"
-#include "llm/llmsession.h"
+#include <cutechat/llmclient.h>
+#include <cutechat/llmconfig.h>
+#include <cutechat/llmsession.h>
 #endif
 #include "lessoncontroller.h"  // Claude Generated 2026 - WP T4 lesson feature controller
 #include "frequencydialog.h"
@@ -5006,7 +5006,12 @@ void MainWindow::createDockWidgets()
     if (!m_toolDispatcher) {
         // The dispatcher first: the waiting tools take it, because a wait that can
         // last minutes has to be escapable from the Stop button.
-        m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), &LogHub::instance(), this);
+        m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), this);
+        // The shared tool layer (CuteChat) has no log hub of its own: the audit line of every call
+        // goes to ours. Called on whatever thread dispatched; the hub carries its own lock.
+        m_toolDispatcher->setLogSink([](int level, const QString& line) {
+            LogHub::instance().append(QStringLiteral("tool"), level == 0 ? LogLevel::Info : LogLevel::Warning, line);
+        });
         registerCoreTools(ToolRegistry::instance(), LogHub::instance());
 
         // Claude Generated 2026 - The calculator. Registered without a script host, so
@@ -6336,8 +6341,14 @@ void MainWindow::setupAssistant()
     // and only handed over at the end of this function -- after that every call into
     // them goes through invokeOnLlmThread().
     m_llmClient = new LlmClient;
-    m_llmSession = new LlmSession(m_llmClient, &ToolRegistry::instance(), m_toolDispatcher,
-        &LogHub::instance());
+    m_llmClient->setSortModels(true);   // the model box must not reshuffle between runs
+    m_llmSession = new LlmSession(m_llmClient, &ToolRegistry::instance(), m_toolDispatcher);
+    // what the session used to write into the hub itself (cancelled, endpoint errors, images sent);
+    // the session lives on the agent thread, so this is delivered queued on the GUI thread
+    connect(m_llmSession, &LlmSession::noted, this, [](int level, const QString& text) {
+        LogHub::instance().append(QStringLiteral("llm"),
+            level == int(LlmSession::NoteLevel::Info) ? LogLevel::Info : LogLevel::Warning, text);
+    });
 
     applySystemPrompt();
 
@@ -6463,7 +6474,7 @@ void MainWindow::setupAssistant()
             m_llmClient->describeModel(chosen);
         });
     });
-    connect(m_llmClient, &LlmClient::modelDescribed, this, [this](const LlmModelInfo& info) {
+    connect(m_llmClient, &LlmClient::modelInfo, this, [this](const LlmModelInfo& info) {
         if (m_chatDock)
             m_chatDock->setModelInfo(info);
         // render_view is only worth anything against a model that takes images; a

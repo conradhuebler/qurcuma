@@ -4,8 +4,8 @@
 
 #include "chatdock.h"
 
-#include "core/tool.h"
-#include "llm/llmsession.h"
+#include <cutechat/tool.h>
+#include <cutechat/llmsession.h>
 #include "widgets/collapsiblesection.h"
 
 #include <QClipboard>

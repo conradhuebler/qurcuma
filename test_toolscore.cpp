@@ -3,7 +3,7 @@
 // paging handle it hands back, and that describe_tools stays small by default.
 
 #include "core/loghub.h"
-#include "core/toolregistry.h"
+#include <cutechat/toolregistry.h>
 #include "core/tools_core.h"
 
 #include <QCoreApplication>

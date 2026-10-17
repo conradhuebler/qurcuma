@@ -11,11 +11,11 @@
 // again later. A single text view cannot do that.
 #pragma once
 
-#include "core/tool.h"
+#include <cutechat/tool.h>
 
 #include "dockconfig.h"
 
-#include "llm/llmconfig.h"  // LlmModelInfo
+#include <cutechat/llmconfig.h>  // LlmModelInfo
 
 #include <QDockWidget>
 #include <QString>
