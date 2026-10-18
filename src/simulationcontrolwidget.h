@@ -130,6 +130,13 @@ public:
     /** @brief Attach the shared recipe menu (MainWindow's Simulation ▸ Recipe) to the
      *  Recipe button next to the mode. Claude Generated 2026 (UX stage 6 S2). */
     void setRecipeMenu(QMenu* menu);
+    /** @brief Thermostat target (K) of the temperature slider; setTemperature clamps to its range
+     *  and acts like a slider drag (live during a run). Claude Generated 2026 (headset panel). */
+    /** @brief Method key of the Method combo ("gfnff", "uff", "gfn2", "gfn1"); setMethod selects it. Claude Generated 2026. */
+    QString method() const;
+    void setMethod(const QString& key);
+    double temperature() const;
+    void setTemperature(double kelvin);
 
 public slots:
     /** @brief Take the non-default simplemd values of the All parameters tab
@@ -164,6 +171,8 @@ signals:
      *  whether the engine stopped it. Mirrored into the output dock. Claude Generated 2026. */
     void runEnded(const QString& reason, bool aborted);
     void simulationRunningChanged(bool running);
+    /** @brief The active run was paused or resumed (false again when it ends). Claude Generated 2026. */
+    void pauseStateChanged(bool paused);
     void workerStarted(SimulationWorker* worker);
 
     /** @brief Emitted whenever the temperature slider moves. During a run MainWindow

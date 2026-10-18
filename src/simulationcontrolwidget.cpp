@@ -1552,6 +1552,7 @@ void SimulationControlWidget::startWithConfig(const SimulationConfig& cfg)
         m_pauseBtn->setText(tr("▶"));
         m_paused = true;
         setState(tr("⏸ Paused"), "#d4a017");  // amber
+        emit pauseStateChanged(true);
     });
     connect(m_worker, &SimulationWorker::errorOccurred, this, [this](const QString& msg) {
         m_statusLabel->setText(tr("Error: %1").arg(msg));
@@ -1649,6 +1650,7 @@ void SimulationControlWidget::pauseRun()
     setState(tr("⏸ Paused"), "#d4a017");  // amber
     m_paused = true;
     publishLiveState();
+    emit pauseStateChanged(m_paused);
 }
 
 void SimulationControlWidget::resumeRun()
@@ -1660,6 +1662,7 @@ void SimulationControlWidget::resumeRun()
     setState(tr("● Running"), "#27ae60");  // green
     m_paused = false;
     publishLiveState();
+    emit pauseStateChanged(m_paused);
 }
 
 bool SimulationControlWidget::isRunning() const
@@ -1936,7 +1939,10 @@ void SimulationControlWidget::onSimulationFinished(const QString& reason, bool a
     setRunning(false);
     m_worker = nullptr;
     m_thread = nullptr;
-    m_paused = false;
+    if (m_paused) {
+        m_paused = false;
+        emit pauseStateChanged(false);
+    }
 
     // Report WHY the run ended, not just that it did. An abort (unstable dynamics,
     // a runaway temperature, a broken topology) otherwise reads exactly like a
@@ -2122,4 +2128,29 @@ void SimulationControlWidget::setState(const QString& label, const QString& colo
         return;
     m_stateLabel->setText(QStringLiteral("<span style='color:%1; font-weight:600;'>%2</span>")
                               .arg(color, label.toHtmlEscaped()));
+}
+
+double SimulationControlWidget::temperature() const
+{
+    return m_tempSlider ? m_tempSlider->value() : 0.0;
+}
+
+void SimulationControlWidget::setTemperature(double kelvin)
+{
+    if (m_tempSlider)
+        m_tempSlider->setValue(qBound(m_tempSlider->minimum(), kelvin, m_tempSlider->maximum()));
+}
+
+QString SimulationControlWidget::method() const
+{
+    return m_methodCombo ? m_methodCombo->currentData().toString() : QString();
+}
+
+void SimulationControlWidget::setMethod(const QString& key)
+{
+    if (!m_methodCombo || !m_methodCombo->isEnabled())  // locked while a run is active
+        return;
+    const int index = m_methodCombo->findData(key);
+    if (index >= 0)
+        m_methodCombo->setCurrentIndex(index);
 }
