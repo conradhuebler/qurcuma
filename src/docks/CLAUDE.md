@@ -61,5 +61,5 @@
 - Phase 4 complete: `ProjectDock` extracted from `MainWindow`; all docks now live under `DockManager`.
 - Phase 5 complete: preset logic and app-mode dock handling moved to `DockManager`; `MainWindow` enums replaced by `DockConfig` enums.
 - Phase 6 complete: `NavigationDock` removed; bookmarks/workspaces/remote are now segment pages inside `ProjectDock`. Signals are forwarded by `ProjectDock` so `MainWindow` stays decoupled from internal widgets.
-- Phase 8 complete: `EditorsDock` and `AtomsSimulationDock` removed; content split into `DisplayDock` (Structure/Atoms segment + Display panel) and `SimulationDock` (Simulation/Snapshots/RMSD/Input tabs). The two right-side docks are tabified.
+- `EditorsDock`, `AtomsSimulationDock` and the interim `DisplayDock` are gone: content lives in `StructureDock` (Structure/Atoms), `AppearanceDock` (display options) and `SimulationDock` (Simulation/Snapshots/RMSD/Input tabs). The right-side docks are tabified.
 - Internal `QTabWidget`s are intentionally retained inside the remaining wrappers to keep the Qt drift workaround working.
