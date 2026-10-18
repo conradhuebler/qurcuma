@@ -16,7 +16,8 @@
 #include "chartdock.h"
 #include "scriptdock.h"  // Claude Generated 2026 - not USE_LLM-gated: a script is a calculation
 #ifdef USE_LLM
-#include "chatdock.h"  // Claude Generated 2026
+#include <cutechat/chatdock.h>  // Claude Generated 2026 - the shared assistant dock
+#include <cutechat/chathost.h>
 #endif
 #include "ncidock.h"
 #include "celldock.h"
@@ -167,6 +168,11 @@ ImageGalleryDock* DockManager::imageGalleryDockImpl() const
 ChartDock* DockManager::chartDockImpl() const
 {
     return qobject_cast<ChartDock*>(m_chartDock);
+}
+
+void DockManager::setChatHost(ChatHost* host)
+{
+    m_chatHost = host;
 }
 
 ChatDock* DockManager::chatDockImpl() const
@@ -333,7 +339,15 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
 #ifdef USE_LLM
     // Claude Generated 2026 - The assistant. Hidden by default like the chart and
     // NCI docks; it is opened from View > Dock Panels when wanted.
-    m_chatDock = new ChatDock(m_mainWindow);
+    // Claude Generated 2026 - CuteChat's dock, with qurcuma's host (set by MainWindow before the
+    // docks are built). The host has to outlive the dock, which uses it until its last line, so it
+    // goes when the dock does.
+    if (m_chatHost) {
+        auto* dock = new ChatDock(m_chatHost, m_mainWindow);
+        ChatHost* host = m_chatHost;
+        connect(dock, &QObject::destroyed, [host] { delete host; });
+        m_chatDock = dock;
+    }
 #endif
 }
 

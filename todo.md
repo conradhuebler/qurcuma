@@ -416,9 +416,9 @@
 **Build:** ✅ Debug & Release passing, 0 warnings
 
 ## Shared chat library (CuteChat)
-- [ ] `ChatDock`/`EndpointDialog` aus CuteChat übernehmen: braucht in der Bibliothek einen `ChatEngine` (Client + Session auf einem Worker-Thread, marshallte Setter), siehe `CuteChat/docs/DESIGN.md` §8.
+- [x] `ChatDock`/`ChatEngine` aus CuteChat übernommen (TESTED: Operator, 2026-10-18, lokales Ollama mit Cloud-Modellen): `src/docks/chatdock.*` entfällt, Host = `src/docks/qurcumachathost.*`.
 - [ ] Kein Remote für CuteChat: bis dahin `-DCUTECHAT_DIR=`/`../CuteChat`; mit Remote `git submodule add <url> external/CuteChat` (CMake sucht dort zuerst).
-- [ ] Danach entfallen `src/docks/chatdock.*`, die Rounds-/Thinking-Bedienung zieht in die Bibliothek.
+- [ ] Gemerkte Modelle: Schlüssel heißen jetzt `llm/models/<profil>` (vorher `llm/model/<profil>`), das Modell wird einmal neu gewählt.
 
 ---
 

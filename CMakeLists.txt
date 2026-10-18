@@ -121,7 +121,7 @@ set(Helper OFF CACHE BOOL "" FORCE)
 # disconnected below. Back to master once reactff2-llm is merged there.
 FetchContent_Declare(curcuma
     GIT_REPOSITORY https://github.com/conradhuebler/curcuma
-    GIT_TAG        reactff2-llm
+    GIT_TAG        master
     SOURCE_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma
 )
 
@@ -186,7 +186,7 @@ set(SOURCES
     src/llm/tools_simulation.cpp  # Claude Generated 2026 - interactive MD / opt
     src/llm/curcuma_schemas.cpp  # Claude Generated 2026
     src/llm/tools_palette.cpp  # Claude Generated 2026 - tools in the command palette
-    $<$<BOOL:${USE_LLM}>:${CMAKE_CURRENT_SOURCE_DIR}/src/docks/chatdock.cpp>  # Claude Generated 2026 (see the SKIP_AUTOMOC note below)
+    $<$<BOOL:${USE_LLM}>:${CMAKE_CURRENT_SOURCE_DIR}/src/docks/qurcumachathost.cpp>  # Claude Generated 2026 - the ChatHost of CuteChat's ChatDock
     src/calculationhistory.cpp  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.cpp  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.cpp
@@ -337,7 +337,7 @@ if(NOT CUTECHAT_DIR OR NOT EXISTS ${CUTECHAT_DIR}/CMakeLists.txt)
                         "(external/CuteChat or ../CuteChat are tried)")
 endif()
 message(STATUS "qurcuma: CuteChat from ${CUTECHAT_DIR}")
-set(CUTECHAT_BUILD_WIDGETS OFF)   # qurcuma keeps its own chat dock for now (see docs/WP-llm-tool-layer.md)
+set(CUTECHAT_BUILD_WIDGETS ON)    # the chat dock and the endpoint dialog: qurcuma's assistant is CuteChat's ChatDock
 set(CUTECHAT_BUILD_TESTS OFF)     # the library's own tests run in its repo; qurcuma's test_* cover its use of it
 set(CUTECHAT_INSTALL OFF)
 add_subdirectory(${CUTECHAT_DIR} ${CMAKE_BINARY_DIR}/external/CuteChat)
@@ -408,17 +408,6 @@ add_executable(qurcuma
     resources.qrc
 )
 
-# Claude Generated 2026 - AUTOMOC does not evaluate preprocessor conditionals: it
-# finds chatdock.h through the #ifdef USE_LLM include in dockmanager.cpp, generates
-# moc_chatdock.cpp for it, and the link then fails on a ChatDock constructor whose
-# .cpp was excluded from the build. Tell it to leave the header alone in that case.
-if(NOT USE_LLM)
-    set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/src/docks/chatdock.h PROPERTY SKIP_AUTOMOC ON)
-endif()
-# Switching USE_LLM in an existing build tree needs the autogen directory cleared
-# (rm -rf <build>/qurcuma_autogen): AUTOMOC keeps its previous verdict about the
-# header and the link then fails the other way round, on a missing staticMetaObject.
-
 target_compile_definitions(qurcuma PRIVATE
     $<$<BOOL:${USE_SFTP}>:USE_SFTP>
     $<$<BOOL:${USE_LLM}>:USE_LLM>
@@ -462,6 +451,7 @@ find_package(OpenMP)
 target_link_libraries(qurcuma PRIVATE
 qurcuma_core  # Claude Generated 2026 - tool registry + log hub
 $<$<BOOL:${USE_LLM}>:qurcuma_llm>  # Claude Generated 2026 - endpoint client
+$<$<BOOL:${USE_LLM}>:CuteChat::cutechat>  # Claude Generated 2026 - ChatDock, ChatEngine, EndpointDialog
 qurcuma_script  # Claude Generated 2026 - script interpreter (QJSEngine)
 Qt6::Core
 Qt6::Gui

@@ -87,10 +87,9 @@
 #include "llm/tools_files.h"
 #include "llm/tools_simulation.h"
 #ifdef USE_LLM
-#include "docks/chatdock.h"
-#include <cutechat/llmclient.h>
-#include <cutechat/llmconfig.h>
-#include <cutechat/llmsession.h>
+#include "docks/qurcumachathost.h"
+#include <cutechat/chatdock.h>
+#include <cutechat/chatengine.h>
 #endif
 #include "lessoncontroller.h"  // Claude Generated 2026 - WP T4 lesson feature controller
 #include "frequencydialog.h"
@@ -149,7 +148,14 @@ MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     // Claude Generated 2026 - Dock system restructuring: manager owns all docks,
     // presets and Explore/Compute mode. Construction happens before setupUI() so
     // createDockWidgets() can delegate to it in later phases.
+    // Claude Generated 2026 - The dispatcher exists before the docks: the assistant's dock is built
+    // with it (the host hands it over), and it is the same one the script dock and the tools use.
+    m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), this);
     m_dockManager = new DockManager(this, this);
+#ifdef USE_LLM
+    m_chatHost = new QurcumaChatHost(m_toolDispatcher);
+    m_dockManager->setChatHost(m_chatHost);
+#endif
 
     setupUI();
     createToolbars();
@@ -208,14 +214,12 @@ MainWindow::~MainWindow()
         m_nciThread->wait();
     }
 #ifdef USE_LLM
-    // Claude Generated 2026 - Same for the agent loop: it may be mid-turn, and a
-    // running QThread destroyed under its objects aborts the process. cancel() is
-    // posted rather than called, because the session lives over there.
-    if (m_llmThread) {
-        if (m_llmSession)
-            QMetaObject::invokeMethod(m_llmSession, &LlmSession::cancel, Qt::QueuedConnection);
-        m_llmThread->quit();
-        m_llmThread->wait(5000);
+    // Claude Generated 2026 - The agent loop is joined by the dock's ChatEngine when the dock goes,
+    // which is after this body. A turn waiting for an approval would then call back into a half
+    // destroyed window, so the callbacks are cut first: a pending question is answered "no".
+    if (m_chatHost) {
+        m_chatHost->prompt = nullptr;
+        m_chatHost->approve = nullptr;
     }
 #endif
 }
@@ -5003,10 +5007,10 @@ void MainWindow::createDockWidgets()
     // MainWindow registers what reaches the viewer. The dispatcher is created here,
     // on the GUI thread, because that is the thread Gui-affinity handlers get
     // marshalled to.
-    if (!m_toolDispatcher) {
-        // The dispatcher first: the waiting tools take it, because a wait that can
-        // last minutes has to be escapable from the Stop button.
-        m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), this);
+    if (!m_toolLayerBuilt) {
+        m_toolLayerBuilt = true;
+        // The dispatcher exists already (see the constructor): the waiting tools take it, because a
+        // wait that can last minutes has to be escapable from the Stop button.
         // The shared tool layer (CuteChat) has no log hub of its own: the audit line of every call
         // goes to ours. Called on whatever thread dispatched; the hub carries its own lock.
         m_toolDispatcher->setLogSink([](int level, const QString& line) {
@@ -6304,272 +6308,54 @@ void MainWindow::loadDirFromArg(const QString& dir)
 void MainWindow::setupAssistant()
 {
     m_chatDock = m_dockManager ? m_dockManager->chatDockImpl() : nullptr;
-    // Claude Generated 2026 - Say why, rather than returning into silence. Losing the
-    // dispatcher here took the whole assistant with it -- no profiles, no models, no
-    // error anywhere -- and the tools still registered, so the obvious check said
-    // everything was fine.
-    if (!m_chatDock || !m_toolDispatcher) {
+    // Claude Generated 2026 - Say why, rather than returning into silence: losing the dock took the
+    // whole assistant with it -- no profiles, no models, no error anywhere -- and the tools still
+    // registered, so the obvious check said everything was fine.
+    if (!m_chatDock || !m_chatHost) {
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Warning,
-            tr("assistant not set up: %1 is missing")
-                .arg(m_chatDock ? QStringLiteral("the tool dispatcher")
-                                : QStringLiteral("the chat dock")));
+            tr("assistant not set up: the chat dock is missing"));
         return;
     }
 
-    // Give the user something to edit rather than a file they have to invent.
-    const QString configPath = LlmConfig::defaultPath();
-    QString error;
-    LlmConfig::writeExampleIfMissing(configPath, &error);
+    // The agent loop runs on the dock's ChatEngine thread: a tool that waits -- job_status until a
+    // calculation lands, watch_simulation until the guest comes close enough -- would otherwise
+    // wait on the GUI thread, freeze the window and block the very signals it is waiting for.
+    // The approval policy is asked here, on the GUI thread, by the dock; the dispatcher marshals
+    // Gui-affinity handlers here with a timeout.
+    m_chatHost->prompt = [this] { return assistantSystemPrompt(); };
+    m_chatHost->approve = [this](const ToolSpec& spec, const QJsonObject& args) {
+        return approveToolCall(spec, args);
+    };
 
-    // Claude Generated 2026 - The agent loop gets its own thread, and this is not a
-    // nicety. A tool that waits -- job_status until a calculation lands,
-    // watch_simulation until the guest comes close enough -- would otherwise wait on
-    // the GUI thread, and then two things happen at once: the window freezes, and
-    // the very signals it is waiting for cannot be delivered, because delivering
-    // them is that thread's job. The wait could only ever end in its own timeout.
-    //
-    // Everything crossing back is queued: the dispatcher already marshals
-    // Gui-affinity handlers to the GUI thread with a timeout, the approval dialog is
-    // marshalled below, and the registry and the log hub carry their own locks.
-    qRegisterMetaType<ToolResult>();
-    qRegisterMetaType<LlmModelInfo>();
-
-    m_llmThread = new QThread(this);
-    m_llmThread->setObjectName(QStringLiteral("llm"));
-    // Parentless: an object cannot be moved to another thread while it has a parent
-    // on this one. Both are configured here, while they are still on this thread,
-    // and only handed over at the end of this function -- after that every call into
-    // them goes through invokeOnLlmThread().
-    m_llmClient = new LlmClient;
-    m_llmClient->setSortModels(true);   // the model box must not reshuffle between runs
-    m_llmSession = new LlmSession(m_llmClient, &ToolRegistry::instance(), m_toolDispatcher);
-    // what the session used to write into the hub itself (cancelled, endpoint errors, images sent);
-    // the session lives on the agent thread, so this is delivered queued on the GUI thread
-    connect(m_llmSession, &LlmSession::noted, this, [](int level, const QString& text) {
+    // what the session used to write into the hub itself (cancelled, endpoint errors, images sent)
+    connect(m_chatDock->engine(), &ChatEngine::noted, this, [](int level, const QString& text) {
         LogHub::instance().append(QStringLiteral("llm"),
             level == int(LlmSession::NoteLevel::Info) ? LogLevel::Info : LogLevel::Warning, text);
     });
 
-    applySystemPrompt();
-
-    // The policy is asked on the agent loop's thread and answers with a dialog, so
-    // it is marshalled back. Blocking is right here: the tool must not run until
-    // the operator has said yes, and nothing on the GUI thread ever waits on the
-    // agent loop, so the two cannot deadlock against each other.
-    m_llmSession->setApprovalPolicy([this](const ToolSpec& spec, const QJsonObject& args) {
-        if (QThread::currentThread() == thread())
-            return approveToolCall(spec, args);
-        bool approved = false;
-        QMetaObject::invokeMethod(this, [this, &spec, &args, &approved] {
-            approved = approveToolCall(spec, args);
-        }, Qt::BlockingQueuedConnection);
-        return approved;
+    // Claude Generated 2026 - Autonomy: remembered across sessions by the dock, because being asked
+    // to set it again on every launch is what makes people leave it on the loosest rung. It is
+    // never hidden -- the dock says what is armed, and every change is written to the log, so
+    // "what was it allowed to do" has an answer after the fact.
+    m_autonomy = m_chatDock->autonomy();
+    LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+        tr("assistant autonomy: %1").arg(toolAutonomyName(m_autonomy)));
+    connect(m_chatDock, &ChatDock::autonomyChanged, this, [this](ToolAutonomy autonomy) {
+        m_autonomy = autonomy;
+        // A level that permits more than before starts from a clean slate: the per-tool "allow for
+        // this session" grants were given under the old one. The prompt follows by itself, the dock
+        // asks for it with every question; a model told nothing about the switch keeps stopping to
+        // ask after each step, which is what the loosened level was meant to stop.
+        m_toolsAllowedForSession.clear();
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+            tr("assistant autonomy set to: %1").arg(toolAutonomyName(autonomy)));
     });
-
-    m_chatDock->attachSession(m_llmSession);
-    connect(m_chatDock, &ChatDock::profileChanged, this, &MainWindow::applyLlmProfile);
-
-    // Claude Generated 2026 - Point the active profile somewhere else and keep it:
-    // the change goes back into llm.json (only that one key), then the profile is
-    // re-applied, which asks the new endpoint what it serves.
-    // Claude Generated 2026 - How much the model should think, remembered per
-    // profile: what a local 7B needs and what a hosted reasoning model needs are
-    // not the same setting.
-    connect(m_chatDock, &ChatDock::reasoningEffortChanged, this, [this](const QString& effort) {
-        QSettings().setValue(
-            QStringLiteral("llm/reasoning/%1").arg(m_chatDock->currentProfile()), effort);
-        m_reasoningEffort = effort;
-        invokeOnLlmThread([this, effort] { m_llmClient->setReasoningEffort(effort); });
-        // The prompt carries the same request, because an endpoint that does not
-        // know the field would otherwise leave the setting with no effect at all.
-        applySystemPrompt();
+    connect(m_chatDock, &ChatDock::reasoningEffortChanged, this, [](const QString& effort) {
         LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
             effort.isEmpty() ? tr("thinking: the endpoint's own default")
                              : tr("thinking: %1").arg(effort));
     });
-
-    // Claude Generated 2026 - The round budget, per profile. The dock's value wins
-    // over the profile file: the file always carries the key, so a value there
-    // silently overrode everything else, and the operator had no way to see or
-    // change it short of editing JSON.
-    connect(m_chatDock, &ChatDock::maxRoundsChanged, this, [this](int rounds) {
-        QSettings().setValue(
-            QStringLiteral("llm/rounds/%1").arg(m_chatDock->currentProfile()), rounds);
-        invokeOnLlmThread([this, rounds] { m_llmSession->setMaxIterations(rounds); });
-        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
-            tr("round budget: %1 per question").arg(rounds));
-    });
-
-    connect(m_chatDock, &ChatDock::endpointChanged, this, [this](const QString& baseUrl) {
-        const QString profileName = m_chatDock->currentProfile();
-        QString writeError;
-        if (!LlmConfig::updateBaseUrl(LlmConfig::defaultPath(), profileName, baseUrl,
-                &writeError)) {
-            m_chatDock->setStatus(writeError, true);
-            return;
-        }
-        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
-            tr("endpoint of profile \"%1\" set to %2").arg(profileName, baseUrl));
-        applyLlmProfile(profileName);
-    });
-
-    // Claude Generated 2026 - Autonomy: remembered across sessions, because being
-    // asked to set it again on every launch is what makes people leave it on the
-    // loosest rung. It is never hidden -- the dock says what is armed, and every
-    // change is written to the log, so "what was it allowed to do" has an answer
-    // after the fact.
-    {
-        QSettings settings;
-        const int stored = settings.value(QStringLiteral("llm/autonomy"),
-            int(ToolAutonomy::Ask)).toInt();
-        m_autonomy = (stored >= int(ToolAutonomy::Ask) && stored <= int(ToolAutonomy::Full))
-            ? ToolAutonomy(stored)
-            : ToolAutonomy::Ask;
-        m_chatDock->setAutonomy(m_autonomy);
-        // Again, now that the stored level is known: the first call above ran with
-        // the default, and setAutonomy() blocks the box's signal, so nothing else
-        // would rebuild the prompt for a remembered "auto".
-        applySystemPrompt();
-        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
-            tr("assistant autonomy: %1").arg(toolAutonomyName(m_autonomy)));
-    }
-    connect(m_chatDock, &ChatDock::autonomyChanged, this, [this](ToolAutonomy autonomy) {
-        m_autonomy = autonomy;
-        QSettings().setValue(QStringLiteral("llm/autonomy"), int(autonomy));
-        // A level that permits more than before starts from a clean slate: the
-        // per-tool "allow for this session" grants were given under the old one.
-        m_toolsAllowedForSession.clear();
-        // The prompt has to move with the switch. A model told nothing about it
-        // keeps stopping to ask after every step, which is exactly what the loosened
-        // level was meant to stop.
-        applySystemPrompt();
-        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
-            tr("assistant autonomy set to: %1").arg(toolAutonomyName(autonomy)));
-    });
-
-    // Which models exist belongs to the endpoint, so it is asked rather than
-    // guessed, and the answer is remembered per profile.
-    connect(m_llmClient, &LlmClient::modelsListed, this, [this](const QStringList& models) {
-        if (!m_chatDock)
-            return;
-        const QString profileName = m_chatDock->currentProfile();
-        QSettings settings;
-        QString remembered = settings.value(QStringLiteral("llm/model/%1").arg(profileName)).toString();
-        if (remembered.isEmpty() || !models.contains(remembered))
-            remembered = models.value(0);
-        m_chatDock->setModels(models, remembered);
-
-        // setModels() blocks the box's signals while it fills, so modelChanged does
-        // NOT fire for this first selection. Without pushing it by hand the client
-        // keeps the model from the config file and the box is decoration -- which is
-        // exactly how it failed: the dock showed one model and the request sent another.
-        const QString chosen = m_chatDock->currentModel();
-        if (chosen.isEmpty()) {
-            m_chatDock->setStatus(tr("The endpoint listed no models."), true);
-            return;
-        }
-        settings.setValue(QStringLiteral("llm/model/%1").arg(profileName), chosen);
-        invokeOnLlmThread([this, chosen] {
-            m_llmClient->setModel(chosen);
-            m_llmClient->describeModel(chosen);
-        });
-    });
-    connect(m_llmClient, &LlmClient::modelInfo, this, [this](const LlmModelInfo& info) {
-        if (m_chatDock)
-            m_chatDock->setModelInfo(info);
-        // render_view is only worth anything against a model that takes images; a
-        // model that does not is told so instead of being handed a PNG it cannot
-        // open. Claude Generated 2026.
-        const bool vision = info.supportsVision;
-        invokeOnLlmThread([this, vision] { m_llmSession->setVisionCapable(vision); });
-    });
-    connect(m_chatDock, &ChatDock::modelChanged, this, [this](const QString& model) {
-        if (!m_llmClient || model.isEmpty())
-            return;
-        QSettings settings;
-        settings.setValue(QStringLiteral("llm/model/%1").arg(m_chatDock->currentProfile()), model);
-        invokeOnLlmThread([this, model] {
-            m_llmClient->setModel(model);
-            m_llmClient->describeModel(model);
-        });
-    });
-
-    LlmConfig config;
-    if (!config.load(configPath, &error)) {
-        m_chatDock->setStatus(tr("No usable endpoint configuration: %1").arg(error), true);
-        return;
-    }
-    QStringList names;
-    for (const LlmProfile& profile : config.profiles())
-        names << profile.name;
-    LlmProfile active;
-    config.activeProfile(active);
-    m_chatDock->setProfiles(names, active.name);
-    LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
-        tr("assistant ready: %1 endpoint profile(s), active \"%2\"")
-            .arg(names.size()).arg(active.name));
-
-    // Configured; hand both objects over. Everything from here on is marshalled.
-    m_llmClient->moveToThread(m_llmThread);
-    m_llmSession->moveToThread(m_llmThread);
-    connect(m_llmThread, &QThread::finished, m_llmSession, &QObject::deleteLater);
-    connect(m_llmThread, &QThread::finished, m_llmClient, &QObject::deleteLater);
-    m_llmThread->start();
-
-    applyLlmProfile(active.name);
-}
-
-void MainWindow::applyLlmProfile(const QString& name)
-{
-    if (!m_llmClient || !m_chatDock)
-        return;
-
-    LlmConfig config;
-    QString error;
-    if (!config.load(LlmConfig::defaultPath(), &error)) {
-        m_chatDock->setStatus(error, true);
-        return;
-    }
-    LlmProfile profile;
-    if (!config.profile(name, profile)) {
-        m_chatDock->setStatus(tr("No profile called \"%1\"").arg(name), true);
-        return;
-    }
-
-    const QString key = LlmConfig::apiKeyFor(profile);
-    // The dock's remembered value if there is one, otherwise what the file says.
-    const int rounds = QSettings()
-                           .value(QStringLiteral("llm/rounds/%1").arg(profile.name),
-                               profile.maxToolIterations)
-                           .toInt();
-    m_chatDock->setMaxRounds(rounds);
-    invokeOnLlmThread([this, profile, key, rounds] {
-        m_llmClient->setProfile(profile);
-        m_llmClient->setApiKey(key);
-        m_llmSession->setMaxIterations(rounds);
-    });
-
-    // Say which variable is missing rather than letting the first request fail with
-    // an authentication error the user has to decode.
-    if (!profile.apiKeyEnv.isEmpty() && key.isEmpty()) {
-        m_chatDock->setStatus(
-            tr("%1 is not set in the environment; %2 will refuse the request.")
-                .arg(profile.apiKeyEnv, profile.name), true);
-    } else {
-        m_chatDock->setStatus(QString());   // the endpoint has its own field now
-    }
-    m_chatDock->setEndpoint(profile.baseUrl);
-
-    const QString effort = QSettings()
-        .value(QStringLiteral("llm/reasoning/%1").arg(profile.name)).toString();
-    m_reasoningEffort = effort;
-    m_chatDock->setReasoningEffort(effort);
-    invokeOnLlmThread([this, effort] { m_llmClient->setReasoningEffort(effort); });
-    applySystemPrompt();
-
-    // Ask the endpoint what it serves. The answer repopulates the model box, which
-    // is what makes a profile without a "model" entry usable at all.
-    invokeOnLlmThread([this] { m_llmClient->listModels(); });
+    LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info, tr("assistant ready"));
 }
 
 // Claude Generated 2026 - The prompt follows the autonomy switch. Setting the
@@ -6577,7 +6363,7 @@ void MainWindow::applyLlmProfile(const QString& name)
 // work: it goes on ending its turn with "shall I start?" after every step, which
 // is the behaviour the switch exists to remove. The permission and the instruction
 // have to say the same thing.
-void MainWindow::applySystemPrompt()
+QString MainWindow::assistantSystemPrompt() const
 {
     QString prompt = tr(
         "You are an assistant inside qurcuma, a molecular visualisation and analysis program. "
@@ -6607,7 +6393,8 @@ void MainWindow::applySystemPrompt()
 
     // The Thinking selector asks the endpoint for less; a model whose endpoint
     // ignores the field only hears it here.
-    if (m_reasoningEffort == QLatin1String("off") || m_reasoningEffort == QLatin1String("low")) {
+    const QString effort = m_chatDock ? m_chatDock->reasoningEffort() : QString();
+    if (effort == QLatin1String("off") || effort == QLatin1String("low")) {
         prompt += tr("Keep any reasoning to a few sentences. Decide from what the tools "
                      "reported and act.\n");
     }
@@ -6632,7 +6419,7 @@ void MainWindow::applySystemPrompt()
         break;
     }
 
-    invokeOnLlmThread([this, prompt] { m_llmSession->setSystemPrompt(prompt); });
+    return prompt;
 }
 #endif  // USE_LLM
 

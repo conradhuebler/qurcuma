@@ -35,11 +35,6 @@
 #include <QString>
 #include <QStringList>
 #include <QTabWidget>
-// Claude Generated 2026 - invokeOnLlmThread() below calls m_llmThread->isRunning()
-// inside a template body. GCC/Clang only need the complete type at instantiation
-// (two-phase lookup) and were happy with the forward declaration further down;
-// MSVC checks it eagerly while parsing the template and fails with "use of
-// undefined type 'QThread'" even though nothing instantiates it in this TU.
 #include <QThread>
 #include <QTextEdit>
 #include <QToolBar>
@@ -86,7 +81,8 @@ class ToolDispatcher;           // Claude Generated 2026 - tool layer (core/tool
 class CurcumaJob;               // Claude Generated 2026 - in-process calculation
 struct ToolResult;              // Claude Generated 2026 - core/tool.h
 #ifdef USE_LLM
-class ChatDock;                 // Claude Generated 2026 - docks/chatdock.h
+class ChatDock;                 // Claude Generated 2026 - CuteChat
+class QurcumaChatHost;          // Claude Generated 2026 - docks/qurcumachathost.h
 class LlmClient;                // Claude Generated 2026 - llm/llmclient.h
 class LlmSession;               // Claude Generated 2026 - llm/llmsession.h
 struct ToolSpec;                // Claude Generated 2026 - core/tool.h
@@ -251,27 +247,9 @@ private:
     /// beyond reading and display.
     ToolAutonomy m_autonomy = ToolAutonomy::Ask;
 #ifdef USE_LLM
-    /// How much the model should think, as chosen in the dock. Sent to the endpoint
-    /// as a request field AND put in the system prompt, because an endpoint that
-    /// does not know the field would otherwise ignore the setting entirely.
-    /// Claude Generated 2026.
-    QString m_reasoningEffort;
-    /// Build the system prompt for the current autonomy level and push it to the
-    /// session. Claude Generated 2026.
-    void applySystemPrompt();
-
-    /// Run @p fn on the agent loop's thread. The client and the session live there
-    /// once setupAssistant() has handed them over, and calling a method on an object
-    /// owned by another thread is a data race, not a style question. Falls back to a
-    /// direct call while the thread is not yet running. Claude Generated 2026.
-    template <typename Fn>
-    void invokeOnLlmThread(Fn&& fn)
-    {
-        if (m_llmSession && m_llmThread && m_llmThread->isRunning())
-            QMetaObject::invokeMethod(m_llmSession, std::forward<Fn>(fn), Qt::QueuedConnection);
-        else
-            fn();
-    }
+    /// The system prompt for the current autonomy level and thinking effort. The chat dock asks the
+    /// host for it before every question, so it follows both switches. Claude Generated 2026.
+    QString assistantSystemPrompt() const;
 #endif
 
     void setupUI();
@@ -282,12 +260,9 @@ private:
     /// Show a tool's answer in the Output dock and the status bar. Claude Generated 2026.
     void showToolResult(const QString& name, const ToolResult& result);
 #ifdef USE_LLM
-    /// Create the client and session, attach the dock, load the endpoint profiles.
-    /// Claude Generated 2026.
+    /// Wire the assistant (CuteChat's ChatDock, built by the DockManager with a QurcumaChatHost):
+    /// prompt and approval callbacks, autonomy, log. Claude Generated 2026.
     void setupAssistant();
-    /// Apply the named endpoint profile to the client, reading its key from the
-    /// environment. Reports what is missing rather than failing silently.
-    void applyLlmProfile(const QString& name);
 #endif                  // Claude Generated 2026 - P3 Ctrl+K palette
 
     /// Ask before a tool that calculates, writes or mutates. Claude Generated 2026 -
@@ -395,16 +370,13 @@ private:
     /// assistant and the script dock. Claude Generated 2026.
     QSet<QString> m_toolsAllowedForSession;
 #ifdef USE_LLM
-    // Claude Generated 2026 - The assistant. The session owns the conversation and
-    // the approval policy; the dock is only a view onto it.
+    // Claude Generated 2026 - The assistant is CuteChat's ChatDock. Its ChatEngine runs the client
+    // and the agent loop on a thread of their own (a waiting tool must not wait on the GUI thread);
+    // the host carries qurcuma's prompt and approval callbacks.
     ChatDock* m_chatDock = nullptr;
-    LlmClient* m_llmClient = nullptr;
-    LlmSession* m_llmSession = nullptr;
-    /// The agent loop's own thread. A waiting tool must not wait on the GUI thread:
-    /// besides freezing the window, it would block delivery of the very signals it
-    /// is waiting for. Claude Generated 2026.
-    QThread* m_llmThread = nullptr;
+    QurcumaChatHost* m_chatHost = nullptr;   ///< deleted with the dock (DockManager)
 #endif
+    bool m_toolLayerBuilt = false;   ///< the tools are registered once, whoever asks first
 
     // Claude Generated 2026 - Docked viewer display options (replaces the modal dialog)
     DisplayPanel* m_displayPanel = nullptr;

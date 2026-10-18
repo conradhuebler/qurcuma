@@ -1,5 +1,11 @@
 # AIChangelog - Qurcuma Improvements
 
+## Oktober 2026 - Assistent-Dock aus CuteChat
+
+- `src/docks/chatdock.*` entfällt: der Assistent ist CuteChats `ChatDock`, gebaut vom `DockManager` mit `QurcumaChatHost`. Client und Agentenschleife laufen in dessen `ChatEngine` auf einem Worker-Thread (wartende Tools dürfen den GUI-Thread nicht blockieren), die Freigabe-Rückfrage kommt im GUI-Thread. Thinking, Rounds, Autonomie (inkl. Warnhinweis) und die faltbaren Reasoning-Blöcke sind jetzt Bibliotheksfunktionen. Neu gegenüber vorher: Chat-Historie, Export/Import, Endpunkt-Manager.
+- Ein Praxistest im echten Programm (kwin virtuell, Stub-Endpoint) fand einen Deadlock: `ChatEngine::conversation()` wartete blockierend auf den Worker, der gerade ein Gui-Tool auf den GUI-Thread schickte. Jetzt wartet es in einer lokalen Event-Loop (Test `conversationCanBeAskedWhileAGuiToolIsInFlight`).
+- curcuma auf master; der Parameter-Parser verlor beim Merge die `MODULE_INFO`-Auswertung (0 Module, `test_curcumaschemas` rot) und liest sie wieder, auch mehrteilige Beschreibungen.
+
 ## Oktober 2026 - Gemeinsame Bibliothek CuteChat für die Werkzeugschicht
 
 - `src/core/tool*.{h,cpp}` und `src/llm/llm{client,config,session}.*` sind durch die Bibliothek **CuteChat** ersetzt (gleiche Quelle wie in SupraFit): `qurcuma_core` linkt nur `CuteChat::tools` (Qt Core), `qurcuma_llm` ist `CuteChat::core`. Der Dispatcher schreibt seine Audit-Zeile über `setLogSink` in den `LogHub`, die Sitzung meldet über `noted`. Neu aus SupraFit: Provider-Presets, Chat-Log/Export, Audit-Aufzeichnung, Chat-Verlauf mit Speicher-Backend, Fähigkeitsabfrage. Die bestehenden Tests `toolregistry`, `tooldispatcher`, `toolscore`, `llmclient`, `llmsession` laufen unverändert gegen die Bibliothek. Der `ChatDock` bleibt vorerst eigen (Worker-Thread-Modell, siehe `todo.md`). Branch `feature/shared-chat`.
