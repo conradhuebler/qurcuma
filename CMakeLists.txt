@@ -318,10 +318,9 @@ if(USE_SFTP)
 endif()
 
 # --- CuteChat: the tool layer, the endpoint client, the agent loop and the chat log ----------------
-# Claude Generated 2026 - Shared with SupraFit (docs/DESIGN.md in the CuteChat repo). The library has no
-# remote yet, so it is found by path: -DCUTECHAT_DIR=<checkout>, external/CuteChat, then a sibling
-# checkout ../CuteChat. Once a remote exists this becomes a submodule at external/CuteChat and the
-# lookup below needs no change. Only the Qt-Core-only tool layer (CuteChat::tools) goes into
+# Claude Generated 2026 - Shared with SupraFit (docs/DESIGN.md in the CuteChat repo). A git submodule at
+# external/CuteChat (git submodule update --init); -DCUTECHAT_DIR=<checkout> or a sibling checkout ../CuteChat
+# override it for working on the library. Only the Qt-Core-only tool layer (CuteChat::tools) goes into
 # qurcuma_core; the client, session and config (CuteChat::core, needs Qt6::Network) into qurcuma_llm.
 set(CUTECHAT_DIR "" CACHE PATH "CuteChat checkout (default: external/CuteChat, then ../CuteChat)")
 if(NOT CUTECHAT_DIR)
@@ -333,8 +332,8 @@ if(NOT CUTECHAT_DIR)
     endforeach()
 endif()
 if(NOT CUTECHAT_DIR OR NOT EXISTS ${CUTECHAT_DIR}/CMakeLists.txt)
-    message(FATAL_ERROR "qurcuma needs the CuteChat library: set -DCUTECHAT_DIR=<path to CuteChat> "
-                        "(external/CuteChat or ../CuteChat are tried)")
+    message(FATAL_ERROR "qurcuma needs the CuteChat library: run `git submodule update --init` "
+                        "(external/CuteChat), or set -DCUTECHAT_DIR=<path to CuteChat> (../CuteChat is tried as well)")
 endif()
 message(STATUS "qurcuma: CuteChat from ${CUTECHAT_DIR}")
 set(CUTECHAT_BUILD_WIDGETS ON)    # the chat dock and the endpoint dialog: qurcuma's assistant is CuteChat's ChatDock

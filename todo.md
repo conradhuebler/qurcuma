@@ -417,7 +417,6 @@
 
 ## Shared chat library (CuteChat)
 - [x] `ChatDock`/`ChatEngine` aus CuteChat übernommen (TESTED: Operator, 2026-10-18, lokales Ollama mit Cloud-Modellen): `src/docks/chatdock.*` entfällt, Host = `src/docks/qurcumachathost.*`.
-- [ ] Kein Remote für CuteChat: bis dahin `-DCUTECHAT_DIR=`/`../CuteChat`; mit Remote `git submodule add <url> external/CuteChat` (CMake sucht dort zuerst).
 - [ ] Gemerkte Modelle: Schlüssel heißen jetzt `llm/models/<profil>` (vorher `llm/model/<profil>`), das Modell wird einmal neu gewählt.
 
 ---

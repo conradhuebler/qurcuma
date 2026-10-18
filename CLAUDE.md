@@ -12,7 +12,7 @@
 - **[src/docks/CLAUDE.md](src/docks/CLAUDE.md)** - dock architecture, `DockManager`, layout presets, app modes
 - **[src/dialogs/CLAUDE.md](src/dialogs/CLAUDE.md)** - NMR spectrum dialog and analysis
 - **[src/script/CLAUDE.md](src/script/CLAUDE.md)** - JavaScript interpreter (QJSEngine) for calculations
-- **CuteChat** (shared library, SupraFit uses it too; `external/CuteChat`, `../CuteChat` or `-DCUTECHAT_DIR=`): tool contract/registry/dispatcher (`CuteChat::tools`, linked by `qurcuma_core`) and `LlmClient`/`LlmConfig`/`LlmSession`/`ChatEngine`/chat log (`CuteChat::core`, behind `qurcuma_llm`) plus the `ChatDock` (`CuteChat::cutechat`). Include as `<cutechat/...>`. Its own rules: `CuteChat/CLAUDE.md`, design: `CuteChat/docs/DESIGN.md`. qurcuma keeps its tools (`src/llm/tools_*`), `LogHub` (the dispatcher's `setLogSink` and the engine's `noted` signal feed it), the approval policy and `QurcumaChatHost`.
+- **CuteChat** (shared library, SupraFit uses it too; git submodule `external/CuteChat`, override with `../CuteChat` or `-DCUTECHAT_DIR=`): tool contract/registry/dispatcher (`CuteChat::tools`, linked by `qurcuma_core`) and `LlmClient`/`LlmConfig`/`LlmSession`/`ChatEngine`/chat log (`CuteChat::core`, behind `qurcuma_llm`) plus the `ChatDock` (`CuteChat::cutechat`). Include as `<cutechat/...>`. Its own rules: `CuteChat/CLAUDE.md`, design: `CuteChat/docs/DESIGN.md`. qurcuma keeps its tools (`src/llm/tools_*`), `LogHub` (the dispatcher's `setLogSink` and the engine's `noted` signal feed it), the approval policy and `QurcumaChatHost`.
 
 ## Improvements Tracking
 

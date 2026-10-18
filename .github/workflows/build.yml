@@ -47,6 +47,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Claude Generated 2026 - external/CuteChat (the shared chat library) is a submodule
+          submodules: recursive
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
