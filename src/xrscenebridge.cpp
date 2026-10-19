@@ -22,6 +22,7 @@ XrSceneBridge::XrSceneBridge(SceneController* scene, QObject* parent)
     m_wallForceTips = mirror(scene->wallForceTipsInstancing());
     m_nciLines = mirror(scene->nciInstancing());
     m_cellLines = mirror(scene->cellInstancing());
+    m_selectionHalos = mirror(scene->selectionHaloInstancing());
 }
 
 // Same ownership pattern as SceneController: a QQuick3DObject without a scene parent (the
@@ -46,3 +47,4 @@ QQuick3DInstancing* XrSceneBridge::wallForceShaftsInstancing() const { return m_
 QQuick3DInstancing* XrSceneBridge::wallForceTipsInstancing() const { return m_wallForceTips; }
 QQuick3DInstancing* XrSceneBridge::nciInstancing() const { return m_nciLines; }
 QQuick3DInstancing* XrSceneBridge::cellInstancing() const { return m_cellLines; }
+QQuick3DInstancing* XrSceneBridge::selectionHaloInstancing() const { return m_selectionHalos; }

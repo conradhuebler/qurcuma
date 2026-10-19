@@ -95,6 +95,15 @@ void VrSession::setTemperature(double kelvin)
     emit temperatureChanged();
 }
 
+void VrSession::setTemperatureRange(double minimum, double maximum)
+{
+    if (qFuzzyCompare(1.0 + minimum, 1.0 + m_temperatureMin) && qFuzzyCompare(1.0 + maximum, 1.0 + m_temperatureMax))
+        return;
+    m_temperatureMin = minimum;
+    m_temperatureMax = maximum;
+    emit temperatureRangeChanged();
+}
+
 // Claude Generated 2026 - Structured status for the headset panels (VrPanelStructure/VrPanelSimulation).
 void VrSession::setStatus(int frame, int frameCount, bool playing, const QString& selection, double grabStrength)
 {
@@ -163,10 +172,59 @@ void VrSession::choose(const QString& name)
         emit fileRequested(path);
 }
 
+// Claude Generated 2026 - Surroundings of the headset scene, as file URLs for the QML side.
+void VrSession::setSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale)
+{
+    const QUrl panorama = panoramaPath.isEmpty() ? QUrl() : QUrl::fromLocalFile(panoramaPath);
+    const QUrl scene = scenePath.isEmpty() ? QUrl() : QUrl::fromLocalFile(scenePath);
+    if (panorama == m_panorama && scene == m_surroundings && sceneScale == m_surroundingsScale)
+        return;
+    m_panorama = panorama;
+    m_surroundings = scene;
+    m_surroundingsScale = sceneScale;
+    emit surroundingsChanged();
+}
+
+// Claude Generated 2026 - Instantaneous MD temperature for the headset thermostat slider.
+void VrSession::setSystemTemperature(double kelvin)
+{
+    if (kelvin == m_systemTemperature)
+        return;
+    m_systemTemperature = kelvin;
+    emit systemTemperatureChanged();
+}
+
+// Claude Generated 2026 - Kind of the active run ("md" / "opt" / empty), for the Simulation panel.
+void VrSession::setSimulationMode(const QString& mode)
+{
+    if (mode == m_simulationMode)
+        return;
+    m_simulationMode = mode;
+    emit simulationStatusChanged();
+}
+
+// Claude Generated 2026 - File name and molecule name of the structure shown, for the Structure panel.
+void VrSession::setStructure(const QString& fileName, const QString& title)
+{
+    if (fileName == m_structureFile && title == m_structureTitle)
+        return;
+    m_structureFile = fileName;
+    m_structureTitle = title;
+    emit structureChanged();
+}
+
 void VrSession::setMethod(const QString& key)
 {
     if (key == m_method)
         return;
     m_method = key;
     emit methodChanged();
+}
+
+void VrSession::setHandInput(bool on)
+{
+    if (on == m_handInput)
+        return;
+    m_handInput = on;
+    emit handInputChanged();
 }

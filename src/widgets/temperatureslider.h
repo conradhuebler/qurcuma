@@ -66,6 +66,8 @@ public slots:
 signals:
     /** @brief Emitted whenever the handle moves (drag or setValue from code). */
     void valueChanged(double v);
+    /** @brief Emitted when min or max change (spin boxes or setRange). Claude Generated 2026. */
+    void rangeChanged(double mn, double mx);
 
 private slots:
     void onTrackChanged(double v);

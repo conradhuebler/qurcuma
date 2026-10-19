@@ -31,6 +31,7 @@ class XrSceneBridge : public QObject
     Q_PROPERTY(QQuick3DInstancing* wallForceTipsInstancing READ wallForceTipsInstancing CONSTANT)
     Q_PROPERTY(QQuick3DInstancing* nciInstancing READ nciInstancing CONSTANT)
     Q_PROPERTY(QQuick3DInstancing* cellInstancing READ cellInstancing CONSTANT)
+    Q_PROPERTY(QQuick3DInstancing* selectionHaloInstancing READ selectionHaloInstancing CONSTANT)
 
 public:
     /// Creates one mirror per instance table of @p scene; the mirrors are children of the bridge.
@@ -49,6 +50,7 @@ public:
     QQuick3DInstancing* wallForceTipsInstancing() const;
     QQuick3DInstancing* nciInstancing() const;
     QQuick3DInstancing* cellInstancing() const;
+    QQuick3DInstancing* selectionHaloInstancing() const;
 
 private:
     MirrorInstancing* mirror(QQuick3DInstancing* source);
@@ -66,4 +68,5 @@ private:
     MirrorInstancing* m_wallForceTips = nullptr;
     MirrorInstancing* m_nciLines = nullptr;
     MirrorInstancing* m_cellLines = nullptr;
+    MirrorInstancing* m_selectionHalos = nullptr;
 };
