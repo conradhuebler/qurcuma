@@ -2,6 +2,10 @@
 
 Newest first; one line per fact. Entries from August 2026 and earlier: [docs/changelog/AIChangelog_2026-08-and-earlier.md](docs/changelog/AIChangelog_2026-08-and-earlier.md).
 
+## Oktober 2026 - Remote-Rechnen in der CI
+
+- **Qt-Modul `qtwebsockets` in `build.yml`**: ohne `Qt6::WebSockets` bleibt `QURCUMA_REMOTE` aus, und "Compute on", "Add computer" und das Remote-Segment fehlen im Programm. `CMakeLists.txt` meldet das jetzt beim Konfigurieren.
+
 ## Oktober 2026 - Windows-Link: ToolSpec war als class vorwärtsdeklariert
 
 - **`scriptdock.h` deklarierte `ToolSpec` als `class`, die Definition ist ein `struct`** (`cutechat/tool.h`): MSVC mangelt beides verschieden, `ScriptDock::setApprovalPolicy` blieb für `mainwindow.obj` ungelöst (LNK2019). Behoben mit `struct ToolSpec;`. Nicht geprüft: MSVC-Lauf.

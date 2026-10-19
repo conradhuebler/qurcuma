@@ -377,6 +377,8 @@ if(USE_REMOTE AND TARGET Qt6::WebSockets)
         src/remote/sshtunnel.h
         src/remote/hostprobe.h
         src/dialogs/addcomputerdialog.h)
+elseif(USE_REMOTE)
+    message(STATUS "qurcuma: Qt6::WebSockets not found, remote compute (\"Compute on\", Add computer) is left out; install the Qt WebSockets module")
 endif()
 
 # --- CuteChat: the tool layer, the endpoint client, the agent loop and the chat log ----------------
