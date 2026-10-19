@@ -415,6 +415,10 @@
 **Statistics:** 1,550+ lines | 2 commits (a91fd56, 6b2e241) | 9 components
 **Build:** ✅ Debug & Release passing, 0 warnings
 
+## Shared chat library (CuteChat)
+- [x] `ChatDock`/`ChatEngine` aus CuteChat übernommen (TESTED: Operator, 2026-10-18, lokales Ollama mit Cloud-Modellen): `src/docks/chatdock.*` entfällt, Host = `src/docks/qurcumachathost.*`.
+- [ ] Gemerkte Modelle: Schlüssel heißen jetzt `llm/models/<profil>` (vorher `llm/model/<profil>`), das Modell wird einmal neu gewählt.
+
 ---
 
 **Last Updated:** 2025-11-02 | Phase 4 Extended Complete

@@ -7,6 +7,8 @@
 // picking and grab; QML stays declarative. Claude Generated.
 #pragma once
 
+#include "core/moleculedata.h"  // moldata::Ellipsoid
+
 #include <QColor>
 #include <QHash>
 #include <QObject>
@@ -58,12 +60,20 @@ class SceneController : public QObject
     Q_PROPERTY(QQuick3DInstancing* wallForceShaftsInstancing READ wallForceShaftsInstancing CONSTANT)
     Q_PROPERTY(QQuick3DInstancing* wallForceTipsInstancing READ wallForceTipsInstancing CONSTANT)
     Q_PROPERTY(bool wallForceArrowsVisible READ wallForceArrowsVisible NOTIFY wallChanged)
+    // Claude Generated 2026 - Unit cell of a loaded cif: the parallelepiped the
+    // lattice vectors span, under moleculeRoot like the wall (intrinsic coords).
+    Q_PROPERTY(QQuick3DInstancing* cellInstancing READ cellInstancing CONSTANT)
+    Q_PROPERTY(bool cellVisible READ cellVisible NOTIFY cellChanged)
     // Claude Generated 2026 - Non-covalent interaction overlay: dashed lines
     // between contact partners. Endpoints are in intrinsic atom coordinates (like
     // the wall), so the Model lives under moleculeRoot and rotates with the
     // structure. nciLabels uses the same {px,py,pz,text} map shape as atomLabels
     // (plus a "color" key) and is drawn by the same reprojecting QML delegate.
     Q_PROPERTY(QQuick3DInstancing* nciInstancing READ nciInstancing CONSTANT)
+    /// Claude Generated 2026 - Shells around the selected atoms (drawn by the headset scene only).
+    Q_PROPERTY(QQuick3DInstancing* selectionHaloInstancing READ selectionHaloInstancing CONSTANT)
+    /// Number of selected atoms; the headset shows the selection shells only while it is > 0.
+    Q_PROPERTY(int selectionCount READ selectionCount NOTIFY selectionChanged)
     Q_PROPERTY(bool nciVisible READ nciVisible NOTIFY nciChanged)
     Q_PROPERTY(QVariantList nciLabels READ nciLabels NOTIFY nciChanged)
     // Rubber-band (box) selection rectangle in viewport pixels (structure editing).
@@ -166,6 +176,7 @@ public:
     // shift over the base, element identity preserved) and an individual size scale. All
     // visible overlays are packed into the two combined overlay instancing buffers.
     QQuick3DInstancing* overlayAtomInstancing() const;
+    QQuick3DInstancing* selectionHaloInstancing() const;
     QQuick3DInstancing* overlayBondInstancing() const;
     bool overlayVisible() const { return m_overlayVisible; }
     int overlayCount() const { return m_overlays.size(); }
@@ -189,6 +200,22 @@ public:
     void setWallBox(const QVector3D& min, const QVector3D& max);
     /// Spheric wall (origin-centred): lat/long wireframe of the given radius.
     void setWallSphere(float radius);
+    /// Claude Generated 2026 - Unit cell wireframe: the cell spanned by @p a, @p b,
+    /// @p c from @p origin (Angstrom, intrinsic coords), its three edges from the
+    /// origin in the crystallographic red/green/blue, the rest grey. With repeats
+    /// above 1 the outline of the whole na x nb x nc block is drawn as well.
+    QQuick3DInstancing* cellInstancing() const;
+    bool cellVisible() const { return m_cellPresent && m_cellShown; }
+    void setUnitCell(const QVector3D& origin, const QVector3D& a, const QVector3D& b,
+        const QVector3D& c, int na, int nb, int nc);
+    void clearUnitCell();
+    void setUnitCellShown(bool on);
+    /// Claude Generated 2026 - Thermal ellipsoids, one per atom in atom order
+    /// (empty = none). Used only while their count matches the structure's.
+    void setAtomEllipsoids(const QVector<moldata::Ellipsoid>& ellipsoids);
+    /// Draw atoms that have an ellipsoid as that ellipsoid, its RMS axes times
+    /// @p scale (the probability factor, 1.538 for 50 %).
+    void setEllipsoidDisplay(bool on, float scale);
     /// Recolour the current wall wireframe (e.g. red on boundary violations).
     void setWallColor(const QColor& color);
     void setWallVisible(bool on);
@@ -230,7 +257,9 @@ public:
     void setNciVisible(bool on);
     void setNciLabelsVisible(bool on);
 
-    bool atomsVisible() const { return m_atomsVisible; }
+    /// The atom model is shown: in a mode with atom spheres, or while thermal
+    /// ellipsoids are drawn (they appear in every mode). Claude Generated 2026.
+    bool atomsVisible() const { return m_atomsVisible || ellipsoidsActive(); }
     bool bondsVisible() const { return m_bondsVisible; }
     bool blendEnabled() const { return m_transparency < 0.999f; }
     QColor backgroundColor() const { return m_background; }
@@ -271,6 +300,12 @@ public:
     /// Claude Generated 2026 - Atom drawn by row @p instance of the atom instance table (-1 = none).
     /// Hidden atoms have no row, so a ray pick's instanceIndex must be mapped through this.
     Q_INVOKABLE int atomIndexForInstance(int instance) const;
+    /// Claude Generated 2026 - Direct touch (VR hand input): the drawn atom whose sphere surface is
+    /// nearest to the model-local point @p point (Angstrom), if within @p margin (Angstrom) of it, or
+    /// inside it; -1 if none. Only atoms as drawn count: hidden ones and hidden spheres do not.
+    Q_INVOKABLE int atomAtPoint(const QVector3D& point, float margin) const;
+    /// Claude Generated 2026 - Radius (Angstrom) atom @p index is drawn with; 0 if it is not drawn.
+    Q_INVOKABLE float atomDrawnRadius(int index) const;
     int atomCount() const { return m_atoms.size(); }
     const QVector<AtomDatum>& atoms() const { return m_atoms; }
 
@@ -296,6 +331,7 @@ public:
     void setAtomTransparency(float a);
     void setBackgroundColor(const QColor& c);
     void setSelection(const QVector<int>& indices);
+    int selectionCount() const { return m_selection.size(); }
     void setHoverAtom(int index);  // mouse-over highlight (-1 = none)
     // Claude Generated 2026 - Coarse-grained bead types. VTF beads carry a type
     // label instead of an element; the "By Type" scheme derives a stable colour
@@ -473,9 +509,11 @@ signals:
     void measurementChanged();
     void overlayChanged();
     void wallChanged();
+    void cellChanged();
     void nciChanged();
     void rubberBandChanged();
     void editHintChanged();
+    void selectionChanged();   // Claude Generated 2026
 
 private:
     void rebuildGeometry();        // recompute atom items + bond segments
@@ -489,6 +527,7 @@ private:
     float atomDrawRadius(const AtomDatum& a) const;  // per-atom radius (bead override or vdW)
 
     AtomInstancing* m_atomInstancing = nullptr;
+    AtomInstancing* m_selectionHaloInstancing = nullptr;   // shells around selected atoms (VR)
     BondInstancing* m_bondInstancing = nullptr;
     BondInstancing* m_arrowShaft = nullptr; // force-vector shafts (#Cylinder)
     BondInstancing* m_arrowTip = nullptr;   // force-vector tips (#Cone)
@@ -513,6 +552,26 @@ private:
     int  m_potArrowResolution = 4;
     void rebuildWall();            // regenerate segments from m_wallGeom + m_wallColor
     void rebuildWallVectorField(); // regenerate force arrows
+    // Claude Generated 2026 - Unit cell of a loaded cif.
+    BondInstancing* m_cellLines = nullptr;
+    bool m_cellPresent = false;
+    bool m_cellShown = true;
+    QVector3D m_cellOrigin, m_cellA, m_cellB, m_cellC;
+    int m_cellRepeats[3] = { 1, 1, 1 };
+    void rebuildCell();
+    // Claude Generated 2026 - Thermal ellipsoids of a loaded cif.
+    QVector<moldata::Ellipsoid> m_ellipsoids;
+    bool m_ellipsoidsShown = false;
+    float m_ellipsoidScale = 1.5382f;
+    /// Ellipsoids are drawn: switched on and still belonging to this structure
+    /// (a count mismatch means the atoms changed since they were read).
+    bool ellipsoidsActive() const
+    {
+        return m_ellipsoidsShown && !m_ellipsoids.isEmpty() && m_ellipsoids.size() == m_atoms.size();
+    }
+    /// Bond cylinder radius for the current mode: thin in wireframe, and thin
+    /// while ellipsoids are drawn so the bonds do not swallow them (ORTEP style).
+    float effectiveBondRadius() const;
     // Claude Generated 2026 - Non-covalent interaction overlay (dashed lines).
     BondInstancing* m_nciLines = nullptr;
     QVector<NciSegment> m_nciSegments;

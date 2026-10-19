@@ -172,6 +172,18 @@ Node {
         }
     }
 
+    // Claude Generated 2026 - Unit cell of a loaded cif: the parallelepiped of the lattice vectors,
+    // a/b/c edges red/green/blue, in the molecule's own frame so it turns with the crystal. Unlit, opaque.
+    ToggledModel {
+        source: "#Cylinder"
+        visible: content.ctl.cellVisible
+        instancing: content.inst.cellInstancing
+        materials: PrincipledMaterial {
+            baseColor: "white"
+            lighting: PrincipledMaterial.NoLighting
+        }
+    }
+
     // Measurement lines (distance/angle/dihedral), unlit cyan.
     ToggledModel {
         source: "#Cylinder"

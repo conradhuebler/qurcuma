@@ -65,6 +65,7 @@
 #include <QTime>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <memory>
 #include <QToolBar>
 #include <QToolButton>
 
@@ -74,9 +75,27 @@
 #include "view.h"
 #include "moleculefileloader.h"  // Claude Generated 2026 - unified structure-file reader
 #include "calculationrunner.h"  // Claude Generated 2026 - WP T3 external-process orchestration
+#include "core/loghub.h"       // Claude Generated 2026 - Output dock follows the log hub
+#include <cutechat/tooldispatcher.h>  // Claude Generated 2026 - tool layer
+#include <cutechat/toolregistry.h>
+#include "core/tools_core.h"
+#include "script/tools_script.h"
+#include "llm/tools_view.h"
+#include "llm/tools_palette.h"
+#include "llm/curcumajob.h"
+#include "llm/tools_compute.h"
+#include "llm/tools_edit.h"
+#include "llm/tools_files.h"
+#include "llm/tools_simulation.h"
+#ifdef USE_LLM
+#include "docks/qurcumachathost.h"
+#include <cutechat/chatdock.h>
+#include <cutechat/chatengine.h>
+#endif
 #include "lessoncontroller.h"  // Claude Generated 2026 - WP T4 lesson feature controller
 #include "frequencydialog.h"
 #include "displaypanel.h"
+#include "docks/celldock.h"  // Claude Generated 2026 - cif unit cell + repeats
 #include "widgets/commandpalette.h"
 #include "docks/chartdock.h"  // Claude Generated 2026 - live MD temperature/energy charts
 
@@ -87,6 +106,7 @@
 #endif
 #include "workspacemanager.h"  // Claude Generated Phase 4
 #include "docks/dockmanager.h"  // Claude Generated 2026 - Dock system restructuring
+#include "docks/scriptdock.h"  // Claude Generated 2026 - script interpreter with a tool bridge
 #include "recipe.h"              // Claude Generated 2026 - simulation recipes (UX stage 6 S2)
 #include "runlog.h"              // Claude Generated 2026 - per-run parameter log (UX stage 6 S4)
 #include "widgets/collapsiblesection.h"  // Lesson section drop target
@@ -129,7 +149,14 @@ MainWindow::MainWindow(const QString& invocationDir, QWidget *parent)
     // Claude Generated 2026 - Dock system restructuring: manager owns all docks,
     // presets and Explore/Compute mode. Construction happens before setupUI() so
     // createDockWidgets() can delegate to it in later phases.
+    // Claude Generated 2026 - The dispatcher exists before the docks: the assistant's dock is built
+    // with it (the host hands it over), and it is the same one the script dock and the tools use.
+    m_toolDispatcher = new ToolDispatcher(&ToolRegistry::instance(), this);
     m_dockManager = new DockManager(this, this);
+#ifdef USE_LLM
+    m_chatHost = new QurcumaChatHost(m_toolDispatcher);
+    m_dockManager->setChatHost(m_chatHost);
+#endif
 
     setupUI();
     createToolbars();
@@ -187,6 +214,15 @@ MainWindow::~MainWindow()
         m_nciThread->quit();
         m_nciThread->wait();
     }
+#ifdef USE_LLM
+    // Claude Generated 2026 - The agent loop is joined by the dock's ChatEngine when the dock goes,
+    // which is after this body. A turn waiting for an approval would then call back into a half
+    // destroyed window, so the callbacks are cut first: a pending question is answered "no".
+    if (m_chatHost) {
+        m_chatHost->prompt = nullptr;
+        m_chatHost->approve = nullptr;
+    }
+#endif
 }
 
 void MainWindow::setupUI()
@@ -210,6 +246,7 @@ void MainWindow::setupUI()
     m_centerOnLoad = vizSettings.centerOnLoad;
     m_nciLiveMd = vizSettings.nciLiveMd;
     setCentralWidget(m_moleculeView);
+
 
     // Claude Generated 2026 - Dock refactor: set dock options and tab positions
     // BEFORE creating/placing docks so tabify/split calls inherit the right config.
@@ -400,8 +437,12 @@ void MainWindow::setupContextMenu()
                     [this, filePath]() { m_lessonController->addFile(filePath); });
 
                 contextMenu.exec(m_directoryContentView->viewport()->mapToGlobal(pos));
-            } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive))
+            } else if (filePath.endsWith(".vtf", Qt::CaseInsensitive)
+                       || filePath.endsWith(".cif", Qt::CaseInsensitive))
             {
+                // Claude Generated 2026 - cif shares the vtf menu: both open through
+                // loadMoleculeFile, and the overlay/merge/lesson actions all read
+                // through MoleculeFileLoader.
                 QMenu contextMenu(this);
                 
                 // Dateiname zur Information anzeigen
@@ -717,9 +758,53 @@ void MainWindow::showCommandPalette()
         m_commandPalette = new CommandPalette(this);
     // Claude Generated 2026 - UX stage 5: every command has a menu QAction (Photo,
     // Measure, Select All, Deselect, the modes included), so the menu bar is the
-    // palette's only source and no entry appears twice.
-    m_commandPalette->setCommands(collectMenuBarCommands(menuBar()));
+    // palette's first source and no menu entry appears twice.
+    QVector<CommandPalette::Command> cmds = collectMenuBarCommands(menuBar());
+
+    // Claude Generated 2026 - Registry tools, ADDED to the menu entries above. Only
+    // those that run without arguments; the rest need a caller that can supply them.
+    // Routed through the dispatcher, so the palette path gets the same GUI-thread
+    // marshalling and the same audit record as the one a model will take.
+    if (m_toolDispatcher) {
+        cmds += paletteCommandsForTools(ToolRegistry::instance(), m_toolDispatcher,
+            [this](const QString& name, const ToolResult& result) { showToolResult(name, result); });
+    }
+
+    m_commandPalette->setCommands(cmds);
     m_commandPalette->popUp();
+}
+
+// Claude Generated 2026 - Put a tool's answer where a human can read it. The audit
+// record in the LogHub says that the call happened; this says what it returned.
+void MainWindow::showToolResult(const QString& name, const ToolResult& result)
+{
+    QString body;
+    if (!result.ok) {
+        body = result.error;
+    } else if (!result.text.isEmpty()) {
+        body = result.text;
+    } else if (!result.data.isEmpty()) {
+        body = QString::fromUtf8(QJsonDocument(result.data).toJson(QJsonDocument::Indented));
+    } else {
+        body = tr("(no output)");
+    }
+
+    // A tool result can be long; the dock is a log, not a report viewer.
+    constexpr int kMaxChars = 4000;
+    if (body.size() > kMaxChars) {
+        body = body.left(kMaxChars)
+            + tr("\n… truncated, %1 characters in total").arg(body.size());
+    }
+    if (result.truncated)
+        body += tr("\n(the tool had more to give; ask it for the next page)");
+
+    LogHub::instance().append(QStringLiteral("tool"),
+        result.ok ? LogLevel::Info : LogLevel::Warning,
+        QStringLiteral("%1 =>\n%2").arg(name, body));
+
+    statusBar()->showMessage(result.ok ? tr("%1: see the Output dock").arg(name)
+                                       : tr("%1 failed: %2").arg(name, result.error),
+        result.ok ? 4000 : 0);
 }
 
 // Claude Generated 2026 - Tools ▸ Parameter Usage (UX stage 6 S4): per run mode, how many
@@ -856,7 +941,7 @@ void MainWindow::createMenus()
         const QString path = QFileDialog::getOpenFileName(this,
             tr("Open Molecule File"),
             startDir,
-            tr("Molecule Files (*.xyz *.vtf *.pdb *.mol2);;All Files (*)"));
+            tr("Molecule Files (*.xyz *.vtf *.pdb *.mol2 *.cif);;All Files (*)"));
         if (path.isEmpty()) return;
         loadMoleculeFile(path);
     });
@@ -1005,6 +1090,12 @@ void MainWindow::createMenus()
     copyAction->setShortcut(QKeySequence::Copy);
     copyAction->setToolTip(tr("Edit mode: copy the selected atoms. Otherwise: copy the structure text."));
     connect(copyAction, &QAction::triggered, this, [this]() {
+        // A window-level shortcut beats a widget's own key handling, so this used
+        // to put the 3D structure on the clipboard even when the user had text
+        // selected in the chat or the log -- there was no way to get a line of
+        // either out of the program. Selected text wins now.
+        if (copySelectedTextFromFocusWidget())
+            return;
         if (m_moleculeView && m_moleculeView->editMode() && !m_moleculeView->getSelectedAtoms().isEmpty()) {
             m_moleculeView->copySelection();
             statusBar()->showMessage(tr("Copied %1 atom(s)").arg(m_moleculeView->getSelectedAtoms().size()), 2000);
@@ -1141,6 +1232,91 @@ void MainWindow::createMenus()
         }
     });
     connect(m_moleculeView, &MoleculeViewer::vrActiveChanged, vrAction, &QAction::setChecked);
+
+    // Claude Generated 2026 - VR demo mode: no modal "Unsaved changes" prompt when a new file is
+    // loaded (it would halt the headset view); modified structures are discarded. Turned on
+    // whenever a VR session starts, can be switched off again by hand.
+    QAction* vrDemoAction = viewMenu->addAction(tr("VR &Demo Mode"));
+    vrDemoAction->setCheckable(true);
+    vrDemoAction->setChecked(m_vrDemoMode);
+    vrDemoAction->setToolTip(tr("Loading another file discards an unsaved (MD/optimized) structure "
+                                "without asking, so no dialog interrupts the headset user. "
+                                "Enabled automatically by Show in VR Headset."));
+    connect(vrDemoAction, &QAction::toggled, this, [this](bool on) { m_vrDemoMode = on; });
+    connect(m_moleculeView, &MoleculeViewer::vrActiveChanged, vrDemoAction, [vrDemoAction](bool active) {
+        if (active)
+            vrDemoAction->setChecked(true);
+    });
+
+    // Claude Generated 2026 - Headset input: controllers (ray + trigger) or tracked hands (pinch,
+    // direct manipulation). Remembered; the headset's View panel switches it as well.
+    QMenu* vrInputMenu = viewMenu->addMenu(tr("VR &Input"));
+    auto* vrInputGroup = new QActionGroup(this);
+    QAction* vrControllersAction = vrInputMenu->addAction(tr("&Controllers (Ray + Trigger)"));
+    QAction* vrHandsAction = vrInputMenu->addAction(tr("&Hands (Pinch)"));
+    vrHandsAction->setToolTip(tr("Use tracked hands: pinch clicks panel buttons and holds the molecule. "
+                                 "Needs hand tracking in the OpenXR runtime."));
+    for (QAction* action : { vrControllersAction, vrHandsAction }) {
+        action->setCheckable(true);
+        vrInputGroup->addAction(action);
+    }
+    connect(vrHandsAction, &QAction::toggled, this, [this](bool on) { m_moleculeView->setVrHandInput(on); });
+    connect(m_moleculeView, &MoleculeViewer::vrHandInputChanged, this,
+        [this, vrControllersAction, vrHandsAction](bool on) {
+            (on ? vrHandsAction : vrControllersAction)->setChecked(true);
+            m_settings.setVrHandInput(on);
+        });
+    m_moleculeView->setVrHandInput(m_settings.vrHandInput());
+    (m_settings.vrHandInput() ? vrHandsAction : vrControllersAction)->setChecked(true);
+
+    // Claude Generated 2026 - Surroundings of the headset scene: a 360 degree panorama as the sky
+    // box and/or a 3D scene file around the user. Remembered; a file that is gone is skipped.
+    QMenu* vrSurroundingsMenu = viewMenu->addMenu(tr("VR &Surroundings"));
+    const auto applyVrSurroundings = [this] {
+        const QString panorama = m_settings.vrPanorama();
+        const QString scene = m_settings.vrSurroundings();
+        m_moleculeView->setVrSurroundings(QFileInfo::exists(panorama) ? panorama : QString(),
+                                          QFileInfo::exists(scene) ? scene : QString(),
+                                          m_settings.vrSurroundingsInCentimetres() ? 1.0 : 100.0);
+    };
+    QAction* panoramaAction = vrSurroundingsMenu->addAction(tr("&Panorama (Sky Box)..."));
+    panoramaAction->setToolTip(tr("360° equirectangular image (.hdr, .exr, .jpg, .png) shown around the headset user"));
+    connect(panoramaAction, &QAction::triggered, this, [this, applyVrSurroundings] {
+        const QString path = QFileDialog::getOpenFileName(this, tr("VR Panorama"),
+            QFileInfo(m_settings.vrPanorama()).absolutePath(),
+            tr("Panoramas (*.hdr *.exr *.jpg *.jpeg *.png *.ktx);;All files (*)"));
+        if (path.isEmpty())
+            return;
+        m_settings.setVrPanorama(path);
+        applyVrSurroundings();
+    });
+    QAction* sceneAction = vrSurroundingsMenu->addAction(tr("3D &Scene..."));
+    sceneAction->setToolTip(tr("3D scene file (glTF/GLB, OBJ, FBX) placed around the headset user"));
+    connect(sceneAction, &QAction::triggered, this, [this, applyVrSurroundings] {
+        const QString path = QFileDialog::getOpenFileName(this, tr("VR 3D Scene"),
+            QFileInfo(m_settings.vrSurroundings()).absolutePath(),
+            tr("3D scenes (*.gltf *.glb *.obj *.fbx);;All files (*)"));
+        if (path.isEmpty())
+            return;
+        m_settings.setVrSurroundings(path);
+        applyVrSurroundings();
+    });
+    // glTF is defined in metres, but many exported scenes are in centimetres.
+    QAction* centimetresAction = vrSurroundingsMenu->addAction(tr("3D Scene Units in &Centimetres"));
+    centimetresAction->setCheckable(true);
+    centimetresAction->setChecked(m_settings.vrSurroundingsInCentimetres());
+    centimetresAction->setToolTip(tr("Off: one unit of the 3D scene is a metre (glTF convention). "
+                                     "On: one unit is a centimetre."));
+    connect(centimetresAction, &QAction::toggled, this, [this, applyVrSurroundings](bool on) {
+        m_settings.setVrSurroundingsInCentimetres(on);
+        applyVrSurroundings();
+    });
+    vrSurroundingsMenu->addSeparator();
+    connect(vrSurroundingsMenu->addAction(tr("Clear Panorama")), &QAction::triggered, this,
+        [this, applyVrSurroundings] { m_settings.setVrPanorama(QString()); applyVrSurroundings(); });
+    connect(vrSurroundingsMenu->addAction(tr("Clear 3D Scene")), &QAction::triggered, this,
+        [this, applyVrSurroundings] { m_settings.setVrSurroundings(QString()); applyVrSurroundings(); });
+    applyVrSurroundings();
     viewMenu->addSeparator();
 #endif
 
@@ -1409,6 +1585,15 @@ void MainWindow::createMenus()
     addDockToggle(m_nciDock,              tr("&Interactions"));
     addDockToggle(m_imageGalleryDock,     tr("I&mages"));
     addDockToggle(m_chartDock,            tr("&Charts"));
+    addDockToggle(m_cellDock,             tr("&Unit Cell"));
+#ifdef USE_LLM
+    // Claude Generated 2026 - The assistant starts hidden, so without this entry
+    // there would be no way to open it at all.
+    addDockToggle(m_dockManager ? m_dockManager->chatDockImpl() : nullptr, tr("A&ssistant"));
+#endif
+    // Claude Generated 2026 - The script dock starts hidden like the assistant, and
+    // this entry is the only way to open it (the interpreter is not USE_LLM-gated).
+    addDockToggle(m_dockManager ? m_dockManager->scriptDockImpl() : nullptr, tr("Sc&ript"));
 
     // Reset layout: restore the captured baseline, then lay out the current mode on it.
     QAction *resetLayoutAction = viewMenu->addAction(QIcon::fromTheme("view-restore"), tr("&Reset to Default Layout"));
@@ -1589,10 +1774,21 @@ void MainWindow::createMenus()
             m_simulationControlWidget->onStopClicked();
         else if (name == QLatin1String("simPause"))
             m_simulationControlWidget->onPauseClicked();
-        else if (name == QLatin1String("simTempUp"))
-            m_simulationControlWidget->setTemperature(m_simulationControlWidget->temperature() + 25.0);
-        else if (name == QLatin1String("simTempDown"))
-            m_simulationControlWidget->setTemperature(m_simulationControlWidget->temperature() - 25.0);
+        else if (name.startsWith(QLatin1String("simTempRange:"))) {
+            // headset slider's min/max steppers: "simTempRange:<min>:<max>"
+            const QStringList parts = name.split(QLatin1Char(':'));
+            bool okMin = false, okMax = false;
+            const double minimum = parts.value(1).toDouble(&okMin);
+            const double maximum = parts.value(2).toDouble(&okMax);
+            if (okMin && okMax)
+                m_simulationControlWidget->setTemperatureRange(minimum, maximum);
+        } else if (name.startsWith(QLatin1String("simTemp:"))) {
+            // headset slider drag: like a drag of the dock's slider (live during a run)
+            bool ok = false;
+            const double kelvin = name.mid(int(strlen("simTemp:"))).toDouble(&ok);
+            if (ok)
+                m_simulationControlWidget->setTemperature(kelvin);
+        }
         else if (name.startsWith(QLatin1String("simMethod:")))
             m_simulationControlWidget->setMethod(name.mid(int(strlen("simMethod:"))));
         m_moleculeView->setVrTemperature(m_simulationControlWidget->temperature());
@@ -1604,6 +1800,8 @@ void MainWindow::createMenus()
     if (m_simulationControlWidget) {
         connect(m_simulationControlWidget, &SimulationControlWidget::temperatureChanged, this,
             [this](double kelvin) { m_moleculeView->setVrTemperature(kelvin); });
+        connect(m_simulationControlWidget, &SimulationControlWidget::temperatureRangeChanged, this,
+            [this](double minimum, double maximum) { m_moleculeView->setVrTemperatureRange(minimum, maximum); });
         connect(m_simulationControlWidget, &SimulationControlWidget::configChanged, this,
             [this](SimulationConfig cfg) { m_moleculeView->setVrMethod(cfg.method); });
         connect(m_simulationControlWidget, &SimulationControlWidget::pauseStateChanged, this,
@@ -1612,6 +1810,9 @@ void MainWindow::createMenus()
             [this](bool running) {
                 if (running)
                     m_moleculeView->setVrSimulationStatus(false, QString());
+                const bool md = m_simulationControlWidget->runMode() == SimulationConfig::Mode::MolecularDynamics;
+                m_moleculeView->setVrSimulationMode(!running ? QString()
+                                                    : md ? QStringLiteral("md") : QStringLiteral("opt"));
             });
         connect(m_simulationControlWidget, &SimulationControlWidget::runEnded, this,
             [this](const QString& reason, bool aborted) {
@@ -1629,6 +1830,8 @@ void MainWindow::createMenus()
         m_moleculeView->setVrStartDirectory(dir);
         if (m_simulationControlWidget) {
             m_moleculeView->setVrTemperature(m_simulationControlWidget->temperature());
+            m_moleculeView->setVrTemperatureRange(m_simulationControlWidget->temperatureMinimum(),
+                                                  m_simulationControlWidget->temperatureMaximum());
             m_moleculeView->setVrMethod(m_simulationControlWidget->method());
         }
     });
@@ -1821,10 +2024,11 @@ void MainWindow::setupConnections()
             QString filePath = filePathFromContentIndex(index);
             QString suffix = QFileInfo(filePath).suffix().toLower();
             QString basename = QFileInfo(filePath).baseName();
-            if (suffix == "xyz" || suffix == "vtf") {
+            if (MoleculeFileLoader::isSupported(filePath)) {
                 // Claude Generated 2026 - Route molecule files through the
                 // central loadMoleculeFile() which handles snapshots, simulation
-                // dock sync, save-path tracking, and modified-state flags.
+                // dock sync, save-path tracking, and modified-state flags. Every
+                // format the loader reads, not a list of its own (cif was missing).
                 loadMoleculeFile(filePath);
             }
             else if (suffix == "log" || suffix == "out" || suffix == "txt") {
@@ -3399,6 +3603,7 @@ void MainWindow::newScene()
     }
     m_moleculeView->newScene();
     m_structureModified = false;
+    m_moleculeView->setVrStructure(QString(), QString());
     if (m_statusFileLabel)
         m_statusFileLabel->clear();
     m_moleculeView->setBuildMode(true);
@@ -3592,11 +3797,16 @@ void MainWindow::updateAtomTableFromViewer()
 // Mirror the viewer's current-frame geometry into the structure text editor as XYZ.
 // Single-frame structures only (a trajectory's text stays the loaded file), and
 // never while the user is typing in the editor (focus) — that would fight them.
+// Deliberately gated on the frame count and not on canEditStructure(): this is a
+// read, and canEditStructure() is false while a simulation runs — but the run-end
+// refresh wired in setupConnections() is delivered before createDockWidgets()'s
+// handler clears the viewer's simulation flag, so that gate would leave the editor
+// showing the pre-run geometry.
 void MainWindow::updateStructureTextFromViewer()
 {
     if (!m_structureView || !m_moleculeView)
         return;
-    if (!m_moleculeView->canEditStructure() || m_structureView->hasFocus())
+    if (m_moleculeView->getFrameCount() > 1 || m_structureView->hasFocus())
         return;
     const QVector<MoleculeViewer::Atom> atoms = m_moleculeView->getCurrentFrameAtoms();
     if (atoms.isEmpty())
@@ -3611,6 +3821,10 @@ void MainWindow::applyStructureTextToViewer()
 {
     if (!m_structureView || !m_moleculeView)
         return;
+    if (m_moleculeView->simulationActive()) {
+        statusBar()->showMessage(tr("Apply is not available while a simulation is running"), 3000);
+        return;
+    }
     if (!m_moleculeView->canEditStructure()) {
         statusBar()->showMessage(tr("Apply works on single-frame structures only"), 3000);
         return;
@@ -3784,7 +3998,7 @@ void MainWindow::loadDrafts()
 
 // Claude Generated - Quick Win: Copy/Paste structures
 // Claude Generated 2026 - Parse the first frame of a structure file into viewer
-// atoms/bonds via the shared MoleculeFileLoader (xyz/vtf/pdb/mol2).
+// atoms/bonds via the shared MoleculeFileLoader (xyz/vtf/pdb/mol2/cif).
 bool MainWindow::parseFirstFrame(const QString& filePath, QVector<MoleculeViewer::Atom>& atoms,
     QVector<MoleculeViewer::Bond>& bonds)
 {
@@ -3805,13 +4019,18 @@ void MainWindow::addMoleculeToScene()
 {
     if (!m_moleculeView)
         return;
+    if (m_moleculeView->simulationActive()) {
+        QMessageBox::information(this, tr("Add Molecule to Scene"),
+            tr("Merging is not available while a simulation is running."));
+        return;
+    }
     if (!m_moleculeView->canEditStructure()) {
         QMessageBox::information(this, tr("Add Molecule to Scene"),
             tr("Merging is only available for single-frame structures, not trajectories."));
         return;
     }
     const QString path = QFileDialog::getOpenFileName(this, tr("Add Molecule to Scene"), QString(),
-        tr("Molecule files (*.xyz *.vtf *.pdb *.mol2);;All files (*)"));
+        tr("Molecule files (*.xyz *.vtf *.pdb *.mol2 *.cif);;All files (*)"));
     if (path.isEmpty())
         return;
     mergeFileIntoScene(path);
@@ -3823,6 +4042,11 @@ void MainWindow::mergeFileIntoScene(const QString& filePath)
 {
     if (!m_moleculeView || filePath.isEmpty())
         return;
+    if (m_moleculeView->simulationActive()) {
+        QMessageBox::information(this, tr("Add Molecule to Scene"),
+            tr("Merging is not available while a simulation is running."));
+        return;
+    }
     if (!m_moleculeView->canEditStructure()) {
         QMessageBox::information(this, tr("Add Molecule to Scene"),
             tr("Merging is only available for single-frame structures, not trajectories."));
@@ -3838,6 +4062,45 @@ void MainWindow::mergeFileIntoScene(const QString& filePath)
     m_moleculeView->appendMolecule(atoms, bonds);  // selects new atoms + enters placement
     statusBar()->showMessage(
         tr("Added %1 atoms — drag to place, then Resolve clashes if needed").arg(atoms.size()), 3000);
+}
+
+// Claude Generated 2026 - Let a focused text widget answer Ctrl+C itself.
+// Returns true when it did, i.e. when there was a selection to copy. Only the
+// classes that actually carry text are asked; a QAction shortcut fires before any
+// widget sees the key, so without this the Edit-menu Copy swallowed every Ctrl+C
+// in the window.
+bool MainWindow::copySelectedTextFromFocusWidget()
+{
+    QWidget* focus = QApplication::focusWidget();
+    if (!focus)
+        return false;
+
+    if (auto* edit = qobject_cast<QTextEdit*>(focus)) {
+        if (!edit->textCursor().hasSelection())
+            return false;
+        edit->copy();
+        return true;
+    }
+    if (auto* edit = qobject_cast<QPlainTextEdit*>(focus)) {
+        if (!edit->textCursor().hasSelection())
+            return false;
+        edit->copy();
+        return true;
+    }
+    if (auto* edit = qobject_cast<QLineEdit*>(focus)) {
+        if (!edit->hasSelectedText())
+            return false;
+        edit->copy();
+        return true;
+    }
+    if (auto* label = qobject_cast<QLabel*>(focus)) {
+        // The chat blocks are labels; selectable, but with no copy() of their own.
+        if (!label->hasSelectedText())
+            return false;
+        QGuiApplication::clipboard()->setText(label->selectedText());
+        return true;
+    }
+    return false;
 }
 
 void MainWindow::copyStructureToClipboard()
@@ -4494,8 +4757,57 @@ void MainWindow::restoreWorkspaceState(const Settings::Workspace& ws)
     statusBar()->showMessage(tr("Workspace '%1' restored").arg(ws.name), 3000);
 }
 
+// Claude Generated 2026 - Name of the molecule as the file states it, for the headset's Structure
+// panel: XYZ comment line, PDB TITLE (else COMPND MOLECULE:, else HEADER classification), MOL2
+// molecule name. Empty when the file has none, or when it holds no letters (an XYZ comment that is
+// only an energy) or just repeats the file name.
+static QString structureTitleFromFile(const QString& filePath)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return QString();
+    const QString suffix = QFileInfo(filePath).suffix().toLower();
+    QString title;
+    if (suffix == QLatin1String("xyz")) {
+        file.readLine();                                   // atom count
+        title = QString::fromUtf8(file.readLine()).trimmed();
+    } else if (suffix == QLatin1String("mol2")) {
+        for (int i = 0; i < 200 && !file.atEnd(); ++i) {
+            if (QString::fromUtf8(file.readLine()).trimmed() == QLatin1String("@<TRIPOS>MOLECULE")) {
+                title = QString::fromUtf8(file.readLine()).trimmed();
+                break;
+            }
+        }
+    } else if (suffix == QLatin1String("pdb")) {
+        QString pdbTitle, compound, header;
+        for (int i = 0; i < 200 && !file.atEnd(); ++i) {
+            const QString line = QString::fromUtf8(file.readLine());
+            if (line.startsWith(QLatin1String("ATOM")) || line.startsWith(QLatin1String("HETATM")))
+                break;
+            const QString text = line.mid(10).trimmed();
+            if (line.startsWith(QLatin1String("TITLE")))
+                pdbTitle += (pdbTitle.isEmpty() ? QString() : QStringLiteral(" ")) + text;
+            else if (line.startsWith(QLatin1String("COMPND")) && compound.isEmpty()
+                     && text.contains(QLatin1String("MOLECULE:")))
+                compound = text.section(QLatin1String("MOLECULE:"), 1).remove(QLatin1Char(';')).trimmed();
+            else if (line.startsWith(QLatin1String("HEADER")) && header.isEmpty())
+                header = line.mid(10, 40).trimmed();
+        }
+        title = !pdbTitle.isEmpty() ? pdbTitle : !compound.isEmpty() ? compound : header;
+    }
+    title = title.simplified();
+    const bool hasLetter = std::any_of(title.cbegin(), title.cend(), [](QChar c) { return c.isLetter(); });
+    if (!hasLetter || title.compare(QFileInfo(filePath).completeBaseName(), Qt::CaseInsensitive) == 0)
+        return QString();
+    return title;
+}
+
 // Claude Generated - SFTP: Load molecule file from local or remote path
-void MainWindow::loadMoleculeFile(const QString& filePath)
+// Claude Generated 2026 - filePath by value, not by reference: callers pass
+// members (m_cifPath, m_currentMoleculeFilePath) that the load itself resets
+// through the moleculeUpdated handlers, and a reference then went empty halfway
+// through -- the Unit Cell dock could switch once and never again.
+void MainWindow::loadMoleculeFile(const QString filePath, const MoleculeFileLoader::CifOptions* cifOptions)
 {
     if (filePath.isEmpty() || !QFile::exists(filePath)) {
         qWarning() << "File does not exist:" << filePath;
@@ -4513,7 +4825,11 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     // running an MD/Opt), prompt before discarding those changes. Save runs
     // through the central saveStructure() helper which itself may show a
     // Save-As dialog; if the user cancels that, the load is aborted.
-    if (m_structureModified) {
+    // In VR demo mode the changes are discarded without asking (a modal
+    // dialog would freeze the headset view).
+    if (m_structureModified && m_vrDemoMode) {
+        statusBar()->showMessage(tr("VR demo mode: unsaved structure changes discarded"), 3000);
+    } else if (m_structureModified) {
         QMessageBox box(this);
         box.setIcon(QMessageBox::Warning);
         box.setWindowTitle(tr("Unsaved changes"));
@@ -4542,12 +4858,18 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     bool fileLoaded = false;
 
     {
-        // Claude Generated 2026 - Every format the shared MoleculeFileLoader parses
-        // (xyz, vtf, pdb, mol2) loads through this one path, so snapshots, save path,
-        // recent files and the simulation dock are synced for all of them. Save on a
-        // non-xyz source asks for a new .xyz file (saveStructure) instead of
-        // overwriting the original.
-        const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath);
+        // Claude Generated 2026 - Every format through the shared MoleculeFileLoader
+        // (xyz/vtf/pdb/mol2/cif). pdb and mol2 used to stop here with "coming soon"
+        // although the loader has read them for a while.
+        // Claude Generated 2026 - A cif opened anew starts from the defaults
+        // (asymmetric unit, major disorder group, 1x1x1); only re-reading the cif
+        // on show -- the Unit Cell dock asking -- keeps the choices made for it.
+        // Options handed in (open_structure) win over both.
+        if (cifOptions)
+            m_cifOptions = *cifOptions;
+        else if (filePath != m_cifPath)
+            m_cifOptions = MoleculeFileLoader::CifOptions();
+        const MoleculeFileLoader::Result r = MoleculeFileLoader::load(filePath, m_cifOptions);
         if (!r.supported) {
             statusBar()->showMessage(tr("Unsupported file format: %1").arg(suffix), 2000);
         } else if (r.ok) {
@@ -4579,9 +4901,50 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
             captureInitialSnapshot(filePath, m_moleculeView->getCurrentFrameAtoms(),
                 m_moleculeView->getCurrentFrameBonds());
             fileLoaded = true;
+
+            // Claude Generated 2026 - A cif fills the Unit Cell dock; anything else
+            // empties it. Set after the scene is filled: filling it emits
+            // moleculeUpdated, which clears the dock for a count change.
+            // Claude Generated 2026 - thermal ellipsoids of a cif; nothing else has any.
+            m_moleculeView->setAtomEllipsoids(r.ellipsoids);
+            if (r.cif.present) {
+                m_cifPath = filePath;
+                const QVector<MoleculeViewer::Atom> shown = m_moleculeView->getCurrentFrameAtoms();
+                m_cifAtomCount = shown.size();
+                // The cell's origin is the origin of the file's frame. Centring on
+                // load moved every atom by the same vector; the cell moves with it,
+                // read off the first atom before and after.
+                if (r.cif.hasCell && !shown.isEmpty() && !r.frames.first().isEmpty()) {
+                    const QVector3D shift = shown.first().position - r.frames.first().first().position;
+                    // The cell is drawn for the asymmetric unit too: it is where
+                    // those atoms sit. Repeats only exist for the unit cell.
+                    m_moleculeView->setUnitCell(shift, r.cif.latticeA, r.cif.latticeB,
+                        r.cif.latticeC, r.cif.na, r.cif.nb, r.cif.nc);
+                } else {
+                    m_moleculeView->clearUnitCell();
+                }
+                if (m_cellDock) {
+                    m_cellDock->setCif(QFileInfo(filePath).fileName(), r.cif);
+                    // Brought forward when it was closed; left alone when the user
+                    // is on another tab of the group and it is already open.
+                    if (!m_cellDock->isVisible()) {
+                        m_cellDock->show();
+                        m_cellDock->raise();
+                    }
+                }
+            } else {
+                m_cifPath.clear();
+                m_moleculeView->clearUnitCell();
+                if (m_cellDock)
+                    m_cellDock->clearCif();
+            }
         } else {
             m_moleculeView->clearScenePublic();
-            qWarning() << "Failed to parse file:" << filePath;
+            qWarning() << "Failed to parse file:" << filePath << r.error;
+            statusBar()->showMessage(r.error.isEmpty()
+                    ? tr("Could not read %1").arg(QFileInfo(filePath).fileName())
+                    : tr("Could not read %1: %2").arg(QFileInfo(filePath).fileName(), r.error),
+                5000);
         }
     }
 
@@ -4593,6 +4956,7 @@ void MainWindow::loadMoleculeFile(const QString& filePath)
     if (fileLoaded) {
         if (m_statusFileLabel)
             m_statusFileLabel->setText(QFileInfo(filePath).fileName());
+        m_moleculeView->setVrStructure(QFileInfo(filePath).fileName(), structureTitleFromFile(filePath));
         // A fresh molecule resets the scene (clears any RMSD overlays); reset the RMSD
         // workspace too so it does not keep stale aligned structures.
         if (m_rmsdWidget)
@@ -4864,6 +5228,186 @@ void MainWindow::createDockWidgets()
     // MainWindow members so existing logic keeps working during the migration.
     m_dockManager->initialize(m_moleculeView, &m_settings);
     m_outputViewDock = m_dockManager->outputDockImpl();
+    // Claude Generated 2026 - Show qDebug/qWarning in the dock instead of only the
+    // terminal. The hub already holds whatever was logged during startup.
+    if (m_outputViewDock)
+        m_outputViewDock->followLogHub(&LogHub::instance());
+
+    // Claude Generated 2026 - The tool layer. Registration is by whoever owns the
+    // capability: the core registers what needs only the log and the catalogue,
+    // MainWindow registers what reaches the viewer. The dispatcher is created here,
+    // on the GUI thread, because that is the thread Gui-affinity handlers get
+    // marshalled to.
+    if (!m_toolLayerBuilt) {
+        m_toolLayerBuilt = true;
+        // The dispatcher exists already (see the constructor): the waiting tools take it, because a
+        // wait that can last minutes has to be escapable from the Stop button.
+        // The shared tool layer (CuteChat) has no log hub of its own: the audit line of every call
+        // goes to ours. Called on whatever thread dispatched; the hub carries its own lock.
+        m_toolDispatcher->setLogSink([](int level, const QString& line) {
+            LogHub::instance().append(QStringLiteral("tool"), level == 0 ? LogLevel::Info : LogLevel::Warning, line);
+        });
+        registerCoreTools(ToolRegistry::instance(), LogHub::instance());
+
+        // Claude Generated 2026 - The calculator. Registered without a script host, so
+        // a script that arrives from a model computes and does nothing else; the
+        // dispatcher is here only so the Stop button ends a runaway loop.
+        ScriptToolContext scriptContext;
+        scriptContext.dispatcher = m_toolDispatcher;
+        registerScriptTools(ToolRegistry::instance(), scriptContext);
+
+        // The dock runs the same interpreter with the opposite setting: it has a tool
+        // bridge, because the operator pressing Run is the permission, and every call
+        // is put through the dispatcher and the policy the assistant uses.
+        if (m_dockManager && m_dockManager->scriptDockImpl()) {
+            ScriptDock* scriptDock = m_dockManager->scriptDockImpl();
+            scriptDock->setToolLayer(&ToolRegistry::instance(), m_toolDispatcher);
+            scriptDock->setApprovalPolicy([this](const ToolSpec& spec, const QJsonObject& args) {
+                if (QThread::currentThread() == thread())
+                    return approveToolCall(spec, args);
+                bool approved = false;
+                QMetaObject::invokeMethod(this, [this, &spec, &args, &approved] {
+                    approved = approveToolCall(spec, args);
+                }, Qt::BlockingQueuedConnection);
+                return approved;
+            });
+            // What ran and how it ended, in the status bar: a script's output is in
+            // its own pane, but the dock may be behind another tab while it runs.
+            connect(scriptDock, &ScriptDock::scriptRan, this,
+                [this](const QString&, bool ok, const QString& summary) {
+                    statusBar()->showMessage(ok ? tr("Script finished: %1").arg(summary.left(120))
+                                                : tr("Script failed: %1").arg(summary.left(120)),
+                        5000);
+                });
+        }
+        ViewToolContext toolContext;
+        toolContext.viewer = m_moleculeView;
+        toolContext.workingDirectory = [this] { return m_workingDirectory; };
+        registerViewTools(ToolRegistry::instance(), toolContext);
+
+        // Claude Generated 2026 - Calculations run in process on their own thread;
+        // the tools start one and return, because a calculation takes seconds to
+        // minutes and a blocking tool would freeze the window it was called from.
+        m_curcumaJob = new CurcumaJob(&LogHub::instance(), this);
+        ComputeToolContext computeContext;
+        computeContext.viewer = m_moleculeView;
+        computeContext.job = m_curcumaJob;
+        computeContext.dispatcher = m_toolDispatcher;
+        computeContext.workingDirectory = [this] { return m_workingDirectory; };
+        registerComputeTools(ToolRegistry::instance(), computeContext);
+
+        EditToolContext editContext;
+        editContext.viewer = m_moleculeView;
+        // Read at call time, not now: the Simulation dock does not exist yet at
+        // registration. Same path the Fill dialog takes. Claude Generated 2026.
+        editContext.setContainerWall = [this](const ToolContainer& wall, QString* error) {
+            if (!m_simulationControlWidget) {
+                if (error)
+                    *error = tr("there is no simulation dock to set a container on");
+                return false;
+            }
+            if (m_simulationControlWidget->isRunning()) {
+                if (error)
+                    *error = tr("a simulation is running; the container is fixed at its start");
+                return false;
+            }
+            SimulationConfig cfg = m_simulationControlWidget->currentConfig();
+            cfg.wallEnabled = true;
+            cfg.wallPotential = wall.potential;
+            if (wall.sphere) {
+                cfg.wallType = 1;
+                cfg.wallRadius = wall.radius;
+            } else {
+                cfg.wallType = 2;
+                cfg.wallXmin = wall.min.x(); cfg.wallXmax = wall.max.x();
+                cfg.wallYmin = wall.min.y(); cfg.wallYmax = wall.max.y();
+                cfg.wallZmin = wall.min.z(); cfg.wallZmax = wall.max.z();
+            }
+            m_simulationControlWidget->applyConfig(cfg);
+            if (error)
+                error->clear();
+            return true;
+        };
+        // fill_container packs into this when asked to keep the container's size;
+        // clear_scene switches it off. Claude Generated 2026.
+        editContext.containerWall = [this](ToolContainer* wall) {
+            if (!m_simulationControlWidget || !wall)
+                return false;
+            const SimulationConfig cfg = m_simulationControlWidget->currentConfig();
+            if (!cfg.wallEnabled)
+                return false;
+            wall->potential = cfg.wallPotential;
+            if (cfg.wallType == 1 && cfg.wallRadius > 0.0) {
+                wall->sphere = true;
+                wall->radius = float(cfg.wallRadius);
+                return true;
+            }
+            if (cfg.wallType == 2 && cfg.wallXmax > cfg.wallXmin && cfg.wallYmax > cfg.wallYmin
+                && cfg.wallZmax > cfg.wallZmin) {
+                wall->sphere = false;
+                wall->min = QVector3D(float(cfg.wallXmin), float(cfg.wallYmin), float(cfg.wallZmin));
+                wall->max = QVector3D(float(cfg.wallXmax), float(cfg.wallYmax), float(cfg.wallZmax));
+                return true;
+            }
+            return false;   // auto-sized: no volume until curcuma picks one
+        };
+        editContext.clearContainerWall = [this](QString* error) {
+            if (!m_simulationControlWidget)
+                return true;   // no dock, so no wall either
+            if (m_simulationControlWidget->isRunning()) {
+                if (error)
+                    *error = tr("a simulation is running; the container is fixed at its start");
+                return false;
+            }
+            SimulationConfig cfg = m_simulationControlWidget->currentConfig();
+            cfg.wallEnabled = false;
+            m_simulationControlWidget->applyConfig(cfg);
+            return true;
+        };
+        registerEditTools(ToolRegistry::instance(), editContext);
+
+        FileToolContext fileContext;
+        fileContext.viewer = m_moleculeView;
+        fileContext.workingDirectory = [this] { return m_workingDirectory; };
+        // Claude Generated 2026 - open_structure goes through the same load as a
+        // click in the file browser, so everything that follows a load follows it.
+        fileContext.openStructure = [this](const QString& path,
+                                        const MoleculeFileLoader::CifOptions& cif, QString* error) {
+            if (m_moleculeView->simulationActive()) {
+                if (error)
+                    *error = tr("not while a simulation is running: stop it first");
+                return false;
+            }
+            if (!QFileInfo::exists(path)) {
+                if (error)
+                    *error = tr("no such file: %1").arg(path);
+                return false;
+            }
+            loadMoleculeFile(path, &cif);
+            // loadMoleculeFile reports failure only in the status bar; a successful
+            // load is the one that made this file the current structure.
+            if (m_currentMoleculeFilePath != path || m_moleculeView->getCurrentFrameAtoms().isEmpty()) {
+                if (error)
+                    *error = tr("%1 could not be read, or the load was cancelled").arg(path);
+                return false;
+            }
+            return true;
+        };
+        fileContext.shownCif = [this] { return m_cifPath; };
+        registerFileTools(ToolRegistry::instance(), fileContext);
+
+        // The catalogue size is the recurring cost of the whole feature: it goes
+        // out in full with every request. Logged rather than estimated, so growth
+        // is visible where it happens. Claude Generated 2026.
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+            tr("%1 tools registered, catalogue %2 kB per request")
+                .arg(ToolRegistry::instance().size())
+                .arg(ToolRegistry::instance().catalogueBytes() / 1024.0, 0, 'f', 1));
+    }
+
+#ifdef USE_LLM
+    setupAssistant();
+#endif
     m_structureDock = m_dockManager->structureDockImpl();
     m_simulationDock = m_dockManager->simulationDockImpl();
     // Pull the wrapped internal widgets into MainWindow members so the rest of the
@@ -4888,6 +5432,23 @@ void MainWindow::createDockWidgets()
         m_simulationControlWidget = m_simulationDock->simulationControlWidget();
         m_snapshotsWidget = m_simulationDock->snapshotsWidget();
         m_rmsdWidget = m_simulationDock->rmsdWidget();
+
+        // Claude Generated 2026 - MD and optimisation are a process, not a query:
+        // they push frames into the viewer and can be steered while they run, so
+        // they go through the dock that owns that lifecycle rather than starting a
+        // second engine beside it. Registered here rather than with the other tools
+        // above because the widget does not exist until this point.
+        if (m_simulationControlWidget && ToolRegistry::instance().size() > 0) {
+            SimulationToolContext simContext;
+            simContext.control = m_simulationControlWidget;
+            simContext.viewer = m_moleculeView;
+            simContext.dispatcher = m_toolDispatcher;
+            const int simTools = registerSimulationTools(ToolRegistry::instance(), simContext);
+            if (simTools > 0) {
+                LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+                    tr("%1 simulation tools registered").arg(simTools));
+            }
+        }
     }
 
     // Image-gallery dock (bottom, hidden until the first export): collect exported
@@ -4905,6 +5466,9 @@ void MainWindow::createDockWidgets()
     // contacts the 3D overlay draws; selecting a row highlights its atoms.
     m_nciDock = m_dockManager->nciDockImpl();
     setupNciAnalysis();
+
+    m_cellDock = m_dockManager->cellDockImpl();
+    setupCellDock();
 
     // Viewer-bar "Photo" button → dialog-free quick export into the working folder.
     if (m_moleculeView) {
@@ -5106,6 +5670,12 @@ void MainWindow::createDockWidgets()
                 const QVector<MoleculeViewer::Bond>& bonds) {
                 if (m_simulationControlWidget)
                     m_simulationControlWidget->setMolecule(atoms, bonds);
+                // Claude Generated 2026 - "Modified" means unsaved work. A file
+                // being read (m_structSyncing is held for the whole load) and an
+                // emptied scene are neither; counting them made every later load
+                // and New Scene ask about changes nobody had made.
+                if (m_structSyncing || atoms.isEmpty())
+                    return;
                 m_structureModified = true;
                 if (m_simulationControlWidget)
                     m_simulationControlWidget->setStructureModified(true);
@@ -5750,6 +6320,21 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
         connect(m_simulationControlWidget, &SimulationControlWidget::temperatureChanged,
             worker, &SimulationWorker::setTargetTemperature,
             Qt::QueuedConnection);
+        // Claude Generated 2026 - The same path as the mouse grab, but for a caller
+        // that is not a mouse: the tool layer names the atoms and the directions,
+        // the worker spreads each pull through the bond graph and re-applies the
+        // sum at every step until it is cleared.
+        connect(m_simulationControlWidget, &SimulationControlWidget::externalForcesRequested,
+            worker, &SimulationWorker::injectForces,
+            Qt::QueuedConnection);
+        connect(m_simulationControlWidget, &SimulationControlWidget::externalForcesCleared,
+            worker, [worker] { worker->clearInjectedForce(SimulationWorker::ToolForceSource); },
+            Qt::QueuedConnection);   // only the tool layer's own pulls; a mouse or hand grab keeps acting
+        // Claude Generated 2026 - and the declarative form beside it: these stand in
+        // the run's configuration rather than being re-applied every step.
+        connect(m_simulationControlWidget, &SimulationControlWidget::externalPotentialsRequested,
+            worker, &SimulationWorker::setExternalPotentials,
+            Qt::QueuedConnection);
         connect(m_simulationControlWidget, &SimulationControlWidget::wallTempChanged,
             worker, &SimulationWorker::setWallTemp,
             Qt::QueuedConnection);
@@ -5805,6 +6390,24 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
                 m_moleculeView->getCurrentFrameBonds());
     }
 
+    // Claude Generated 2026 - System temperature for the headset's thermostat slider: the
+    // instantaneous value the Temperature chart plots (0 for optimizations), reset at the
+    // start of each run, ~4 Hz so the number stays readable.
+    if (m_moleculeView) {   // also when the headset is put on during a run
+        m_moleculeView->setVrSystemTemperature(0.0);
+        auto vrTemperatureTimer = std::make_shared<QElapsedTimer>();
+        connect(worker, &SimulationWorker::frameReady,
+            this, [this, vrTemperatureTimer](SimulationFramePtr frame) {
+                if (!frame)
+                    return;
+                if (vrTemperatureTimer->isValid() && vrTemperatureTimer->elapsed() < 250)
+                    return;
+                vrTemperatureTimer->restart();
+                m_moleculeView->setVrSystemTemperature(frame->temperature);
+            },
+            Qt::QueuedConnection);
+    }
+
     // Status-bar slot is a lambda so we don't need a Qt slot declaration.
     // Throttled to ~5 Hz to reduce per-frame GUI overhead.
     connect(worker, &SimulationWorker::frameReady,
@@ -5841,6 +6444,64 @@ void MainWindow::wireSimulationWorker(SimulationWorker* worker)
 
 // Claude Generated (Apr 2026): Entry point for command-line file argument loading.
 // Called via QTimer::singleShot(200) from main.cpp so Qt3D is fully initialized.
+// Claude Generated 2026 - The Unit Cell dock: cell, contents, disorder group and
+// repeats of the loaded cif. All of it is applied while the file is read (the
+// viewer's atoms carry no cell), so every change reads the file again. The
+// choices belong to this file; the next cif starts from the defaults.
+void MainWindow::setupCellDock()
+{
+    if (!m_cellDock)
+        return;
+
+    // Whether the cell is drawn is a display preference, kept across sessions.
+    const bool showCell = QSettings().value(QStringLiteral("structure/showCell"), true).toBool();
+    m_cellDock->setCellShown(showCell);
+    m_moleculeView->setUnitCellShown(showCell);
+    connect(m_cellDock, &CellDock::cellShownChanged, this, [this](bool shown) {
+        m_moleculeView->setUnitCellShown(shown);
+        QSettings().setValue(QStringLiteral("structure/showCell"), shown);
+    });
+
+    // Thermal ellipsoids: a display preference like the cell, kept across sessions.
+    const bool showEllipsoids = QSettings().value(QStringLiteral("structure/ellipsoids"), false).toBool();
+    const int probability = QSettings().value(QStringLiteral("structure/ellipsoidProbability"), 50).toInt();
+    m_cellDock->setEllipsoidSettings(showEllipsoids, probability);
+    m_moleculeView->setEllipsoidDisplay(showEllipsoids, probability / 100.0);
+    connect(m_cellDock, &CellDock::ellipsoidsChanged, this, [this](bool shown, int percent) {
+        m_moleculeView->setEllipsoidDisplay(shown, percent / 100.0);
+        QSettings().setValue(QStringLiteral("structure/ellipsoids"), shown);
+        QSettings().setValue(QStringLiteral("structure/ellipsoidProbability"), percent);
+    });
+
+    connect(m_cellDock, &CellDock::optionsRequested, this,
+        [this](const MoleculeFileLoader::CifOptions& options) {
+            if (m_cifPath.isEmpty())
+                return;
+            if (m_moleculeView->simulationActive()) {
+                statusBar()->showMessage(tr("Stop the simulation before rebuilding the crystal"), 4000);
+                return;
+            }
+            m_cifOptions = options;
+            loadMoleculeFile(m_cifPath);
+        });
+
+    // Once the scene is no longer the cif as read -- emptied (New Scene,
+    // clear_scene), replaced by a lesson structure or a snapshot, atoms added or
+    // deleted -- the dock lets go of the file: Apply would otherwise read the old
+    // file back over whatever is there now. The atom count is the cheap,
+    // sufficient tell; moving atoms keeps it. Emitted before loadMoleculeFile sets
+    // the new count, so a fresh cif load passes through here and is then shown.
+    connect(m_moleculeView, &MoleculeViewer::moleculeUpdated, this,
+        [this](const QVector<MoleculeViewer::Atom>& atoms, const QVector<MoleculeViewer::Bond>&) {
+            if (!m_cifPath.isEmpty() && atoms.size() != m_cifAtomCount) {
+                m_cifPath.clear();
+                m_cellDock->clearCif();
+                m_moleculeView->clearUnitCell();
+                m_moleculeView->setAtomEllipsoids({});
+            }
+        });
+}
+
 void MainWindow::loadFileFromArg(const QString& path)
 {
     if (path.isEmpty()) return;
@@ -5886,4 +6547,164 @@ void MainWindow::loadDirFromArg(const QString& dir)
     if (absDir != m_workingDirectory) {
         switchWorkingDirectory(absDir);
     }
+}
+
+#ifdef USE_LLM
+// ---------------------------------------------------------------------------
+// The assistant  -  Claude Generated 2026
+// ---------------------------------------------------------------------------
+
+void MainWindow::setupAssistant()
+{
+    m_chatDock = m_dockManager ? m_dockManager->chatDockImpl() : nullptr;
+    // Claude Generated 2026 - Say why, rather than returning into silence: losing the dock took the
+    // whole assistant with it -- no profiles, no models, no error anywhere -- and the tools still
+    // registered, so the obvious check said everything was fine.
+    if (!m_chatDock || !m_chatHost) {
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Warning,
+            tr("assistant not set up: the chat dock is missing"));
+        return;
+    }
+
+    // The agent loop runs on the dock's ChatEngine thread: a tool that waits -- job_status until a
+    // calculation lands, watch_simulation until the guest comes close enough -- would otherwise
+    // wait on the GUI thread, freeze the window and block the very signals it is waiting for.
+    // The approval policy is asked here, on the GUI thread, by the dock; the dispatcher marshals
+    // Gui-affinity handlers here with a timeout.
+    m_chatHost->prompt = [this] { return assistantSystemPrompt(); };
+    m_chatHost->approve = [this](const ToolSpec& spec, const QJsonObject& args) {
+        return approveToolCall(spec, args);
+    };
+
+    // what the session used to write into the hub itself (cancelled, endpoint errors, images sent)
+    connect(m_chatDock->engine(), &ChatEngine::noted, this, [](int level, const QString& text) {
+        LogHub::instance().append(QStringLiteral("llm"),
+            level == int(LlmSession::NoteLevel::Info) ? LogLevel::Info : LogLevel::Warning, text);
+    });
+
+    // Claude Generated 2026 - Autonomy: remembered across sessions by the dock, because being asked
+    // to set it again on every launch is what makes people leave it on the loosest rung. It is
+    // never hidden -- the dock says what is armed, and every change is written to the log, so
+    // "what was it allowed to do" has an answer after the fact.
+    m_autonomy = m_chatDock->autonomy();
+    LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+        tr("assistant autonomy: %1").arg(toolAutonomyName(m_autonomy)));
+    connect(m_chatDock, &ChatDock::autonomyChanged, this, [this](ToolAutonomy autonomy) {
+        m_autonomy = autonomy;
+        // A level that permits more than before starts from a clean slate: the per-tool "allow for
+        // this session" grants were given under the old one. The prompt follows by itself, the dock
+        // asks for it with every question; a model told nothing about the switch keeps stopping to
+        // ask after each step, which is what the loosened level was meant to stop.
+        m_toolsAllowedForSession.clear();
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+            tr("assistant autonomy set to: %1").arg(toolAutonomyName(autonomy)));
+    });
+    connect(m_chatDock, &ChatDock::reasoningEffortChanged, this, [](const QString& effort) {
+        LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info,
+            effort.isEmpty() ? tr("thinking: the endpoint's own default")
+                             : tr("thinking: %1").arg(effort));
+    });
+    LogHub::instance().append(QStringLiteral("tool"), LogLevel::Info, tr("assistant ready"));
+}
+
+// Claude Generated 2026 - The prompt follows the autonomy switch. Setting the
+// switch to "auto" and leaving the model to guess that it may now act does not
+// work: it goes on ending its turn with "shall I start?" after every step, which
+// is the behaviour the switch exists to remove. The permission and the instruction
+// have to say the same thing.
+QString MainWindow::assistantSystemPrompt() const
+{
+    QString prompt = tr(
+        "You are an assistant inside qurcuma, a molecular visualisation and analysis program. "
+        "You act through the tools you are given: call them to read the loaded structure, measure "
+        "it, and change how it is displayed. You cannot see the screen unless a tool returns an "
+        "image, and you cannot run anything the tools do not offer.\n"
+        "Work from what the tools actually report rather than from assumption, and say plainly "
+        "when something is not available. Results are capped: when a tool says it has more, ask "
+        "for the next page instead of guessing. Atom indices are 0-based, distances are in "
+        "Angstrom and angles in degrees.\n"
+        "A simulation takes a moment to produce its first frame. simulation_status and "
+        "watch_simulation take wait_seconds, and job_status does too: wait for the answer "
+        "rather than asking again, and do not conclude from one immediate reply that nothing "
+        "is happening.\n"
+        "Think briefly. Nearly every question here is settled by calling a tool, so call it "
+        "instead of reasoning about what the answer might be. In particular, do not try to "
+        "recall a compound from its formula and do not work through candidate names: you "
+        "cannot confirm one, and a list of guesses is worse than saying what the structure "
+        "shows and what would settle it.\n"
+        // Claude Generated 2026 - The script interpreter is the other half of this: a
+        // number that comes out of other numbers is computed rather than guessed at.
+        "Do not work numbers out yourself. When a number comes out of other numbers, write the "
+        "expression and run it with calculate: a difference, a ratio, a unit conversion, a mean, "
+        "a spread, a line through measured points. Report the value it returns instead of a "
+        "figure you reached yourself. Put the values into the script, or pass several of them as "
+        "the data list.\n");
+
+    // The Thinking selector asks the endpoint for less; a model whose endpoint
+    // ignores the field only hears it here.
+    const QString effort = m_chatDock ? m_chatDock->reasoningEffort() : QString();
+    if (effort == QLatin1String("off") || effort == QLatin1String("low")) {
+        prompt += tr("Keep any reasoning to a few sentences. Decide from what the tools "
+                     "reported and act.\n");
+    }
+
+    switch (m_autonomy) {
+    case ToolAutonomy::Ask:
+        prompt += tr(
+            "Anything beyond reading and display is put to the operator before it runs, so "
+            "expect a pause, and expect a refusal to be an answer rather than an error.");
+        break;
+    case ToolAutonomy::InProgram:
+    case ToolAutonomy::Full:
+        prompt += tr(
+            "You are running unattended. Carry the task through to the end in one go: plan it, "
+            "run every step yourself, and report when it is done. Do NOT stop to ask whether to "
+            "begin, whether to continue, or whether to take the next step of your own plan -- "
+            "the operator has already said yes by setting this mode. Announcing what you are "
+            "about to do and then stopping is the one thing to avoid.\n"
+            "Stop early only for something you genuinely cannot decide: a result that "
+            "contradicts the task, a tool that refuses, or a choice that would change what was "
+            "asked for. Then say what you have and what the question is.");
+        break;
+    }
+
+    return prompt;
+}
+#endif  // USE_LLM
+
+// Claude Generated 2026 - The approval policy, deliberately outside the USE_LLM block:
+// the assistant and the script dock are graded by the same ladder and share the
+// per-session grants, so a script the operator starts is not the softer path. One
+// switch over the effect classes, and needsApprovalAt() is the only place that grades
+// them, so the label in the dock and this decision cannot disagree.
+bool MainWindow::approveToolCall(const ToolSpec& spec, const QJsonObject& args)
+{
+    if (!needsApprovalAt(spec.effect, m_autonomy))
+        return true;
+    if (m_toolsAllowedForSession.contains(spec.name))
+        return true;
+
+    const QString arguments = args.isEmpty()
+        ? tr("(no arguments)")
+        : QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Indented));
+
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Question);
+    box.setWindowTitle(tr("Run %1?").arg(spec.name));
+    box.setText(tr("The script wants to run <b>%1</b> (%2).")
+                    .arg(spec.name, toolEffectName(spec.effect)));
+    box.setInformativeText(spec.description);
+    box.setDetailedText(arguments);
+    QPushButton* once = box.addButton(tr("Allow once"), QMessageBox::AcceptRole);
+    QPushButton* always = box.addButton(tr("Allow for this session"), QMessageBox::AcceptRole);
+    QPushButton* deny = box.addButton(tr("Deny"), QMessageBox::RejectRole);
+    box.setDefaultButton(once);
+    box.exec();
+
+    if (box.clickedButton() == always) {
+        m_toolsAllowedForSession.insert(spec.name);
+        return true;
+    }
+    Q_UNUSED(deny)
+    return box.clickedButton() == once;
 }

@@ -20,12 +20,16 @@ public:
 
     /// Place a layout (with its widgets) into the collapsible content area.
     void setContentLayout(QLayout* layout);
-    /// Change the header text (e.g. a count in the title). Claude Generated 2026.
+    /// Change the header text after construction. Claude Generated 2026 - the
+    /// assistant's reasoning section counts characters into its own title.
     void setTitle(const QString& title);
     /// Expand/collapse programmatically.
     void setExpanded(bool expanded);
     /// Current expand state (for persistence). Claude Generated 2026.
     bool isExpanded() const;
+    /// The header text. Claude Generated 2026 - the chat transcript labels each
+    /// folded section by it, so it has to be readable back out.
+    QString title() const;
 
     /// Claude Generated 2026 - Put a switch in front of the title: the "enable" of a
     /// feature whose settings are the content. Switching on expands the section and

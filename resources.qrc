@@ -20,8 +20,13 @@
         <file>src/qml/VrPanelSimulation.qml</file>
         <file>src/qml/VrPanelView.qml</file>
         <file>src/qml/VrPanelFiles.qml</file>
+        <file>src/qml/VrPanelHelp.qml</file>
+        <file>src/qml/VrMenuBar.qml</file>
         <file>src/qml/VrButton.qml</file>
         <file>src/qml/VrStepper.qml</file>
+        <file>src/qml/VrHandInput.qml</file>
+        <file>src/qml/VrTemperatureSlider.qml</file>
+        <file>src/qml/VrNumberPad.qml</file>
         <file>src/qml/VrStyle.js</file>
     </qresource>
 

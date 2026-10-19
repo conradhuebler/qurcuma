@@ -148,7 +148,7 @@ void testBridge()
         check(mirror && source && mirror->source() == source,
             std::string("bridge.") + p.name() + " mirrors controller." + p.name());
     }
-    check(tables == 12, "SceneController has 12 instance tables (got " + std::to_string(tables) + ")");
+    check(tables == 14, "SceneController has 14 instance tables (got " + std::to_string(tables) + ")");
 
     QVector<SceneController::AtomDatum> atoms = { atom("O", 0), atom("H", 0.96f), atom("H", -0.24f, 0.93f) };
     QVector<SceneController::BondDatum> bonds = { { 0, 1, 1 }, { 0, 2, 1 } };
@@ -158,6 +158,15 @@ void testBridge()
     int sourceCount = -1;
     const QByteArray sourceBytes = controller.atomInstancing()->instanceBuffer(&sourceCount);
     check(count == 3 && sourceCount == 3, "atom mirror has the 3 atoms of the structure");
+
+    // Claude Generated 2026 - selection shells (headset only): one per selected atom, in the mirror
+    controller.setSelection({ 1 });
+    int haloCount = -1;
+    bridge.selectionHaloInstancing()->instanceBuffer(&haloCount);
+    check(haloCount == 1, "selecting one atom gives one selection shell in the mirror");
+    controller.setSelection({});
+    bridge.selectionHaloInstancing()->instanceBuffer(&haloCount);
+    check(haloCount == 0, "clearing the selection removes the shell");
     check(atomBytes == sourceBytes, "atom mirror bytes equal the controller's table");
     int bondCount = -1;
     bridge.bondInstancing()->instanceBuffer(&bondCount);

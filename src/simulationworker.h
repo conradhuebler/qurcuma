@@ -11,6 +11,8 @@
 #include <Eigen/Dense>
 #include <QAtomicInt>
 #include <QElapsedTimer>
+#include <QJsonArray>
+#include <QHash>
 #include <QJsonObject>
 #include <QStringList>
 #include <QMutex>
@@ -19,6 +21,7 @@
 #include <QVector>
 #include <QVector3D>
 
+#include <cmath>
 #include <limits>
 #include <memory>
 
@@ -54,7 +57,13 @@ struct SimulationConfig {
     double temperature = 298.15;  // K (MD only); curcuma's default
     double timestep = 1.0;        // fs (MD only)
     int steps = 1000;             // Total MD steps or max opt iterations
-    double convergence = 5e-4;    // Gradient norm threshold, Eh/Bohr (opt only); curcuma's default
+    // Convergence of a geometry optimisation. Both defaults are curcuma's own
+    // (optimizer_driver.h / optimizer_interface.cpp); the gradient tolerance used
+    // to default to 1e-6 here, 500x tighter than the engine's, which the methods
+    // cannot reach -- the energy went flat and the run went on to its iteration
+    // ceiling. Units matter and are named: Eh/Bohr and kJ/mol. Claude Generated 2026.
+    double convergence = 5e-4;         // gradient norm threshold [Eh/Bohr] (opt only)
+    double energyConvergence = 0.1;    // energy change threshold [kJ/mol] (opt only)
     // Interactive Opt: keep the force-field parameters/topology fixed across the
     // keep-alive restarts (no rebuild from grab-distorted geometry). Default ON —
     // rebuilding GFN-FF from a heavily distorted geometry is slow and can crash.
@@ -62,6 +71,14 @@ struct SimulationConfig {
     // Claude Generated 2026 - Builder "Relax": run ONE bounded Optimize() and
     // finish, instead of the interactive keep-alive loop that restarts forever.
     bool optSingleShot = false;
+    // Claude Generated 2026 - Atoms held in place during an optimisation. "heavy"
+    // keeps every non-hydrogen atom and relaxes the hydrogens -- the standard for an
+    // X-ray structure, whose heavy atoms are well determined and whose X-H bonds
+    // are systematically short; "hydrogens" is the reverse; "selection" takes
+    // freezeSelection in curcuma's one-based grammar ("1:20,F2"). Passed to the
+    // OptimizerDriver as per-atom constraints (0 = fixed).
+    QString freezeMode = "none";      // none | heavy | hydrogens | selection
+    QString freezeSelection;
     bool writeTrajectory = false; // Also write .trj.xyz file to disk
     int fpsLimit = 30;            // Simulation speed in steps/sec (0 = unlimited)
     bool performanceAnalysis = false; // Per-frame timing stats every N steps
@@ -131,6 +148,23 @@ struct SimulationConfig {
     int    wallPotential = 0;
     /// Convenience for the potential-shell drawing, which only applies to 0/1.
     bool   wallHasPotential() const { return wallPotential != 2; }
+    /// Container volume in A^3, or 0 when there is no wall or it is auto-sized
+    /// (all bounds zero -- curcuma picks those at run time). Claude Generated 2026.
+    double containerVolume() const
+    {
+        if (!wallEnabled)
+            return 0.0;
+        if (wallType == 1 && wallRadius > 0.0)
+            return 4.0 / 3.0 * M_PI * wallRadius * wallRadius * wallRadius;
+        if (wallType == 2) {
+            const double dx = wallXmax - wallXmin;
+            const double dy = wallYmax - wallYmin;
+            const double dz = wallZmax - wallZmin;
+            if (dx > 0.0 && dy > 0.0 && dz > 0.0)
+                return dx * dy * dz;
+        }
+        return 0.0;
+    }
     double wallXmin = 0.0, wallXmax = 0.0; // Å, rectangular bounds (curcuma auto-sizes when 0/0)
     double wallYmin = 0.0, wallYmax = 0.0;
     double wallZmin = 0.0, wallZmax = 0.0;
@@ -235,12 +269,38 @@ public slots:
      *  clearInjectedForce() is called — i.e. the force is "sticky" and acts for
      *  as long as the user holds the mouse grab, not just on the step that
      *  happens to coincide with a mouse-move event. Thread-safe; may be called
-     *  from the GUI thread via QueuedConnection. */
-    void injectForce(int atomIndex, QVector3D force, double alpha, int maxShells);
+     *  from the GUI thread via QueuedConnection.
+     *  @p source names the grab (0 = desktop mouse, 1 / 2 = right / left VR hand or
+     *  controller): each source holds its own force and all are summed, so several
+     *  grabs act at once, on different atoms or the same one. Claude Generated 2026. */
+    void injectForce(int source, int atomIndex, QVector3D force, double alpha, int maxShells);
 
-    /** @brief Drop the sticky injected force (mouse release / stop grab). After
-     *  this the next step/iteration applies no external bias. */
-    void clearInjectedForce();
+    /** @brief Replace the whole set of injected forces at once: @p forces[i] acts
+     *  on @p atoms[i], each spread through the bond graph the same way injectForce()
+     *  spreads one. Same stickiness and the same clearInjectedForce().
+     *
+     *  Claude Generated 2026 - injectForce() *replaces* what is pending, which is
+     *  right for a mouse that can only grab one atom at a time. Pulling on several
+     *  atoms at once needs the whole set in one call, or the last one would be the
+     *  only one that survived. Parallel plain-type vectors rather than a struct so
+     *  the queued cross-thread connection needs no metatype registration. */
+    void injectForces(QVector<int> atoms, QVector<QVector3D> forces, double alpha, int maxShells);
+
+    /** @brief Replace the run's configured external potentials.
+     *
+     *  Claude Generated 2026 - The declarative counterpart to injectForces(). The
+     *  list is curcuma's `external_potentials` shape and reaches SimpleMD before
+     *  the next step, so a pull stands in the run's own configuration and the run
+     *  can be reproduced from it. An empty list clears them. Thread-safe. */
+    void setExternalPotentials(QJsonArray potentials);
+
+    /** The source id of forces that come from the tool layer (injectForces); 0 is the desktop mouse,
+     *  1 / 2 the right / left VR hand. Claude Generated 2026. */
+    static constexpr int ToolForceSource = 3;
+
+    /** @brief Drop the sticky force of grab @p source (its release); @p source < 0
+     *  drops all. The other grabs keep acting. */
+    void clearInjectedForce(int source);
 
     /** @brief Live-set the global thermostat target temperature (Kelvin). Thread-safe;
      *  called from the GUI thread via QueuedConnection when the user drags the temperature
@@ -304,7 +364,7 @@ private:
     // which must not be exposed in this header to avoid include pollution).
     // Claude Generated - curcuma types are encapsulated in the .cpp translation unit.
 
-    // Returns a copy of the currently held mouse-grab force (N_atoms × 3), or an
+    // Returns the sum of the currently held grab forces (N_atoms × 3), or an
     // empty matrix when none is active. "Sticky": does NOT consume the force, so
     // the same grab keeps biasing every step until clearInjectedForce() drops it.
     Eigen::MatrixXd currentInjectedForces(int atomCount);
@@ -326,6 +386,13 @@ private:
     int m_lastTopologyVersion = -1;
     std::vector<FrameBond> m_lastFfBonds;
     std::unique_ptr<SimpleMD> m_md;
+
+    // Claude Generated 2026 - configured external potentials, buffered like the
+    // thermostat setpoint and pushed into SimpleMD before the next step.
+    QMutex m_potentialMutex;
+    QJsonArray m_pendingPotentials;
+    bool m_pendingPotentialsValid = false;
+    QString m_potentialError;   ///< what SimpleMD said if the last set was refused
     QTimer* m_mdTimer = nullptr;    // parent = this, auto-cleaned
 
     // Performance-analysis accumulators for MD (timer-driven, so counters must persist)
@@ -339,8 +406,8 @@ private:
     // clearInjectedForce), read every step by the worker thread. Held until the
     // grab is released so it biases every MD step / Opt iteration in between.
     QMutex m_forceMutex;
-    Eigen::MatrixXd m_pendingForces;
-    bool m_pendingForcesValid = false;
+    // One entry per grab source (mouse, VR right, VR left; Claude Generated 2026).
+    QHash<int, Eigen::MatrixXd> m_pendingForces;
 
     // Live global temperature: written by the GUI thread (setTargetTemperature), read once per
     // step by the worker thread in performMDStep() and pushed into SimpleMD. Claude Generated 2026.

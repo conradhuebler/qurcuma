@@ -6,6 +6,7 @@
 #pragma once
 
 #include <QColor>
+#include <QQuaternion>
 #include <QVector3D>
 
 #include "tableinstancing.h"
@@ -24,6 +25,11 @@ public:
         float scale = 1.0f; // sphere display radius in scene units
         QColor color;
         int atomIndex = -1; // structure atom this instance draws (hidden atoms get no instance)
+        // Claude Generated 2026 - A thermal ellipsoid instead of a sphere: the
+        // sphere scaled by semiAxes (Angstrom) along its local axes and turned.
+        bool ellipsoid = false;
+        QVector3D semiAxes;
+        QQuaternion rotation;
     };
 
     /// Replace the full instance list and re-upload (cheap enough per frame).

@@ -57,6 +57,10 @@ Item {
             instancing: mockMolecule.tables
             headPosition: Qt.vector3d(0, 0, 0)
             filesVisible: root.stateName === "files"
+            helpVisible: root.stateName === "help"
+            structureVisible: root.stateName !== "hidden"
+            simulationVisible: root.stateName !== "hidden"
+            viewVisible: root.stateName !== "hidden"
             onRecenterRequested: headYaw = root.lookYaw
         }
 
