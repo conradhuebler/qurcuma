@@ -25,7 +25,7 @@ class QTimer;
 class ScriptInterpreter;
 class ToolDispatcher;
 class ToolRegistry;
-class ToolSpec;
+struct ToolSpec;   // a struct (cutechat/tool.h): MSVC mangles class and struct differently, a mismatch is an LNK2019
 
 class ScriptDock : public QDockWidget {
     Q_OBJECT

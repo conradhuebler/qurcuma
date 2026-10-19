@@ -2,6 +2,10 @@
 
 Newest first; one line per fact. Entries from August 2026 and earlier: [docs/changelog/AIChangelog_2026-08-and-earlier.md](docs/changelog/AIChangelog_2026-08-and-earlier.md).
 
+## Oktober 2026 - Windows-Link: ToolSpec war als class vorwärtsdeklariert
+
+- **`scriptdock.h` deklarierte `ToolSpec` als `class`, die Definition ist ein `struct`** (`cutechat/tool.h`): MSVC mangelt beides verschieden, `ScriptDock::setApprovalPolicy` blieb für `mainwindow.obj` ungelöst (LNK2019). Behoben mit `struct ToolSpec;`. Nicht geprüft: MSVC-Lauf.
+
 ## Oktober 2026 - Schlüsseldatei mit .pub-Endung
 
 - **`HostProfile::sshArgs()` ersetzt einen `.pub`-Pfad durch den privaten Schlüssel daneben**: `ssh -i id.pub` bietet den Schlüssel an, kann aber nicht signieren und meldet "Permission denied" (der Server akzeptierte ihn, geprüft an einem echten Login). Test in `test_remote_hosts`.
