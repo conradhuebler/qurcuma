@@ -14,6 +14,7 @@
 #include "simulationframe.h"
 #include "simulationworker.h"  // SimulationConfig
 
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
 #include <QPointer>
@@ -42,8 +43,15 @@ public:
 
 public slots:
     /// Live controls, same meaning as the SimulationWorker slots of the same name.
-    virtual void injectForce(int atomIndex, QVector3D force, double alpha, int maxShells) = 0;
-    virtual void clearInjectedForce() = 0;
+    /// @p source names the grab (0 = desktop mouse, 1 / 2 = right / left VR hand); each source holds
+    /// its own force and all are summed. Claude Generated 2026.
+    virtual void injectForce(int source, int atomIndex, QVector3D force, double alpha, int maxShells) = 0;
+    /// The whole set of pulls of the tool layer at once (source ToolForceSource).
+    virtual void injectForces(QVector<int> atoms, QVector<QVector3D> forces, double alpha, int maxShells) = 0;
+    /// Replace the run's configured external potentials (curcuma's `external_potentials` shape).
+    virtual void setExternalPotentials(QJsonArray potentials) = 0;
+    /// Drop the sticky force of @p source; < 0 drops all.
+    virtual void clearInjectedForce(int source) = 0;
     virtual void setTargetTemperature(double temperature) = 0;
     virtual void setWallTemp(double T) = 0;
     virtual void setWallBeta(double beta) = 0;
@@ -73,8 +81,10 @@ public:
     void requestResume() override;
 
 public slots:
-    void injectForce(int atomIndex, QVector3D force, double alpha, int maxShells) override;
-    void clearInjectedForce() override;
+    void injectForce(int source, int atomIndex, QVector3D force, double alpha, int maxShells) override;
+    void injectForces(QVector<int> atoms, QVector<QVector3D> forces, double alpha, int maxShells) override;
+    void setExternalPotentials(QJsonArray potentials) override;
+    void clearInjectedForce(int source) override;
     void setTargetTemperature(double temperature) override;
     void setWallTemp(double T) override;
     void setWallBeta(double beta) override;

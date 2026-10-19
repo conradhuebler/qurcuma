@@ -18,6 +18,7 @@
 #include <QSpinBox>
 #include <QThread>
 #include <QToolButton>
+#include <QJsonArray>
 #include <QWidget>
 #include <functional>
 
@@ -40,8 +41,74 @@ class SimulationControlWidget : public QWidget {
     Q_OBJECT
 
 public:
+    /// What a run is doing right now, for a caller that is not the dock itself
+    /// (the tool layer). A value type on purpose: it crosses to the agent loop's
+    /// thread, which must not touch widgets. Claude Generated 2026.
+    struct LiveState {
+        bool running = false;
+        bool paused = false;
+        QString mode;               ///< "md" | "opt", empty when idle
+        QString method;
+        int step = 0;
+        int totalSteps = 0;
+        double energy = 0.0;        ///< Eh
+        double kineticEnergy = 0.0; ///< Eh, MD only
+        double temperature = 0.0;   ///< K, from the kinetic energy; MD only
+        double targetTemperature = 0.0;
+        double timeFs = 0.0;        ///< MD only
+        /// Volume of the confinement container in A^3, 0 when no wall is set.
+        /// Carried here so a density can be worked out off the GUI thread.
+        /// Claude Generated 2026.
+        double containerVolume = 0.0;
+        /// Work the configured external potentials have done [Eh]. Claude Generated 2026.
+        double externalWork = 0.0;
+    };
+
     explicit SimulationControlWidget(QWidget* parent = nullptr);
     ~SimulationControlWidget() override;
+
+    /// Is a worker thread up? Claude Generated 2026.
+    bool isRunning() const;
+    /// Latest live state; step and energies are those of the last frame.
+    LiveState liveState() const { return m_liveState; }
+
+    /// Start a run from @p cfg. The dock's own controls are driven from it first,
+    /// so what runs is what the operator can see, and the run then starts from the
+    /// controls exactly as pressing Start would. Returns false and fills @p error
+    /// when there is no structure or a run is already going. Claude Generated 2026.
+    bool startRun(const SimulationConfig& cfg, QString* error = nullptr);
+
+    /// Pause and resume, each idempotent -- unlike the button, which toggles.
+    /// Claude Generated 2026.
+    void pauseRun();
+    void resumeRun();
+
+    /// Move the live thermostat setpoint, i.e. the slider, which is what reaches
+    /// the worker. Claude Generated 2026.
+    void setLiveTemperature(double kelvin);
+
+    /// The values the dock's own combos accept. Read out of the combos rather than
+    /// written down a second time: a tool schema that listed them by hand would be
+    /// the third copy of the same list and the first to go stale. Claude Generated 2026.
+    QStringList methodValues() const;
+    QStringList optimizerValues() const;
+    QStringList thermostatValues() const;
+    QStringList gpuValues() const;        ///< only backends whose plugin loads
+    QStringList topologyValues() const;   ///< GFN-FF topology modes
+
+    /// Pull on atoms while the run continues: @p forces[i] (Eh/Bohr, model space)
+    /// acts on @p atoms[i], each spread through the bond graph with exponential
+    /// decay. Sticky -- it is re-applied at every step until clearExternalForces().
+    /// Reaches the worker over the same queued connection the mouse grab uses.
+    /// Claude Generated 2026.
+    void requestExternalForces(const QVector<int>& atoms, const QVector<QVector3D>& forces,
+                               double alpha, int maxShells);
+    void clearExternalForces();
+
+    /// Replace the run's configured external potentials, in curcuma's
+    /// `external_potentials` shape. Unlike the force injection above this stands in
+    /// the run's own configuration. Claude Generated 2026.
+    void requestExternalPotentials(const QJsonArray& potentials);
 
     /** @brief Feed the current molecule + bond graph to the worker before start. */
     void setMolecule(const QVector<MolAtom>& atoms,
@@ -65,8 +132,20 @@ public:
     /** @brief Attach the shared recipe menu (MainWindow's Simulation ▸ Recipe) to the
      *  Recipe button next to the mode. Claude Generated 2026 (UX stage 6 S2). */
     void setRecipeMenu(QMenu* menu);
-    /** @brief True while an MD or optimization run is active. */
-    bool isRunning() const { return m_running; }
+    /** @brief Thermostat target (K) of the temperature slider; setTemperature clamps to its range
+     *  and acts like a slider drag (live during a run). Claude Generated 2026 (headset panel). */
+    /** @brief Method key of the Method combo ("gfnff", "uff", "gfn2", "gfn1"); setMethod selects it. Claude Generated 2026. */
+    QString method() const;
+    void setMethod(const QString& key);
+    double temperature() const;
+    void setTemperature(double kelvin);
+    /** @brief Min/max of the temperature slider (its spin boxes); the headset slider shares them.
+     *  Claude Generated 2026. */
+    double temperatureMinimum() const;
+    double temperatureMaximum() const;
+    void setTemperatureRange(double minimum, double maximum);
+    /** @brief Mode of the active (or last) run. Claude Generated 2026 (headset panel). */
+    SimulationConfig::Mode runMode() const { return m_config.mode; }
 
     /** @brief Refill "Compute on" from the saved computers after they were changed elsewhere
      *  (Settings dialog), keeping the selected computer (a rename is followed); a removed one
@@ -114,11 +193,28 @@ signals:
      *  Remote segment of the Project dock on @p remotePath of @p computerName (SFTP builds only).
      *  Claude Generated 2026 */
     void showRemoteResultsRequested(const QString& computerName, const QString& remotePath);
+    /** @brief The active run was paused or resumed (false again when it ends). Claude Generated 2026. */
+    void pauseStateChanged(bool paused);
 
     /** @brief Emitted whenever the temperature slider moves. During a run MainWindow
      *  forwards it live to the worker (SimulationWorker::setTargetTemperature).
      *  Claude Generated 2026. */
     void temperatureChanged(double temperature);
+    /// Live progress for consumers outside the dock, on every frame and on every
+    /// change of the running/paused state. Claude Generated 2026.
+    void liveStateChanged(SimulationControlWidget::LiveState state);
+    /// Every frame, for consumers outside the dock that need the geometry itself
+    /// rather than the summary -- the tool layer evaluates watched quantities on
+    /// it as it arrives. Claude Generated 2026.
+    void frameObserved(SimulationFramePtr frame);
+    /// Forwarded to the worker in wireSimulationWorker(). Claude Generated 2026.
+    void externalForcesRequested(QVector<int> atoms, QVector<QVector3D> forces,
+                                 double alpha, int maxShells);
+    void externalForcesCleared();
+    /// Forwarded to the worker in wireSimulationWorker(). Claude Generated 2026.
+    void externalPotentialsRequested(QJsonArray potentials);
+    /** @brief The temperature slider's min/max changed. Claude Generated 2026. */
+    void temperatureRangeChanged(double minimum, double maximum);
 
     /** @brief Emitted when the wall_temp slider moves — live during a run. */
     void wallTempChanged(double T);
@@ -251,6 +347,9 @@ private:
 
     // --- Optimization parameters ---
     QDoubleSpinBox* m_convergenceSpin = nullptr;
+    QDoubleSpinBox* m_energyConvergenceSpin = nullptr;   // Claude Generated 2026
+    QComboBox* m_freezeCombo = nullptr;       // Claude Generated 2026 - atoms held during Opt
+    QLineEdit* m_freezeEdit = nullptr;
     QCheckBox* m_optKeepParamsCheck = nullptr;  // Claude Generated 2026 - keep FF params across interactive Opt restarts
 
     // --- MD/Opt specific groups (shown/hidden based on mode) ---
@@ -344,6 +443,8 @@ private:
     void refreshGpuChoices();
     void connectBackend();
     bool m_paused = false;
+    LiveState m_liveState;                  ///< Claude Generated 2026
+    void publishLiveState();                ///< refresh m_liveState and emit
     // Claude Generated 2026 - throttle for the Step button: re-enabled after 1000/fpsLimit ms
     // so the user can click at the configured "max XXX FPS" but not faster.
     QElapsedTimer m_stepThrottleTimer;

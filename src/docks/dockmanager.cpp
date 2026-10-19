@@ -14,7 +14,13 @@
 #include "appearancedock.h"
 #include "imagegallerydock.h"
 #include "chartdock.h"
+#include "scriptdock.h"  // Claude Generated 2026 - not USE_LLM-gated: a script is a calculation
+#ifdef USE_LLM
+#include <cutechat/chatdock.h>  // Claude Generated 2026 - the shared assistant dock
+#include <cutechat/chathost.h>
+#endif
 #include "ncidock.h"
+#include "celldock.h"
 
 #include <QDockWidget>
 #include <QMainWindow>
@@ -75,7 +81,8 @@ QList<QDockWidget*> DockManager::allDocks() const
 {
     QList<QDockWidget*> docks;
     for (QDockWidget* d : { m_projectDock, m_structureDock, m_appearanceDock, m_simulationDock,
-                            m_outputViewDock, m_nciDock, m_imageGalleryDock, m_chartDock })
+                            m_outputViewDock, m_nciDock, m_imageGalleryDock, m_chartDock,
+                            m_cellDock, m_chatDock, static_cast<QDockWidget*>(m_scriptDock) })
         if (d)
             docks.append(d);
     return docks;
@@ -161,6 +168,30 @@ ImageGalleryDock* DockManager::imageGalleryDockImpl() const
 ChartDock* DockManager::chartDockImpl() const
 {
     return qobject_cast<ChartDock*>(m_chartDock);
+}
+
+void DockManager::setChatHost(ChatHost* host)
+{
+    m_chatHost = host;
+}
+
+ChatDock* DockManager::chatDockImpl() const
+{
+#ifdef USE_LLM
+    return qobject_cast<ChatDock*>(m_chatDock);
+#else
+    return nullptr;  // built without USE_LLM
+#endif
+}
+
+ScriptDock* DockManager::scriptDockImpl() const
+{
+    return m_scriptDock;
+}
+
+CellDock* DockManager::cellDockImpl() const
+{
+    return qobject_cast<CellDock*>(m_cellDock);
 }
 
 NciDock* DockManager::nciDockImpl() const
@@ -282,6 +313,9 @@ void DockManager::redockFloating()
     redock(m_outputViewDock, DockConfig::OutputViewDockArea, nullptr);
     redock(m_imageGalleryDock, DockConfig::ImageGalleryDockArea, m_outputViewDock);
     redock(m_chartDock, DockConfig::ChartDockArea, m_outputViewDock);
+    redock(m_cellDock, DockConfig::CellDockArea, m_structureDock);
+    redock(m_chatDock, DockConfig::ChatDockArea, nullptr);
+    redock(m_scriptDock, DockConfig::ScriptDockArea, m_outputViewDock);
 }
 
 void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
@@ -296,7 +330,25 @@ void DockManager::initialize(MoleculeViewer* viewer, Settings* settings)
     m_projectDock = new ProjectDock(settings, m_mainWindow);
     m_imageGalleryDock = new ImageGalleryDock(m_mainWindow);
     m_nciDock = new NciDock(m_mainWindow);
+    m_cellDock = new CellDock(m_mainWindow);
     m_chartDock = new ChartDock(m_mainWindow);
+    // Claude Generated 2026 - The script dock is not USE_LLM-gated: it is a place to
+    // compute, and it is registered with the tool layer later (MainWindow creates the
+    // dispatcher after the docks).
+    m_scriptDock = new ScriptDock(m_mainWindow);
+#ifdef USE_LLM
+    // Claude Generated 2026 - The assistant. Hidden by default like the chart and
+    // NCI docks; it is opened from View > Dock Panels when wanted.
+    // Claude Generated 2026 - CuteChat's dock, with qurcuma's host (set by MainWindow before the
+    // docks are built). The host has to outlive the dock, which uses it until its last line, so it
+    // goes when the dock does.
+    if (m_chatHost) {
+        auto* dock = new ChatDock(m_chatHost, m_mainWindow);
+        ChatHost* host = m_chatHost;
+        connect(dock, &QObject::destroyed, [host] { delete host; });
+        m_chatDock = dock;
+    }
+#endif
 }
 
 void DockManager::placeDocks()
@@ -349,6 +401,15 @@ void DockManager::placeDocks()
         m_nciDock->hide();
     }
 
+    // The unit-cell dock joins the same right-hand group and starts hidden; it
+    // shows itself when a cif is loaded. Claude Generated 2026.
+    if (m_cellDock) {
+        m_mainWindow->addDockWidget(DockConfig::CellDockArea, m_cellDock);
+        if (m_structureDock)
+            m_mainWindow->tabifyDockWidget(m_structureDock, m_cellDock);
+        m_cellDock->hide();
+    }
+
     // The charts join the bottom area next to the output log and start hidden:
     // before a run the plots are empty, so they would only take space. View > Dock
     // Panels or Molecule > Simulation Charts brings them up. Claude Generated 2026.
@@ -357,6 +418,24 @@ void DockManager::placeDocks()
         if (m_outputViewDock)
             m_mainWindow->tabifyDockWidget(m_outputViewDock, m_chartDock);
         m_chartDock->hide();
+    }
+
+#ifdef USE_LLM
+    if (m_chatDock) {
+        m_chatDock->setAllowedAreas(Qt::RightDockWidgetArea | Qt::LeftDockWidgetArea);
+        m_mainWindow->addDockWidget(DockConfig::ChatDockArea, m_chatDock);
+        m_chatDock->hide();
+    }
+#endif
+
+    // The script dock joins the bottom area next to the output log and starts hidden:
+    // a script and its output belong together, and an idle editor would only take
+    // space. View ▸ Panels brings it up. Claude Generated 2026.
+    if (m_scriptDock) {
+        m_mainWindow->addDockWidget(DockConfig::ScriptDockArea, m_scriptDock);
+        if (m_outputViewDock)
+            m_mainWindow->tabifyDockWidget(m_outputViewDock, m_scriptDock);
+        m_scriptDock->hide();
     }
 
     // The image-gallery dock shares the bottom area (tabified with Output) and

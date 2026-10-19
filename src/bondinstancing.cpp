@@ -3,7 +3,7 @@
 #include "bondinstancing.h"
 
 BondInstancing::BondInstancing(QQuick3DObject* parent)
-    : QQuick3DInstancing(parent)
+    : TableInstancing(parent)
 {
 }
 
@@ -16,12 +16,5 @@ void BondInstancing::setSegments(const QVector<Segment>& segments)
         const Segment& s = segments[i];
         entry[i] = calculateTableEntryFromQuaternion(s.center, s.scale, s.rotation, s.color);
     }
-    markDirty();
-}
-
-QByteArray BondInstancing::getInstanceBuffer(int* instanceCount)
-{
-    if (instanceCount)
-        *instanceCount = m_count;
-    return m_buffer;
+    publish(); // markDirty + tell mirrors (tableinstancing.h)
 }

@@ -281,6 +281,52 @@ void Settings::setDarkMode(bool enabled)
     m_settings.sync();
 }
 
+// Claude Generated 2026 - VR surroundings
+QString Settings::vrPanorama() const
+{
+    return m_settings.value(QStringLiteral("vr/panorama")).toString();
+}
+
+void Settings::setVrPanorama(const QString& path)
+{
+    m_settings.setValue(QStringLiteral("vr/panorama"), path);
+    m_settings.sync();
+}
+
+QString Settings::vrSurroundings() const
+{
+    return m_settings.value(QStringLiteral("vr/surroundings")).toString();
+}
+
+void Settings::setVrSurroundings(const QString& path)
+{
+    m_settings.setValue(QStringLiteral("vr/surroundings"), path);
+    m_settings.sync();
+}
+
+bool Settings::vrSurroundingsInCentimetres() const
+{
+    return m_settings.value(QStringLiteral("vr/surroundingsInCentimetres"), false).toBool();
+}
+
+void Settings::setVrSurroundingsInCentimetres(bool on)
+{
+    m_settings.setValue(QStringLiteral("vr/surroundingsInCentimetres"), on);
+    m_settings.sync();
+}
+
+// Claude Generated 2026 - VR input mode
+bool Settings::vrHandInput() const
+{
+    return m_settings.value(QStringLiteral("vr/handInput"), false).toBool();
+}
+
+void Settings::setVrHandInput(bool on)
+{
+    m_settings.setValue(QStringLiteral("vr/handInput"), on);
+    m_settings.sync();
+}
+
 // Claude Generated 2026 - "Use Invocation Directory" preference
 bool Settings::useInvocationDirectoryEnabled() const
 {

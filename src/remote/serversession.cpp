@@ -154,11 +154,23 @@ void ServerSession::onText(const QString& text)
     } else if (type == QLatin1String("resume")) {
         m_backend->requestResume();
     } else if (type == QLatin1String("injectForce")) {
-        m_backend->injectForce(msg.value("atom").toInt(),
+        m_backend->injectForce(msg.value("source").toInt(), msg.value("atom").toInt(),
             QVector3D(float(msg.value("fx").toDouble()), float(msg.value("fy").toDouble()), float(msg.value("fz").toDouble())),
             msg.value("alpha").toDouble(), msg.value("maxShells").toInt());
+    } else if (type == QLatin1String("injectForces")) {
+        QVector<int> atoms;
+        QVector<QVector3D> forces;
+        const QJsonArray a = msg.value("atoms").toArray(), fx = msg.value("fx").toArray(),
+                         fy = msg.value("fy").toArray(), fz = msg.value("fz").toArray();
+        for (int i = 0; i < a.size() && i < fx.size() && i < fy.size() && i < fz.size(); ++i) {
+            atoms << a[i].toInt();
+            forces << QVector3D(float(fx[i].toDouble()), float(fy[i].toDouble()), float(fz[i].toDouble()));
+        }
+        m_backend->injectForces(atoms, forces, msg.value("alpha").toDouble(), msg.value("maxShells").toInt());
+    } else if (type == QLatin1String("setPotentials")) {
+        m_backend->setExternalPotentials(msg.value("potentials").toArray());
     } else if (type == QLatin1String("clearForce")) {
-        m_backend->clearInjectedForce();
+        m_backend->clearInjectedForce(msg.contains("source") ? msg.value("source").toInt() : -1);
     } else if (type == QLatin1String("setTemperature")) {
         m_backend->setTargetTemperature(msg.value("value").toDouble());
     } else if (type == QLatin1String("setWallTemp")) {
@@ -426,7 +438,7 @@ void ServerSession::onDisconnected()
     if (m_backend) {
         // Keep the run going for the grace period. The sticky grab force dies at once so
         // a lost client cannot leave the molecule pulled.
-        m_backend->clearInjectedForce();
+        m_backend->clearInjectedForce(-1);
         m_graceTimer.start(m_graceMs);
         return;
     }

@@ -20,7 +20,12 @@ LocalBackend::~LocalBackend()
         m_worker->requestStop();
     if (m_thread->isRunning()) {
         m_thread->quit();
-        m_thread->wait(2000);
+        // The stop request is only looked at between steps, and setting up a force field reaches
+        // none for several, so two seconds were not enough: a QThread destroyed while running is
+        // a qFatal (SIGABRT during curcuma's own output when the window closed mid-run). If even
+        // the long wait runs out, the thread is released from this parent instead.
+        if (!m_thread->wait(15000))
+            m_thread->setParent(nullptr);
     }
     // finished() normally deletes the worker from its thread; if the thread never got that
     // far, delete it here (the thread is stopped, so this is safe).
@@ -61,17 +66,33 @@ void LocalBackend::requestPause() { if (m_worker) m_worker->requestPause(); }
 void LocalBackend::requestResume() { if (m_worker) m_worker->requestResume(); }
 
 // The live controls are queued into the worker thread, as the direct connections were.
-void LocalBackend::injectForce(int atomIndex, QVector3D force, double alpha, int maxShells)
+void LocalBackend::injectForce(int source, int atomIndex, QVector3D force, double alpha, int maxShells)
 {
     if (m_worker)
         QMetaObject::invokeMethod(m_worker, "injectForce", Qt::QueuedConnection,
-            Q_ARG(int, atomIndex), Q_ARG(QVector3D, force), Q_ARG(double, alpha), Q_ARG(int, maxShells));
+            Q_ARG(int, source), Q_ARG(int, atomIndex), Q_ARG(QVector3D, force), Q_ARG(double, alpha),
+            Q_ARG(int, maxShells));
 }
 
-void LocalBackend::clearInjectedForce()
+void LocalBackend::injectForces(QVector<int> atoms, QVector<QVector3D> forces, double alpha, int maxShells)
 {
     if (m_worker)
-        QMetaObject::invokeMethod(m_worker, "clearInjectedForce", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(m_worker, "injectForces", Qt::QueuedConnection,
+            Q_ARG(QVector<int>, atoms), Q_ARG(QVector<QVector3D>, forces), Q_ARG(double, alpha),
+            Q_ARG(int, maxShells));
+}
+
+void LocalBackend::setExternalPotentials(QJsonArray potentials)
+{
+    if (m_worker)
+        QMetaObject::invokeMethod(m_worker, "setExternalPotentials", Qt::QueuedConnection,
+            Q_ARG(QJsonArray, potentials));
+}
+
+void LocalBackend::clearInjectedForce(int source)
+{
+    if (m_worker)
+        QMetaObject::invokeMethod(m_worker, "clearInjectedForce", Qt::QueuedConnection, Q_ARG(int, source));
 }
 
 void LocalBackend::setTargetTemperature(double temperature)

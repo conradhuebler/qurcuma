@@ -7,6 +7,8 @@
 // Claude Generated 2026.
 #include "view.h"
 
+#include <QQuaternion>
+
 #include "measurements.h"
 #include "bonddetect.h"
 #include "remote/remotelog.h"
@@ -70,6 +72,9 @@
 #include <QQmlContext>
 #include <QQuickView>
 #include <QQuickWidget>
+#ifdef QURCUMA_HAS_XR
+#include "vrsession.h"
+#endif
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWheelEvent>
@@ -103,6 +108,11 @@ MoleculeViewer::~MoleculeViewer()
     // controller.<prop> binding in viewer3d.qml logs a harmless "Cannot read
     // property ... of null" TypeError on exit. Unloading the QML root here drops
     // those bindings first.
+#ifdef QURCUMA_HAS_XR
+    // The headset scene binds to m_scene as well (Claude Generated 2026).
+    delete m_vr;
+    m_vr = nullptr;
+#endif
     unloadQmlScene();
 }
 
@@ -402,7 +412,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 }
                 if (m_grabbedAtom >= 0) {
                     m_grabbedAtom = -1;
-                    emit atomGrabReleased();
+                    emit atomGrabReleased(kMouseGrabSource);
                     if (m_scene) m_scene->setForceArrows({}); // clear arrows on release
                     Qt::CursorShape shape = m_simulationActive ? Qt::SizeAllCursor : Qt::ArrowCursor;
                     setViewportCursor(shape);
@@ -614,7 +624,7 @@ bool MoleculeViewer::eventFilter(QObject* watched, QEvent* event)
                 QVector3D modelLocalForce = computeGrabForce(pos, m_grabbedAtom);
                 // curcuma adds force to the gradient; accel = -gradient, so negate
                 // to make the atom follow the cursor.
-                emit atomForceRequested(m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
+                emit atomForceRequested(kMouseGrabSource, m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
                 updateForceVectors();
                 return true;
             }
@@ -1365,14 +1375,15 @@ void MoleculeViewer::updateForceVectors()
     const float kMin = 0.6f;
     const float kMax = qMax(3.0f, m_scene->sceneExtent());
 
+    // Claude Generated 2026 - Arrows are model-local (drawn under moleculeRoot): they turn with
+    // the molecule, and the headset, which has its own rotation, can show the same table.
     auto pushArrow = [&](int i, const QVector3D& modelF, bool seed) {
         if (modelF.lengthSquared() < 1e-12f)
             return;
-        const QVector3D worldF = m_modelRotation.rotatedVector(modelF);
         SceneController::Arrow a;
-        a.origin = modelToWorld(atoms[i].position);
-        a.dir = worldF.normalized();
-        a.length = qBound(kMin, worldF.length() * kScale, kMax);
+        a.origin = atoms[i].position;
+        a.dir = modelF.normalized();
+        a.length = qBound(kMin, modelF.length() * kScale, kMax);
         a.color = seed ? QColor(255, 230, 60) : QColor(255, 140, 0);
         arrows.append(a);
     };
@@ -1417,10 +1428,11 @@ void MoleculeViewer::updateMeasurement(int frameIndex)
     if (idx.size() > 4)
         idx = idx.mid(idx.size() - 4, 4);
 
-    // Lines between consecutive picks (drawn even while incomplete).
+    // Lines between consecutive picks (drawn even while incomplete). Model-local, like the
+    // atoms: they turn with the molecule and the headset shows the same table.
     QVector<QPair<QVector3D, QVector3D>> lines;
     for (int i = 0; i + 1 < idx.size(); ++i)
-        lines.append({ modelToWorld(atoms[idx[i]].position), modelToWorld(atoms[idx[i + 1]].position) });
+        lines.append({ atoms[idx[i]].position, atoms[idx[i + 1]].position });
 
     QStringList names;
     for (int a : idx)
@@ -1572,6 +1584,7 @@ void MoleculeViewer::syncSceneToController(int frameIndex, bool resetCamera, boo
     // (frame change, live MD/Opt step, structure edit, refresh). Cheap no-op when
     // the overlay is off, which is the default.
     refreshNciOverlay();
+    updateVrStatus();
 }
 
 void MoleculeViewer::clearScene()
@@ -1639,11 +1652,18 @@ void MoleculeViewer::appendMolecule(const QVector<Atom>& newAtoms, const QVector
     if (newAtoms.isEmpty())
         return;
     if (m_trajectoryAtoms.isEmpty()) {
-        addMolecule(newAtoms, newBonds);   // nothing loaded yet -> behave like a load
+        // Nothing loaded yet, so this IS a load -- and it goes the way a load goes.
+        // setTrajectoryData is the path every file load takes; addMolecule builds
+        // the scene directly with a camera reset, which is a path the application
+        // otherwise avoids on an empty scene (the builder deliberately seeds its
+        // first atom around it). Filling a container into an empty scene was the
+        // one caller that still went that way. Claude Generated 2026.
+        const QVector<Bond> bonds = newBonds.isEmpty() ? detectBonds(newAtoms) : newBonds;
+        setTrajectoryData({ newAtoms }, { bonds });
         return;
     }
     if (!canEditStructure()) {
-        qWarning() << "appendMolecule: only single-frame structures can be edited";
+        qWarning() << "appendMolecule: structure edits need a single frame and no running simulation";
         return;
     }
     emit editSnapshotRequested(tr("Before add molecule"));  // pre-merge state for undo
@@ -2131,7 +2151,7 @@ void MoleculeViewer::updateSimulationFrame(SimulationFramePtr frame)
     // Re-send the grab force at sim cadence while a grab is active.
     if (m_grabbedAtom >= 0) {
         QVector3D modelLocalForce = computeGrabForce(m_lastMousePos, m_grabbedAtom);
-        emit atomForceRequested(m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
+        emit atomForceRequested(kMouseGrabSource, m_grabbedAtom, -modelLocalForce, m_grabAlpha, m_grabMaxShells);
         updateForceVectors();
     }
 
@@ -2457,6 +2477,10 @@ void MoleculeViewer::refreshVisualization()
 void MoleculeViewer::setSimulationActive(bool on)
 {
     m_simulationActive = on;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setSimulationActive(on);
+#endif
     m_grabbedAtom = -1;
     if (m_scene) m_scene->setForceArrows({});
     Qt::CursorShape shape = on ? Qt::SizeAllCursor : Qt::ArrowCursor;
@@ -2498,6 +2522,7 @@ void MoleculeViewer::selectAtoms(const QVector<int>& indices, bool append)
     }
     if (m_scene)
         m_scene->setSelection(m_selectedAtoms);
+    updateVrStatus();
     emit selectionChanged(m_selectedAtoms);
 }
 
@@ -2538,6 +2563,7 @@ void MoleculeViewer::clearSelection()
         m_selectionManager->clearSelection();
     if (m_scene)
         m_scene->setSelection(m_selectedAtoms);
+    updateVrStatus();
     updateMeasurement(); // selection now empty -> clears the measurement display
 }
 
@@ -2809,7 +2835,7 @@ int MoleculeViewer::addAtomAt(const QVector3D& modelPos, const QString& element,
         return 0;
     }
     if (!canEditStructure()) {
-        qWarning() << "addAtomAt: only single-frame structures can be edited";
+        qWarning() << "addAtomAt: structure edits need a single frame and no running simulation";
         return -1;
     }
     requestBuildSnapshot();
@@ -2866,6 +2892,51 @@ void MoleculeViewer::buildAttachAtom(int atomIndex)
     const float dist = elem::covalentRadius(atoms[atomIndex].element)
         + elem::covalentRadius(m_buildElement);
     addAtomAt(atoms[atomIndex].position + dir * dist, m_buildElement, atomIndex);
+}
+
+void MoleculeViewer::setUnitCell(const QVector3D& origin, const QVector3D& a,
+    const QVector3D& b, const QVector3D& c, int na, int nb, int nc)
+{
+    if (m_scene)
+        m_scene->setUnitCell(origin, a, b, c, na, nb, nc);
+}
+
+void MoleculeViewer::clearUnitCell()
+{
+    if (m_scene)
+        m_scene->clearUnitCell();
+}
+
+void MoleculeViewer::setUnitCellShown(bool on)
+{
+    if (m_scene)
+        m_scene->setUnitCellShown(on);
+}
+
+void MoleculeViewer::setAtomEllipsoids(const QVector<moldata::Ellipsoid>& ellipsoids)
+{
+    if (m_scene)
+        m_scene->setAtomEllipsoids(ellipsoids);
+}
+
+// Claude Generated 2026 - A displacement ellipsoid at probability p encloses the
+// atom's position with probability p. For a 3D Gaussian that is the surface at
+// Mahalanobis radius c with P(chi^2_3 <= c^2) = p, i.e.
+//   p = erf(c / sqrt 2) - sqrt(2/pi) c exp(-c^2 / 2)
+// (c = 1.5382 for the usual 50 %). Solved by bisection; the RMS axes are scaled
+// by c.
+void MoleculeViewer::setEllipsoidDisplay(bool on, double probability)
+{
+    const double p = qBound(0.01, probability, 0.999);
+    double lo = 0.0, hi = 6.0;
+    for (int i = 0; i < 60; ++i) {
+        const double c = 0.5 * (lo + hi);
+        const double cdf = std::erf(c / std::sqrt(2.0))
+            - std::sqrt(2.0 / M_PI) * c * std::exp(-0.5 * c * c);
+        (cdf < p ? lo : hi) = c;
+    }
+    if (m_scene)
+        m_scene->setEllipsoidDisplay(on, float(0.5 * (lo + hi)));
 }
 
 // Claude Generated 2026 - Empty the scene for a fresh build. The camera is left
@@ -3057,7 +3128,7 @@ void MoleculeViewer::attachFragment(const build::Fragment& fragment, int targetA
     if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
         return;
     if (!canEditStructure()) {
-        qWarning() << "attachFragment: only single-frame structures can be edited";
+        qWarning() << "attachFragment: structure edits need a single frame and no running simulation";
         return;
     }
     QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
@@ -3261,7 +3332,7 @@ void MoleculeViewer::startFragmentCarry(const build::Fragment& fragment)
     if (!buildMode())
         setBuildMode(true);
     if (!m_trajectoryAtoms.isEmpty() && !canEditStructure())
-        return;  // insertFragment would refuse anyway (multi-frame)
+        return;  // insertFragment would refuse anyway (multi-frame or running simulation)
     insertFragment(fragment);  // snapshot + append + select
     if (m_selectedAtoms.size() != fragment.atoms.size())
         return;  // insertion did not happen
@@ -3597,7 +3668,7 @@ void MoleculeViewer::addHydrogens(const QVector<int>& targets)
     if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
         return;
     if (!canEditStructure()) {
-        qWarning() << "addHydrogens: only single-frame structures can be edited";
+        qWarning() << "addHydrogens: structure edits need a single frame and no running simulation";
         return;
     }
     QVector<Atom> newH;
@@ -3719,6 +3790,69 @@ void MoleculeViewer::moveSelection(const QVector3D& modelDelta)
             atoms[idx].position += modelDelta;
     syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/false);
     computeCollisions();
+}
+
+// Claude Generated 2026 - Rigid placement of an atom set: rotate about its own
+// centroid, then translate. One snapshot for the pair, because putting a guest
+// into a cavity is one gesture and a half-placed pose in the undo stack would be
+// a nuisance rather than a safety net.
+bool MoleculeViewer::transformAtoms(const QVector<int>& indices, const QVector3D& translation,
+    const QVector3D& rotationAxis, double rotationDegrees, QString* error)
+{
+    const auto fail = [error](const QString& message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+
+    if (m_simulationActive) {
+        return fail(tr("not while a simulation is running: the viewer rebuilds the frame from "
+                       "the worker's geometry, so the move would be overwritten at the next "
+                       "frame. Pull on the atoms instead, or stop the run first."));
+    }
+    if (!canEditStructure())
+        return fail(tr("only single-frame structures can be edited, not a trajectory"));
+    if (m_currentFrame < 0 || m_currentFrame >= m_trajectoryAtoms.size())
+        return fail(tr("no structure is loaded"));
+    if (indices.isEmpty())
+        return fail(tr("no atoms given"));
+
+    QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+    for (int index : indices) {
+        if (index < 0 || index >= atoms.size()) {
+            return fail(tr("atom index %1 is outside 0..%2").arg(index).arg(atoms.size() - 1));
+        }
+    }
+
+    emit editSnapshotRequested(tr("Move %1 atom(s)").arg(indices.size()));
+
+    const bool rotating = !qFuzzyIsNull(rotationDegrees) && !rotationAxis.isNull();
+    QVector3D centroid;
+    QQuaternion rotation;
+    if (rotating) {
+        for (int index : indices)
+            centroid += atoms[index].position;
+        centroid /= float(indices.size());
+        rotation = QQuaternion::fromAxisAndAngle(rotationAxis.normalized(),
+            float(rotationDegrees));
+    }
+
+    for (int index : indices) {
+        QVector3D position = atoms[index].position;
+        if (rotating)
+            position = centroid + rotation.rotatedVector(position - centroid);
+        atoms[index].position = position + translation;
+    }
+
+    // Positions only: no atom was added or removed, so the bond graph and the
+    // instancing buffers stand and the cheap path suffices.
+    syncSceneToController(m_currentFrame, /*resetCamera=*/false, /*fullRebuild=*/false);
+    computeCollisions();
+    onStructureChanged();
+    emit moleculeUpdated(m_trajectoryAtoms[m_currentFrame], getCurrentFrameBonds());
+    if (error)
+        error->clear();
+    return true;
 }
 
 // Claude Generated 2026 - Apply a single-atom edit coming from the atom table.
@@ -5452,4 +5586,219 @@ void MoleculeViewer::setQuickAccess(QAction* hbondToggle, QMenu* hydrogenMenu, Q
         m_styleButton->setMenu(styleMenu);
     if (m_lookButton)
         m_lookButton->setMenu(lookMenu);
+}
+
+// Claude Generated 2026 - OpenXR output. The headset renders this viewer's SceneController
+// (VrSession mirrors its instance tables), so structure, positions, selection and overlays need
+// no extra calls here; a controller-ray pick in the headset selects the atom like a mouse pick.
+bool MoleculeViewer::setVrActive(bool on)
+{
+#ifdef QURCUMA_HAS_XR
+    if (on == (m_vr != nullptr))
+        return true;
+    if (!on) {
+        // Synchronous: the session's QML engine binds to m_scene and must go first. Never called
+        // from inside the session's own QML handlers (ended() is queued below).
+        delete m_vr;
+        m_vr = nullptr;
+        // a headset grab held when the session ended must not keep pulling
+        emit atomGrabReleased(VrSession::RightGrabSource);
+        emit atomGrabReleased(VrSession::LeftGrabSource);
+        emit vrActiveChanged(false);
+        return true;
+    }
+    m_vr = new VrSession(m_scene, this);
+    m_vr->setHandInput(m_vrHandInput);   // before start(): the scene is laid out for the right mode
+    if (!m_vr->start()) {
+        delete m_vr;
+        m_vr = nullptr;
+        return false;
+    }
+    connect(m_vr, &VrSession::atomPicked, this, [this](int index) {
+        if (index < 0)
+            clearSelection();
+        else
+            selectAtom(index, false);
+    });
+    // Queued: ended() comes from XrView.onSessionEnded, and the engine cannot be deleted inside it.
+    connect(m_vr, &VrSession::ended, this, [this, session = m_vr] {
+        if (m_vr == session)
+            setVrActive(false);
+    }, Qt::QueuedConnection);
+    // Grab: the headset sends the displacement of the controller target from the atom; this is the
+    // same spring as the mouse drag (force ~ displacement * grabStrength, Angstrom -> Bohr).
+    connect(m_vr, &VrSession::grabForce, this, [this](int source, int atom, QVector3D displacement) {
+        if (!m_simulationActive)
+            return;
+        static constexpr float Angstrom2Bohr = 1.8897259886f;
+        const QVector3D force = displacement * Angstrom2Bohr * float(m_grabStrength);
+        // curcuma adds force to the gradient; accel = -gradient, so negate (as in the mouse path)
+        emit atomForceRequested(source, atom, -force, m_grabAlpha, m_grabMaxShells);
+    });
+    connect(m_vr, &VrSession::fileRequested, this, &MoleculeViewer::vrFileRequested);
+    // The input mode can be switched in the headset (View panel, or B / Y in hands mode).
+    connect(m_vr, &VrSession::handInputChanged, this, [this] { setVrHandInput(m_vr->handInput()); });
+    connect(m_vr, &VrSession::grabReleased, this, [this](int source) { emit atomGrabReleased(source); });
+    connect(m_vr, &VrSession::command, this, [this](const QString& name) {
+        if (name == QLatin1String("playPause"))
+            toggleAnimation();
+        else if (name == QLatin1String("nextFrame"))
+            nextFrame();
+        else if (name == QLatin1String("previousFrame"))
+            previousFrame();
+        else if (name == QLatin1String("grabUp"))
+            m_grabStrength *= 1.25;
+        else if (name == QLatin1String("grabDown"))
+            m_grabStrength *= 0.8;
+        else if (name.startsWith(QLatin1String("sim")))
+            emit vrSimulationCommand(name);
+        updateVrStatus();
+    });
+    // Play/pause from the desktop bar or the headset updates the transport panel's label.
+    connect(this, &MoleculeViewer::animationStateChanged, m_vr, [this] { updateVrStatus(); });
+    m_vr->setSimulationActive(m_simulationActive);
+    m_vr->setSimulationStatus(m_vrSimPaused, m_vrSimMessage);
+    m_vr->setSimulationMode(m_vrSimMode);
+    m_vr->setStructure(m_vrStructureFile, m_vrStructureTitle);
+    m_vr->setTemperature(m_vrTemperature);
+    m_vr->setSystemTemperature(m_vrSystemTemperature);
+    m_vr->setTemperatureRange(m_vrTemperatureMin, m_vrTemperatureMax);
+    m_vr->setMethod(m_vrMethod);
+    m_vr->setStartDirectory(m_vrStartDir);
+    m_vr->setSurroundings(m_vrPanorama, m_vrSurroundings, m_vrSurroundingsScale);
+    updateVrStatus();
+    emit vrActiveChanged(true);
+    return true;
+#else
+    Q_UNUSED(on);
+    return false;
+#endif
+}
+
+// Claude Generated 2026 - Status of the in-headset panels: frame, playback, selection and grab
+// strength, as one text (statusText) and as separate properties (VrSession::setStatus).
+void MoleculeViewer::updateVrStatus()
+{
+#ifdef QURCUMA_HAS_XR
+    if (!m_vr)
+        return;
+    QString sel;
+    if (!m_selectedAtoms.isEmpty() && m_currentFrame >= 0 && m_currentFrame < m_trajectoryAtoms.size()) {
+        const QVector<Atom>& atoms = m_trajectoryAtoms[m_currentFrame];
+        const int first = m_selectedAtoms.first();
+        if (first >= 0 && first < atoms.size())
+            sel = QStringLiteral("%1 #%2").arg(atoms[first].element).arg(first);
+        if (m_selectedAtoms.size() > 1)
+            sel += QStringLiteral(" (+%1)").arg(m_selectedAtoms.size() - 1);
+    }
+    m_vr->setStatusText(QStringLiteral("Frame %1 / %2\nSelected: %3\nGrab strength: %4")
+            .arg(m_currentFrame + 1)
+            .arg(m_frameCount)
+            .arg(sel.isEmpty() ? QStringLiteral("-") : sel)
+            .arg(m_grabStrength, 0, 'f', 3));
+    m_vr->setStatus(m_currentFrame, m_frameCount, m_isAnimating, sel, m_grabStrength);
+#endif
+}
+
+void MoleculeViewer::setVrSimulationStatus(bool paused, const QString& message)
+{
+    m_vrSimPaused = paused;
+    m_vrSimMessage = message;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setSimulationStatus(paused, message);
+#endif
+}
+
+// Claude Generated 2026 - Kind of the active run, lights the MD or Opt button in the headset.
+void MoleculeViewer::setVrSimulationMode(const QString& mode)
+{
+    m_vrSimMode = mode;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setSimulationMode(mode);
+#endif
+}
+
+// Claude Generated 2026 - Structure named on the headset's Structure panel.
+void MoleculeViewer::setVrStructure(const QString& fileName, const QString& title)
+{
+    m_vrStructureFile = fileName;
+    m_vrStructureTitle = title;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setStructure(fileName, title);
+#endif
+}
+
+void MoleculeViewer::setVrStartDirectory(const QString& dir)
+{
+    m_vrStartDir = dir;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setStartDirectory(dir);
+#endif
+}
+
+// Claude Generated 2026 - Headset input mode; kept for the next session when none runs.
+void MoleculeViewer::setVrHandInput(bool on)
+{
+    if (on == m_vrHandInput)
+        return;
+    m_vrHandInput = on;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setHandInput(on);
+#endif
+    emit vrHandInputChanged(on);
+}
+
+// Claude Generated 2026 - Sky box panorama and 3D surroundings of the headset scene.
+void MoleculeViewer::setVrSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale)
+{
+    m_vrPanorama = panoramaPath;
+    m_vrSurroundings = scenePath;
+    m_vrSurroundingsScale = sceneScale;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setSurroundings(panoramaPath, scenePath, sceneScale);
+#endif
+}
+
+void MoleculeViewer::setVrTemperature(double kelvin)
+{
+    m_vrTemperature = kelvin;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setTemperature(kelvin);
+#endif
+}
+
+// Claude Generated 2026 - System temperature of the running MD, below the headset thermostat.
+void MoleculeViewer::setVrSystemTemperature(double kelvin)
+{
+    m_vrSystemTemperature = kelvin;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setSystemTemperature(kelvin);
+#endif
+}
+
+void MoleculeViewer::setVrTemperatureRange(double minimum, double maximum)
+{
+    m_vrTemperatureMin = minimum;
+    m_vrTemperatureMax = maximum;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setTemperatureRange(minimum, maximum);
+#endif
+}
+
+void MoleculeViewer::setVrMethod(const QString& key)
+{
+    m_vrMethod = key;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setMethod(key);
+#endif
 }

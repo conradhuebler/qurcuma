@@ -487,15 +487,40 @@ void RemoteBackend::requestStop()
 void RemoteBackend::requestPause() { if (m_started && !m_finished) sendJson({ { "type", "pause" } }); }
 void RemoteBackend::requestResume() { if (m_started && !m_finished) sendJson({ { "type", "resume" } }); }
 
-void RemoteBackend::injectForce(int atomIndex, QVector3D force, double alpha, int maxShells)
+void RemoteBackend::injectForce(int source, int atomIndex, QVector3D force, double alpha, int maxShells)
 {
     if (!m_started || m_finished)
         return;
-    sendJson({ { "type", "injectForce" }, { "atom", atomIndex }, { "fx", double(force.x()) },
+    sendJson({ { "type", "injectForce" }, { "source", source }, { "atom", atomIndex }, { "fx", double(force.x()) },
         { "fy", double(force.y()) }, { "fz", double(force.z()) }, { "alpha", alpha }, { "maxShells", maxShells } });
 }
 
-void RemoteBackend::clearInjectedForce() { if (m_started && !m_finished) sendJson({ { "type", "clearForce" } }); }
+void RemoteBackend::injectForces(QVector<int> atoms, QVector<QVector3D> forces, double alpha, int maxShells)
+{
+    if (!m_started || m_finished)
+        return;
+    QJsonArray a, fx, fy, fz;
+    for (int i = 0; i < atoms.size() && i < forces.size(); ++i) {
+        a.append(atoms[i]);
+        fx.append(double(forces[i].x()));
+        fy.append(double(forces[i].y()));
+        fz.append(double(forces[i].z()));
+    }
+    sendJson({ { "type", "injectForces" }, { "atoms", a }, { "fx", fx }, { "fy", fy }, { "fz", fz },
+        { "alpha", alpha }, { "maxShells", maxShells } });
+}
+
+void RemoteBackend::setExternalPotentials(QJsonArray potentials)
+{
+    if (m_started && !m_finished)
+        sendJson({ { "type", "setPotentials" }, { "potentials", potentials } });
+}
+
+void RemoteBackend::clearInjectedForce(int source)
+{
+    if (m_started && !m_finished)
+        sendJson({ { "type", "clearForce" }, { "source", source } });
+}
 void RemoteBackend::setTargetTemperature(double t) { if (m_started && !m_finished) sendJson({ { "type", "setTemperature" }, { "value", t } }); }
 void RemoteBackend::setWallTemp(double t) { if (m_started && !m_finished) sendJson({ { "type", "setWallTemp" }, { "value", t } }); }
 void RemoteBackend::setWallBeta(double b) { if (m_started && !m_finished) sendJson({ { "type", "setWallBeta" }, { "value", b } }); }

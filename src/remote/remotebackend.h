@@ -55,8 +55,10 @@ public:
     QString trajectoryPath() const { return m_trajectoryPath; }
 
 public slots:
-    void injectForce(int atomIndex, QVector3D force, double alpha, int maxShells) override;
-    void clearInjectedForce() override;
+    void injectForce(int source, int atomIndex, QVector3D force, double alpha, int maxShells) override;
+    void injectForces(QVector<int> atoms, QVector<QVector3D> forces, double alpha, int maxShells) override;
+    void setExternalPotentials(QJsonArray potentials) override;
+    void clearInjectedForce(int source) override;
     void setTargetTemperature(double temperature) override;
     void setWallTemp(double T) override;
     void setWallBeta(double beta) override;

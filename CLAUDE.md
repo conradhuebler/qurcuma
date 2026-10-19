@@ -11,6 +11,8 @@
 - **[src/CLAUDE.md](src/CLAUDE.md)** - VTF/XYZ parsers, 3D viewer, mouse interactions
 - **[src/docks/CLAUDE.md](src/docks/CLAUDE.md)** - dock architecture, `DockManager`, layout presets, app modes
 - **[src/dialogs/CLAUDE.md](src/dialogs/CLAUDE.md)** - NMR spectrum dialog and analysis
+- **[src/script/CLAUDE.md](src/script/CLAUDE.md)** - JavaScript interpreter (QJSEngine) for calculations
+- **CuteChat** (shared library, also used by SupraFit; submodule `external/CuteChat`, override with `../CuteChat` or `-DCUTECHAT_DIR=`): tool registry/dispatcher (`CuteChat::tools`, in `qurcuma_core`), client/session/engine (`CuteChat::core`, behind `qurcuma_llm`), `ChatDock` (`CuteChat::cutechat`); include as `<cutechat/...>`. qurcuma keeps its tools (`src/llm/tools_*`), `LogHub`, the approval policy and `QurcumaChatHost`. Rules and design: the CuteChat repo.
 
 ## Improvements Tracking
 

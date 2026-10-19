@@ -17,6 +17,8 @@
 #include "widgets/collapsiblesection.h"
 #include "widgets/temperatureslider.h"
 
+#include <src/core/energy_calculators/gpu_plugin.h>
+
 #include <QComboBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -41,11 +43,7 @@ SimulationControlWidget::SimulationControlWidget(QWidget* parent)
 
 SimulationControlWidget::~SimulationControlWidget()
 {
-    if (m_backend) {
-        m_backend->requestStop();
-        delete m_backend;  // waits for the worker thread (LocalBackend)
-        m_backend = nullptr;
-    }
+    teardownBackend();
 }
 
 void SimulationControlWidget::setMolecule(
@@ -821,12 +819,48 @@ CollapsibleSection* SimulationControlWidget::createAdvancedSection()
     form->addRow(tr("H mass factor:"), m_hmassSpin);
 
     m_convergenceSpin = new QDoubleSpinBox(this);
-    m_convergenceSpin->setRange(1e-10, 1e-2);
-    m_convergenceSpin->setDecimals(10);
-    m_convergenceSpin->setSingleStep(1e-7);
-    m_convergenceSpin->setValue(5e-4);  // curcuma's default gradient_threshold (Eh/Bohr)
-    m_convergenceSpin->setToolTip(tr("Gradient norm threshold in Eh/Bohr (curcuma gradient_threshold)."));
-    form->addRow(tr("Gradient tol:"), m_convergenceSpin);
+    m_convergenceSpin->setRange(1e-8, 1e-1);
+    m_convergenceSpin->setDecimals(8);
+    m_convergenceSpin->setSingleStep(1e-4);
+    m_convergenceSpin->setValue(5e-4);   // curcuma's own default
+    m_convergenceSpin->setToolTip(tr("Gradient norm below which the optimisation is converged. "
+                                     "curcuma's own default is 5e-4; markedly tighter values are "
+                                     "below what the methods resolve, and the run then goes to "
+                                     "its iteration ceiling with the energy long flat."));
+    form->addRow(tr("Gradient tol [Eh/Bohr]:"), m_convergenceSpin);
+
+    // Claude Generated 2026 - The criterion that matches "nothing is changing any
+    // more". It was never written into the controller at all, so it sat at the
+    // engine's fallback where nobody could see or adjust it.
+    m_energyConvergenceSpin = new QDoubleSpinBox(this);
+    m_energyConvergenceSpin->setRange(1e-4, 10.0);
+    m_energyConvergenceSpin->setDecimals(4);
+    m_energyConvergenceSpin->setSingleStep(0.05);
+    m_energyConvergenceSpin->setValue(0.1);   // curcuma's own default
+    m_energyConvergenceSpin->setToolTip(tr("Energy change between iterations below which the "
+                                           "optimisation is converged."));
+    form->addRow(tr("Energy tol [kJ/mol]:"), m_energyConvergenceSpin);
+
+    // Claude Generated 2026 - Atoms held in place. "Heavy atoms" relaxes only the
+    // hydrogens: the usual way to bring an X-ray structure to a method's minimum
+    // without moving what the diffraction determined (X-H bonds from X-ray are
+    // systematically short).
+    m_freezeCombo = new QComboBox(this);
+    m_freezeCombo->addItem(tr("None"), QStringLiteral("none"));
+    m_freezeCombo->addItem(tr("Heavy atoms (relax H only)"), QStringLiteral("heavy"));
+    m_freezeCombo->addItem(tr("Hydrogens"), QStringLiteral("hydrogens"));
+    m_freezeCombo->addItem(tr("Selection"), QStringLiteral("selection"));
+    m_freezeCombo->setToolTip(tr("Atoms that keep their position during the optimisation"));
+    form->addRow(tr("Hold atoms:"), m_freezeCombo);
+    m_freezeEdit = new QLineEdit(this);
+    m_freezeEdit->setPlaceholderText(tr("e.g. 1:20,F2 (one-based)"));
+    m_freezeEdit->setToolTip(tr("Atoms to hold, in curcuma's selection grammar: 1:20 is the first "
+                                "twenty atoms, F2 the second fragment"));
+    m_freezeEdit->setEnabled(false);
+    form->addRow(QString(), m_freezeEdit);
+    connect(m_freezeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+        m_freezeEdit->setEnabled(m_freezeCombo->currentData().toString() == QLatin1String("selection"));
+    });
 
     // Claude Generated 2026 - Opt-in: keep the force-field parameters/topology
     // fixed while interactively dragging atoms during a geometry optimization.
@@ -1121,6 +1155,7 @@ void SimulationControlWidget::setupConnections()
             m_tempOverrideLabel->setVisible(true);
         emit configChanged(buildConfig());
     });
+    connect(m_tempSlider, &TemperatureSlider::rangeChanged, this, &SimulationControlWidget::temperatureRangeChanged);
     // Thermostat: show only the params the chosen type reads. Claude Generated 2026.
     connect(m_thermostatCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
         [this](int) { updateThermostatRows(); emit configChanged(buildConfig()); });
@@ -1137,7 +1172,10 @@ void SimulationControlWidget::setupConnections()
     connect(m_writeTrjCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_perfCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_convergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_energyConvergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_optKeepParamsCheck, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_freezeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_freezeEdit, &QLineEdit::editingFinished, this, notifyConfig);
     connect(m_rattleEnableCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_rattle12Check, &QCheckBox::toggled, this, notifyConfig);
@@ -1279,7 +1317,10 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.writeTrajectory = m_writeTrjCheck->isChecked();
     cfg.performanceAnalysis = m_perfCheck->isChecked();
     cfg.convergence = m_convergenceSpin->value();
+    cfg.energyConvergence = m_energyConvergenceSpin->value();
     cfg.optKeepParameters = m_optKeepParamsCheck->isChecked();
+    cfg.freezeMode = m_freezeCombo->currentData().toString();
+    cfg.freezeSelection = m_freezeEdit->text().trimmed();
     cfg.rattleMode    = m_rattleEnableCheck->isChecked() ? m_rattleCombo->currentData().toInt() : 0;
     cfg.rattle12      = m_rattle12Check->isChecked();
     cfg.rattle13      = m_rattle13Check->isChecked();
@@ -1387,7 +1428,8 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
         m_modeCombo, m_methodCombo, m_chargeSpin, m_spinSpin, m_optimizerCombo, m_tempSlider, m_timestepSpin,
         m_stepsSpin, m_maxIterSpin, m_fpsLimitSpin, m_hmassSpin, m_thermostatCombo, m_couplingSpin,
         m_andersenProbSpin, m_noseChainSpin, m_gpuCombo, m_writeTrjCheck, m_perfCheck,
-        m_convergenceSpin, m_optKeepParamsCheck, m_rattleCombo, m_rattle12Check,
+        m_convergenceSpin, m_energyConvergenceSpin, m_optKeepParamsCheck, m_freezeCombo, m_freezeEdit,
+        m_rattleCombo, m_rattle12Check,
         m_rattle13Check, m_rattleTol12Spin, m_rattleTol13Spin, m_rattleMaxIterSpin,
         m_topologyModeCombo, m_reactFormSpin, m_reactBreakSpin, m_reactCheckEverySpin,
         m_reactRefractorySpin, m_reactValenceCapCheck, m_reactExchangeSpin,
@@ -1424,7 +1466,12 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     m_writeTrjCheck->setChecked(cfg.writeTrajectory);
     m_perfCheck->setChecked(cfg.performanceAnalysis);
     m_convergenceSpin->setValue(cfg.convergence);
+    m_energyConvergenceSpin->setValue(cfg.energyConvergence);
     m_optKeepParamsCheck->setChecked(cfg.optKeepParameters);
+    selectData(m_freezeCombo, cfg.freezeMode);
+    m_freezeEdit->setText(cfg.freezeSelection);
+    m_freezeEdit->setEnabled(cfg.freezeMode == QLatin1String("selection"));
+    selectData(m_rattleCombo, cfg.rattleMode);
     if (cfg.rattleMode != 0)
         selectData(m_rattleCombo, cfg.rattleMode);
     m_rattle12Check->setChecked(cfg.rattle12);
@@ -1593,6 +1640,7 @@ void SimulationControlWidget::startWithConfig(const SimulationConfig& cfg)
         m_pauseBtn->setText(tr("▶"));
         m_paused = true;
         setState(tr("⏸ Paused"), "#d4a017");  // amber
+        emit pauseStateChanged(true);
     });
 
     m_config = cfg;
@@ -1772,19 +1820,141 @@ void SimulationControlWidget::connectBackend()
 
 void SimulationControlWidget::onPauseClicked()
 {
-    if (!m_backend)
+    // The button toggles; pauseRun()/resumeRun() are the idempotent halves, which
+    // is what a caller that cannot see the button needs. Claude Generated 2026.
+    if (m_paused)
+        resumeRun();
+    else
+        pauseRun();
+}
+
+void SimulationControlWidget::pauseRun()
+{
+    if (!m_backend || m_paused)
         return;
-    if (m_paused) {
-        m_backend->requestResume();
-        m_pauseBtn->setText(tr("⏸"));
-        setState(tr("● Running"), "#27ae60");  // green
-        m_paused = false;
-    } else {
-        m_backend->requestPause();
-        m_pauseBtn->setText(tr("▶"));
-        setState(tr("⏸ Paused"), "#d4a017");  // amber
-        m_paused = true;
+    m_backend->requestPause();
+    m_pauseBtn->setText(tr("▶"));
+    setState(tr("⏸ Paused"), "#d4a017");  // amber
+    m_paused = true;
+    publishLiveState();
+    emit pauseStateChanged(m_paused);
+}
+
+void SimulationControlWidget::resumeRun()
+{
+    if (!m_backend || !m_paused)
+        return;
+    m_backend->requestResume();
+    m_pauseBtn->setText(tr("⏸"));
+    setState(tr("● Running"), "#27ae60");  // green
+    m_paused = false;
+    publishLiveState();
+    emit pauseStateChanged(m_paused);
+}
+
+bool SimulationControlWidget::isRunning() const
+{
+    return m_backend != nullptr;
+}
+
+/// The userData of every item of @p box, which is what buildConfig() reads.
+static QStringList comboValues(const QComboBox* box)
+{
+    QStringList values;
+    if (!box)
+        return values;
+    for (int i = 0; i < box->count(); ++i) {
+        const QString value = box->itemData(i).toString();
+        if (!value.isEmpty())
+            values << value;
     }
+    return values;
+}
+
+void SimulationControlWidget::requestExternalForces(const QVector<int>& atoms,
+    const QVector<QVector3D>& forces, double alpha, int maxShells)
+{
+    emit externalForcesRequested(atoms, forces, alpha, maxShells);
+}
+
+void SimulationControlWidget::clearExternalForces()
+{
+    emit externalForcesCleared();
+}
+
+void SimulationControlWidget::requestExternalPotentials(const QJsonArray& potentials)
+{
+    emit externalPotentialsRequested(potentials);
+}
+
+QStringList SimulationControlWidget::methodValues() const { return comboValues(m_methodCombo); }
+QStringList SimulationControlWidget::optimizerValues() const { return comboValues(m_optimizerCombo); }
+QStringList SimulationControlWidget::thermostatValues() const { return comboValues(m_thermostatCombo); }
+QStringList SimulationControlWidget::gpuValues() const { return comboValues(m_gpuCombo); }
+QStringList SimulationControlWidget::topologyValues() const { return comboValues(m_topologyModeCombo); }
+
+void SimulationControlWidget::setLiveTemperature(double kelvin)
+{
+    if (m_tempSlider)
+        m_tempSlider->setValue(kelvin);   // emits valueChanged -> temperatureChanged
+}
+
+bool SimulationControlWidget::startRun(const SimulationConfig& cfg, QString* error)
+{
+    const auto fail = [error](const QString& message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+    if (isRunning())
+        return fail(tr("a simulation is already running -- stop it first"));
+    if (m_atoms.isEmpty())
+        return fail(tr("no structure is loaded"));
+
+    // Drive the controls from the config, then start from the controls, so the
+    // operator sees in the dock exactly what was asked for.
+    applyConfig(cfg);
+    SimulationConfig effective = buildConfig();
+    // Fields the dock has no control for do not survive that round trip and have to
+    // be carried over by hand. optSingleShot is the one that matters: without it an
+    // optimisation started from outside gets the interactive keep-alive loop, which
+    // restarts for ever by design and has no reason to when nobody is holding a
+    // mouse. Claude Generated 2026.
+    effective.optSingleShot = cfg.optSingleShot;
+    startWithConfig(effective);
+    if (!isRunning())
+        return fail(tr("the run did not start; see the Output dock"));
+    if (error)
+        error->clear();
+    return true;
+}
+
+void SimulationControlWidget::publishLiveState()
+{
+    // m_running, not isRunning(). setRunning(true) is called BEFORE the worker
+    // thread is started, so asking the thread here reports "not running" for the
+    // whole window between the start command and the first frame -- during which a
+    // caller was told nothing was going on and gave up on the run it had just
+    // asked for. Claude Generated 2026.
+    m_liveState.running = m_running;
+    m_liveState.paused = m_paused;
+    m_liveState.mode = m_liveState.running
+        ? (m_config.mode == SimulationConfig::Mode::MolecularDynamics
+                ? QStringLiteral("md") : QStringLiteral("opt"))
+        : QString();
+    m_liveState.method = m_config.method;
+    m_liveState.totalSteps = m_config.steps;
+    m_liveState.targetTemperature = m_tempSlider ? m_tempSlider->value() : m_config.temperature;
+
+    // The container's volume, so a caller can turn the atom masses into a density
+    // without reaching into the config from another thread. Auto-sized walls
+    // (all bounds zero) have no volume to report -- curcuma picks those at run
+    // time. Claude Generated 2026.
+    m_liveState.containerVolume = m_config.containerVolume();
+    if (!m_liveState.running) {
+        m_liveState.paused = false;
+    }
+    emit liveStateChanged(m_liveState);
 }
 
 void SimulationControlWidget::onStopClicked()
@@ -1797,6 +1967,11 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
 {
     if (!frame)
         return;
+
+    // Claude Generated 2026 - hand the frame on before anything else: a watcher
+    // reads the geometry that just arrived, and it must not wait for the label
+    // formatting below.
+    emit frameObserved(frame);
 
     // Measure actual FPS (update every second)
     m_frameCount++;
@@ -1820,11 +1995,20 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
         fpsText = tr("%1 fps").arg(m_actualFps, 0, 'f', 1);
     }
 
+    // Claude Generated 2026 - keep the live record in step with the label, so a
+    // caller outside the dock reads the same numbers the operator is looking at.
+    m_liveState.step = frame->step;
+    m_liveState.energy = frame->energy;
+    m_liveState.kineticEnergy = frame->ekin;
+    m_liveState.timeFs = frame->step * m_config.timestep;
+    m_liveState.externalWork = frame->externalWork;
+
     if (m_config.mode == SimulationConfig::Mode::MolecularDynamics) {
         const double kB_Eh = 3.1668114e-6;
         double tempK = (frame->ekin > 0 && !m_atoms.isEmpty())
             ? (2.0 * frame->ekin) / (3.0 * m_atoms.size() * kB_Eh)
             : 0.0;
+        m_liveState.temperature = tempK;
         m_statusLabel->setText(
             tr("Step %1 | E= %2 Eh | T≈ %3 K | %4")
                 .arg(frame->step)
@@ -1871,6 +2055,8 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
                 addRow(p, tr("broken"));
         }
     }
+
+    publishLiveState();
 }
 
 // Claude Generated 2026 - Reaction events of a reactive GFN-FF run: one row per
@@ -1947,7 +2133,10 @@ void SimulationControlWidget::onSimulationFinished(const QString& reason, bool a
         m_backend->deleteLater();  // its thread has finished; the backend goes with it
         m_backend = nullptr;
     }
-    m_paused = false;
+    if (m_paused) {
+        m_paused = false;
+        emit pauseStateChanged(false);
+    }
 
     // Report WHY the run ended, not just that it did. An abort (unstable dynamics,
     // a runaway temperature, a broken topology) otherwise reads exactly like a
@@ -1999,6 +2188,9 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
     m_methodForm->setRowVisible(m_maxIterSpin, !isMD);
     m_advancedForm->setRowVisible(m_hmassSpin, isMD);
     m_advancedForm->setRowVisible(m_convergenceSpin, !isMD);
+    m_advancedForm->setRowVisible(m_energyConvergenceSpin, !isMD);
+    m_advancedForm->setRowVisible(m_freezeCombo, !isMD);
+    m_advancedForm->setRowVisible(m_freezeEdit, !isMD);
     m_advancedForm->setRowVisible(m_optKeepParamsCheck, !isMD);
     updateReactEventsVisibility();        // reactive groups are MD + gfnff + react only
 
@@ -2048,6 +2240,8 @@ void SimulationControlWidget::setRecipeMenu(QMenu* menu)
 void SimulationControlWidget::setRunning(bool running)
 {
     m_running = running;
+    if (!running)
+        m_paused = false;
     if (m_recipeButton)
         m_recipeButton->setEnabled(!running);
     m_startBtn->setEnabled(!running);
@@ -2096,6 +2290,7 @@ void SimulationControlWidget::setRunning(bool running)
     m_writeTrjCheck->setEnabled(!running);
     m_perfCheck->setEnabled(!running);
     m_convergenceSpin->setEnabled(!running);
+    m_energyConvergenceSpin->setEnabled(!running);
     if (m_optKeepParamsCheck)
         m_optKeepParamsCheck->setEnabled(!running);
     m_rattleEnableCheck->setEnabled(!running);
@@ -2122,6 +2317,8 @@ void SimulationControlWidget::setRunning(bool running)
     m_rmsdMtdDtSpin->setEnabled(!running && m_rmsdMtdWtmtdCheck->isChecked());
 
     emit simulationRunningChanged(running);
+
+    publishLiveState();
 }
 
 // Claude Generated 2026 - Update the state pill (color-coded run-state indicator
@@ -2132,4 +2329,48 @@ void SimulationControlWidget::setState(const QString& label, const QString& colo
         return;
     m_stateLabel->setText(QStringLiteral("<span style='color:%1; font-weight:600;'>%2</span>")
                               .arg(color, label.toHtmlEscaped()));
+}
+
+double SimulationControlWidget::temperature() const
+{
+    return m_tempSlider ? m_tempSlider->value() : 0.0;
+}
+
+void SimulationControlWidget::setTemperature(double kelvin)
+{
+    if (m_tempSlider)
+        m_tempSlider->setValue(qBound(m_tempSlider->minimum(), kelvin, m_tempSlider->maximum()));
+}
+
+double SimulationControlWidget::temperatureMinimum() const
+{
+    return m_tempSlider ? m_tempSlider->minimum() : 0.0;
+}
+
+double SimulationControlWidget::temperatureMaximum() const
+{
+    return m_tempSlider ? m_tempSlider->maximum() : 0.0;
+}
+
+// The slider keeps its value inside the new range (ThermoTrack::setRange clamps it).
+void SimulationControlWidget::setTemperatureRange(double minimum, double maximum)
+{
+    if (!m_tempSlider)
+        return;
+    maximum = qMax(maximum, minimum + 1.0);
+    m_tempSlider->setRange(minimum, maximum);
+}
+
+QString SimulationControlWidget::method() const
+{
+    return m_methodCombo ? m_methodCombo->currentData().toString() : QString();
+}
+
+void SimulationControlWidget::setMethod(const QString& key)
+{
+    if (!m_methodCombo || !m_methodCombo->isEnabled())  // locked while a run is active
+        return;
+    const int index = m_methodCombo->findData(key);
+    if (index >= 0)
+        m_methodCombo->setCurrentIndex(index);
 }

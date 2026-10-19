@@ -25,6 +25,7 @@ using json = nlohmann::json;
 #include <QJsonDocument>
 #include <QFile>
 #include <QDir>
+#include <QJsonDocument>
 #include <QMutexLocker>
 #include <QThread>
 #include <QTimer>
@@ -313,6 +314,10 @@ json buildOptConfig(const SimulationConfig& cfg, bool singleStep)
     json c;
     c["max_iterations"] = singleStep ? 1 : cfg.steps;
     c["gradient_threshold"] = cfg.convergence;
+    // Set explicitly rather than left to the engine's fallback: an optimisation
+    // that has stopped changing energy should say so through a criterion the
+    // caller can see and adjust, not through one nobody wrote down.
+    c["energy_threshold"] = cfg.energyConvergence;
     c["write_trajectory"] = singleStep ? false : cfg.writeTrajectory;
     c["verbosity"] = 0;
     c["max_energy_rise"] = 1.0e12;
@@ -367,6 +372,37 @@ static SimulationFramePtr moleculeToFrame(
     double temperature = 0.0, double targetTemperature = 0.0);
 static Vector pendingForcesToFlatVector(const Eigen::MatrixXd& pending);
 
+// Claude Generated 2026 - The per-atom mask OptimizerDriver::setConstraints wants
+// (1 = free, 0 = held) from the config's freeze mode; empty when nothing is held.
+// "heavy" relaxes only the hydrogens -- how an X-ray structure is usually brought
+// to a method's minimum without losing what the diffraction determined.
+static std::vector<int> frozenAtomMask(const SimulationConfig& config,
+    const QVector<MolAtom>& atoms)
+{
+    const auto isHydrogen = [](const QString& element) {
+        return element.compare(QLatin1String("H"), Qt::CaseInsensitive) == 0
+            || element.compare(QLatin1String("D"), Qt::CaseInsensitive) == 0;
+    };
+    std::vector<int> mask;
+    if (config.freezeMode == QLatin1String("heavy") || config.freezeMode == QLatin1String("hydrogens")) {
+        const bool holdHeavy = config.freezeMode == QLatin1String("heavy");
+        mask.reserve(size_t(atoms.size()));
+        for (const auto& atom : atoms)
+            mask.push_back(isHydrogen(atom.element) == holdHeavy ? 1 : 0);
+    } else if (config.freezeMode == QLatin1String("selection") && !config.freezeSelection.trimmed().isEmpty()) {
+        Molecule molecule = atomsToMolecule(atoms);
+        molecule.GetFragments();   // FragString2Indicies reads the fragment cache
+        mask.assign(size_t(atoms.size()), 1);
+        for (int index : molecule.FragString2Indicies(config.freezeSelection.trimmed().toStdString()))
+            if (index >= 0 && index < atoms.size())
+                mask[size_t(index)] = 0;
+    }
+    // All free is no constraint at all.
+    if (std::find(mask.begin(), mask.end(), 0) == mask.end())
+        mask.clear();
+    return mask;
+}
+
 void SimulationWorker::setMolecule(const QVector<MolAtom>& atoms)
 {
     m_initialAtoms = atoms;
@@ -379,7 +415,35 @@ void SimulationWorker::setBonds(const QVector<MolBond>& bonds)
     m_adjacency = forceinjector::buildAdjacency(m_initialAtoms.size(), m_bonds);
 }
 
-void SimulationWorker::injectForce(int atomIndex, QVector3D force, double alpha, int maxShells)
+void SimulationWorker::injectForces(QVector<int> atoms, QVector<QVector3D> forces,
+    double alpha, int maxShells)
+{
+    if (m_initialAtoms.isEmpty() || atoms.size() != forces.size())
+        return;
+    if (atoms.isEmpty()) {
+        clearInjectedForce(ToolForceSource);
+        return;
+    }
+
+    // Each pull is distributed through the bond graph on its own and the results
+    // are summed: the atoms may be in the same molecule, and a shell that two
+    // pulls both reach should feel both.
+    Eigen::MatrixXd total = Eigen::MatrixXd::Zero(m_initialAtoms.size(), 3);
+    for (int i = 0; i < atoms.size(); ++i) {
+        const int index = atoms.at(i);
+        if (index < 0 || index >= m_initialAtoms.size())
+            continue;
+        const QVector3D& f = forces.at(i);
+        total += forceinjector::distributeForce(index,
+            Eigen::Vector3d(f.x(), f.y(), f.z()),
+            m_adjacency, alpha, maxShells, m_initialAtoms.size());
+    }
+
+    QMutexLocker lock(&m_forceMutex);
+    m_pendingForces.insert(ToolForceSource, total);   // its own source: a mouse or hand grab is not touched
+}
+
+void SimulationWorker::injectForce(int source, int atomIndex, QVector3D force, double alpha, int maxShells)
 {
     if (m_initialAtoms.isEmpty())
         return;
@@ -394,21 +458,32 @@ void SimulationWorker::injectForce(int atomIndex, QVector3D force, double alpha,
         atomIndex, f, m_adjacency, alpha, maxShells, m_initialAtoms.size());
 
     QMutexLocker lock(&m_forceMutex);
-    m_pendingForces = distributed;
-    m_pendingForcesValid = true;
+    m_pendingForces.insert(source, distributed);
 }
 
-void SimulationWorker::clearInjectedForce()
+void SimulationWorker::clearInjectedForce(int source)
 {
-    // qDebug() << "[GRAB] clearInjectedForce (grab released)";
+    // qDebug() << "[GRAB] clearInjectedForce (grab released)" << source;
     QMutexLocker lock(&m_forceMutex);
-    m_pendingForcesValid = false;
-    m_pendingForces.resize(0, 0);
+    if (source < 0)
+        m_pendingForces.clear();
+    else
+        m_pendingForces.remove(source);
 }
 
 // Claude Generated 2026 - Live global temperature setpoint. Stored under a mutex; the value is
 // pushed into the running SimpleMD in performMDStep() before the next step (mirrors the sticky
 // mouse-grab force path). SimpleMD::setTargetTemperature() cancels any active global ramp.
+// Claude Generated 2026 - Declarative external potentials. Buffered here and
+// handed to SimpleMD before the next step, the same pattern the thermostat
+// setpoint uses; a refusal from the parser is kept so it can be reported.
+void SimulationWorker::setExternalPotentials(QJsonArray potentials)
+{
+    QMutexLocker lock(&m_potentialMutex);
+    m_pendingPotentials = std::move(potentials);
+    m_pendingPotentialsValid = true;
+}
+
 void SimulationWorker::setTargetTemperature(double temperature)
 {
     QMutexLocker lock(&m_tempMutex);
@@ -505,6 +580,7 @@ void SimulationWorker::stepOnce()
             EnergyCalculator calc(m_config.method.toStdString(), energy_controller);
             Optimization::OptimizerType opt_type =
                 Optimization::parseOptimizerType(m_config.optimizer.toStdString());
+            const std::vector<int> frozen = frozenAtomMask(m_config, m_initialAtoms);
             auto optimizer = Optimization::OptimizerFactory::createOptimizer(opt_type, &calc);
             if (!optimizer) {
                 emit errorOccurred(tr("Failed to create optimizer '%1'").arg(m_config.optimizer));
@@ -515,6 +591,8 @@ void SimulationWorker::stepOnce()
             for (auto it = opt_config.begin(); it != opt_config.end(); ++it)
                 merged[it.key()] = it.value();
             optimizer->LoadConfiguration(merged);
+            if (!frozen.empty())
+                optimizer->setConstraints(frozen);
 
             Molecule mol = atomsToMolecule(m_initialAtoms);
             mol.setCharge(m_config.charge);  // the optimizer's energy calculator reads them
@@ -554,10 +632,19 @@ void SimulationWorker::stepOnce()
 // only on the step that coincides with a mouse-move event.
 Eigen::MatrixXd SimulationWorker::currentInjectedForces(int atomCount)
 {
+    // Claude Generated 2026 - several grabs (mouse, both VR hands) add up; the force
+    // field sees one external force per atom.
     QMutexLocker lock(&m_forceMutex);
-    if (!m_pendingForcesValid || m_pendingForces.rows() != atomCount)
-        return Eigen::MatrixXd();
-    return m_pendingForces;  // copy; stays valid until clearInjectedForce()
+    Eigen::MatrixXd total;
+    for (auto it = m_pendingForces.cbegin(); it != m_pendingForces.cend(); ++it) {
+        if (it.value().rows() != atomCount)
+            continue;
+        if (total.size() == 0)
+            total = it.value();
+        else
+            total += it.value();
+    }
+    return total;  // copy; each part stays until its clearInjectedForce()
 }
 
 // Claude Generated 2026 - Convert the (N_atoms × 3) force matrix produced by
@@ -862,6 +949,22 @@ void SimulationWorker::performMDStep()
         }
     }
 
+    // Claude Generated 2026 - Live external potentials.
+    {
+        QMutexLocker lock(&m_potentialMutex);
+        if (m_pendingPotentialsValid) {
+            const QByteArray raw = QJsonDocument(m_pendingPotentials).toJson(QJsonDocument::Compact);
+            std::string error;
+            if (!m_md->setExternalPotentials(json::parse(raw.toStdString()), &error)) {
+                m_potentialError = QString::fromStdString(error);
+                emit errorOccurred(tr("external potential refused: %1").arg(m_potentialError));
+            } else {
+                m_potentialError.clear();
+            }
+            m_pendingPotentialsValid = false;
+        }
+    }
+
     // Apply live wall parameter changes (slider drag during the run). Claude Generated 2026.
     {
         QMutexLocker lock(&m_wallParamMutex);
@@ -893,6 +996,10 @@ void SimulationWorker::performMDStep()
         collectLiveNci(*mutableFrame);
     if (m_reactLive)
         collectReactiveTopology(*mutableFrame);
+    // Claude Generated 2026 - what the configured pulls have done so far. A scalar,
+    // so asking every frame costs nothing.
+    if (m_md)
+        mutableFrame->externalWork = m_md->externalWork();
 
     emit frameReady(frame);
 
@@ -981,6 +1088,10 @@ void SimulationWorker::runOptimization()
 
         Optimization::OptimizerType opt_type =
             Optimization::parseOptimizerType(m_config.optimizer.toStdString());
+        // Claude Generated 2026 - Held atoms, as OptimizerDriver constraints: every
+        // optimiser zeroes their gradient, and ANCOpt also takes them out of its
+        // model Hessian and ANC basis (curcuma ancopt_optimizer.cpp).
+        const std::vector<int> frozen = frozenAtomMask(m_config, m_initialAtoms);
 
         // Claude Generated 2026 - Keep-alive loop (interactive Opt). A single
         // Optimize() returns once it converges (or its line search stalls under a
@@ -999,15 +1110,6 @@ void SimulationWorker::runOptimization()
         // is reset per cycle.
         Molecule current = mol;          // geometry carried across cycles
         Molecule lastSeen = current;     // latest accepted geometry from the callback
-        // [GRAB-DEBUG] temporary: max per-coordinate displacement between two geometries.
-        auto maxDisp = [](const Molecule& a, const Molecule& b) -> double {
-            Geometry ga = a.getGeometry();
-            Geometry gb = b.getGeometry();
-            if (ga.rows() != gb.rows() || ga.rows() == 0)
-                return -1.0;
-            return (ga - gb).cwiseAbs().maxCoeff();
-        };
-
         auto optimizer = Optimization::OptimizerFactory::createOptimizer(opt_type, &calc);
         if (!optimizer) {
             emit errorOccurred(tr("Failed to create optimizer '%1'").arg(m_config.optimizer));
@@ -1021,6 +1123,8 @@ void SimulationWorker::runOptimization()
             for (auto it = opt_config.begin(); it != opt_config.end(); ++it)
                 merged[it.key()] = it.value();
             optimizer->LoadConfiguration(merged);
+            if (!frozen.empty())
+                optimizer->setConstraints(frozen);
             if (!m_config.optSingleShot)  // the builder's clean-up is not a user run
                 emit runParameters(optRunRecord(m_config, opt_config, defaults, m_initialAtoms.size()));
         }
@@ -1107,10 +1211,6 @@ void SimulationWorker::runOptimization()
                     return;
                 }
             }
-            // [GRAB-DEBUG] temporary: does the displaced geometry carry into this cycle?
-            qDebug().nospace() << "[GRAB] cycle " << cycle
-                               << " START dispFromOrig=" << maxDisp(current, mol);
-
             // Claude Generated 2026 - Seed iteration 1 with the force held right now
             // (mouse-grab in Opt mode); the callback above keeps it refreshed. Always
             // set or clear so a release immediately drops the bias even when no force
@@ -1133,13 +1233,6 @@ void SimulationWorker::runOptimization()
                 current = lastSeen;
             else if (result.final_molecule.AtomCount() == static_cast<std::size_t>(m_initialAtoms.size()))
                 current = result.final_molecule;
-
-            // [GRAB-DEBUG] temporary: did this cycle move the geometry, and did it carry?
-            qDebug().nospace() << "[GRAB] cycle " << cycle
-                               << " END success=" << result.success
-                               << " iters=" << result.iterations_performed
-                               << " carried=" << carried
-                               << " dispFromOrig=" << maxDisp(current, mol);
 
             emit frameReady(moleculeToFrame(current, m_initialAtoms.size(),
                 result.final_energy, 0.0, result.iterations_performed));

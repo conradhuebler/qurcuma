@@ -231,15 +231,15 @@ QString MOL2Parser::extractElementFromSybylType(const QString& sybylType)
 }
 
 void MOL2Parser::convertToMoleculeViewer(const MOL2Molecule& mol2Molecule,
-                                        QVector<MoleculeViewer::Atom>& atoms,
-                                        QVector<MoleculeViewer::Bond>& bonds)
+                                        QVector<moldata::Atom>& atoms,
+                                        QVector<moldata::Bond>& bonds)
 {
     atoms.clear();
     bonds.clear();
 
     // Convert atoms
     for (const MOL2Atom& mol2Atom : mol2Molecule.atoms) {
-        MoleculeViewer::Atom atom;
+        moldata::Atom atom;
         atom.element = extractElementFromSybylType(mol2Atom.type);
         atom.position = QVector3D(mol2Atom.x, mol2Atom.y, mol2Atom.z);
         atom.charge = 0.0f;  // Could parse from mol2Atom.charge if needed
@@ -254,7 +254,7 @@ void MOL2Parser::convertToMoleculeViewer(const MOL2Molecule& mol2Molecule,
             continue;
         }
 
-        MoleculeViewer::Bond bond;
+        moldata::Bond bond;
         bond.atom1 = mol2Bond.atom1;
         bond.atom2 = mol2Bond.atom2;
         bond.bondOrder = mol2Bond.bondType;  // 1=single, 2=double, 3=triple, 4=aromatic

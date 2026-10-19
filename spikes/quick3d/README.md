@@ -71,7 +71,8 @@ embedding routes for the report.
   Calibrate visually if proportions look off.
 - `QQuickWidget` + Vulkan has historically been finicky; if you see artifacts, prefer
   `--embed=container` and note it in the spike report.
-- **Out of scope here:** VR/XR (T9 — needs Monado/ALVR), migration, feature parity.
+- **T9 (VR):** `quick3d_xr_spike` (`main_xr.cpp`, `MainXr.qml`) shows the molecule through Qt Quick 3D XR. Verified on PICO 4 Ultra via WiVRn over USB (`adb reverse tcp:9757 tcp:9757`): scene visible, right trigger rotates the molecule. Run: `./build/quick3d_xr_spike -n 1000` (or `-f file.xyz`). Qt 6.11 note: triggers come from `XrInputAction`, not `XrController`; set `hand` only, not `controller` too.
+- **Out of scope here:** migration, feature parity, atom picking/grab in VR.
 
 ## Files
 

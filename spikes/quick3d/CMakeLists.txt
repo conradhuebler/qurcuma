@@ -38,3 +38,23 @@ target_link_libraries(quick3d_spike PRIVATE
     Qt6::Quick3D
     Qt6::QuickWidgets
 )
+
+# T9 - VR spike (OpenXR via Qt Quick 3D XR). Optional: only if the module is installed.
+find_package(Qt6 6.8 QUIET COMPONENTS Quick3DXr)
+if(TARGET Qt6::Quick3DXr)
+    qt_add_executable(quick3d_xr_spike
+        main_xr.cpp
+        moleculedata.cpp
+        atominstancing.cpp
+        bondinstancing.cpp
+        scenecontroller.cpp
+    )
+    qt_add_qml_module(quick3d_xr_spike
+        URI QurcumaSpikeXr
+        VERSION 1.0
+        RESOURCE_PREFIX /qt/qml
+        QML_FILES MainXr.qml
+    )
+    target_link_libraries(quick3d_xr_spike PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Quick3D Qt6::Quick3DXr)
+endif()

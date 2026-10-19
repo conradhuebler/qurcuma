@@ -108,6 +108,8 @@ external/cpp-d4/
 external/ulysses-main/
 
 
-# Local agent/scratch
+# Agent session state and run leftovers (Claude Generated 2026)
+.claude/
 .snapshots/
+curcuma_citations.bib
 spike_*.png

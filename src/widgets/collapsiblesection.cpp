@@ -84,11 +84,6 @@ void CollapsibleSection::setContentLayout(QLayout* layout)
     m_content->setLayout(layout);
 }
 
-void CollapsibleSection::setTitle(const QString& title)
-{
-    m_header->setText(title);
-}
-
 void CollapsibleSection::setExpanded(bool expanded)
 {
     m_header->setChecked(expanded);
@@ -97,4 +92,16 @@ void CollapsibleSection::setExpanded(bool expanded)
 bool CollapsibleSection::isExpanded() const
 {
     return m_header->isChecked();
+}
+
+// Claude Generated 2026
+void CollapsibleSection::setTitle(const QString& title)
+{
+    if (m_header)
+        m_header->setText(title);
+}
+
+QString CollapsibleSection::title() const
+{
+    return m_header ? m_header->text() : QString();
 }

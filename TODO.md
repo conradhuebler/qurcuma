@@ -10,6 +10,9 @@ Open code tasks only, at most 3 lines each. Feature wishes: `docs/ROADMAP.md`. P
 - Periodic container (`wallPotential` pbc) is a stopgap: no minimum image in the non-bonded terms, occupied target is reflected elastically. Curcuma side: `external/curcuma/docs/WP-PERIODIC-NONBONDED.md`.
 - Lessons: result/target fields reserved in the schema, not implemented; no barostat, "pressure" is wall volume only.
 
+## LLM assistant
+- Remembered models are stored under `llm/models/<profile>` (was `llm/model/<profile>`); the model is chosen once again after the update.
+
 ## Remote
 - Remote compute (A controls/visualizes, B computes) and VR: plan in `docs/WP-remote-compute-vr.md`; R0 to R4 are in, next R5 (VR). Open: server method list not shown in the dock; old session directories on B are not cleaned up; reconnect over a real link and "Show results in Remote" are not exercised (real ssh runs between two machines work, Oct 2026).
 

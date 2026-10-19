@@ -4,12 +4,14 @@ Detail per topic lives in `docs/architecture/`; this file keeps rules and entry 
 
 ## Parsing
 - VTF (periodic boundary conditions, coarse-grained beads) and XYZ parsers; the VTF `atom` record is parsed keyword-based, not by column. [file-parsers.md](../docs/architecture/file-parsers.md)
+- CIF is read by curcuma (`MoleculeFileLoader::load(path, CifOptions)`, `isSupported()` is the one format list); unit cell wireframe and thermal ellipsoids live in `SceneController`. [file-parsers.md](../docs/architecture/file-parsers.md)
 
 ## 3D viewer
 - Renderer is Qt Quick 3D on the Vulkan RHI (OpenGL fallback). `MoleculeViewer` (`view.*`) is a `QWidget` wrapping a `QQuickWidget` + `SceneController` (`scenecontroller.*`) + `qml/viewer3d.qml`.
 - Quick3D `Viewport`/`Camera` are private headers: the camera is axis-aligned, the molecule rotates under `moleculeRoot`, and C++ replicates the projection for picking. [[quick3d-private-headers]]
 - `SceneController::schemeColor` is the single colour source for atoms, bonds and overlays; the viewer is the single source of truth for display state, panels only read (`syncFromViewer()`).
 - Looks (`look.h`) set colour/material/fog/effects only, never quick toggles.
+- VR output (OpenXR, `vrsession.*`, `QURCUMA_HAS_XR`): the headset draws the desktop `SceneController` through mirrored instance tables; not yet tried on the headset. [vr.md](../docs/architecture/vr.md)
 - Performance plan: [WP-performance.md](../docs/WP-performance.md). Details: [viewer-scenecontroller.md](../docs/architecture/viewer-scenecontroller.md).
 - Open (to clarify): source of charges for "By Charge"; today only a side product of the NCI analysis.
 
