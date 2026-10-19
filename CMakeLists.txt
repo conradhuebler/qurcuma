@@ -350,19 +350,20 @@ endif()
 # (RemoteBackend, SshTunnel, "Compute on" in the Simulation dock) needs Qt6::WebSockets.
 option(USE_REMOTE "Build remote compute support (needs Qt6::WebSockets)" ON)
 find_package(Qt6 COMPONENTS WebSockets QUIET)
+# remotelog is Qt Core only and the viewer writes its timings through it, so it is always built.
+list(APPEND SOURCES src/remote/remotelog.cpp)
+list(APPEND HEADERS src/remote/remotelog.h)
 if(USE_REMOTE AND TARGET Qt6::WebSockets)
     set(QURCUMA_REMOTE ON)
     list(APPEND SOURCES
         src/remote/protocol.cpp
         src/remote/remotebackend.cpp
-        src/remote/remotelog.cpp
         src/remote/hostprobe.cpp
         src/remote/sshtunnel.cpp
         src/dialogs/addcomputerdialog.cpp)
     list(APPEND HEADERS
         src/remote/protocol.h
         src/remote/remotebackend.h
-        src/remote/remotelog.h
         src/remote/sshtunnel.h
         src/remote/hostprobe.h
         src/dialogs/addcomputerdialog.h)
