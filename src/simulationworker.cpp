@@ -421,7 +421,7 @@ void SimulationWorker::injectForces(QVector<int> atoms, QVector<QVector3D> force
     if (m_initialAtoms.isEmpty() || atoms.size() != forces.size())
         return;
     if (atoms.isEmpty()) {
-        clearInjectedForce();
+        clearInjectedForce(ToolForceSource);
         return;
     }
 
@@ -440,11 +440,10 @@ void SimulationWorker::injectForces(QVector<int> atoms, QVector<QVector3D> force
     }
 
     QMutexLocker lock(&m_forceMutex);
-    m_pendingForces = total;
-    m_pendingForcesValid = true;
+    m_pendingForces.insert(ToolForceSource, total);   // its own source: a mouse or hand grab is not touched
 }
 
-void SimulationWorker::injectForce(int atomIndex, QVector3D force, double alpha, int maxShells)
+void SimulationWorker::injectForce(int source, int atomIndex, QVector3D force, double alpha, int maxShells)
 {
     if (m_initialAtoms.isEmpty())
         return;
@@ -459,16 +458,17 @@ void SimulationWorker::injectForce(int atomIndex, QVector3D force, double alpha,
         atomIndex, f, m_adjacency, alpha, maxShells, m_initialAtoms.size());
 
     QMutexLocker lock(&m_forceMutex);
-    m_pendingForces = distributed;
-    m_pendingForcesValid = true;
+    m_pendingForces.insert(source, distributed);
 }
 
-void SimulationWorker::clearInjectedForce()
+void SimulationWorker::clearInjectedForce(int source)
 {
-    // qDebug() << "[GRAB] clearInjectedForce (grab released)";
+    // qDebug() << "[GRAB] clearInjectedForce (grab released)" << source;
     QMutexLocker lock(&m_forceMutex);
-    m_pendingForcesValid = false;
-    m_pendingForces.resize(0, 0);
+    if (source < 0)
+        m_pendingForces.clear();
+    else
+        m_pendingForces.remove(source);
 }
 
 // Claude Generated 2026 - Live global temperature setpoint. Stored under a mutex; the value is
@@ -632,10 +632,19 @@ void SimulationWorker::stepOnce()
 // only on the step that coincides with a mouse-move event.
 Eigen::MatrixXd SimulationWorker::currentInjectedForces(int atomCount)
 {
+    // Claude Generated 2026 - several grabs (mouse, both VR hands) add up; the force
+    // field sees one external force per atom.
     QMutexLocker lock(&m_forceMutex);
-    if (!m_pendingForcesValid || m_pendingForces.rows() != atomCount)
-        return Eigen::MatrixXd();
-    return m_pendingForces;  // copy; stays valid until clearInjectedForce()
+    Eigen::MatrixXd total;
+    for (auto it = m_pendingForces.cbegin(); it != m_pendingForces.cend(); ++it) {
+        if (it.value().rows() != atomCount)
+            continue;
+        if (total.size() == 0)
+            total = it.value();
+        else
+            total += it.value();
+    }
+    return total;  // copy; each part stays until its clearInjectedForce()
 }
 
 // Claude Generated 2026 - Convert the (N_atoms × 3) force matrix produced by

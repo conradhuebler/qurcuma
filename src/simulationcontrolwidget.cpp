@@ -1064,6 +1064,7 @@ void SimulationControlWidget::setupConnections()
             m_tempOverrideLabel->setVisible(true);
         emit configChanged(buildConfig());
     });
+    connect(m_tempSlider, &TemperatureSlider::rangeChanged, this, &SimulationControlWidget::temperatureRangeChanged);
     // Thermostat: show only the params the chosen type reads. Claude Generated 2026.
     connect(m_thermostatCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
         [this](int) { updateThermostatRows(); emit configChanged(buildConfig()); });
@@ -2139,6 +2140,25 @@ void SimulationControlWidget::setTemperature(double kelvin)
 {
     if (m_tempSlider)
         m_tempSlider->setValue(qBound(m_tempSlider->minimum(), kelvin, m_tempSlider->maximum()));
+}
+
+double SimulationControlWidget::temperatureMinimum() const
+{
+    return m_tempSlider ? m_tempSlider->minimum() : 0.0;
+}
+
+double SimulationControlWidget::temperatureMaximum() const
+{
+    return m_tempSlider ? m_tempSlider->maximum() : 0.0;
+}
+
+// The slider keeps its value inside the new range (ThermoTrack::setRange clamps it).
+void SimulationControlWidget::setTemperatureRange(double minimum, double maximum)
+{
+    if (!m_tempSlider)
+        return;
+    maximum = qMax(maximum, minimum + 1.0);
+    m_tempSlider->setRange(minimum, maximum);
 }
 
 QString SimulationControlWidget::method() const

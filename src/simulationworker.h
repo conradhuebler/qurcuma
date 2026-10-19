@@ -12,6 +12,7 @@
 #include <QAtomicInt>
 #include <QElapsedTimer>
 #include <QJsonArray>
+#include <QHash>
 #include <QJsonObject>
 #include <QStringList>
 #include <QMutex>
@@ -268,8 +269,11 @@ public slots:
      *  clearInjectedForce() is called — i.e. the force is "sticky" and acts for
      *  as long as the user holds the mouse grab, not just on the step that
      *  happens to coincide with a mouse-move event. Thread-safe; may be called
-     *  from the GUI thread via QueuedConnection. */
-    void injectForce(int atomIndex, QVector3D force, double alpha, int maxShells);
+     *  from the GUI thread via QueuedConnection.
+     *  @p source names the grab (0 = desktop mouse, 1 / 2 = right / left VR hand or
+     *  controller): each source holds its own force and all are summed, so several
+     *  grabs act at once, on different atoms or the same one. Claude Generated 2026. */
+    void injectForce(int source, int atomIndex, QVector3D force, double alpha, int maxShells);
 
     /** @brief Replace the whole set of injected forces at once: @p forces[i] acts
      *  on @p atoms[i], each spread through the bond graph the same way injectForce()
@@ -290,9 +294,13 @@ public slots:
      *  can be reproduced from it. An empty list clears them. Thread-safe. */
     void setExternalPotentials(QJsonArray potentials);
 
-    /** @brief Drop the sticky injected force (mouse release / stop grab). After
-     *  this the next step/iteration applies no external bias. */
-    void clearInjectedForce();
+    /** The source id of forces that come from the tool layer (injectForces); 0 is the desktop mouse,
+     *  1 / 2 the right / left VR hand. Claude Generated 2026. */
+    static constexpr int ToolForceSource = 3;
+
+    /** @brief Drop the sticky force of grab @p source (its release); @p source < 0
+     *  drops all. The other grabs keep acting. */
+    void clearInjectedForce(int source);
 
     /** @brief Live-set the global thermostat target temperature (Kelvin). Thread-safe;
      *  called from the GUI thread via QueuedConnection when the user drags the temperature
@@ -356,7 +364,7 @@ private:
     // which must not be exposed in this header to avoid include pollution).
     // Claude Generated - curcuma types are encapsulated in the .cpp translation unit.
 
-    // Returns a copy of the currently held mouse-grab force (N_atoms × 3), or an
+    // Returns the sum of the currently held grab forces (N_atoms × 3), or an
     // empty matrix when none is active. "Sticky": does NOT consume the force, so
     // the same grab keeps biasing every step until clearInjectedForce() drops it.
     Eigen::MatrixXd currentInjectedForces(int atomCount);
@@ -398,8 +406,8 @@ private:
     // clearInjectedForce), read every step by the worker thread. Held until the
     // grab is released so it biases every MD step / Opt iteration in between.
     QMutex m_forceMutex;
-    Eigen::MatrixXd m_pendingForces;
-    bool m_pendingForcesValid = false;
+    // One entry per grab source (mouse, VR right, VR left; Claude Generated 2026).
+    QHash<int, Eigen::MatrixXd> m_pendingForces;
 
     // Live global temperature: written by the GUI thread (setTargetTemperature), read once per
     // step by the worker thread in performMDStep() and pushed into SimpleMD. Claude Generated 2026.

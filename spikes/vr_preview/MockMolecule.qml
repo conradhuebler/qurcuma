@@ -48,6 +48,7 @@ Node {
         property var arrowTipInstancing: null
         property var overlayAtomInstancing: null
         property var overlayBondInstancing: null
+        property var selectionHaloInstancing: null
         property var wallInstancing: null
         property var wallPotShellsInstancing: null
         property var wallForceShaftsInstancing: null

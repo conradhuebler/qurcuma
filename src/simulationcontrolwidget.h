@@ -137,6 +137,13 @@ public:
     void setMethod(const QString& key);
     double temperature() const;
     void setTemperature(double kelvin);
+    /** @brief Min/max of the temperature slider (its spin boxes); the headset slider shares them.
+     *  Claude Generated 2026. */
+    double temperatureMinimum() const;
+    double temperatureMaximum() const;
+    void setTemperatureRange(double minimum, double maximum);
+    /** @brief Mode of the active (or last) run. Claude Generated 2026 (headset panel). */
+    SimulationConfig::Mode runMode() const { return m_config.mode; }
 
 public slots:
     /** @brief Take the non-default simplemd values of the All parameters tab
@@ -192,6 +199,8 @@ signals:
     void externalForcesCleared();
     /// Forwarded to the worker in wireSimulationWorker(). Claude Generated 2026.
     void externalPotentialsRequested(QJsonArray potentials);
+    /** @brief The temperature slider's min/max changed. Claude Generated 2026. */
+    void temperatureRangeChanged(double minimum, double maximum);
 
     /** @brief Emitted when the wall_temp slider moves — live during a run. */
     void wallTempChanged(double T);
