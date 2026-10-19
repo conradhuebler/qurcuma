@@ -2,6 +2,11 @@
 
 Newest first; one line per fact. Entries from August 2026 and earlier: [docs/changelog/AIChangelog_2026-08-and-earlier.md](docs/changelog/AIChangelog_2026-08-and-earlier.md).
 
+## Oktober 2026 - CuteChat per FetchContent
+
+- **`external/CuteChat` ist kein Submodul mehr**: `FetchContent_Declare(CuteChat ...)` (GitHub, Branch `main`) wie bei curcuma und CuteChart; `-DCUTECHAT_DIR=` oder ein Nachbarverzeichnis `../CuteChat` ersetzen es weiterhin. Der CI-Checkout braucht kein `submodules: recursive` mehr.
+- Geprüft: Konfiguration mit vorhandenem und mit fehlendem `external/CuteChat` (wird geklont). Nicht geprüft: ein vollständiger Build und die CI.
+
 ## Oktober 2026 - remote-control mit main zusammengeführt
 
 - **Ein Atomtyp**: `MolAtom`/`MolBond` (`moleculetypes.h`) sind Aliase auf `moldata::Atom/Bond` (`core/moleculedata.h`); beide Linien hatten den Datensatz getrennt herausgelöst.

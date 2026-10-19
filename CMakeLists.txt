@@ -114,6 +114,14 @@ FetchContent_Declare(CuteChart
     SOURCE_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/external/CuteChart
 )
 
+# Claude Generated 2026 - CuteChat (the chat library shared with SupraFit) is fetched like the others.
+# -DCUTECHAT_DIR=<checkout> or a sibling checkout ../CuteChat take its place (see the CuteChat block below).
+FetchContent_Declare(CuteChat
+    GIT_REPOSITORY https://github.com/conradhuebler/CuteChat
+    GIT_TAG        main
+    SOURCE_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/external/CuteChat
+)
+
 # Curcuma simulation backend — options must be set BEFORE FetchContent_MakeAvailable
 set(USE_XTB OFF CACHE BOOL "" FORCE)
 set(USE_TBLITE OFF CACHE BOOL "" FORCE)
@@ -147,7 +155,9 @@ FetchContent_Declare(curcuma
 # machine (checkouts absent) the normal clone path runs. Override per build dir
 # with -DFETCHCONTENT_FULLY_DISCONNECTED=OFF to re-enable git sync.
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma/CMakeLists.txt
-    AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/CuteChart/CMakeLists.txt)
+    AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/CuteChart/CMakeLists.txt
+    AND (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/CuteChat/CMakeLists.txt OR CUTECHAT_DIR
+         OR EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../CuteChat/CMakeLists.txt))
     set(FETCHCONTENT_FULLY_DISCONNECTED ON)
     message(STATUS "qurcuma: local external/curcuma + external/CuteChart present — FetchContent fully disconnected (no git update)")
 else()
@@ -370,28 +380,26 @@ if(USE_REMOTE AND TARGET Qt6::WebSockets)
 endif()
 
 # --- CuteChat: the tool layer, the endpoint client, the agent loop and the chat log ----------------
-# Claude Generated 2026 - Shared with SupraFit (docs/DESIGN.md in the CuteChat repo). A git submodule at
-# external/CuteChat (git submodule update --init); -DCUTECHAT_DIR=<checkout> or a sibling checkout ../CuteChat
+# Claude Generated 2026 - Shared with SupraFit (docs/DESIGN.md in the CuteChat repo). Fetched into
+# external/CuteChat like curcuma and CuteChart; -DCUTECHAT_DIR=<checkout> or a sibling checkout ../CuteChat
 # override it for working on the library. Only the Qt-Core-only tool layer (CuteChat::tools) goes into
 # qurcuma_core; the client, session and config (CuteChat::core, needs Qt6::Network) into qurcuma_llm.
-set(CUTECHAT_DIR "" CACHE PATH "CuteChat checkout (default: external/CuteChat, then ../CuteChat)")
-if(NOT CUTECHAT_DIR)
-    foreach(_candidate ${CMAKE_CURRENT_SOURCE_DIR}/external/CuteChat ${CMAKE_CURRENT_SOURCE_DIR}/../CuteChat)
-        if(EXISTS ${_candidate}/CMakeLists.txt)
-            set(CUTECHAT_DIR ${_candidate})
-            break()
-        endif()
-    endforeach()
+set(CUTECHAT_DIR "" CACHE PATH "CuteChat checkout (default: ../CuteChat if present, else fetched into external/CuteChat)")
+if(NOT CUTECHAT_DIR AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/../CuteChat/CMakeLists.txt)
+    set(CUTECHAT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../CuteChat)
 endif()
-if(NOT CUTECHAT_DIR OR NOT EXISTS ${CUTECHAT_DIR}/CMakeLists.txt)
-    message(FATAL_ERROR "qurcuma needs the CuteChat library: run `git submodule update --init` "
-                        "(external/CuteChat), or set -DCUTECHAT_DIR=<path to CuteChat> (../CuteChat is tried as well)")
+if(CUTECHAT_DIR AND NOT EXISTS ${CUTECHAT_DIR}/CMakeLists.txt)
+    message(FATAL_ERROR "qurcuma needs the CuteChat library: ${CUTECHAT_DIR} has no CMakeLists.txt")
 endif()
-message(STATUS "qurcuma: CuteChat from ${CUTECHAT_DIR}")
 set(CUTECHAT_BUILD_WIDGETS ON)    # the chat dock and the endpoint dialog: qurcuma's assistant is CuteChat's ChatDock
 set(CUTECHAT_BUILD_TESTS OFF)     # the library's own tests run in its repo; qurcuma's test_* cover its use of it
 set(CUTECHAT_INSTALL OFF)
-add_subdirectory(${CUTECHAT_DIR} ${CMAKE_BINARY_DIR}/external/CuteChat)
+if(CUTECHAT_DIR)
+    message(STATUS "qurcuma: CuteChat from ${CUTECHAT_DIR}")
+    add_subdirectory(${CUTECHAT_DIR} ${CMAKE_BINARY_DIR}/external/CuteChat)
+else()
+    FetchContent_MakeAvailable(CuteChat)
+endif()
 
 # --- qurcuma_core: the widget-free core -------------------------------------
 # Claude Generated 2026 - The log hub, the core tools and the molecule records; the tool registry and

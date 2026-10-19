@@ -99,6 +99,7 @@ settings.ini
 
 # FetchContent-populated external dependencies (populated by cmake, not tracked by git)
 external/CuteChart/
+external/CuteChat/
 external/curcuma/
 external/fmt/
 external/LBFGSpp/
