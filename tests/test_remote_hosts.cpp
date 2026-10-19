@@ -102,6 +102,16 @@ int main(int argc, char* argv[])
         CHECK(p.isValid());
         CHECK((p.sshArgs() == QStringList{ "-p", "2222", "-i", "/home/u/.ssh/id key" }));
         p.port = 0;
+        // a .pub path is replaced by the private key next to it, if that exists
+        QTemporaryDir keyDir;
+        for (const char* name : { "id_x", "id_x.pub", "only.pub" }) {
+            QFile f(keyDir.filePath(name));
+            CHECK(f.open(QIODevice::WriteOnly));
+        }
+        p.identityFile = keyDir.filePath("id_x.pub");
+        CHECK((p.sshArgs() == QStringList{ "-i", keyDir.filePath("id_x") }));
+        p.identityFile = keyDir.filePath("only.pub");
+        CHECK((p.sshArgs() == QStringList{ "-i", keyDir.filePath("only.pub") }));
         p.identityFile.clear();
         CHECK(p.sshArgs().isEmpty());
         CHECK(p.effectiveServerCommand() == "qurcuma-server");

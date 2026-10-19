@@ -112,7 +112,7 @@ RemoteConnection connectionForHost(const QString& sourceId, const QString& label
                                    const QString& identityFile = QString());
 
 /// The private key file to load for a configured key path: `~/` is expanded, and a `.pub` path is replaced
-/// by the private key next to it when that exists (as `ssh -i` does). The result is not checked for existence.
+/// by the private key next to it when that exists (`ssh -i` does not: it offers the public key and cannot sign). The result is not checked for existence.
 QString privateKeyPath(const QString& configured);
 
 } // namespace remotepaths

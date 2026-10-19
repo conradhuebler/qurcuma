@@ -4,6 +4,7 @@
 
 #include "hostprofiles.h"
 
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
@@ -40,8 +41,15 @@ QStringList HostProfile::sshArgs() const
     QStringList args;
     if (port > 0)
         args << QStringLiteral("-p") << QString::number(port);
-    if (!identityFile.trimmed().isEmpty())
-        args << QStringLiteral("-i") << identityFile.trimmed();
+    if (!identityFile.trimmed().isEmpty()) {
+        // ssh offers a .pub file's key but cannot sign with it (it asks the agent, finds nothing and
+        // reports "Permission denied"), so a .pub path stands for the private key next to it.
+        // Claude Generated 2026
+        QString key = identityFile.trimmed();
+        if (key.endsWith(QLatin1String(".pub")) && QFileInfo::exists(key.chopped(4)))
+            key.chop(4);
+        args << QStringLiteral("-i") << key;
+    }
     return args;
 }
 
