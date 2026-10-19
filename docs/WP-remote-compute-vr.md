@@ -13,7 +13,7 @@ Rechner A führt qurcuma mit Viewer (und später VR-Brille) aus. Rechner B rechn
 - Die Konfiguration hat einen verlustfreien JSON-Roundtrip: `simConfigToJson/simConfigFromJson` (`lesson.h`).
 - Hindernis fuer ein GUI-freies Programm: `simulationworker.h` und `moleculebridge.h` binden `view.h` (QWidget) nur wegen `MoleculeViewer::Atom/Bond`; diese Namen kommen in rund 50 Dateien vor.
 - Nicht ueber die Naht laufen heute: `NciAnalysisWorker` (curcuma lokal), `RMSDWidget` (`RMSDDriver` lokal), `CalculationRunner` (QProcess lokal), Parameter-Tab (liest curcumas `ParameterRegistry` lokal).
-- Vorhanden: `sshconfig.*` (Parser fuer `~/.ssh/config` inkl. ProxyJump), `sftpcache.*` (libssh, CMake-Option `USE_SFTP` ist standardmaessig AUS). Qt6WebSockets und Qt6Quick3DXr sind installiert (`/usr/lib/cmake`), Monado und ALVR nicht.
+- Vorhanden: `sshconfig.*` (Parser fuer `~/.ssh/config` inkl. ProxyJump), `sftpcache.*` (libssh, CMake-Option `USE_SFTP` ist standardmaessig AN und schaltet sich ohne libssh mit einem Hinweis ab). Qt6WebSockets und Qt6Quick3DXr sind installiert (`/usr/lib/cmake`), Monado und ALVR nicht.
 
 ## Architektur
 

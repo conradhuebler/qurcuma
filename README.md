@@ -45,7 +45,20 @@ A Qt-based GUI for molecular visualization, interactive simulation, and quantum 
 - Move to origin (mass-weighted centre of mass, Ctrl+Backspace)
 
 ### File Formats
-- XYZ, VTF (with periodic boundary conditions), PDB, MOL2
+- XYZ, VTF (with periodic boundary conditions), PDB, MOL2, CIF (read by curcuma; asymmetric unit or unit cell, SHELX disorder parts, a/b/c repeats, unit cell wireframe, thermal ellipsoids)
+
+### Remote Computing
+- **Compute on another machine**: the Simulation dock runs MD and optimisations on a computer reached by ssh; `qurcuma-server` runs there, positions come back over a forwarded WebSocket. The molecule, live temperature and mouse grab work as for a local run
+- **Add computer** stores address, port and ssh key file and tests the login, the server and a short session step by step
+- **SFTP**: the Project dock browses the files of a saved computer like local ones (needs libssh); the results of a remote run open there
+- Needs the Qt WebSockets module at build time; see Requirements
+
+### Assistant and Scripts
+- **LLM assistant** (chat dock, [CuteChat](https://github.com/conradhuebler/CuteChat)): talks to any OpenAI-compatible endpoint, local (Ollama, LM Studio, llama.cpp) or hosted with a key from an environment variable. It acts through registered tools, and tool calls that change something go through an approval policy
+- **Script dock**: short JavaScript calculations (QJSEngine) with tool calls and a macro recorder
+
+### VR
+- Output to an OpenXR headset (View ▸ Show in VR Headset) with controller or hand input; needs Qt 6.8 or newer with Quick3D XR
 
 ### Calculation Management
 - Launch and manage ORCA, XTB, and Curcuma jobs from one interface
@@ -61,10 +74,15 @@ A Qt-based GUI for molecular visualization, interactive simulation, and quantum 
 
 ## Requirements
 
-- Qt 6.x (Quick 3D, Charts)
+- Qt 6 (6.8 or newer recommended) with the modules Quick 3D, Charts, Qml/Quick/QuickWidgets and Shader Tools
+- Optional Qt modules, each switching a feature on when found:
+  - **WebSockets**: remote computing (`USE_REMOTE`, default ON; without the module it is left out and CMake says so)
+  - **Network**: LLM assistant (`USE_LLM`, default ON)
+  - **Quick 3D XR** (Qt 6.8 or newer): VR output
+- libssh (optional): SFTP file browsing (`USE_SFTP`, default ON; switched off with a notice when libssh is not found)
 - C++17 compiler
-- Vulkan loader (optional — OpenGL fallback is automatic)
-- [curcuma](https://github.com/conradhuebler/curcuma) (included as submodule)
+- Vulkan loader (optional; OpenGL fallback is automatic)
+- Fetched by CMake into `external/` on the first configure (needs network, no submodules): [curcuma](https://github.com/conradhuebler/curcuma), [CuteChart](https://github.com/conradhuebler/CuteChart) and [CuteChat](https://github.com/conradhuebler/CuteChat). A checkout already present in `external/` is used as it is; `-DCUTECHAT_DIR=<path>` (or a sibling `../CuteChat`) replaces the CuteChat fetch
 - Optional: ORCA, XTB for calculation management
 
 ## Build
@@ -75,6 +93,8 @@ cd qurcuma
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
+
+Debian/Ubuntu packages for the optional parts: `qt6-websockets-dev` (remote computing), `libssh-dev` (SFTP). Options are passed as `-DUSE_REMOTE=OFF`, `-DUSE_SFTP=OFF`, `-DUSE_LLM=OFF`. Changing one in an existing build directory needs the option on the command line once, because the cached value wins over a new default.
 
 ## Agentic Coding Disclaimer
 

@@ -14,6 +14,8 @@ Current (Qt Quick 3D renderer), moved from `src/CLAUDE.md`:
 - [interaction-editing.md](./architecture/interaction-editing.md): mouse, hotkeys, edit mode, collisions
 - [builder.md](./architecture/builder.md): Build mode, fragments, container fill
 - [viewer-ui.md](./architecture/viewer-ui.md): structure sync, appearance dock, menus, palette
+- [vr.md](./architecture/vr.md): OpenXR output, controller and hand input
+- [celldock-scriptdock.md](./architecture/celldock-scriptdock.md): CellDock (cif) and ScriptDock
 
 Older documents written for the Qt3D renderer (since removed); statements about `CustomFrameGraph`, frustum culling and GPU instancing systems describe that design and are not checked against the current code:
 
@@ -25,6 +27,7 @@ Older documents written for the Qt3D renderer (since removed); statements about 
 - [WP-ux-restructure.md](./WP-ux-restructure.md): UX slimming (modes, looks, menus); status per stage
 - [WP-visualization-and-vr.md](./WP-visualization-and-vr.md): older plan (written for Qt3D; the renderer decision is done)
 - [WP-remote-compute-vr.md](./WP-remote-compute-vr.md): A visualizes, B computes (SSH), then VR
+- [WP-llm-tool-layer.md](./WP-llm-tool-layer.md), [WP-skript-interpreter.md](./WP-skript-interpreter.md): tool layer for the assistant, script interpreter
 - [WP0-quick3d-spike.md](./WP0-quick3d-spike.md): renderer migration spike (`../spikes/quick3d/`)
 - [UX-settings-audit.md](./UX-settings-audit.md)
 
@@ -42,4 +45,4 @@ cmake --build release; echo CMAKE_EXIT=$?   # optimized build
 python3 scripts/check_docs.py               # documentation checks; hook: git config core.hooksPath scripts/git-hooks
 ```
 
-Test executables (`test_vtf_bonds`, `test_nci`, `test_fragments`, `test_recipes`, ...) are CMake targets of the root `CMakeLists.txt`; the sources currently lie in the repository root.
+Test executables (`test_vtf_bonds`, `test_nci`, `test_fragments`, `test_recipes`, ...) are CMake targets of the root `CMakeLists.txt`; the sources lie in `tests/` and, for older ones, in the repository root.

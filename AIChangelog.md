@@ -2,6 +2,11 @@
 
 Newest first; one line per fact. Entries from August 2026 and earlier: [docs/changelog/AIChangelog_2026-08-and-earlier.md](docs/changelog/AIChangelog_2026-08-and-earlier.md).
 
+## Oktober 2026 - README und Docs
+
+- **README**: Abschnitte Remote Computing, Assistant and Scripts und VR; Requirements nennen die optionalen Qt-Module (WebSockets, Network, Quick 3D XR) und libssh mit ihren CMake-Schaltern; curcuma, CuteChart und CuteChat kommen per FetchContent, nicht als Submodul. Die Aussagen stammen aus `CMakeLists.txt` und den Docs, die GUI wurde dafür nicht gestartet.
+- **`docs/WP-remote-compute-vr.md`**: `USE_SFTP` ist standardmäßig AN (stand als AUS im Text).
+
 ## Oktober 2026 - Remote-Rechnen in der CI
 
 - **Qt-Modul `qtwebsockets` in `build.yml`**: ohne `Qt6::WebSockets` bleibt `QURCUMA_REMOTE` aus, und "Compute on", "Add computer" und das Remote-Segment fehlen im Programm. `CMakeLists.txt` meldet das jetzt beim Konfigurieren.
