@@ -22,7 +22,11 @@ class OutputDock;
 class ProjectDock;
 class ImageGalleryDock;
 class NciDock;
+class CellDock;  // Claude Generated 2026 - cif cell info + repeats
 class ChartDock;
+class ChatDock;  // Claude Generated 2026 - CuteChat's
+class ChatHost;
+class ScriptDock;  // Claude Generated 2026
 class Settings;
 class QDockWidget;
 class QMainWindow;
@@ -46,7 +50,15 @@ public:
     ProjectDock* projectDockImpl() const;
     ImageGalleryDock* imageGalleryDockImpl() const;
     NciDock* nciDockImpl() const;
+    CellDock* cellDockImpl() const;
     ChartDock* chartDockImpl() const;
+    /// Claude Generated 2026 - the assistant dock (null when built without USE_LLM).
+    ChatDock* chatDockImpl() const;
+    /// The host of the assistant's dock; must be set before the docks are built (setupUI). The
+    /// dock owns it from then on. Claude Generated 2026.
+    void setChatHost(ChatHost* host);
+    /// Claude Generated 2026 - the script dock (always present, USE_LLM or not).
+    ScriptDock* scriptDockImpl() const;
 
     // Accessors (return nullptr until the corresponding dock has been created).
     QDockWidget* projectDock() const;
@@ -123,7 +135,11 @@ private:
     QDockWidget* m_outputViewDock = nullptr;
     QDockWidget* m_imageGalleryDock = nullptr;
     QDockWidget* m_nciDock = nullptr;
+    QDockWidget* m_cellDock = nullptr;
     QDockWidget* m_chartDock = nullptr;
+    QDockWidget* m_chatDock = nullptr;  // Claude Generated 2026
+    ChatHost* m_chatHost = nullptr;
+    ScriptDock* m_scriptDock = nullptr;  // Claude Generated 2026
 
     QTabWidget* m_simulationTabs = nullptr;
 

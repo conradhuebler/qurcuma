@@ -13,12 +13,14 @@
 #include <QFrame>
 #include <QColor>
 #include <QElapsedTimer>
+#include <QTimer>
 #include <QQuaternion>
 #include <QVector3D>
 #include <QHash>
 #include <QPair>
 #include <QSet>
 #include <QVector>
+#include "core/moleculedata.h"  // Claude Generated 2026 - Atom/Bond records (see the alias below)
 #include "simulationframe.h"  // Claude Generated - Zero-copy simulation payload
 #include "viewpreset.h"  // Claude Generated 2026 - reproducible camera/display presets
 #include "imagemetadata.h"  // Claude Generated 2026 - export image provenance
@@ -32,11 +34,15 @@ class MeasurementOverlay;  // Claude Generated - Phase 2B (Quick3D port pending,
 class BondEditor;  // Claude Generated - Phase 4B - Forward declaration
 class PerformanceOptimizer;  // Claude Generated - LOD wire-up
 class SceneController;  // Claude Generated 2026 - Qt Quick 3D scene view-model
+class VrSession;        // Claude Generated 2026 - OpenXR headset output (QURCUMA_HAS_XR)
 class QMenu;
 class QToolButton;
 class Settings;  // Claude Generated 2026 - operator metadata + view presets for export
 class QQuickWidget;
 class QQuickWindow;
+
+/// Grab source of the desktop mouse (VR hands use 1 = right, 2 = left). Claude Generated 2026.
+constexpr int kMouseGrabSource = 0;
 
 class MoleculeViewer : public QWidget
 {
@@ -88,6 +94,12 @@ public:
         Index           // 0-based atom index
     };
 
+    // Claude Generated 2026 - The records themselves live in core/moleculedata.h so
+    // parsers and tools can use them without including this QWidget header. These
+    // aliases keep every `MoleculeViewer::Atom` / `::Bond` spelling in the tree valid.
+    using Atom = moldata::Atom;
+    using Bond = moldata::Bond;
+
     // Claude Generated 2026 - Which hydrogens are drawn (visual only). Polar follows the
     // skeletal-formula convention: H bonded only to carbon is hidden. See
     // SceneController::computeHydrogenMask for the rule.
@@ -95,21 +107,6 @@ public:
         All = 0,
         Polar = 1,
         None = 2
-    };
-
-    struct Atom {
-        QVector3D position;
-        QString element;
-        float charge = 0.0f;  // Claude Generated - for charge-based coloring
-        // Claude Generated 2026 - coarse-grained (VTF bead) support:
-        float radius = 0.0f;  // per-atom draw radius; 0 = fall back to element vdW
-        QString type;         // bead/residue type label; drives "By Type" colouring
-    };
-
-    struct Bond {
-        int atom1;
-        int atom2;
-        int bondOrder;
     };
 
     explicit MoleculeViewer(QWidget *parent = nullptr);
@@ -262,8 +259,6 @@ public:
 
     // Claude Generated 2026 - Configurable GPU-instancing threshold (kept for API
     // compatibility; Quick3D always instances, so this is informational only).
-    void setInstancingThreshold(int n);
-    int getInstancingThreshold() const { return m_instancingThreshold; }
 
     // Frame navigation support for trajectories
     void setFrameCount(int frameCount) { m_frameCount = frameCount; }
@@ -373,6 +368,16 @@ public slots:
     /// overlays and NCI state but KEEPS the camera, so the first placed atom
     /// appears under the cursor. Undoable via the snapshot. Claude Generated 2026.
     void newScene();
+    /// Claude Generated 2026 - Draw the unit cell of a loaded cif (see
+    /// SceneController::setUnitCell); @p origin in the atoms' current frame.
+    void setUnitCell(const QVector3D& origin, const QVector3D& a, const QVector3D& b,
+        const QVector3D& c, int na, int nb, int nc);
+    void clearUnitCell();
+    void setUnitCellShown(bool on);
+    /// Claude Generated 2026 - Thermal ellipsoids per atom of the current frame
+    /// (empty = none), and whether to draw them at @p probability (0..1).
+    void setAtomEllipsoids(const QVector<moldata::Ellipsoid>& ellipsoids);
+    void setEllipsoidDisplay(bool on, double probability);
     /// Insert a library fragment as a standalone molecule next to the current
     /// structure (selected, movable). Claude Generated 2026.
     void insertFragment(const build::Fragment& fragment);
@@ -400,8 +405,12 @@ public slots:
     void deleteSelection();
     /// Translate the moving selection along the net overlap direction until clash-free.
     void resolveClashes();
-    /// True when structural edits (add/remove atoms) are allowed (single frame only).
-    bool canEditStructure() const { return m_frameCount <= 1; }
+    /// True when structural edits (add/remove atoms) are allowed: a single frame and no
+    /// running simulation. A live run rebuilds frame 0 from the worker's geometry, so an
+    /// edit would be overwritten on the next frame -- and if it changes the atom count,
+    /// updateSimulationFrame() takes the mismatch for a topology change and rebuilds the
+    /// molecule: atoms past the cached frame become carbon and the bond graph is dropped.
+    bool canEditStructure() const { return m_frameCount <= 1 && !m_simulationActive; }
     int getCollisionCount() const { return m_collisionAtoms.size(); }
     /// Rotate the scene (or, with @p nudge in Edit mode, translate the selection) from a
     /// WASD/QE key. Driven by MainWindow's application-level key filter (focus-independent).
@@ -440,6 +449,22 @@ public slots:
      *  "Apply"). Single-frame structures only (canEditStructure); re-detects bonds.
      *  Returns false if rejected (multi-frame or empty). */
     bool applyStructureFromAtoms(const QVector<Atom>& atoms);
+
+    /** @brief Rotate a set of atoms about its own centroid, then move it.
+     *
+     *  Rotation first, translation second, both in one snapshot: placing a guest
+     *  in a cavity is one gesture, not two, and splitting it would put a
+     *  half-placed pose in the undo stack. @p rotationDegrees == 0 or a null axis
+     *  skips the rotation. Distances in Angstrom, model space.
+     *
+     *  Refuses on a trajectory and while a simulation runs, and says why in
+     *  @p error. During a run the viewer rebuilds the frame from the worker's
+     *  geometry, so a moved atom would be overwritten at the next frame -- that is
+     *  what the injected forces are for: during a run you pull, outside one you
+     *  set. Claude Generated 2026. */
+    bool transformAtoms(const QVector<int>& indices, const QVector3D& translation,
+                        const QVector3D& rotationAxis, double rotationDegrees,
+                        QString* error = nullptr);
 
     /**
      * @brief Update atom positions for live simulation. When dynamic bonds are enabled, the bond
@@ -494,7 +519,34 @@ public slots:
     /// Set only the camera rotation (Quick orientation buttons).
     void setCameraOrientation(const QQuaternion& rotation);
 
+    /// Claude Generated 2026 - Show the current scene in an OpenXR headset (or stop doing so).
+    /// Returns false if the session could not be created. No-op without QURCUMA_HAS_XR.
+    bool setVrActive(bool on);
+    bool vrActive() const { return m_vr != nullptr; }
+    void setVrStartDirectory(const QString& dir);  // file browser root in the headset
+    void setVrMethod(const QString& key);          // method key shown on the headset panel
+    void setVrTemperature(double kelvin);          // thermostat target shown on the headset panel
+    void setVrSystemTemperature(double kelvin);    // instantaneous MD temperature (0 = none)
+    void setVrTemperatureRange(double minimum, double maximum);  // range of the headset temperature slider
+    void setVrSimulationStatus(bool paused, const QString& message);  // run paused / last run's end line
+    void setVrSimulationMode(const QString& mode);  // "md" / "opt" while a run is active, else empty
+    void setVrStructure(const QString& fileName, const QString& title);  // structure named on the headset panel
+    /// Headset sky box panorama and 3D scene; @p sceneScale = cm per scene unit (100 = metres).
+    void setVrSurroundings(const QString& panoramaPath, const QString& scenePath, double sceneScale);
+    /// Headset input: tracked hands (pinch) instead of controllers (ray + trigger). Claude Generated 2026.
+    void setVrHandInput(bool on);
+    bool vrHandInput() const { return m_vrHandInput; }
+    void updateVrStatus();  // refresh the in-headset panel text (no-op without a session)
+
 signals:
+    void vrActiveChanged(bool active);
+    /// The headset input mode changed (desktop menu or the headset's View panel).
+    void vrHandInputChanged(bool on);
+    /// Headset panel asked for a simulation action ("simStartMD", "simStartOpt", "simStop", "simPause",
+    /// "simTempUp", "simTempDown"); MainWindow owns the simulation and carries it out.
+    void vrSimulationCommand(const QString& name);
+    /// Structure file picked in the headset file browser.
+    void vrFileRequested(const QString& path);
     void frameChanged(int frameIndex);
     void trajectoryLoaded(int frameCount);
     void selectionChanged(const QVector<int>& selectedAtoms);
@@ -516,8 +568,10 @@ signals:
     /// or bonds edited), so a fragment selector has to be rebuilt.
     void fragmentsChanged();
 
-    void atomForceRequested(int atomIndex, QVector3D force, double alpha, int maxShells);
-    void atomGrabReleased();
+    /// Grab force of @p source (kMouseGrabSource, or a VR hand: VrSession grab sources); several
+    /// sources act at once. Claude Generated 2026 (multi-grab).
+    void atomForceRequested(int source, int atomIndex, QVector3D force, double alpha, int maxShells);
+    void atomGrabReleased(int source);
     void grabStatusChanged(QString message);
 
     // Claude Generated 2026 - Display-dock sync: emitted when these change via any
@@ -789,6 +843,22 @@ private:
     QQuickWidget* m_quickWidget = nullptr;
     QWidget* m_container = nullptr;
     SceneController* m_scene = nullptr;
+    VrSession* m_vr = nullptr;  // non-null while a headset session runs
+    QString m_vrStartDir;       // file browser root handed to the next session
+    double m_vrTemperature = 0.0;
+    double m_vrSystemTemperature = 0.0;
+    double m_vrTemperatureMin = 1.0;
+    double m_vrTemperatureMax = 1000.0;
+    QString m_vrMethod;
+    bool m_vrSimPaused = false;
+    QString m_vrSimMessage;     // "Finished: ..." / "Aborted: ..." of the last run, for the headset
+    QString m_vrSimMode;        // "md" / "opt" while a run is active
+    QString m_vrStructureFile;  // file name and molecule name of the structure shown
+    QString m_vrStructureTitle;
+    QString m_vrPanorama;       // sky box panorama file of the headset scene (empty = colour)
+    QString m_vrSurroundings;   // 3D scene file around the headset user (empty = none)
+    double m_vrSurroundingsScale = 100.0;  // cm per unit of that file (100 = metres)
+    bool m_vrHandInput = false;            // headset input: hands (pinch) instead of controllers
     QWidget* m_controlPanel = nullptr;
 
     // Claude Generated - Frame control widgets (shown/hidden based on frame count)
@@ -966,6 +1036,19 @@ private:
     SimulationFramePtr m_pendingFrame;
     bool m_frameUpdateScheduled = false;
 
+    // Claude Generated 2026 - GUI-thread probe for a slow live display (docs/WP-performance.md P0).
+    // Once per second, while frames arrive, one `gui viewer` line goes to remote.log: frames in
+    // against passes done (the difference was coalesced), time in updateSimulationFrame, and how
+    // late a 10 ms heartbeat fires in the GUI event loop (that includes drawing the scene).
+    void probeBeat();
+    QTimer* m_probeBeat = nullptr;
+    QElapsedTimer m_probeLast, m_probeWindow, m_probeLastFrame;
+    qint64 m_probeUpdateNs = 0, m_probeUpdateMaxNs = 0, m_probeLateNs = 0, m_probeLateMaxNs = 0;
+    int m_probeFramesIn = 0, m_probeUpdates = 0, m_probeBeats = 0;
+    QElapsedTimer m_probePassClock;  // spacing of the passes that update the scene
+    qint64 m_probeBondNs = 0, m_probeSyncNs = 0;  // where updateSimulationFrame spends its time
+    double m_probeGapMaxMs = 0;
+
     // Claude Generated 2026 - P0 GUI-side timing state (see setPerformanceAnalysis).
     bool m_perfAnalysis = false;
     int m_perfInterval = 100;
@@ -1009,10 +1092,6 @@ private:
     /// Above this atom count the per-frame geometric scan is skipped unless the
     /// user explicitly asks for it (the close-contact pass is a full O(N^2)).
     static constexpr int kNciAtomLimit = 5000;
-
-    // Instancing threshold kept for API compatibility (informational).
-    static constexpr int kAtomInstancingThresholdDefault = 500;
-    int m_instancingThreshold = kAtomInstancingThresholdDefault;
 
     // Rotation / camera state
     RotationMode m_rotationMode = RotationMode::Model;

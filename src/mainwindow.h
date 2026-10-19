@@ -1,5 +1,7 @@
 #pragma once
 
+#include "moleculefileloader.h"  // Claude Generated 2026 - CifOptions member
+#include <cutechat/tool.h>  // Claude Generated 2026 - ToolAutonomy
 #include "docks/dockconfig.h"  // Claude Generated 2026 - Dock system restructuring
 #include "settings.h"
 #include "vtfparser.h"
@@ -20,6 +22,7 @@
 #include <QListView>
 #include <QListWidget>
 #include <QMainWindow>
+#include <QSet>
 #include <QMap>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -32,6 +35,7 @@
 #include <QString>
 #include <QStringList>
 #include <QTabWidget>
+#include <QThread>
 #include <QTextEdit>
 #include <QToolBar>
 #include <QToolButton>
@@ -44,13 +48,14 @@
 #include "modifiabletextedit.h"
 #include "widgets/breadcrumbbar.h"
 #include "snapshotswidget.h"  // Claude Generated 2026 - global MoleculeSnapshot + SnapshotsWidget
-#include "simulationworker.h"  // Claude Generated - for SimulationConfig
+#include "simulationbackend.h"  // Claude Generated 2026 - SimulationBackend (+ SimulationConfig)
 #include "lesson.h"  // Claude Generated 2026 - OER teaching scenarios (Lesson model)
 class MoleculeViewer;
 class QActionGroup;  // Claude Generated 2026 - NCI source radio group
 class DisplayPanel;  // Claude Generated 2026 - docked viewer display options (replaces the modal dialog)
 class CommandPalette;  // Claude Generated 2026 - P3 Ctrl+K command palette
 class RMSDWidget;  // Claude Generated 2026 - RMSD / align tool (Analysis dock)
+class CellDock;    // Claude Generated 2026 - cell info + repeats of a loaded cif
 class WorkspaceManager;  // Claude Generated Phase 4 - Workspace management
 class AtomListPanel;  // Claude Generated Phase 2C - Atom list panel with table view
 class DockManager;          // Claude Generated 2026 - owns all docks and layout presets
@@ -64,14 +69,21 @@ class NciDock;                // Claude Generated 2026 - non-covalent interactio
 class NciAnalysisWorker;      // Claude Generated 2026 - off-thread NCI analysis
 class QThread;
 class QSortFilterProxyModel;  // Claude Generated 2026 - ProjectDock file filter proxy
-#ifdef USE_SFTP
-class SftpItemModel;  // Claude Generated - Remote Directory Mounting
-#endif
 class SimulationControlWidget;  // Claude Generated - Interactive Simulation Integration
 class LessonController;          // Claude Generated 2026 - WP T4 lesson feature controller
 class ChartDock;                // Claude Generated 2026 - live charts dock
 class QDialog;                  // Claude Generated 2026 - host for the modeless charts dialog
 class CalculationRunner;        // Claude Generated 2026 - WP T3 external-process orchestration
+class ToolDispatcher;           // Claude Generated 2026 - tool layer (core/tooldispatcher.h)
+class CurcumaJob;               // Claude Generated 2026 - in-process calculation
+struct ToolResult;              // Claude Generated 2026 - core/tool.h
+#ifdef USE_LLM
+class ChatDock;                 // Claude Generated 2026 - CuteChat
+class QurcumaChatHost;          // Claude Generated 2026 - docks/qurcumachathost.h
+class LlmClient;                // Claude Generated 2026 - llm/llmclient.h
+class LlmSession;               // Claude Generated 2026 - llm/llmsession.h
+struct ToolSpec;                // Claude Generated 2026 - core/tool.h
+#endif
 
 
 // CalculationEntry + the calculations.json persistence live here now.
@@ -142,8 +154,7 @@ private slots:
     void projectSelected(const QModelIndex &index);
     // Claude Generated 2026 - WP T3: finish handling for a CalculationRunner run.
     void onCalculationFinished(const CalculationEntry& entry, int exitCode);
-    void configurePrograms();
-    void configureOperatorMetadata();  // Claude Generated 2026 - operator name/ORCID/institution/license
+    void openSettingsDialog();  ///< Settings dialog on the Programs tab. Claude Generated 2026
     void runSimulation();
 
 
@@ -221,11 +232,38 @@ private slots:
     void createNewDirectory();
 
 private:
+    /// Let a focused text widget answer Ctrl+C itself; true when it did. A helper,
+    /// not a slot: the Edit-menu Copy calls it before falling back to the
+    /// structure. Claude Generated 2026.
+    bool copySelectedTextFromFocusWidget();
+
+    /// How much may be done unasked. Claude Generated 2026 - outside the USE_LLM
+    /// block, because the script dock is graded by the same policy; without an
+    /// Assistant dock it stays Ask, which is the level that asks about everything
+    /// beyond reading and display.
+    ToolAutonomy m_autonomy = ToolAutonomy::Ask;
+#ifdef USE_LLM
+    /// The system prompt for the current autonomy level and thinking effort. The chat dock asks the
+    /// host for it before every question, so it follows both switches. Claude Generated 2026.
+    QString assistantSystemPrompt() const;
+#endif
+
     void setupUI();
     void createToolbars();
     void createModeBar();                       // Claude Generated 2026 - Explore/Compute/Teaching switch
     void setAppMode(DockConfig::AppMode mode, bool reflow = true);  // apply mode (toolbar + dock visibility)
-    void showCommandPalette();                  // Claude Generated 2026 - P3 Ctrl+K palette
+    void showCommandPalette();
+    /// Show a tool's answer in the Output dock and the status bar. Claude Generated 2026.
+    void showToolResult(const QString& name, const ToolResult& result);
+#ifdef USE_LLM
+    /// Wire the assistant (CuteChat's ChatDock, built by the DockManager with a QurcumaChatHost):
+    /// prompt and approval callbacks, autonomy, log. Claude Generated 2026.
+    void setupAssistant();
+#endif                  // Claude Generated 2026 - P3 Ctrl+K palette
+
+    /// Ask before a tool that calculates, writes or mutates. Claude Generated 2026 -
+    /// outside the USE_LLM block because the script dock is graded by the same ladder.
+    bool approveToolCall(const ToolSpec& spec, const QJsonObject& args);
     void createMenus();
     void seedRMSDReference();  // Claude Generated 2026 - re-seed RMSD reference from viewer
     void setupProjectViewContextMenu();
@@ -241,7 +279,8 @@ private:
                           std::function<void()> actionCallback = nullptr);
 
     // Claude Generated - SFTP: Load molecule file (local or remote)
-    void loadMoleculeFile(const QString& filePath);
+    // by value: callers pass members the load resets; @p cifOptions forces how a cif is built
+    void loadMoleculeFile(QString filePath, const MoleculeFileLoader::CifOptions* cifOptions = nullptr);
 
     // Claude Generated 2026 - WP T4: the OER-lesson feature (open/save/add/apply +
     // the lesson list + metadata/detail editors) lives in LessonController.
@@ -321,6 +360,19 @@ private:
     Settings m_settings;
     // Claude Generated 2026 - WP T3: owns the calculation QProcess + completer commands.
     CalculationRunner* m_calculationRunner = nullptr;
+    ToolDispatcher* m_toolDispatcher = nullptr;  // Claude Generated 2026 - runs tools on the right thread
+    CurcumaJob* m_curcumaJob = nullptr;          // Claude Generated 2026 - one calculation at a time
+    /// Tools the operator allowed for the rest of this session, shared by the
+    /// assistant and the script dock. Claude Generated 2026.
+    QSet<QString> m_toolsAllowedForSession;
+#ifdef USE_LLM
+    // Claude Generated 2026 - The assistant is CuteChat's ChatDock. Its ChatEngine runs the client
+    // and the agent loop on a thread of their own (a waiting tool must not wait on the GUI thread);
+    // the host carries qurcuma's prompt and approval callbacks.
+    ChatDock* m_chatDock = nullptr;
+    QurcumaChatHost* m_chatHost = nullptr;   ///< deleted with the dock (DockManager)
+#endif
+    bool m_toolLayerBuilt = false;   ///< the tools are registered once, whoever asks first
 
     // Claude Generated 2026 - Docked viewer display options (replaces the modal dialog)
     DisplayPanel* m_displayPanel = nullptr;
@@ -372,6 +424,10 @@ private:
     // user with Save/Discard/Cancel.
     QString m_currentMoleculeFilePath;
     bool m_structureModified = false;
+    // Claude Generated 2026 - VR demo mode: loading a new file discards a modified
+    // structure without the Save/Discard/Cancel prompt, which would block the
+    // desktop while someone is in the headset. Switched on when VR starts.
+    bool m_vrDemoMode = false;
     bool m_structSyncing = false;  // Claude Generated 2026 - re-entrancy guard for viewer/table/text sync
 
     // Resolves a view index from the content list to a filesystem path. Handles
@@ -383,6 +439,13 @@ private:
     // the Lesson section it fills sits at the top of the Project dock.
     LessonController* m_lessonController = nullptr;
     bool m_centerOnLoad = true;  // shift COM to origin after loading (from VisualizationSettings)
+    QAction* m_centerOnLoadAction = nullptr;  // Preferences quick toggle, kept in sync with the Settings dialog
+    // Claude Generated 2026 - the loaded cif, its bar, and the repeats it is read with.
+    CellDock* m_cellDock = nullptr;
+    QString m_cifPath;
+    MoleculeFileLoader::CifOptions m_cifOptions;  // how the shown cif is built; reset for a new file
+    int m_cifAtomCount = 0;   // atoms the cif arrived with; a different count means the scene moved on
+    void setupCellDock();
     QAction* m_saveAction = nullptr;
     QAction* m_saveAsAction = nullptr;
     bool saveStructure(const QString& path = QString());
@@ -408,6 +471,8 @@ private:
     QMenu* m_recentConnectionsMenu = nullptr;
     void updateRecentConnectionsMenu();
     void openRecentConnection(const QString& profileId);
+    /// Shows the Project dock on its Remote segment (File > Open Remote File...). Claude Generated 2026
+    void showRemoteBrowser();
 #endif
 
     // Claude Generated Phase 4 - Workspace management
@@ -429,13 +494,6 @@ private:
     bool m_useInvocationDirectoryEnabled = false;  // mirror of the QSettings bool
     QAction* m_useInvocationDirAction = nullptr;   // settings-menu checkable action
     void applyUseInvocationDirectoryState(bool enabled);
-
-    // Claude Generated - Remote Directory Mounting
-    QTreeWidget* m_remoteDirectoriesView = nullptr;
-#ifdef USE_SFTP
-    QMap<QString, SftpItemModel*> m_remoteSftpModels;
-    QString m_currentRemoteMountId;
-#endif
 
     // Claude Generated 2026 - Dock system restructuring: manager owns all docks,
     // layout presets and the Explore/Compute mode. MainWindow coordinates via signals.
@@ -464,7 +522,9 @@ private:
 
     // Claude Generated - Interactive Simulation Integration
     QElapsedTimer m_simStatusBarTimer;  // Throttle status bar updates to ~5 Hz
-    void wireSimulationWorker(SimulationWorker* worker);  // Claude Generated - Direct worker->view wiring
+    void wireSimulationWorker(SimulationBackend* worker);
+#ifdef QURCUMA_REMOTE
+#endif  // Claude Generated - Direct worker->view wiring
 
     // Claude Generated 2026 - Non-covalent interaction analysis. The worker lives
     // on its own thread for the whole session so an analysis can run while an MD
@@ -536,14 +596,6 @@ private:
     QLabel* m_statusFrameLabel = nullptr;
     void updateStatusIndicators();
     void onSimulationConfigChanged(SimulationConfig cfg);
-
-#ifdef USE_SFTP
-    void updateRemoteDirectoriesView();
-    void onRemoteDirectoryClicked(QTreeWidgetItem* item, int column);
-    void onAddRemoteDirectoryClicked();
-    void onRemoteFileDoubleClicked(const QModelIndex& index);
-    void downloadAndLoadRemoteFile(const QString& filePath);
-#endif
 
 protected:
     // Claude Generated - Quick Win: Drag & Drop support

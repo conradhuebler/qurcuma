@@ -1,6 +1,7 @@
 // m_settings.cpp
 #include "settings.h"
 #include "recipe.h"
+#include "programpaths.h"  // Claude Generated 2026 - program path keys + ORCA key migration
 #include <QStandardPaths>
 #include <QDir>
 #include <QFileInfo>
@@ -10,22 +11,17 @@
 #include <algorithm>
 
 const QString Settings::WORKING_DIR_KEY = "workingDirectory";
-const QString Settings::PROGRAM_PATH_PREFIX = "programs/";
 const QString Settings::WORKING_DIRS_KEY = "workingDirectories";
 const QString Settings::LAST_USED_DIR_KEY = "lastUsedWorkingDirectory";
 const QString Settings::VIZ_SETTINGS_PREFIX = "visualization/";
 const QString Settings::USE_INVOCATION_DIR_KEY = "useInvocationDirectory";  // Claude Generated 2026
 const QString Settings::VIEW_PRESETS_PREFIX = "viewPresets/";  // Claude Generated 2026
 // Claude Generated 2026 - exact legacy key strings (see settings.h note).
-const QString Settings::ORCA_BINARY_KEY = "orca/binaryPath";
 const QString Settings::DARK_MODE_KEY = "darkMode";
 const QString Settings::RECENT_FILES_LEGACY_KEY = "recentFiles";
 const QString Settings::RECENT_FILES_V2_KEY = "recentFilesV2";
 const QString Settings::BOOKMARKS_KEY = "bookmarksV3";
 const QString Settings::WORKSPACES_KEY = "workspacesV1";
-const QString Settings::LAST_ACTIVE_WORKSPACE_KEY = "lastActiveWorkspaceId";
-const QString Settings::AUTO_SAVE_WORKSPACE_KEY = "autoSaveWorkspace";
-const QString Settings::RESTORE_LAST_WORKSPACE_KEY = "restoreLastWorkspace";
 const QString Settings::OPERATOR_NAME_KEY = "operator/name";
 const QString Settings::OPERATOR_ORCID_KEY = "operator/orcid";
 const QString Settings::OPERATOR_INSTITUTION_KEY = "operator/institution";
@@ -200,10 +196,11 @@ Settings::Settings(QObject* parent)
     , m_settings(QSettings::IniFormat, QSettings::UserScope, "Qurcuma", "qurcuma")
 {
     // Claude Generated - Fixed application name from "m_settings" to "qurcuma"
-    // Wenn keine Einstellungen vorhanden, Standardwerte laden
-    if (m_settings.allKeys().isEmpty()) {
-        loadDefaults();
-    }
+    // Claude Generated 2026 - ORCA moved from "orca/binaryPath" to "programs/orca", and the former
+    // first-start defaults (fixed /usr/local/bin/<program> paths) are cleaned out; the Settings
+    // dialog offers detection instead.
+    programpaths::migrateLegacyKeys(m_settings);
+    m_settings.remove(QStringLiteral("visualization/instancingThreshold"));  // stored but never read; removed 2026
 }
 
 QString Settings::workingDirectory() const
@@ -221,67 +218,19 @@ void Settings::setWorkingDirectory(const QString &path)
 
 QString Settings::getProgramPath(const QString &program) const
 {
-    return m_settings.value(PROGRAM_PATH_PREFIX + program).toString();
+    return m_settings.value(programpaths::settingsKey(program)).toString();
 }
 
 void Settings::setProgramPath(const QString &program, const QString &path)
 {
-    m_settings.setValue(PROGRAM_PATH_PREFIX + program, path);
+    m_settings.setValue(programpaths::settingsKey(program), path);
     m_settings.sync();
 }
 
+// Claude Generated 2026 - thin wrapper: ORCA is stored like the other programs ("programs/orca").
 QString Settings::orcaBinaryPath() const
 {
-    return m_settings.value(ORCA_BINARY_KEY).toString();
-}
-
-void Settings::setOrcaBinaryPath(const QString &path)
-{
-    m_settings.setValue(ORCA_BINARY_KEY, path);
-    m_settings.sync();
-}
-
-void Settings::loadDefaults()
-{
-    // Standard-Arbeitsverzeichnis
-    QString defaultWorkDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) 
-                           + "/qurcuma";
-
-    if (!m_settings.contains(WORKING_DIR_KEY)) {
-        setWorkingDirectory(defaultWorkDir);
-    }
-
-    // Standard-Programmpfade basierend auf üblichen Installationsorten
-    #ifdef Q_OS_LINUX
-    const QString defaultBinPath = "/usr/local/bin/";
-    #elif defined(Q_OS_WIN)
-    const QString defaultBinPath = "C:/Program Files/";
-    #else
-    const QString defaultBinPath = "/usr/local/bin/";
-    #endif
-
-    QMap<QString, QString> defaultPaths = {
-        {"curcuma", defaultBinPath + "curcuma"},
-        {"orca", defaultBinPath + "orca"},
-        {"xtb", defaultBinPath + "xtb"},
-        {"iboview", defaultBinPath + "iboview"},
-        {"avogadro", defaultBinPath + "avogadro"}
-    };
-
-    // Nur fehlende Programmpfade setzen
-    for (auto it = defaultPaths.constBegin(); it != defaultPaths.constEnd(); ++it) {
-        QString key = PROGRAM_PATH_PREFIX + it.key();
-        if (!m_settings.contains(key)) {
-            m_settings.setValue(key, it.value());
-        }
-    }
-
-    m_settings.sync();
-}
-
-void Settings::saveSettings()
-{
-    m_settings.sync();
+    return getProgramPath(QStringLiteral("orca"));
 }
 
 QStringList Settings::workingDirectories() const
@@ -332,6 +281,52 @@ void Settings::setDarkMode(bool enabled)
     m_settings.sync();
 }
 
+// Claude Generated 2026 - VR surroundings
+QString Settings::vrPanorama() const
+{
+    return m_settings.value(QStringLiteral("vr/panorama")).toString();
+}
+
+void Settings::setVrPanorama(const QString& path)
+{
+    m_settings.setValue(QStringLiteral("vr/panorama"), path);
+    m_settings.sync();
+}
+
+QString Settings::vrSurroundings() const
+{
+    return m_settings.value(QStringLiteral("vr/surroundings")).toString();
+}
+
+void Settings::setVrSurroundings(const QString& path)
+{
+    m_settings.setValue(QStringLiteral("vr/surroundings"), path);
+    m_settings.sync();
+}
+
+bool Settings::vrSurroundingsInCentimetres() const
+{
+    return m_settings.value(QStringLiteral("vr/surroundingsInCentimetres"), false).toBool();
+}
+
+void Settings::setVrSurroundingsInCentimetres(bool on)
+{
+    m_settings.setValue(QStringLiteral("vr/surroundingsInCentimetres"), on);
+    m_settings.sync();
+}
+
+// Claude Generated 2026 - VR input mode
+bool Settings::vrHandInput() const
+{
+    return m_settings.value(QStringLiteral("vr/handInput"), false).toBool();
+}
+
+void Settings::setVrHandInput(bool on)
+{
+    m_settings.setValue(QStringLiteral("vr/handInput"), on);
+    m_settings.sync();
+}
+
 // Claude Generated 2026 - "Use Invocation Directory" preference
 bool Settings::useInvocationDirectoryEnabled() const
 {
@@ -372,7 +367,6 @@ void writeVizSettings(QSettings& s, const QString& prefix, const Settings::Visua
     s.setValue(prefix + "hdrEnabled", v.hdrEnabled);
     s.setValue(prefix + "exposure", v.exposure);
     s.setValue(prefix + "rotationMode", v.rotationMode);
-    s.setValue(prefix + "instancingThreshold", v.instancingThreshold);
     s.setValue(prefix + "wallVisible", v.wallVisible);
     s.setValue(prefix + "wallOpacity", v.wallOpacity);
     s.setValue(prefix + "centerOnLoad", v.centerOnLoad);
@@ -419,7 +413,6 @@ Settings::VisualizationSettings readVizSettings(const QSettings& s, const QStrin
     v.hdrEnabled = s.value(prefix + "hdrEnabled", v.hdrEnabled).toBool();
     v.exposure = s.value(prefix + "exposure", v.exposure).toFloat();
     v.rotationMode = s.value(prefix + "rotationMode", v.rotationMode).toInt();
-    v.instancingThreshold = s.value(prefix + "instancingThreshold", v.instancingThreshold).toInt();
     v.wallVisible = s.value(prefix + "wallVisible", v.wallVisible).toBool();
     v.wallOpacity = s.value(prefix + "wallOpacity", v.wallOpacity).toDouble();
     v.centerOnLoad = s.value(prefix + "centerOnLoad", v.centerOnLoad).toBool();
@@ -945,39 +938,6 @@ void Settings::updateWorkspaceLastUsed(const QString& id)
         ws.lastUsed = QDateTime::currentDateTime();
         saveWorkspace(ws);
     }
-}
-
-QString Settings::lastActiveWorkspaceId() const
-{
-    return m_settings.value(LAST_ACTIVE_WORKSPACE_KEY, "").toString();
-}
-
-void Settings::setLastActiveWorkspaceId(const QString& id)
-{
-    m_settings.setValue(LAST_ACTIVE_WORKSPACE_KEY, id);
-    m_settings.sync();
-}
-
-bool Settings::autoSaveWorkspaceEnabled() const
-{
-    return m_settings.value(AUTO_SAVE_WORKSPACE_KEY, false).toBool();
-}
-
-void Settings::setAutoSaveWorkspace(bool enabled)
-{
-    m_settings.setValue(AUTO_SAVE_WORKSPACE_KEY, enabled);
-    m_settings.sync();
-}
-
-bool Settings::restoreLastWorkspaceEnabled() const
-{
-    return m_settings.value(RESTORE_LAST_WORKSPACE_KEY, false).toBool();
-}
-
-void Settings::setRestoreLastWorkspace(bool enabled)
-{
-    m_settings.setValue(RESTORE_LAST_WORKSPACE_KEY, enabled);
-    m_settings.sync();
 }
 
 #ifdef USE_SFTP

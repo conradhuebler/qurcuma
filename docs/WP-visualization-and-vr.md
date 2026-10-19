@@ -12,7 +12,7 @@
 
 - **Rendering:** Qt3D (`Qt6::3DCore/3DRender/3DExtras`) mit Standard-`QForwardRenderer`
   und eigenen Instancing-Shadern (`atom_/bond_instanced.*`). Umschalten per-Atom ↔
-  GPU-Instancing bei 500 Atomen (`view.h:kAtomInstancingThresholdDefault`).
+  GPU-Instancing bei 500 Atomen (früherer Stand; Quick3D instanziert immer).
 - **Perf-Gerüst:** `PerformanceOptimizer` (LOD Fast/Balanced/HighQuality, Frustum-Culling-Flag,
   FPS-Monitor, adaptive Quality) — teils nur Gerüst.
 - **Post-Processing:** SSAO, Bloom/HDR, Tonemapping als **Shader + Settings + UI vorhanden,

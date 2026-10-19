@@ -97,4 +97,4 @@ Shader. Das senkt die Risikoschätzung:
 1. **WP1** starten: renderer-agnostisches `IMoleculeViewer`-Interface, Qt3D-Adapter erfüllt
    es weiter (Koexistenz via Feature-Flag).
 2. In WP2 früh die **Schatten-Weltfestigkeit** und **echte-Molekül-FPS** klären.
-3. T9 (VR über Qt Quick 3D XR) bleibt offen bis Monado/ALVR steht — nach WP2/WP3.
+3. T9 (VR über Qt Quick 3D XR): Spike läuft auf PICO 4 Ultra über WiVRn (Szene sichtbar, Controller-Pose und Trigger-Rotation funktionieren). Offen: Atom-Picking per Controller-Ray, Greifen mit Kraft (WP4), Framerate-Messung in VR.

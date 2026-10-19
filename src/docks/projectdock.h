@@ -13,6 +13,7 @@
 
 class BreadcrumbBar;
 class BookmarkWidget;
+class FileFilterBar;
 class QComboBox;
 class QFileSystemModel;
 class QMenu;
@@ -29,7 +30,7 @@ class QWidget;
 class WorkspacePanel;
 
 #ifdef USE_SFTP
-class RemoteDirectoriesPanel;
+class RemoteBrowserPanel;
 #endif
 
 class Settings;
@@ -102,7 +103,7 @@ public:
     BookmarkWidget* bookmarkWidget() const;
     WorkspacePanel* workspacePanel() const;
 #ifdef USE_SFTP
-    RemoteDirectoriesPanel* remotePanel() const;
+    RemoteBrowserPanel* remotePanel() const;
 #endif
 
 signals:
@@ -112,9 +113,6 @@ signals:
     void bookmarkDirectorySelected(const QString& path);
     void bookmarksChanged();
     void saveWorkspaceRequested();
-#ifdef USE_SFTP
-    void addRemoteRequested();
-#endif
 
 public slots:
     void setCurrentSegment(ProjectSegment segment);
@@ -122,9 +120,7 @@ public slots:
 private:
     void setupUI();
     void resetContentRoot();
-    void refreshExtensionMenu();
-    void updateExtensionFilterFromMenu();
-    void setAllExtensionsChecked(bool checked);
+    void collectContentSuffixes();
 
     QPushButton* m_chooseDirectory = nullptr;
     BreadcrumbBar* m_breadcrumbBar = nullptr;
@@ -143,16 +139,9 @@ private:
     QListView* m_directoryContentView = nullptr;
     QFileSystemModel* m_directoryContentModel = nullptr;
     QSortFilterProxyModel* m_directoryContentProxyModel = nullptr;
-    QLineEdit* m_fileSearchEdit = nullptr;
-    QToolButton* m_extensionFilterButton = nullptr;
-    QMenu* m_extensionMenu = nullptr;
-    QToolButton* m_clearFilterButton = nullptr;
+    FileFilterBar* m_fileFilterBar = nullptr;  // search + Extensions + clear (directoryfilter.h)
     QWidget* m_lessonMetaWidget = nullptr;
 
-    // Session-only extension filter state (remembers checked/unchecked suffixes
-    // across directory changes). Claude Generated 2026.
-    QSet<QString> m_checkedExtensions;
-    QSet<QString> m_uncheckedExtensions;
     QLineEdit* m_lessonTitleEdit = nullptr;
     QLineEdit* m_lessonDescEdit = nullptr;
     QLabel* m_lessonAuthorsLabel = nullptr;
@@ -172,7 +161,8 @@ private:
 
     BookmarkWidget* m_bookmarkWidget = nullptr;
     WorkspacePanel* m_workspacePanel = nullptr;
+    QWidget* m_calcFilesWidget = nullptr;  // lower half (local files); hidden in the Remote segment
 #ifdef USE_SFTP
-    RemoteDirectoriesPanel* m_remotePanel = nullptr;
+    RemoteBrowserPanel* m_remotePanel = nullptr;
 #endif
 };

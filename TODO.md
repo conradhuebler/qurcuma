@@ -10,8 +10,14 @@ Open code tasks only, at most 3 lines each. Feature wishes: `docs/ROADMAP.md`. P
 - Periodic container (`wallPotential` pbc) is a stopgap: no minimum image in the non-bonded terms, occupied target is reflected elastically. Curcuma side: `external/curcuma/docs/WP-PERIODIC-NONBONDED.md`.
 - Lessons: result/target fields reserved in the schema, not implemented; no barostat, "pressure" is wall volume only.
 
+## LLM assistant
+- Remembered models are stored under `llm/models/<profile>` (was `llm/model/<profile>`); the model is chosen once again after the update.
+
 ## Remote
-- Remote compute (A controls/visualizes, B computes) and VR: plan in `docs/WP-remote-compute-vr.md`, stage R0 (decouple `SimulationWorker` behind a backend interface) is the first step.
+- Remote compute (A controls/visualizes, B computes) and VR: plan in `docs/WP-remote-compute-vr.md`; R0 to R4 are in, next R5 (VR). Open: server method list not shown in the dock; old session directories on B are not cleaned up; reconnect over a real link and "Show results in Remote" are not exercised (real ssh runs between two machines work, Oct 2026).
+
+- Trajectory name: the worker's molecule has no basename, so curcuma writes `.snapshots/.trj.xyz` (hidden) in the working directory, also for local runs with "write trajectory". Give the molecule a name or set the basename.
+- Periodic step stalls of GPU GFN-FF MD on the server (urea-water: every 10th step 720 to 840 ms): cause open, work package for the GPU machine in `docs/WP-remote-step-stalls.md`.
 
 ## Docs / repository
 - Qt3D-era docs in `docs/architecture/` (rendering-pipeline, performance-optimization, file-parsers) describe removed code; rewrite or archive.

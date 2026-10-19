@@ -1,0 +1,373 @@
+// test_remote_loopback.cpp - server and client on one machine: the final geometry of a
+// remote optimisation equals that of the local worker.
+// Claude Generated 2026 (WP remote compute R1). Needs curcuma (gfnff), no display.
+
+#include "remote/protocol.h"
+#include "remote/remotebackend.h"
+#include "remote/serversession.h"
+#include "simulationbackend.h"
+#include "generated/parameter_registry.h"  // initialize_generated_registry()
+
+#include <QCoreApplication>
+#include <QDirIterator>
+#include <QFileInfo>
+#include <QEventLoop>
+#include <QRegularExpression>
+#include <QJsonDocument>
+#include <QTemporaryDir>
+#include <QTimer>
+#include <QWebSocket>
+#include <QWebSocketServer>
+#include <cmath>
+#include <algorithm>
+#include <iostream>
+#include <vector>
+
+static int failures = 0;
+#define CHECK(cond)                                                                         \
+    do {                                                                                    \
+        if (!(cond)) {                                                                      \
+            std::cerr << "FAIL line " << __LINE__ << ": " #cond << std::endl;                \
+            ++failures;                                                                     \
+        }                                                                                   \
+    } while (0)
+
+static QVector<MolAtom> distortedWater()
+{
+    QVector<MolAtom> a(3);
+    a[0].element = "O"; a[0].position = QVector3D(0.0f, 0.0f, 0.0f);
+    a[1].element = "H"; a[1].position = QVector3D(1.05f, 0.1f, 0.0f);
+    a[2].element = "H"; a[2].position = QVector3D(-0.4f, 0.95f, 0.2f);
+    return a;
+}
+
+static SimulationConfig optConfig()
+{
+    SimulationConfig c;
+    c.mode = SimulationConfig::Mode::GeometryOptimization;
+    c.method = "gfnff";
+    c.steps = 50;
+    c.optSingleShot = true;
+    c.writeTrajectory = false;
+    c.fpsLimit = 0;
+    return c;
+}
+
+template <typename Pred> static bool waitFor(Pred done, int ms)
+{
+    QEventLoop loop;
+    QTimer poll, limit;
+    QObject::connect(&poll, &QTimer::timeout, [&] { if (done()) loop.quit(); });
+    QObject::connect(&limit, &QTimer::timeout, &loop, &QEventLoop::quit);
+    poll.start(10);
+    limit.start(ms);
+    loop.exec();
+    return done();
+}
+
+int main(int argc, char* argv[])
+{
+    initialize_generated_registry();  // curcuma's parameter defaults (as main.cpp does)
+    QCoreApplication app(argc, argv);
+    QTemporaryDir work;
+    QDir::setCurrent(work.path());
+
+    // reference: the local backend
+    SimulationFrame local;
+    bool localDone = false;
+    QStringList localErrors;
+    {
+        LocalBackend b;
+        b.setMolecule(distortedWater());
+        b.setBonds({ { 0, 1, 1 }, { 0, 2, 1 } });
+        b.setConfig(optConfig());
+        QObject::connect(&b, &SimulationBackend::frameReady, [&](SimulationFramePtr f) { local = *f; });
+        QObject::connect(&b, &SimulationBackend::errorOccurred, [&](const QString& e) { localErrors << e; std::cerr << "local error: " << e.toStdString() << std::endl; });
+        QObject::connect(&b, &SimulationBackend::finished, [&] { localDone = true; });
+        b.start();
+        CHECK(waitFor([&] { return localDone; }, 120000));
+    }
+    CHECK(local.positions.size() == 3);
+    CHECK(localErrors.isEmpty() && local.energy != 0.0 && local.step > 0);  // a real optimisation happened
+    std::cout << "local run: step " << local.step << ", E " << local.energy << " Eh" << std::endl;
+
+    // remote: server session in this process, client socket
+    const QString token = "0123456789abcdef-test";
+    remote::RemoteServer server(token, work.path() + "/sessions", 5);
+    CHECK(server.listen(0));
+    auto session = [&] { return server.activeSession(); };
+
+    // wrong token is refused (the session keeps waiting for the real client)
+    {
+        QWebSocket bad;
+        QStringList badErrors;
+        bool closed = false;
+        QObject::connect(&bad, &QWebSocket::textMessageReceived, [&](const QString& t) {
+            badErrors << QJsonDocument::fromJson(t.toUtf8()).object().value("type").toString(); });
+        QObject::connect(&bad, &QWebSocket::disconnected, [&] { closed = true; });
+        bad.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())));
+        waitFor([&] { return bad.state() == QAbstractSocket::ConnectedState; }, 5000);
+        bad.sendTextMessage(R"({"type":"hello","protocol":1,"token":"wrong"})");
+        CHECK(waitFor([&] { return closed; }, 5000));
+        CHECK(badErrors.contains("error") && !badErrors.contains("welcome"));
+    }
+
+    QWebSocket client;
+    SimulationFrame remoteLast;
+    int frames = 0;
+    bool welcomed = false, finished = false, aborted = true;
+    QStringList errors;
+    QObject::connect(&client, &QWebSocket::binaryMessageReceived, [&](const QByteArray& m) {
+        SimulationFrame f;
+        if (remote::decodeFrame(m, f)) { remoteLast = f; ++frames; }
+    });
+    QObject::connect(&client, &QWebSocket::textMessageReceived, [&](const QString& t) {
+        const QJsonObject o = QJsonDocument::fromJson(t.toUtf8()).object();
+        const QString type = o.value("type").toString();
+        if (type == "welcome") welcomed = true;
+        else if (type == "finished") { finished = true; aborted = o.value("aborted").toBool(); }
+        else if (type == "error") errors << o.value("message").toString();
+    });
+    client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())));
+    CHECK(waitFor([&] { return client.state() == QAbstractSocket::ConnectedState; }, 5000));
+
+    client.sendTextMessage(QString::fromUtf8(QJsonDocument(QJsonObject{ { "type", "hello" },
+        { "protocol", remote::kProtocolVersion }, { "token", token } }).toJson(QJsonDocument::Compact)));
+    CHECK(waitFor([&] { return welcomed; }, 5000));
+
+    // a start with a path-like file parameter is refused before anything runs
+    {
+        QJsonObject cfg = remote::configToJson(optConfig());
+        cfg["rmsdMtdRefFile"] = "/etc/passwd";
+        client.sendTextMessage(QString::fromUtf8(QJsonDocument(QJsonObject{ { "type", "start" }, { "config", cfg },
+            { "atoms", remote::atomsToJson(distortedWater()) }, { "bonds", remote::bondsToJson({}) } }).toJson(QJsonDocument::Compact)));
+        CHECK(waitFor([&] { return !errors.isEmpty(); }, 5000));
+        CHECK(frames == 0 && !finished);
+        errors.clear();
+    }
+
+    client.sendTextMessage(QString::fromUtf8(QJsonDocument(QJsonObject{ { "type", "start" },
+        { "config", remote::configToJson(optConfig()) }, { "atoms", remote::atomsToJson(distortedWater()) },
+        { "bonds", remote::bondsToJson({ { 0, 1, 1 }, { 0, 2, 1 } }) } }).toJson(QJsonDocument::Compact)));
+    CHECK(waitFor([&] { return finished; }, 120000));
+    for (const QString& e : errors) std::cerr << "server error: " << e.toStdString() << std::endl;
+    CHECK(errors.isEmpty());
+    CHECK(frames > 0 && remoteLast.positions.size() == 3);
+    client.close();
+    CHECK(waitFor([&] { return session() == nullptr; }, 5000));  // the session ends with its client
+
+    double maxDev = 0.0;
+    for (size_t i = 0; i < 3 && i < local.positions.size() && i < remoteLast.positions.size(); ++i)
+        maxDev = std::max(maxDev, double((local.positions[i] - remoteLast.positions[i]).length()));
+    std::cout << "frames received: " << frames << ", max |local - remote| = " << maxDev << " A, "
+              << "energy diff = " << std::fabs(local.energy - remoteLast.energy) << " Eh" << std::endl;
+    CHECK(maxDev < 1e-4);  // float32 positions on the wire
+    CHECK(std::fabs(local.energy - remoteLast.energy) < 1e-10);
+    CHECK(local.step == remoteLast.step);
+
+
+    QString sessionDirSeen;
+    // ---- RemoteBackend (client class) against the same server -------------------------
+    {
+        QFile ref(work.path() + "/ref.xyz");
+        CHECK(ref.open(QIODevice::WriteOnly) && ref.write("1\nx\nH 0 0 0\n") > 0);
+        ref.close();
+        SimulationConfig cfg = optConfig();
+        cfg.writeTrajectory = true;
+        cfg.rmsdMtdRefFile = work.path() + "/ref.xyz";
+
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())), token);
+        rb.setTrajectoryPath(work.path() + "/client.trj.xyz");
+        rb.setMolecule(distortedWater());
+        rb.setBonds({ { 0, 1, 1 }, { 0, 2, 1 } });
+        rb.setConfig(cfg);
+        SimulationFrame viaBackend;
+        int n = 0;
+        bool done = false, aborted = true;
+        QStringList errs;
+        QObject::connect(&rb, &SimulationBackend::frameReady, [&](SimulationFramePtr f) { viaBackend = *f; ++n; });
+        QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
+        QObject::connect(&rb, &SimulationBackend::finished, [&](const QString&, bool a) { done = true; aborted = a; });
+        rb.start();
+        waitFor([&] { return session() != nullptr; }, 5000);
+        if (session()) sessionDirSeen = session()->sessionDir();
+        CHECK(waitFor([&] { return done || !errs.isEmpty(); }, 120000));
+        for (const QString& e : errs) std::cerr << "RemoteBackend error: " << e.toStdString() << std::endl;
+        CHECK(errs.isEmpty() && done && !aborted);
+        CHECK(viaBackend.positions.size() == 3 && viaBackend.step == local.step);
+        double dev = 0.0;
+        for (size_t i = 0; i < 3 && i < viaBackend.positions.size(); ++i)
+            dev = std::max(dev, double((local.positions[i] - viaBackend.positions[i]).length()));
+        CHECK(dev < 1e-4 && std::fabs(local.energy - viaBackend.energy) < 1e-10);
+
+        // trajectory written on this side: n frames of 3 atoms (count + comment + 3 lines)
+        QFile trj(work.path() + "/client.trj.xyz");
+        CHECK(trj.open(QIODevice::ReadOnly));
+        const QList<QByteArray> lines = trj.readAll().split('\n');
+        CHECK(lines.size() == n * 5 + 1);
+        CHECK(!lines.isEmpty() && lines[0] == "3");
+        // the reference file reached the session directory under its upload name
+        CHECK(QFile::exists(sessionDirSeen + "/in/rmsd_mtd_ref_file-ref.xyz"));
+    }
+
+    // full trajectory written on the server (serverTrajectory): the finished message lists it among the
+    // session files and the file lies in the session directory (taken over from the removed
+    // test_remote_files; the trajectory is now browsed over SFTP, which needs no server support).
+    {
+        CHECK(waitFor([&] { return session() == nullptr; }, 10000));
+        SimulationConfig cfg;
+        cfg.mode = SimulationConfig::Mode::MolecularDynamics;
+        cfg.method = "gfnff";
+        cfg.steps = 30;
+        cfg.fpsLimit = 0;
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())), token);
+        rb.setTrajectoryPath(work.path() + "/server-run.trj.xyz");
+        rb.setMolecule(distortedWater());
+        rb.setConfig(cfg);
+        rb.setServerTrajectory(true);
+        QStringList status, errs;
+        bool done = false;
+        QString dir;
+        QObject::connect(&rb, &remote::RemoteBackend::statusText, [&](const QString& t) { status << t; });
+        QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
+        QObject::connect(&rb, &SimulationBackend::finished, [&](const QString&, bool) { done = true; });
+        rb.start();
+        waitFor([&] { return session() != nullptr; }, 5000);
+        if (session()) dir = session()->sessionDir();
+        CHECK(waitFor([&] { return done || !errs.isEmpty(); }, 120000));
+        CHECK(errs.isEmpty() && done);
+        QString filesLine;
+        for (const QString& t : status) if (t.startsWith("Files on")) filesLine = t;
+        CHECK(filesLine.contains(".trj.xyz") && filesLine.contains(dir));
+        QDirIterator it(dir, { "*.trj.xyz" }, QDir::Files | QDir::Hidden, QDirIterator::Subdirectories);
+        const QString trajectory = it.hasNext() ? it.next() : QString();
+        CHECK(!dir.isEmpty() && !trajectory.isEmpty() && QFileInfo(trajectory).size() > 0);
+    }
+
+    // link measurement: a run longer than a second yields `perf:` lines with the client side
+    // (frames, busy time, round trip) and the server's linkStats
+    {
+        SimulationConfig cfg;
+        cfg.mode = SimulationConfig::Mode::MolecularDynamics;
+        cfg.method = "gfnff";
+        cfg.steps = 100000;
+        cfg.fpsLimit = 30;
+        cfg.writeTrajectory = false;
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())), token);
+        rb.setMolecule(distortedWater());
+        rb.setBonds({ { 0, 1, 1 }, { 0, 2, 1 } });
+        rb.setConfig(cfg);
+        QStringList logs, errs;
+        int n = 0;
+        bool done = false;
+        QObject::connect(&rb, &SimulationBackend::frameReady, [&](SimulationFramePtr) { ++n; });
+        QObject::connect(&rb, &remote::RemoteBackend::logMessage, [&](const QString& s) { logs << s; });
+        QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
+        QObject::connect(&rb, &SimulationBackend::finished, [&](const QString&, bool) { done = true; });
+        rb.start();
+        auto perfLines = [&] { return logs.filter(QStringLiteral("perf:")).size(); };
+        CHECK(waitFor([&] { return perfLines() >= 2 || !errs.isEmpty(); }, 60000));
+        rb.requestStop();
+        waitFor([&] { return done; }, 30000);
+        const QStringList perf = logs.filter(QStringLiteral("perf:"));
+        CHECK(errs.isEmpty() && perf.size() >= 2 && n > 0);
+        CHECK(!logs.filter(QStringLiteral("run: MD, method gfnff")).isEmpty());  // the settings the rate depends on
+        // the second line has the server side (linkStats arrive once per second) and a round trip
+        if (perf.size() >= 2) {
+            std::cerr << perf.last().toStdString() << std::endl;
+            CHECK(perf.last().contains("recv") && perf.last().contains("RTT"));
+            CHECK(perf.last().contains("server: produced"));
+            CHECK(!perf.last().contains("RTT -1"));
+        }
+    }
+
+    // sending policy: a fast source is thinned to screen rate, a client-side trajectory keeps every
+    // frame, and a limit below the step rate is met (single-shot pacing in the worker)
+    {
+        // Median over the one-second windows (the first one is partial and skipped): one slow window
+        // on a loaded machine must not decide the check.
+        auto lastRecv = [](const QStringList& logs, const QString& key) {
+            std::vector<double> values;
+            const QRegularExpression re(key + QStringLiteral(" ([0-9.]+)"));
+            const QStringList perf = logs.filter(QStringLiteral("perf:"));
+            for (int i = 1; i < perf.size(); ++i) {
+                const auto m = re.match(perf[i]);
+                if (m.hasMatch())
+                    values.push_back(m.captured(1).toDouble());
+            }
+            if (values.empty())
+                return -1.0;
+            std::sort(values.begin(), values.end());
+            return values[values.size() / 2];
+        };
+        struct Result { double recv, produced, thinned; };
+        auto run = [&](int fpsLimit, bool clientTrajectory) {
+            SimulationConfig cfg;
+            cfg.mode = SimulationConfig::Mode::MolecularDynamics;
+            cfg.method = "gfnff";
+            cfg.steps = 1000000;
+            cfg.fpsLimit = fpsLimit;
+            cfg.writeTrajectory = clientTrajectory;
+            remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())), token);
+            rb.setTrajectoryPath(work.path() + "/policy.trj.xyz");
+            rb.setMolecule(distortedWater());
+            rb.setBonds({ { 0, 1, 1 }, { 0, 2, 1 } });
+            rb.setConfig(cfg);
+            QStringList logs;
+            bool done = false;
+            QObject::connect(&rb, &remote::RemoteBackend::logMessage, [&](const QString& s) { logs << s; });
+            QObject::connect(&rb, &SimulationBackend::finished, [&](const QString&, bool) { done = true; });
+            rb.start();
+            waitFor([&] { return logs.filter(QStringLiteral("perf:")).size() >= 4; }, 60000);
+            rb.requestStop();
+            waitFor([&] { return done; }, 30000);
+            const QStringList perf = logs.filter(QStringLiteral("perf:"));
+            QString last = perf.isEmpty() ? QString() : perf.last();
+            const auto thin = QRegularExpression(QStringLiteral("thinned ([0-9.]+)/s")).match(last);
+            return Result{ lastRecv(logs, QStringLiteral("recv")), lastRecv(logs, QStringLiteral("produced")),
+                thin.hasMatch() ? thin.captured(1).toDouble() : -1 };
+        };
+        const Result fast = run(1000, false);
+        std::cerr << "fast source: recv " << fast.recv << "/s, produced " << fast.produced << "/s, thinned " << fast.thinned << "/s" << std::endl;
+        CHECK(fast.produced > 100);         // the source really is fast
+        CHECK(fast.recv > 40 && fast.recv < 70);  // thinned to about 60 per second
+        CHECK(fast.thinned > 0);
+        const Result full = run(1000, true);
+        std::cerr << "client trajectory: recv " << full.recv << "/s, produced " << full.produced << "/s" << std::endl;
+        CHECK(full.recv > 0.8 * full.produced && full.thinned == 0);
+        const Result paced = run(30, false);
+        std::cerr << "limit 30: produced " << paced.produced << "/s" << std::endl;
+        CHECK(paced.produced > 26 && paced.produced < 32);
+    }
+
+    // a missing file parameter ends the start on this side, nothing is sent
+    {
+        SimulationConfig cfg = optConfig();
+        cfg.rmsdMtdRefFile = work.path() + "/does-not-exist.xyz";
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(server.port())), token);
+        rb.setMolecule(distortedWater());
+        rb.setConfig(cfg);
+        QStringList errs;
+        QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
+        rb.start();
+        CHECK(waitFor([&] { return !errs.isEmpty(); }, 5000));
+        CHECK(errs.size() == 1 && errs[0].contains("not found"));
+    }
+
+    // no server: the run ends with an error, there is no fallback to a local run
+    {
+        remote::RemoteBackend rb(QUrl(QStringLiteral("ws://127.0.0.1:1")), token);
+        rb.setMolecule(distortedWater());
+        rb.setConfig(optConfig());
+        QStringList errs;
+        int frames2 = 0;
+        QObject::connect(&rb, &SimulationBackend::errorOccurred, [&](const QString& e) { errs << e; });
+        QObject::connect(&rb, &SimulationBackend::frameReady, [&](SimulationFramePtr) { ++frames2; });
+        rb.start();
+        CHECK(waitFor([&] { return !errs.isEmpty(); }, 30000));
+        CHECK(errs.size() == 1 && frames2 == 0);
+    }
+
+    std::cout << (failures == 0 ? "All checks passed." : "FAILED") << " (" << failures << " failed)" << std::endl;
+    return failures == 0 ? 0 : 1;
+}

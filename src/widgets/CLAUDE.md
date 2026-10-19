@@ -5,5 +5,6 @@
 - `simulationchart.*`: live charts (CuteChart `ListChart`), rolling point limit, throttled axis formatting.
 - `elementpicker.*`: element strip plus periodic-table popup, visible in Build mode.
 - `commandpalette.*`: Ctrl+K palette; collects every menu action by walking `menuBar()`.
-- `breadcrumbbar.*`, `colorswatch.h`: path bar and shared colour-swatch helpers.
+- `breadcrumbbar.*`, `colorswatch.h`: path bar (parts from `remotepaths::breadcrumbSegments`, shared with the remote browser) and shared colour-swatch helpers.
 - Widgets carry no viewer logic; they emit signals that `MainWindow` wires. Architecture notes: `docs/architecture/viewer-ui.md`.
+- `themeicon.h`: `themeIcon(name, fallback)`, a desktop-theme icon with the style's standard icon as fallback (settings, add computer, dock buttons).

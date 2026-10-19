@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.20)
 project(qurcuma VERSION 1.0 LANGUAGES CXX)
 
+# Claude Generated 2026 - Without this, CMake writes no CTestTestfile.cmake and the
+# add_test() calls further down are inert: the test binaries are built but
+# `ctest` reports "No tests were found". Must be in the top-level list file.
+#
+# It also activates the 312 tests that curcuma's own CMakeLists registers through
+# add_subdirectory(test_cases) -- their executables are EXCLUDE_FROM_ALL here (see
+# the FetchContent block below), so a bare `ctest` would try to run binaries that
+# were never built. qurcuma's own tests therefore carry the label `qurcuma`:
+#     ctest --test-dir debug -L qurcuma
+enable_testing()
+
 # Claude Generated 2026 - Qt/QtCharts's exported CMake targets still list
 # AGL.framework (legacy pre-Metal OpenGL entry points) as a link dependency on
 # macOS, even though nothing in the RHI-based rendering path ever calls into
@@ -42,6 +53,10 @@ QuickWidgets  # Claude Generated 2026 - QQuickWidget viewport (no native-window 
 REQUIRED
 )
 
+# Claude Generated 2026 - OpenXR output (Qt Quick 3D XR, Qt >= 6.8). Optional: without the
+# module the VR menu entry is not built.
+find_package(Qt6 6.8 QUIET OPTIONAL_COMPONENTS Quick3DXr)
+
 # Claude Generated 2026 - GuiPrivate (needed for the QRhi-based high-res image export,
 # src/view.cpp) is requested separately and non-fatally: official Qt installer builds
 # (aqt/install-qt-action, used by CI) don't ship a standalone Qt6GuiPrivateConfig.cmake,
@@ -64,18 +79,30 @@ if(NOT TARGET Qt6::GuiPrivate)
     unset(_qt6gui_include_dir)
 endif()
 
-option(USE_SFTP "Enable SFTP remote file access (requires libssh)" OFF)
+# Claude Generated 2026 - SFTP (File > Open Remote File...) is on by default; without libssh it is
+# switched off with a notice instead of stopping the configuration (CI machines, Windows).
+option(USE_SFTP "Enable SFTP remote file access (needs libssh; switched off when libssh is not found)" ON)
+option(USE_LLM "Enable LLM support: OpenAI-compatible endpoints (needs Qt6::Network)" ON)
 if(USE_SFTP)
+    set(_libssh_found FALSE)
     find_package(PkgConfig)
     if(PKG_CONFIG_FOUND)
-        pkg_check_modules(LIBSSH REQUIRED libssh)
+        pkg_check_modules(LIBSSH libssh)
+        if(LIBSSH_FOUND)
+            set(_libssh_found TRUE)
+        endif()
     else()
         find_library(LIBSSH_LIBRARIES NAMES ssh)
         find_path(LIBSSH_INCLUDE_DIRS libssh/libssh.h)
-        if(NOT LIBSSH_LIBRARIES OR NOT LIBSSH_INCLUDE_DIRS)
-            message(FATAL_ERROR "libssh not found. Install libssh-dev (Debian/Ubuntu) or libssh-devel (Fedora/RHEL)")
+        if(LIBSSH_LIBRARIES AND LIBSSH_INCLUDE_DIRS)
+            set(_libssh_found TRUE)
         endif()
     endif()
+    if(NOT _libssh_found)
+        message(WARNING "libssh not found: SFTP (Open Remote File) is disabled. Install libssh-dev (Debian/Ubuntu), libssh-devel (Fedora/RHEL) or libssh (Arch) to enable it.")
+        set(USE_SFTP OFF)
+    endif()
+    unset(_libssh_found)
 endif()
 
 # External dependencies via FetchContent (replaces git submodules)
@@ -102,14 +129,12 @@ set(USE_VULKAN_XTB ${USE_VULKAN} CACHE BOOL "" FORCE)
 set(USE_PCH OFF CACHE BOOL "" FORCE)
 set(Helper OFF CACHE BOOL "" FORCE)
 
-# Claude Generated 2026 - main needs curcuma's reactff2-llm (reactive GFN-FF API,
-# ParameterRegistry tiers and relevantWhen for the All parameters tab); master lacks
-# them and a fresh CI checkout would not compile. Only a fresh clone reads this line:
-# with the local checkout present FetchContent is disconnected below. Back to master
-# once reactff2-llm is merged there.
+# Claude Generated 2026 - qurcuma follows curcuma's master (reactive GFN-FF API, ParameterRegistry
+# tiers and relevantWhen for the All parameters tab). Only a fresh clone reads this line: with the
+# local checkout present FetchContent is disconnected below.
 FetchContent_Declare(curcuma
     GIT_REPOSITORY https://github.com/conradhuebler/curcuma
-    GIT_TAG        reactff2-llm
+    GIT_TAG        master
     SOURCE_DIR     ${CMAKE_CURRENT_SOURCE_DIR}/external/curcuma
 )
 
@@ -162,9 +187,21 @@ set(SOURCES
     src/main.cpp
     src/mainwindow.cpp
     src/settings.cpp
+    src/remote/hostprofiles.cpp  # Claude Generated 2026 - the computer list (Qt core only), read by the remote dock and by SFTP
+    src/remotepaths.cpp  # Claude Generated 2026 - path/listing helpers of the remote browser, breadcrumb split (Qt core only)
     src/vtfparser.cpp
     src/xyzparser.cpp
     src/moleculefileloader.cpp  # Claude Generated 2026 - unified structure-file reader
+    src/llm/atomselection.cpp  # Claude Generated 2026 - shared selection grammar
+    src/llm/tools_view.cpp  # Claude Generated 2026 - read-only tools over the viewer
+    src/llm/curcumajob.cpp  # Claude Generated 2026 - in-process curcuma calculation
+    src/llm/tools_compute.cpp  # Claude Generated 2026
+    src/llm/tools_edit.cpp  # Claude Generated 2026 - structure editing
+    src/llm/tools_files.cpp  # Claude Generated 2026 - merge from / save to disk
+    src/llm/tools_simulation.cpp  # Claude Generated 2026 - interactive MD / opt
+    src/llm/curcuma_schemas.cpp  # Claude Generated 2026
+    src/llm/tools_palette.cpp  # Claude Generated 2026 - tools in the command palette
+    $<$<BOOL:${USE_LLM}>:${CMAKE_CURRENT_SOURCE_DIR}/src/docks/qurcumachathost.cpp>  # Claude Generated 2026 - the ChatHost of CuteChat's ChatDock
     src/calculationhistory.cpp  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.cpp  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.cpp
@@ -189,6 +226,7 @@ set(SOURCES
 
     #src/dialogs/nmrstructuremodel.cpp
     src/simulationworker.cpp  # Claude Generated - Interactive Simulation Integration
+    src/simulationbackend.cpp  # Claude Generated 2026 - LocalBackend (WP remote compute R0)
     src/simulationcontrolwidget.cpp  # Claude Generated - Interactive Simulation Integration
     src/simulationparameterswidget.cpp  # Claude Generated 2026 - All parameters tab (registry-generated)
     src/snapshotswidget.cpp  # Claude Generated 2026 - Snapshot history foundation
@@ -200,11 +238,13 @@ set(SOURCES
     src/docks/appearancedock.cpp  # Claude Generated 2026 - UX stage 4
     src/docks/bookmarkwidget.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/workspacepanel.cpp  # Claude Generated 2026 - Dock system restructuring
-    src/docks/remotedirectoriespanel.cpp  # Claude Generated 2026 - Dock system restructuring
     src/docks/projectdock.cpp  # Claude Generated 2026 - Dock system restructuring
+    src/docks/directoryfilter.cpp  # Claude Generated 2026 - file filter shared by the local and the remote file list
     src/docks/imagegallerydock.cpp  # Claude Generated 2026 - batch border-trim gallery
     src/docks/chartdock.cpp  # Claude Generated 2026 - live charts dock
+    src/docks/scriptdock.cpp  # Claude Generated 2026 - script editor + run (not USE_LLM-gated)
     src/docks/ncidock.cpp  # Claude Generated 2026 - non-covalent interaction dock
+    src/docks/celldock.cpp  # Claude Generated 2026 - cif unit cell + repeats dock
     src/nciwidget.cpp  # Claude Generated 2026 - non-covalent interaction contact table
     src/ncianalysisworker.cpp  # Claude Generated 2026 - off-thread NCI analysis (GFN-FF/GFN2)
     src/imagecrop.cpp  # Claude Generated 2026 - image border-trim analysis (metadata-preserving)
@@ -216,6 +256,7 @@ set(SOURCES
     src/scenefiller.cpp  # Claude Generated 2026 - pack fragment copies into a container
     src/measurements.cpp  # Claude Generated 2026 - distance/angle/dihedral + histogram binning
     src/dialogs/fillcontainerdialog.cpp  # Claude Generated 2026 - fill-container dialog
+    src/tableinstancing.cpp  # Claude Generated 2026 - instance-table base + mirror for the headset scene
     src/atominstancing.cpp  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.cpp  # Claude Generated 2026 - Quick3D renderer: bond instancing
     src/scenecontroller.cpp  # Claude Generated 2026 - Quick3D renderer: scene view-model
@@ -223,16 +264,29 @@ set(SOURCES
     src/lessonstructuremodel.cpp  # Claude Generated 2026 - in-memory lesson structure list model
     src/lessoncontroller.cpp  # Claude Generated 2026 - WP T4 lesson feature controller
     src/dialogs/lessonmetadatadialog.cpp  # Claude Generated 2026 - lesson metadata editor
+    src/programpaths.cpp  # Claude Generated 2026 - external program table, path checks, ORCID check
+    src/dialogs/settingsdialog.cpp  # Claude Generated 2026 - Settings dialog (programs + operator)
 )
 
 # Header-Dateien
 set(HEADERS
     src/mainwindow.h
     src/settings.h
+    src/remote/hostprofiles.h
+    src/remotepaths.h  # Claude Generated 2026
     src/view.h
     src/vtfparser.h
     src/xyzparser.h
     src/moleculefileloader.h  # Claude Generated 2026 - unified structure-file reader
+    src/llm/atomselection.h  # Claude Generated 2026 - shared selection grammar
+    src/llm/tools_view.h  # Claude Generated 2026 - read-only tools over the viewer
+    src/llm/curcumajob.h  # Claude Generated 2026 - in-process curcuma calculation
+    src/llm/tools_compute.h  # Claude Generated 2026
+    src/llm/tools_edit.h  # Claude Generated 2026 - structure editing
+    src/llm/tools_files.h  # Claude Generated 2026 - merge from / save to disk
+    src/llm/tools_simulation.h  # Claude Generated 2026 - interactive MD / opt
+    src/llm/curcuma_schemas.h  # Claude Generated 2026
+    src/llm/tools_palette.h  # Claude Generated 2026 - tools in the command palette
     src/calculationhistory.h  # Claude Generated 2026 - calculations.json persistence
     src/calculationrunner.h  # Claude Generated 2026 - WP T3 external-process orchestration
     src/modifiabletextedit.h
@@ -252,12 +306,15 @@ set(HEADERS
     src/pdbparser.h  # Claude Generated Phase 5C
     src/mol2parser.h  # Claude Generated Phase 5C
     src/simulationworker.h  # Claude Generated - Interactive Simulation Integration
+    src/simulationbackend.h
+    src/moleculetypes.h
     src/simulationcontrolwidget.h  # Claude Generated - Interactive Simulation Integration
     src/simulationparameterswidget.h  # Claude Generated 2026 - All parameters tab (Q_OBJECT)
     src/snapshotswidget.h  # Claude Generated 2026 - Snapshot history foundation
     src/rmsdwidget.h  # Claude Generated 2026 - RMSD / align tool (Analysis dock)
     src/forceinjector.h  # Claude Generated 2026 - Topological force distribution (Phase 4)
     src/elementdata.h  # Claude Generated 2026 - Quick3D renderer: shared element tables
+    src/tableinstancing.h  # Claude Generated 2026 - instance-table base + mirror for the headset scene
     src/atominstancing.h  # Claude Generated 2026 - Quick3D renderer: atom instancing
     src/bondinstancing.h  # Claude Generated 2026 - Quick3D renderer: bond instancing
     src/scenecontroller.h  # Claude Generated 2026 - Quick3D renderer: scene view-model
@@ -266,23 +323,134 @@ set(HEADERS
     src/lessoncontroller.h  # Claude Generated 2026 - WP T4 lesson feature controller (Q_OBJECT)
     src/dialogs/lessonmetadatadialog.h  # Claude Generated 2026 - lesson metadata editor (Q_OBJECT)
     src/dialogs/fillcontainerdialog.h  # Claude Generated 2026 - fill-container dialog (Q_OBJECT)
+    src/programpaths.h  # Claude Generated 2026 - external program table, path checks, ORCID check
+    src/dialogs/settingsdialog.h  # Claude Generated 2026 - Settings dialog (Q_OBJECT)
     #src/dialogs/nmrstructuremodel.h
 
 )
 
 if(USE_SFTP)
+    # Claude Generated 2026 - remote browser of the Project dock (Remote segment): the libssh session
+    # runs in SftpClient on its own thread, RemoteBrowserPanel is the widget.
     list(APPEND SOURCES
-        src/dialogs/sftpdialog.cpp
+        src/sftpclient.cpp
+        src/docks/remotebrowserpanel.cpp
         src/sshconfig.cpp
         src/sftpcache.cpp
     )
     list(APPEND HEADERS
-        src/dialogs/sftpdialog.h
-        src/sftpmodel.hpp
+        src/sftpclient.h
+        src/docks/remotebrowserpanel.h
         src/sshconfig.h
         src/sftpcache.h
     )
 endif()
+
+# Claude Generated 2026 - Remote compute (docs/WP-remote-compute-vr.md): the GUI side
+# (RemoteBackend, SshTunnel, "Compute on" in the Simulation dock) needs Qt6::WebSockets.
+option(USE_REMOTE "Build remote compute support (needs Qt6::WebSockets)" ON)
+find_package(Qt6 COMPONENTS WebSockets QUIET)
+if(USE_REMOTE AND TARGET Qt6::WebSockets)
+    set(QURCUMA_REMOTE ON)
+    list(APPEND SOURCES
+        src/remote/protocol.cpp
+        src/remote/remotebackend.cpp
+        src/remote/remotelog.cpp
+        src/remote/hostprobe.cpp
+        src/remote/sshtunnel.cpp
+        src/dialogs/addcomputerdialog.cpp)
+    list(APPEND HEADERS
+        src/remote/protocol.h
+        src/remote/remotebackend.h
+        src/remote/remotelog.h
+        src/remote/sshtunnel.h
+        src/remote/hostprobe.h
+        src/dialogs/addcomputerdialog.h)
+endif()
+
+# --- CuteChat: the tool layer, the endpoint client, the agent loop and the chat log ----------------
+# Claude Generated 2026 - Shared with SupraFit (docs/DESIGN.md in the CuteChat repo). A git submodule at
+# external/CuteChat (git submodule update --init); -DCUTECHAT_DIR=<checkout> or a sibling checkout ../CuteChat
+# override it for working on the library. Only the Qt-Core-only tool layer (CuteChat::tools) goes into
+# qurcuma_core; the client, session and config (CuteChat::core, needs Qt6::Network) into qurcuma_llm.
+set(CUTECHAT_DIR "" CACHE PATH "CuteChat checkout (default: external/CuteChat, then ../CuteChat)")
+if(NOT CUTECHAT_DIR)
+    foreach(_candidate ${CMAKE_CURRENT_SOURCE_DIR}/external/CuteChat ${CMAKE_CURRENT_SOURCE_DIR}/../CuteChat)
+        if(EXISTS ${_candidate}/CMakeLists.txt)
+            set(CUTECHAT_DIR ${_candidate})
+            break()
+        endif()
+    endforeach()
+endif()
+if(NOT CUTECHAT_DIR OR NOT EXISTS ${CUTECHAT_DIR}/CMakeLists.txt)
+    message(FATAL_ERROR "qurcuma needs the CuteChat library: run `git submodule update --init` "
+                        "(external/CuteChat), or set -DCUTECHAT_DIR=<path to CuteChat> (../CuteChat is tried as well)")
+endif()
+message(STATUS "qurcuma: CuteChat from ${CUTECHAT_DIR}")
+set(CUTECHAT_BUILD_WIDGETS ON)    # the chat dock and the endpoint dialog: qurcuma's assistant is CuteChat's ChatDock
+set(CUTECHAT_BUILD_TESTS OFF)     # the library's own tests run in its repo; qurcuma's test_* cover its use of it
+set(CUTECHAT_INSTALL OFF)
+add_subdirectory(${CUTECHAT_DIR} ${CMAKE_BINARY_DIR}/external/CuteChat)
+
+# --- qurcuma_core: the widget-free core -------------------------------------
+# Claude Generated 2026 - The log hub, the core tools and the molecule records; the tool registry and
+# dispatcher come from CuteChat::tools (Qt Core only).
+# Linking ONLY Qt6::Core and Qt6::Gui is the point of this target, not an accident:
+# it is what lets ctest drive the registry headlessly and turns "GUI-free" into a
+# property the build checks rather than a claim in a comment. Qt6::Gui is needed
+# for QVector3D and QColor in the data records; Widgets and Quick3D must stay out.
+#
+# No curcuma here yet, so qurcuma_match_curcuma_simd() is deliberately NOT applied:
+# there is no Eigen type crossing this boundary. The moment a core TU includes a
+# curcuma header, add the include dirs AND that call together.
+add_library(qurcuma_core STATIC
+    src/core/loghub.cpp
+    src/core/loghub.h
+    src/core/tools_core.cpp
+    src/core/tools_core.h
+    src/core/moleculedata.h
+)
+target_link_libraries(qurcuma_core PUBLIC Qt6::Core Qt6::Gui CuteChat::tools)
+target_include_directories(qurcuma_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# --- qurcuma_llm: the endpoint client (CuteChat::core) ----------------------
+# Claude Generated 2026 - Separate from qurcuma_core on purpose. The core's
+# verified property is that it links only Qt6::Core and Qt6::Gui; putting the
+# network stack in there would quietly end that. This target adds Qt6::Network and
+# nothing else, so it stays testable headlessly against a local stub server.
+if(USE_LLM)
+    find_package(Qt6 COMPONENTS Network REQUIRED)
+    # nothing of its own any more: the client, config and session are CuteChat::core
+    add_library(qurcuma_llm INTERFACE)
+    target_link_libraries(qurcuma_llm INTERFACE qurcuma_core CuteChat::core)
+endif()
+
+# --- qurcuma_script: the script interpreter ----------------------------------
+# Claude Generated 2026 - SupraFit's scripting engine, in qurcuma's shape: a short
+# JavaScript calculation run by the application, so that numbers are computed here
+# instead of in a model's head. The engine is QJSEngine, which arrives with Qt6Qml
+# (already in the build for the 3D viewer), hence no new package.
+#
+# Deliberately NOT in qurcuma_core: that target's verified property is "links only
+# Qt6::Core and Qt6::Gui", and libQt6Qml pulls Qt6Network, ICU, libproxy and libsystemd
+# along with it (measured with ldd on this machine, 14.09.2026). Deliberately not
+# USE_LLM-gated either: a script is a calculation, not a way to reach an endpoint, so
+# a -DUSE_LLM=OFF build still gets the whole feature.
+#
+# Headless: Qt6::Widgets and Quick3D stay out, so ctest drives it without a display.
+add_library(qurcuma_script STATIC
+    src/script/scriptinterpreter.cpp
+    src/script/scriptinterpreter.h
+    src/script/scriptbuiltins.cpp
+    src/script/scriptbuiltins.h
+    src/script/scriptbridge.h
+    src/script/scriptsyntax.cpp
+    src/script/scriptsyntax.h
+    src/script/tools_script.cpp
+    src/script/tools_script.h
+)
+target_link_libraries(qurcuma_script PUBLIC qurcuma_core Qt6::Qml)
+target_include_directories(qurcuma_script PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_executable(qurcuma
     ${SOURCES}
@@ -290,39 +458,59 @@ add_executable(qurcuma
     resources.qrc
 )
 
+if(TARGET Qt6::Quick3DXr)
+    target_sources(qurcuma PRIVATE src/vrsession.cpp src/vrsession.h)  # Claude Generated 2026 - OpenXR session
+    target_sources(qurcuma PRIVATE src/xrscenebridge.cpp src/xrscenebridge.h)  # Claude Generated 2026 - mirrored tables for the headset
+    target_link_libraries(qurcuma PRIVATE Qt6::Quick3DXr)
+    target_compile_definitions(qurcuma PRIVATE QURCUMA_HAS_XR)
+endif()
+
 target_compile_definitions(qurcuma PRIVATE
     $<$<BOOL:${USE_SFTP}>:USE_SFTP>
+    $<$<BOOL:${QURCUMA_REMOTE}>:QURCUMA_REMOTE>
+    $<$<BOOL:${USE_LLM}>:USE_LLM>
     QURCUMA_VERSION="${PROJECT_VERSION}")
 
-# Claude Generated 2026 - Match curcuma's CPU/SIMD flags on the qurcuma target.
+# Claude Generated 2026 - Match curcuma's CPU/SIMD flags on a target.
 #
 # curcuma (FetchContent, above) compiles its TUs with -march=native (or AVX-512)
 # when USE_MARCH_NATIVE/USE_AVX512 is set, but that set(CMAKE_CXX_FLAGS ...) lives
-# in curcuma's subdirectory scope and does NOT reach this parent-scope target.
+# in curcuma's subdirectory scope and does NOT reach parent-scope targets.
 # The mismatch changes Eigen's EIGEN_MAX_ALIGN_BYTES (16 for SSE2 here vs 64 for
 # AVX-512), so a curcuma-allocated Eigen Geometry copied/freed inside a qurcuma TU
 # (e.g. moleculeToFrame: `Geometry geo = mol.getGeometry();`) hits mismatched
 # aligned-alloc bookkeeping -> "double free or corruption" the instant the
 # interactive MD/Opt starts (Release-only; Debug builds both sides SSE2 and works).
-# Mirroring curcuma's flag selection keeps both sides on the same Eigen ABI.
+#
+# A function rather than a copied block: EVERY parent-scope target that ever sees a
+# curcuma header has to carry these flags, and a copied block is the kind of thing
+# that gets added to three targets and forgotten on the fourth.
 include(CheckCXXCompilerFlag)
-if(USE_MARCH_NATIVE)
-    check_cxx_compiler_flag("-march=native" QURCUMA_SUPPORTS_MARCH_NATIVE)
-    if(QURCUMA_SUPPORTS_MARCH_NATIVE)
-        target_compile_options(qurcuma PRIVATE -march=native)
-        message(STATUS "qurcuma: matching curcuma -march=native (Eigen ABI alignment)")
+function(qurcuma_match_curcuma_simd target)
+    if(USE_MARCH_NATIVE)
+        check_cxx_compiler_flag("-march=native" QURCUMA_SUPPORTS_MARCH_NATIVE)
+        if(QURCUMA_SUPPORTS_MARCH_NATIVE)
+            target_compile_options(${target} PRIVATE -march=native)
+            message(STATUS "${target}: matching curcuma -march=native (Eigen ABI alignment)")
+        endif()
+    elseif(USE_AVX512)
+        target_compile_options(${target} PRIVATE -mavx512f -mavx512vl -mavx512dq -mfma)
+        message(STATUS "${target}: matching curcuma AVX-512 flags (Eigen ABI alignment)")
+    elseif(USE_AVX2)
+        target_compile_options(${target} PRIVATE -mavx2 -mfma)
+        message(STATUS "${target}: matching curcuma AVX2 flags (Eigen ABI alignment)")
     endif()
-elseif(USE_AVX512)
-    target_compile_options(qurcuma PRIVATE -mavx512f -mavx512vl -mavx512dq -mfma)
-    message(STATUS "qurcuma: matching curcuma AVX-512 flags (Eigen ABI alignment)")
-elseif(USE_AVX2)
-    target_compile_options(qurcuma PRIVATE -mavx2 -mfma)
-    message(STATUS "qurcuma: matching curcuma AVX2 flags (Eigen ABI alignment)")
-endif()
+endfunction()
+
+qurcuma_match_curcuma_simd(qurcuma)
 
 # Claude Generated - OpenMP needed by curcuma_core
 find_package(OpenMP)
 target_link_libraries(qurcuma PRIVATE
+qurcuma_core  # Claude Generated 2026 - tool registry + log hub
+$<$<BOOL:${USE_LLM}>:qurcuma_llm>  # Claude Generated 2026 - endpoint client
+$<$<BOOL:${USE_LLM}>:CuteChat::cutechat>  # Claude Generated 2026 - ChatDock, ChatEngine, EndpointDialog
+qurcuma_script  # Claude Generated 2026 - script interpreter (QJSEngine)
 Qt6::Core
 Qt6::Gui
 Qt6::GuiPrivate
@@ -332,12 +520,19 @@ Qt6::Qml
 Qt6::Quick
 Qt6::Quick3D
 Qt6::QuickWidgets
+$<$<BOOL:${QURCUMA_REMOTE}>:Qt6::WebSockets>
 cutechart
 $<$<BOOL:${USE_SFTP}>:${LIBSSH_LIBRARIES}>
 curcuma_core  # Claude Generated - Curcuma simulation backend
 curcuma_cap   # Claude Generated - Curcuma capabilities (MD, Opt)
 $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>  # Claude Generated - OpenMP for curcuma
 )
+
+# Claude Generated 2026 - curcuma's GPU backends are dlopen plugins
+# (libcurcuma_<backend>.so) whose core symbols (NativeXtbMethod, GFNFF,
+# CurcumaLogger, ...) resolve against the host executable. curcuma adds
+# -rdynamic only for its own binary, so export them from qurcuma as well.
+set_target_properties(qurcuma PROPERTIES ENABLE_EXPORTS ON)
 
 # Include directories — curcuma deps fetched by curcuma's FetchContent into external/
 target_include_directories(qurcuma PRIVATE
@@ -417,8 +612,8 @@ target_include_directories(test_nci PRIVATE
 # Needs Quick3D only because SceneController owns the instancing objects; no window
 # is created (offscreen platform is enough).
 add_executable(test_fragments tests/test_fragments.cpp src/scenecontroller.cpp
-    src/atominstancing.cpp src/bondinstancing.cpp src/elementdata.cpp src/ncianalysis.cpp
-    src/forceinjector.cpp)
+    src/tableinstancing.cpp src/atominstancing.cpp src/bondinstancing.cpp src/elementdata.cpp
+    src/ncianalysis.cpp src/forceinjector.cpp)
 target_link_libraries(test_fragments PRIVATE
 Qt6::Core
 Qt6::Gui
@@ -436,7 +631,60 @@ target_include_directories(test_fragments PRIVATE
     ${curcuma_BINARY_DIR}
 )
 
+# Instance-table mirror test - Claude Generated 2026. Pins how the headset scene follows the
+# desktop SceneController (src/tableinstancing.h, src/xrscenebridge.h): mirror count/bytes after a
+# rebuild, one mirror per controller table, instance -> atom index mapping, and (offscreen OpenGL)
+# that a mirror in a second window re-renders after a source rebuild and only then, and that
+# src/qml/MoleculeModels.qml shows overlays switched on later with their parent's rotation.
+add_executable(test_instancing_mirror test_instancing_mirror.cpp src/scenecontroller.cpp
+    src/tableinstancing.cpp src/atominstancing.cpp src/bondinstancing.cpp src/xrscenebridge.cpp
+    src/elementdata.cpp src/ncianalysis.cpp src/forceinjector.cpp)
+target_link_libraries(test_instancing_mirror PRIVATE
+Qt6::Core
+Qt6::Gui
+Qt6::Widgets
+Qt6::Qml
+Qt6::Quick
+Qt6::Quick3D
+)
+target_include_directories(test_instancing_mirror PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+target_compile_definitions(test_instancing_mirror PRIVATE
+    QURCUMA_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/qml")
+add_test(NAME instancing_mirror COMMAND test_instancing_mirror)
+set_tests_properties(instancing_mirror PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # Look round-trip test - Claude Generated 2026 (look.h is header-only).
+# ~/.ssh/config parser (SFTP: aliases of the remote browser) - Claude Generated 2026.
+add_executable(test_sshconfig tests/test_sshconfig.cpp src/sshconfig.cpp)
+target_link_libraries(test_sshconfig PRIVATE Qt6::Core)
+target_include_directories(test_sshconfig PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# Remote browser helpers: sorting, paths, breadcrumb parts, bookmark ids, connection mapping - Claude Generated 2026.
+add_executable(test_remotepaths tests/test_remotepaths.cpp src/remotepaths.cpp src/remote/hostprofiles.cpp)
+target_link_libraries(test_remotepaths PRIVATE Qt6::Core)
+target_include_directories(test_remotepaths PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_test(NAME remotepaths COMMAND test_remotepaths)
+
+# Program path detection/validation, ORCID check, ORCA settings-key migration - Claude Generated 2026.
+add_executable(test_programpaths tests/test_programpaths.cpp src/programpaths.cpp)
+target_link_libraries(test_programpaths PRIVATE Qt6::Core)
+target_include_directories(test_programpaths PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_test(NAME programpaths COMMAND test_programpaths)
+
+# Cell-list bond detection (src/bonddetect.h) against the all-pairs loop - Claude Generated 2026.
+add_executable(test_bonddetect tests/test_bonddetect.cpp)
+target_link_libraries(test_bonddetect PRIVATE Qt6::Core Qt6::Gui)
+target_include_directories(test_bonddetect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
 add_executable(test_looks tests/test_looks.cpp)
 target_link_libraries(test_looks PRIVATE
 Qt6::Core
@@ -483,6 +731,179 @@ target_include_directories(test_measurements PRIVATE
     ${curcuma_BINARY_DIR}
 )
 add_test(NAME measurements COMMAND test_measurements)
+set_tests_properties(measurements PROPERTIES LABELS qurcuma)
+
+# Selection-grammar test - Claude Generated 2026
+# Pins curcuma's FragString2Indicies: one-based, and Fn needs GetFragments() first.
+add_executable(test_selectiongrammar test_selectiongrammar.cpp src/llm/atomselection.cpp)
+target_link_libraries(test_selectiongrammar PRIVATE
+Qt6::Core
+Qt6::Gui
+curcuma_core
+)
+qurcuma_match_curcuma_simd(test_selectiongrammar)
+target_include_directories(test_selectiongrammar PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+add_test(NAME selectiongrammar COMMAND test_selectiongrammar)
+set_tests_properties(selectiongrammar PROPERTIES LABELS qurcuma)
+
+# CurcumaLogger sink test - Claude Generated 2026
+# The property under test is thread-locality, so this one needs Threads.
+add_executable(test_curcumalogsink test_curcumalogsink.cpp)
+target_link_libraries(test_curcumalogsink PRIVATE
+Qt6::Core
+curcuma_core
+Threads::Threads
+)
+qurcuma_match_curcuma_simd(test_curcumalogsink)
+target_include_directories(test_curcumalogsink PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+add_test(NAME curcumalogsink COMMAND test_curcumalogsink)
+set_tests_properties(curcumalogsink PROPERTIES LABELS qurcuma)
+
+# In-process job test - Claude Generated 2026
+# Runs a real single point and a real RMSD, so the four properties the in-process
+# path had to acquire are checked together: captured output, per-run state, a
+# result without a file, and nothing left in the working directory.
+add_executable(test_curcumajob test_curcumajob.cpp src/llm/curcumajob.cpp)
+target_link_libraries(test_curcumajob PRIVATE
+qurcuma_core
+curcuma_core
+curcuma_cap
+$<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
+Threads::Threads
+)
+qurcuma_match_curcuma_simd(test_curcumajob)
+target_include_directories(test_curcumajob PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/LBFGSpp/include  # rmsd.h pulls LBFGS.h
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+add_test(NAME curcumajob COMMAND test_curcumajob)
+set_tests_properties(curcumajob PROPERTIES LABELS qurcuma)
+
+# Schema-generation test - Claude Generated 2026
+add_executable(test_curcumaschemas test_curcumaschemas.cpp src/llm/curcuma_schemas.cpp)
+target_link_libraries(test_curcumaschemas PRIVATE
+qurcuma_core
+curcuma_core
+$<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
+)
+qurcuma_match_curcuma_simd(test_curcumaschemas)
+target_include_directories(test_curcumaschemas PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}
+    ${curcuma_SOURCE_DIR}/src
+    ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+    ${curcuma_SOURCE_DIR}/external
+    ${curcuma_BINARY_DIR}
+)
+add_test(NAME curcumaschemas COMMAND test_curcumaschemas)
+set_tests_properties(curcumaschemas PROPERTIES LABELS qurcuma)
+
+# LogHub test - Claude Generated 2026
+# LogHub is QtCore-only by design (it has to link into a widget-free core), so this
+# target needs neither Gui nor curcuma. Threads::Threads is explicit because the
+# test appends from several std::threads to pin the locking.
+find_package(Threads REQUIRED)
+add_executable(test_loghub test_loghub.cpp)
+target_link_libraries(test_loghub PRIVATE
+qurcuma_core
+Threads::Threads
+)
+target_include_directories(test_loghub PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+add_test(NAME loghub COMMAND test_loghub)
+set_tests_properties(loghub PROPERTIES LABELS qurcuma)
+
+# ToolRegistry test - Claude Generated 2026
+add_executable(test_toolregistry test_toolregistry.cpp)
+target_link_libraries(test_toolregistry PRIVATE
+qurcuma_core
+)
+add_test(NAME toolregistry COMMAND test_toolregistry)
+set_tests_properties(toolregistry PROPERTIES LABELS qurcuma)
+
+# ToolDispatcher test - Claude Generated 2026
+# Needs Threads because it dispatches from a real second thread; that is the whole
+# point of the target.
+add_executable(test_tooldispatcher test_tooldispatcher.cpp)
+target_link_libraries(test_tooldispatcher PRIVATE
+qurcuma_core
+Threads::Threads
+)
+add_test(NAME tooldispatcher COMMAND test_tooldispatcher)
+set_tests_properties(tooldispatcher PROPERTIES LABELS qurcuma)
+
+# Core tools test - Claude Generated 2026
+add_executable(test_toolscore test_toolscore.cpp)
+target_link_libraries(test_toolscore PRIVATE
+qurcuma_core
+)
+add_test(NAME toolscore COMMAND test_toolscore)
+set_tests_properties(toolscore PROPERTIES LABELS qurcuma)
+
+# Script interpreter test - Claude Generated 2026
+# Threads because stopping a runaway script is done from a second thread, which is
+# the whole point of the check.
+add_executable(test_scriptinterpreter test_scriptinterpreter.cpp)
+target_link_libraries(test_scriptinterpreter PRIVATE
+qurcuma_script
+Threads::Threads
+)
+add_test(NAME scriptinterpreter COMMAND test_scriptinterpreter)
+set_tests_properties(scriptinterpreter PROPERTIES LABELS qurcuma)
+
+# Script tool test - Claude Generated 2026
+# Threads because the dispatcher check starts a script and interrupts it, which is the
+# path the assistant's Stop button takes.
+add_executable(test_scripttool test_scripttool.cpp)
+target_link_libraries(test_scripttool PRIVATE
+qurcuma_script
+Threads::Threads
+)
+add_test(NAME scripttool COMMAND test_scripttool)
+set_tests_properties(scripttool PROPERTIES LABELS qurcuma)
+
+# LLM client/config test - Claude Generated 2026
+# Talks to a QTcpServer stub inside the test process. ctest never touches a network.
+if(USE_LLM)
+    add_executable(test_llmclient test_llmclient.cpp)
+    target_link_libraries(test_llmclient PRIVATE
+    qurcuma_llm
+    )
+    add_test(NAME llmclient COMMAND test_llmclient)
+    set_tests_properties(llmclient PROPERTIES LABELS qurcuma)
+
+    add_executable(test_llmsession test_llmsession.cpp)
+    target_link_libraries(test_llmsession PRIVATE
+    qurcuma_llm
+    )
+    add_test(NAME llmsession COMMAND test_llmsession)
+    set_tests_properties(llmsession PROPERTIES LABELS qurcuma)
+endif()
 
 add_executable(test_scenefiller tests/test_scenefiller.cpp src/scenefiller.cpp src/buildtools.cpp
     src/elementdata.cpp src/fragmentlibrary.cpp)
@@ -502,6 +923,7 @@ target_include_directories(test_scenefiller PRIVATE
     ${curcuma_BINARY_DIR}
 )
 add_test(NAME scenefiller COMMAND test_scenefiller)
+set_tests_properties(scenefiller PROPERTIES LABELS qurcuma)
 
 add_executable(test_buildtools tests/test_buildtools.cpp src/buildtools.cpp src/elementdata.cpp
     src/fragmentlibrary.cpp)
@@ -598,8 +1020,81 @@ elseif(APPLE)
     endif()
 endif()
 
+
+# ---------------------------------------------------------------------------
+# Remote compute (WP remote compute R1, docs/WP-remote-compute-vr.md):
+# qurcuma-server runs SimulationWorker headless for a remote qurcuma. Needs Qt6::WebSockets;
+# skipped when it is not installed.
+# ---------------------------------------------------------------------------
+if(TARGET Qt6::WebSockets)
+    add_library(qurcuma_remote STATIC
+        src/remote/protocol.cpp
+        src/remote/remotebackend.cpp
+        src/remote/remotelog.cpp
+        src/remote/hostprofiles.cpp
+        src/remote/hostprobe.cpp
+        src/remote/sshtunnel.cpp
+        src/remote/serversession.cpp
+        src/simulationbackend.cpp
+        src/simulationworker.cpp
+        src/forceinjector.cpp
+        src/lesson.cpp)
+    target_link_libraries(qurcuma_remote PUBLIC Qt6::Core Qt6::Gui Qt6::WebSockets curcuma_core curcuma_cap
+        $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>)
+    target_include_directories(qurcuma_remote PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/
+        ${curcuma_SOURCE_DIR}
+        ${curcuma_SOURCE_DIR}/src
+        ${curcuma_SOURCE_DIR}/external/eigen-3.4.0
+        ${curcuma_SOURCE_DIR}/external
+        ${curcuma_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/LBFGSpp/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/fmt/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/ripser
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/cpp-d4/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/CxxThreadPool/include)
+    # Same Eigen alignment as curcuma (see the qurcuma target above).
+    if(USE_MARCH_NATIVE)
+        target_compile_options(qurcuma_remote PUBLIC -march=native)
+    elseif(USE_AVX512)
+        target_compile_options(qurcuma_remote PUBLIC -mavx512f -mavx512vl -mavx512dq -mfma)
+    elseif(USE_AVX2)
+        target_compile_options(qurcuma_remote PUBLIC -mavx2 -mfma)
+    endif()
+    set_target_properties(qurcuma_remote PROPERTIES AUTOMOC ON)
+
+    add_executable(qurcuma-server src/remote/server_main.cpp)
+    target_link_libraries(qurcuma-server PRIVATE qurcuma_remote)
+
+    add_executable(test_remote_protocol tests/test_remote_protocol.cpp)
+    target_link_libraries(test_remote_protocol PRIVATE qurcuma_remote)
+    add_executable(test_remote_loopback tests/test_remote_loopback.cpp)
+    target_link_libraries(test_remote_loopback PRIVATE qurcuma_remote)
+    add_executable(test_remote_reconnect tests/test_remote_reconnect.cpp)
+    target_link_libraries(test_remote_reconnect PRIVATE qurcuma_remote)
+    add_executable(test_remote_hosts tests/test_remote_hosts.cpp)
+    target_link_libraries(test_remote_hosts PRIVATE qurcuma_remote)
+    add_executable(test_remote_ssh tests/test_remote_ssh.cpp)
+    target_link_libraries(test_remote_ssh PRIVATE qurcuma_remote)
+    add_dependencies(test_remote_ssh qurcuma-server)
+    add_dependencies(test_remote_hosts qurcuma-server)
+else()
+    message(STATUS "qurcuma: Qt6::WebSockets not found - qurcuma-server and the remote tests are not built")
+endif()
+
 set(CPACK_PACKAGE_NAME "qurcuma")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_PACKAGE_FILE_NAME "qurcuma-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}")
 include(CPack)
+
+# Claude Generated 2026 - The GPU plugins (libcurcuma_<backend>.so, dlopen'd by curcuma's
+# gpu_plugin) resolve their undefined core symbols (NativeXtbMethod vtable, XTB, ...) against
+# the executable. Curcuma's -rdynamic lives in its own directory scope and does not reach
+# these targets, so export the symbols explicitly.
+set_target_properties(qurcuma PROPERTIES ENABLE_EXPORTS ON)
+if(TARGET qurcuma-server)
+    set_target_properties(qurcuma-server PROPERTIES ENABLE_EXPORTS ON)
+endif()

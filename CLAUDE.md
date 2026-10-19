@@ -11,6 +11,8 @@
 - **[src/CLAUDE.md](src/CLAUDE.md)** - VTF/XYZ parsers, 3D viewer, mouse interactions
 - **[src/docks/CLAUDE.md](src/docks/CLAUDE.md)** - dock architecture, `DockManager`, layout presets, app modes
 - **[src/dialogs/CLAUDE.md](src/dialogs/CLAUDE.md)** - NMR spectrum dialog and analysis
+- **[src/script/CLAUDE.md](src/script/CLAUDE.md)** - JavaScript interpreter (QJSEngine) for calculations
+- **CuteChat** (shared library, also used by SupraFit; submodule `external/CuteChat`, override with `../CuteChat` or `-DCUTECHAT_DIR=`): tool registry/dispatcher (`CuteChat::tools`, in `qurcuma_core`), client/session/engine (`CuteChat::core`, behind `qurcuma_llm`), `ChatDock` (`CuteChat::cutechat`); include as `<cutechat/...>`. qurcuma keeps its tools (`src/llm/tools_*`), `LogHub`, the approval policy and `QurcumaChatHost`. Rules and design: the CuteChat repo.
 
 ## Improvements Tracking
 
@@ -137,6 +139,7 @@ before committing, or enable the hook with `git config core.hooksPath scripts/gi
   - Use: Performance testing, final deployment, production runs
   - Build: `cmake --build release 2>&1 | tail -20`
   - Executable: `./release/qurcuma`
+- **Switching a CMake option in an existing build directory** (`USE_SFTP`, `USE_REMOTE`): the cached value wins over a new default, so pass `-DUSE_SFTP=ON` once. If the link then fails with `undefined reference to X::staticMetaObject` or `vtable for X`, the Qt MOC cache is stale: delete `<build>/CMakeFiles/qurcuma_autogen.dir/ParseCache.txt` and `<build>/qurcuma_autogen/timestamp`, then build again (seen with `RemoteBrowserPanel` and `SftpClient`).
 
 #### Git Best Practices
 - **Only commit source files**: Use `git add <file>` for specific files, never `git add -A` without review

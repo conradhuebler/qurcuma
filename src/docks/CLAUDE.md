@@ -6,14 +6,17 @@
 - Each wrapper inherits `QDockWidget` and exposes its content widgets so existing logic can stay in `MainWindow` while construction moves here.
 
 ## Wrapper Classes
-- `ProjectDock` — working directory chooser, breadcrumb, segmented directory list (Files / Bookmarks / Workspaces / Remote), file/content browser (always files); on top a Lesson section (metadata, lesson structure list, per-structure editor), shown in Teaching mode and whenever the lesson has structures.
+- `ProjectDock` — working directory chooser, breadcrumb, segmented directory list (Files / Bookmarks / Workspaces / Remote, see below), file/content browser (always files); on top a Lesson section (metadata, lesson structure list, per-structure editor), shown in Teaching mode and whenever the lesson has structures.
 - `StructureDock` — right-side dock with a segmented [Structure | Atoms] area (XYZ editor + atom table).
 - `AppearanceDock` (UX stage 4) — the Display panel + camera views; tabified on the right, **closed by default** (Look ▸ Details…). Old layouts/workspace dock states were reset once (`DockConfig::UiLayoutVersion` = 2).
 - `SimulationDock` — right-side dock with tabs [Simulation | All parameters | Snapshots | RMSD / Align | Input]; tabs are switched by page (`setCurrentWidget`), never by position.
 - `OutputDock` — output log + clear button.
+- `ChatDock` — assistant (USE_LLM): **CuteChat's** dock (`<cutechat/chatdock.h>`), built by `DockManager` with `QurcumaChatHost` (`qurcumachathost.*`: shared registry/dispatcher, texts, prompt + approval callbacks set by `MainWindow::setupAssistant`). Its `ChatEngine` runs client and agent loop on a worker thread (`agentOnWorkerThread`); approval is asked on the GUI thread. Thinking effort, rounds and autonomy are remembered under `llm/…` (`settingsPrefix`).
 - `ImageGalleryDock`: bottom dock (tabified with Output), hidden until the first image export; thumbnail grid with a "Show" filter (session / folder / resized-only / originals-only). Border-trim analysis (`imagecrop::commonContentRect`) writes metadata-preserving `<name>.resized.png`. Fed by `MoleculeViewer::imageExported`. Context menu: view with metadata table, remove from gallery, delete file (confirmed).
 - `ChartDock` — bottom dock (tabified with Output, hidden by default), thin wrapper around `SimulationChartWidget`: one chart per tab (Temperature / Energy / Measurements / Histogram) with a shared control bar (sliding-window vs accumulated view, window length, normalisation, bin count, CSV export) and the tracked-measurement table below. Visibility via View ▸ Panels ▸ Charts and Simulation ▸ Charts (Ctrl+Shift+C) — both are the dock's own `toggleViewAction()`; the modes remember it like every other panel. Was a modeless dialog until Sep 2026.
+- `CellDock` — right-side dock (tabified with Structure, hidden until a cif is loaded): asymmetric unit / unit cell, SHELX disorder parts, cell parameters, a/b/c repeats, thermal ellipsoids. Every change emits `optionsRequested(CifOptions)` and MainWindow re-reads via `MoleculeFileLoader::load(path, options)`. [celldock-scriptdock.md](../../docs/architecture/celldock-scriptdock.md)
 - `NciDock` — right-side dock (tabified with Display, hidden by default) with the non-covalent interaction contact table (`NciWidget`): source combo, "Analyse current frame" for the calculated sources, summary line, table Typ/Atome/d/Winkel/Score/E/Notiz, TSV copy. Row click selects the contact's atoms in the viewer, double-click zooms to them; signals only, MainWindow drives the viewer (same split as `RMSDWidget`).
+- `ScriptDock` — bottom dock (tabified with Output, hidden by default): editor, Run / Stop, **Record** (the operator's own tool calls become `tool(...)` lines), output pane; not behind `USE_LLM`. It gets a tool bridge, but every call still passes `ToolDispatcher` and `MainWindow::approveToolCall`. [celldock-scriptdock.md](../../docs/architecture/celldock-scriptdock.md)
 
 ## Shared Config (`dockconfig.h`)
 - `DockConfig::AppMode` — Explore / Compute / Teaching, persisted as int in `ui/appMode` (append only).
@@ -24,9 +27,25 @@
 - The app mode sets visibility **per dock** (`DockManager::showPanels` → `setDockVisible`, hides before shows, then `raise()` the mode's front tab). Never toggle via `tabifiedDockWidgets()`: Structure/Simulation/Interactions share one tab bar, so a group toggle hid Structure with Simulation and surfaced the hidden-by-default Interactions/Images docks.
 
 ## ProjectDock File Browser Filter
-- `DirectoryFilterProxyModel` sits between `QFileSystemModel` and `QListView`; combines live name search with extension subset filtering.
-- Embedded compact bar above the content list: search field + `Extensions` popup menu with all suffixes in the current directory + clear button; session-only (resets on restart).
-- `MainWindow` resolves view indices back to source indices via `filePathFromContentIndex()`; Lesson/SFTP modes bypass the proxy.
+- `DirectoryFilterProxyModel` and `FileFilterBar` (`directoryfilter.*`) are shared by the local and the remote file list: the proxy reads a `QFileSystemModel` directly, other models through `IsDirRole` and the display name; the rule is `remotepaths::fileFilterAccepts` (test `test_remotepaths`).
+- Compact bar above each file list: search field + `Extensions` popup with all suffixes of the shown directory ("<no extension>" = empty suffix) + clear button; session-only (resets on restart). The owner reports the suffixes (`setAvailableSuffixes`).
+- `MainWindow` resolves view indices back to source indices via `filePathFromContentIndex()`; the Lesson mode bypasses the proxy.
+
+## Remote Segment (`remotebrowserpanel.*`, only with `USE_SFTP`)
+- Same structure as the Files segment: remote "Choose working directory" button (ProjectDock shows it in its top row instead of the local one), breadcrumb of the remote working directory, list of its subdirectories with ".." and "+ New Directory", below the shared filter bar and the files of the directory selected above. Local breadcrumb and local file list are hidden in this segment.
+- Interaction copied from the local list: click or current change on a directory shows its files below, context menu Add to Bookmarks / Set as Working Directory, breadcrumb click sets the working directory. Double click on a file downloads it into the SFTP cache (`<cache>/<sha256>/<name>`, an unchanged copy is reused) and emits `openFileRequested` → `MainWindow::loadMoleculeFile` (local files load on a single click).
+- Extra compared with local: compact row with source combo (computers of `remote/hostprofiles.h`, SFTP profiles, "Other host..." with "Save as SFTP profile"), Connect/Disconnect and status line; Refresh; file context menu Open / Download to Local Working Directory / Copy Remote Path / Add This Folder to Bookmarks.
+- The remote working directory is remembered per source in QSettings (`remotepaths::workDirSettingsKey`, source key = bookmark id or "host:user@host:port"), stored only after it was listed; default the remote home, a missing one falls back to home with the error shown.
+- "Choose" opens a modal chooser (breadcrumb, folder list, path field, Select checks a typed path by listing it) on the open connection; without one it connects the selected source first.
+- Bookmarks: the star toggles the remote working directory, choosing a bookmark makes it the working directory; stored as `Settings::RemoteMountPoint`, `profileId` = SFTP profile id or `computer:<name>`. Unsaved hosts cannot be bookmarked.
+- "+ New Directory": name checked by `remotepaths::isValidNewDirectoryName` (not empty, not "."/"..", no '/'), refused if the name exists, then `SftpClient::makeDirectory` (`sftp_mkdir`, mode 0755) and the new directory is selected.
+- libssh lives in `SftpClient` (`src/sftpclient.*`), one client per connection on its own `QThread`; listings carry a request id (working directory, selected directory, chooser). Disconnect abandons the client (cancel flag, results dropped, client and thread delete themselves once the blocking call returns).
+- Login: host key against `~/.ssh/known_hosts` (unknown: fingerprint question, changed: refused), then the computer's key file, then agent and standard keys, then one password prompt (password or keyboard-interactive); passphrase and password are never stored. Address, user, port and key file of a computer are used, `qurcuma-server` is never contacted; a `~/.ssh/config` alias supplies HostName/User/Port/ProxyJump (`remotepaths::connectionForHost`).
+- Key file of a computer: tried before agent and standard keys; a `.pub` path leads to the private key next to it (`remotepaths::privateKeyPath`), an alias' `IdentityFile` is the fallback, a protected key asks for its passphrase once (cancel goes on without it).
+- File ▸ Open Remote File... (Ctrl+Shift+R) shows this segment; File ▸ Recent Remote Connections selects and connects a profile.
+- Results of a remote run: "Show results in Remote" in the Simulation dock (after the run reported its session directory) calls `RemoteBrowserPanel::showLocation(computer, dir)`: selects `computer:<name>`, connects if needed and makes the session directory the working directory; a computer no longer in the list is reported in the status line.
+- Qt-only helpers in `src/remotepaths.*` (test `test_remotepaths`). 🤖 SftpClient, the panel and the chooser are only compiled (no SFTP server in the test setup), not checked in the GUI.
+- `USE_SFTP` is ON by default; without libssh CMake warns and builds without it. Built with libssh 0.12.2.
 
 ## AppearanceDock Views (camera)
 - `ViewPresetWidget` lives below the `DisplayPanel`; manages reproducible **camera views** only (UX stage 3; the appearance is a Look, see `src/CLAUDE.md`).
@@ -58,5 +77,5 @@
 - Phase 4 complete: `ProjectDock` extracted from `MainWindow`; all docks now live under `DockManager`.
 - Phase 5 complete: preset logic and app-mode dock handling moved to `DockManager`; `MainWindow` enums replaced by `DockConfig` enums.
 - Phase 6 complete: `NavigationDock` removed; bookmarks/workspaces/remote are now segment pages inside `ProjectDock`. Signals are forwarded by `ProjectDock` so `MainWindow` stays decoupled from internal widgets.
-- Phase 8 complete: `EditorsDock` and `AtomsSimulationDock` removed; content split into `DisplayDock` (Structure/Atoms segment + Display panel) and `SimulationDock` (Simulation/Snapshots/RMSD/Input tabs). The two right-side docks are tabified.
+- `EditorsDock`, `AtomsSimulationDock` and the interim `DisplayDock` are gone: content lives in `StructureDock` (Structure/Atoms), `AppearanceDock` (display options) and `SimulationDock` (Simulation/Snapshots/RMSD/Input tabs). The right-side docks are tabified.
 - Internal `QTabWidget`s are intentionally retained inside the remaining wrappers to keep the Qt drift workaround working.

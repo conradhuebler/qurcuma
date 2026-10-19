@@ -109,166 +109,18 @@ Item {
             materials: PrincipledMaterial { baseColor: "#3a4252"; roughness: 0.9 }
         }
 
-        // Molecule root: rotates about sceneCenter (model rotation).
+        // Molecule root: rotates about sceneCenter (model rotation). All instanced content
+        // (atoms, bonds, overlays, walls, NCI, grab arrows, measurement lines) is model-local
+        // and lives in MoleculeModels.qml, which the headset scene (VrScene.qml) shares.
         Node {
             id: moleculeRoot
             position: controller.sceneCenter
             pivot: controller.sceneCenter
             rotation: controller.rootRotation
 
-            Model {
-                id: atomModel
-                source: "#Sphere"
-                visible: controller.atomsVisible
-                instancing: controller.atomInstancing
-                materials: PrincipledMaterial {
-                    baseColor: "white"
-                    metalness: 0.0
-                    roughness: 0.4
-                    // Opaque by default (clean depth/no seams); blend only when the
-                    // user actually requests transparency.
-                    alphaMode: controller.blendEnabled ? PrincipledMaterial.Blend
-                                                       : PrincipledMaterial.Opaque
-                }
-            }
-
-            Model {
-                id: bondModel
-                source: "#Cylinder"
-                visible: controller.bondsVisible
-                instancing: controller.bondInstancing
-                materials: PrincipledMaterial {
-                    baseColor: "white"
-                    metalness: 0.0
-                    roughness: 0.55
-                    alphaMode: controller.blendEnabled ? PrincipledMaterial.Blend
-                                                       : PrincipledMaterial.Opaque
-                }
-            }
-
-            // RMSD overlay: second structure, opaque, with HSV-shifted element
-            // colours (set per-instance) so it reads as the "other" molecule while
-            // staying element-coded. Shares the molecule's rotation.
-            Model {
-                source: "#Sphere"
-                visible: controller.overlayVisible
-                instancing: controller.overlayAtomInstancing
-                materials: PrincipledMaterial { baseColor: "white"; roughness: 0.4 }
-            }
-            Model {
-                source: "#Cylinder"
-                visible: controller.overlayVisible
-                instancing: controller.overlayBondInstancing
-                materials: PrincipledMaterial { baseColor: "white"; roughness: 0.55 }
-            }
-
-            // Confinement-wall wireframe (harmonic walls from the interactive MD
-            // config). Edges are in intrinsic atom coordinates, so this sits under
-            // moleculeRoot and rotates with the structure. Unlit flat overlay.
-            // The per-segment instance colour carries the grey/red RGB AND the
-            // alpha (baked from wallOpacity in SceneController::rebuildWall); the
-            // material baseColor stays opaque white and only flips to Blend mode
-            // when opacity < 1, otherwise PrincipledMaterial defaults to Opaque and
-            // silently discards the alpha (the "immer überdeckend" bug).
-            Model {
-                source: "#Cylinder"
-                visible: controller.wallVisible
-                instancing: controller.wallInstancing
-                materials: PrincipledMaterial {
-                    baseColor: "white"
-                    lighting: PrincipledMaterial.NoLighting
-                    alphaMode: controller.wallOpacity < 0.999
-                               ? PrincipledMaterial.Blend
-                               : PrincipledMaterial.Opaque
-                }
-            }
-
-            // Iso-potential gradient shells (optional; enabled via Display panel).
-            // 3 inside shells (blue→teal) + 3 outside shells (yellow→red)
-            // at force-contour distances from the wall boundary.
-            Model {
-                source: "#Cylinder"
-                visible: controller.wallPotShellsVisible
-                instancing: controller.wallPotShellsInstancing
-                materials: PrincipledMaterial {
-                    baseColor: "white"
-                    lighting: PrincipledMaterial.NoLighting
-                    alphaMode: PrincipledMaterial.Blend
-                }
-            }
-
-            // Wall force vector field: arrows sampled on a grid around the boundary.
-            // Shafts (cylinder) + tips (cone), colour/length = force magnitude.
-            Model {
-                source: "#Cylinder"
-                visible: controller.wallForceArrowsVisible
-                instancing: controller.wallForceShaftsInstancing
-                materials: PrincipledMaterial {
-                    baseColor: "white"
-                    lighting: PrincipledMaterial.NoLighting
-                    alphaMode: PrincipledMaterial.Blend
-                }
-            }
-            Model {
-                source: "#Cone"
-                visible: controller.wallForceArrowsVisible
-                instancing: controller.wallForceTipsInstancing
-                materials: PrincipledMaterial {
-                    baseColor: "white"
-                    lighting: PrincipledMaterial.NoLighting
-                    alphaMode: PrincipledMaterial.Blend
-                }
-            }
-
-            // Non-covalent interaction overlay: dashed contact lines (hydrogen
-            // bonds, halogen bonds, pi stacking, close contacts). Each dash is a
-            // short #Cylinder built by SceneController::rebuildNci(); the endpoints
-            // are in intrinsic atom coordinates, so this belongs under moleculeRoot
-            // and follows the structure without any C++ recompute.
-            // The per-instance colour carries RGB *and* alpha (strength-coded), so
-            // the material is always Blend - Opaque would silently discard it.
-            Model {
-                source: "#Cylinder"
-                visible: controller.nciVisible
-                instancing: controller.nciInstancing
-                materials: PrincipledMaterial {
-                    baseColor: "white"
-                    lighting: PrincipledMaterial.NoLighting
-                    alphaMode: PrincipledMaterial.Blend
-                }
-            }
-        }
-
-        // Force-vector arrows (opt-in). C++ computes them in WORLD space (post model
-        // rotation), so they live outside moleculeRoot. Unlit so the instance colour
-        // reads as a bright, flat overlay.
-        Model {
-            source: "#Cylinder"
-            visible: controller.forceVectorsVisible
-            instancing: controller.arrowShaftInstancing
-            materials: PrincipledMaterial {
-                baseColor: "white"
-                lighting: PrincipledMaterial.NoLighting
-            }
-        }
-        Model {
-            source: "#Cone"
-            visible: controller.forceVectorsVisible
-            instancing: controller.arrowTipInstancing
-            materials: PrincipledMaterial {
-                baseColor: "white"
-                lighting: PrincipledMaterial.NoLighting
-            }
-        }
-
-        // Measurement lines (distance/angle/dihedral) — world space, unlit cyan.
-        Model {
-            source: "#Cylinder"
-            visible: controller.measurementActive
-            instancing: controller.measureLineInstancing
-            materials: PrincipledMaterial {
-                baseColor: "white"
-                lighting: PrincipledMaterial.NoLighting
+            MoleculeModels {
+                ctl: controller
+                inst: controller
             }
         }
     }

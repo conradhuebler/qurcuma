@@ -4,8 +4,20 @@
 
 #include "simulationcontrolwidget.h"
 
+#ifdef QURCUMA_REMOTE
+#include "remote/remotebackend.h"
+#include "remote/remotelog.h"
+#include "dialogs/addcomputerdialog.h"
+#include "widgets/themeicon.h"
+#include "core/energy_calculators/gpu_plugin.h"
+#include <QJsonArray>
+#include <QSettings>
+#endif
+
 #include "widgets/collapsiblesection.h"
 #include "widgets/temperatureslider.h"
+
+#include <src/core/energy_calculators/gpu_plugin.h>
 
 #include <QComboBox>
 #include <QFileDialog>
@@ -14,6 +26,8 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QPushButton>
+#include <QToolButton>
+#include <QMessageBox>
 #include <QScrollArea>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -29,17 +43,12 @@ SimulationControlWidget::SimulationControlWidget(QWidget* parent)
 
 SimulationControlWidget::~SimulationControlWidget()
 {
-    if (m_worker)
-        m_worker->requestStop();
-    if (m_thread && m_thread->isRunning()) {
-        m_thread->quit();
-        m_thread->wait(2000);
-    }
+    teardownBackend();
 }
 
 void SimulationControlWidget::setMolecule(
-    const QVector<MoleculeViewer::Atom>& atoms,
-    const QVector<MoleculeViewer::Bond>& bonds)
+    const QVector<MolAtom>& atoms,
+    const QVector<MolBond>& bonds)
 {
     m_atoms = atoms;
     m_bonds = bonds;
@@ -386,6 +395,113 @@ QGroupBox* SimulationControlWidget::createMethodGroup()
     m_methodCombo->addItem("GFN1", "gfn1");
     methodForm->addRow(tr("Method:"), m_methodCombo);
 
+#ifdef QURCUMA_REMOTE
+    // Claude Generated 2026 (WP remote compute R2) - where the run happens. A computer is one
+    // saved in qurcuma (the + button) with qurcuma-server installed on it; ~/.ssh/config is not
+    // read. There is no fallback to this computer when the connection fails.
+    m_computeCombo = new QComboBox(this);
+    AddComputerDialog::fillHostCombo(m_computeCombo, true, QSettings().value(QStringLiteral("remote/host")).toString());
+    m_computeCombo->setToolTip(tr("Where simulations run. Another computer is reached over ssh "
+                                  "(key or agent, no password prompt) and needs qurcuma-server."));
+    auto* addComputer = new QToolButton(this);
+    addComputer->setIcon(themeIcon(QStringLiteral("list-add"), QStyle::SP_FileDialogNewFolder));
+    addComputer->setAccessibleName(tr("Add computer"));
+    addComputer->setToolTip(tr("Add a computer (address, key, test of the connection and of qurcuma-server)."));
+    m_editComputer = new QToolButton(this);
+    m_editComputer->setIcon(themeIcon(QStringLiteral("document-edit"), QStyle::SP_FileDialogContentsView));
+    m_editComputer->setAccessibleName(tr("Edit computer"));
+    m_removeComputer = new QToolButton(this);
+    m_removeComputer->setIcon(themeIcon(QStringLiteral("list-remove"), QStyle::SP_TrashIcon));
+    m_removeComputer->setAccessibleName(tr("Remove computer"));
+    auto* computerRow = new QHBoxLayout;
+    computerRow->addWidget(m_computeCombo, 1);
+    computerRow->addWidget(addComputer);
+    computerRow->addWidget(m_editComputer);
+    computerRow->addWidget(m_removeComputer);
+    methodForm->addRow(tr("Compute on:"), computerRow);
+    // Test, edit and remove work on a computer of the list; "This computer" needs none of them.
+    auto updateComputerButtons = [this] {
+        const QString host = m_computeCombo->currentData().toString();
+        const bool remote = !host.isEmpty();
+        m_editComputer->setEnabled(remote);
+        m_removeComputer->setEnabled(remote);
+        const QString none = tr("This computer needs no setup.");
+        m_editComputer->setToolTip(remote ? tr("Change this computer and test it: address, port, key, server command, and a check of the connection and of qurcuma-server.") : none);
+        m_removeComputer->setToolTip(remote ? tr("Remove this computer from the list.") : none);
+    };
+    m_updateComputerButtons = updateComputerButtons;
+    m_serverCommandEdit = new QLineEdit(QStringLiteral("qurcuma-server"), this);
+    m_serverCommandEdit->setToolTip(tr("Command that starts qurcuma-server on the remote computer "
+                                       "(full path, optionally with --root <directory>)."));
+    methodForm->addRow(tr("Server command:"), m_serverCommandEdit);
+    m_serverTrajectoryCheck = new QCheckBox(tr("Also write the full trajectory on the server"), this);
+    m_serverTrajectoryCheck->setToolTip(tr("The trajectory file on this computer is made from the frames that arrive "
+                                           "and can have gaps on a slow connection. This also keeps a complete file in "
+                                           "the server's session directory. With an SFTP build, \"Show results in Remote\" "
+                                           "opens that directory in the Project panel, Remote segment, where the file can be "
+                                           "opened or downloaded."));
+    methodForm->addRow(QString(), m_serverTrajectoryCheck);
+    {
+        QSettings settings;
+        const QString host = settings.value(QStringLiteral("remote/host")).toString();
+        const int idx = m_computeCombo->findData(host);
+        m_computeCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+        m_serverCommandEdit->setText(AddComputerDialog::defaultServerCommand(host));
+        m_serverCommandEdit->setEnabled(!m_computeCombo->currentData().toString().isEmpty());
+        m_updateComputerButtons();
+        m_serverTrajectoryCheck->setEnabled(!m_computeCombo->currentData().toString().isEmpty());
+    }
+    connect(m_computeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+        const QString host = m_computeCombo->currentData().toString();
+        QSettings settings;
+        settings.setValue(QStringLiteral("remote/host"), host);
+        m_serverCommandEdit->setText(AddComputerDialog::defaultServerCommand(host));
+        m_serverCommandEdit->setEnabled(!host.isEmpty());
+        m_updateComputerButtons();
+        m_serverTrajectoryCheck->setEnabled(!host.isEmpty());
+        refreshGpuChoices();
+    });
+    connect(addComputer, &QToolButton::clicked, this, [this] {
+        AddComputerDialog dialog(this);
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+        const remote::HostProfile p = dialog.profile();
+        // the server command found by the test is the one to start with; later edits are stored per host
+        QSettings().setValue(QStringLiteral("remote/serverCommand/") + p.name, p.effectiveServerCommand());
+        AddComputerDialog::fillHostCombo(m_computeCombo, true, p.name);
+        m_computeCombo->currentIndexChanged(m_computeCombo->currentIndex());
+    });
+    connect(m_editComputer, &QToolButton::clicked, this, [this] {
+        const QString host = m_computeCombo->currentData().toString();
+        const auto current = remote::HostProfiles::find(host);
+        if (!current || !AddComputerDialog::isSavedComputer(host))
+            return;
+        AddComputerDialog dialog(this, current);
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+        const remote::HostProfile p = dialog.profile();
+        // a server command typed or found in the dialog replaces the one stored for this computer
+        QSettings().setValue(QStringLiteral("remote/serverCommand/") + p.name, p.effectiveServerCommand());
+        AddComputerDialog::fillHostCombo(m_computeCombo, true, p.name);
+        m_computeCombo->currentIndexChanged(m_computeCombo->currentIndex());
+    });
+    connect(m_removeComputer, &QToolButton::clicked, this, [this] {
+        const QString host = m_computeCombo->currentData().toString();
+        if (!AddComputerDialog::isSavedComputer(host))
+            return;
+        if (QMessageBox::question(this, tr("Remove computer"), tr("Remove '%1' from the list?").arg(host)) != QMessageBox::Yes)
+            return;
+        remote::HostProfiles::remove(host);
+        QSettings().remove(QStringLiteral("remote/serverCommand/") + host);
+        AddComputerDialog::fillHostCombo(m_computeCombo, true, QString());
+        m_computeCombo->currentIndexChanged(m_computeCombo->currentIndex());
+    });
+    connect(m_serverCommandEdit, &QLineEdit::editingFinished, this, [this] {
+        QSettings().setValue(QStringLiteral("remote/serverCommand/") + m_computeCombo->currentData().toString(),
+            m_serverCommandEdit->text().trimmed());
+    });
+#endif
+
     m_optimizerCombo = new QComboBox(this);
     m_optimizerCombo->addItem(tr("Auto"), "auto");
     m_optimizerCombo->addItem(tr("LBFGS++"), "lbfgspp");
@@ -676,18 +792,7 @@ CollapsibleSection* SimulationControlWidget::createAdvancedSection()
     m_advancedForm = form;
 
     m_gpuCombo = new QComboBox(this);
-    m_gpuCombo->addItem(tr("CPU (none)"), "none");
-#if defined(USE_CUDA)
-    m_gpuCombo->addItem(tr("CUDA"), "cuda");
-#endif
-#if defined(USE_ROCM)
-    m_gpuCombo->addItem(tr("ROCm"), "rocm");
-#endif
-#if defined(USE_VULKAN)
-    m_gpuCombo->addItem(tr("Vulkan"), "vulkan");
-#endif
-    m_gpuCombo->addItem(tr("Auto"), "auto");
-    m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
+    refreshGpuChoices();  // local plugins, or a remembered remote host's backends
     form->addRow(tr("GPU:"), m_gpuCombo);
 
     // GFN-FF topology mode selector
@@ -714,12 +819,48 @@ CollapsibleSection* SimulationControlWidget::createAdvancedSection()
     form->addRow(tr("H mass factor:"), m_hmassSpin);
 
     m_convergenceSpin = new QDoubleSpinBox(this);
-    m_convergenceSpin->setRange(1e-10, 1e-2);
-    m_convergenceSpin->setDecimals(10);
-    m_convergenceSpin->setSingleStep(1e-7);
-    m_convergenceSpin->setValue(5e-4);  // curcuma's default gradient_threshold (Eh/Bohr)
-    m_convergenceSpin->setToolTip(tr("Gradient norm threshold in Eh/Bohr (curcuma gradient_threshold)."));
-    form->addRow(tr("Gradient tol:"), m_convergenceSpin);
+    m_convergenceSpin->setRange(1e-8, 1e-1);
+    m_convergenceSpin->setDecimals(8);
+    m_convergenceSpin->setSingleStep(1e-4);
+    m_convergenceSpin->setValue(5e-4);   // curcuma's own default
+    m_convergenceSpin->setToolTip(tr("Gradient norm below which the optimisation is converged. "
+                                     "curcuma's own default is 5e-4; markedly tighter values are "
+                                     "below what the methods resolve, and the run then goes to "
+                                     "its iteration ceiling with the energy long flat."));
+    form->addRow(tr("Gradient tol [Eh/Bohr]:"), m_convergenceSpin);
+
+    // Claude Generated 2026 - The criterion that matches "nothing is changing any
+    // more". It was never written into the controller at all, so it sat at the
+    // engine's fallback where nobody could see or adjust it.
+    m_energyConvergenceSpin = new QDoubleSpinBox(this);
+    m_energyConvergenceSpin->setRange(1e-4, 10.0);
+    m_energyConvergenceSpin->setDecimals(4);
+    m_energyConvergenceSpin->setSingleStep(0.05);
+    m_energyConvergenceSpin->setValue(0.1);   // curcuma's own default
+    m_energyConvergenceSpin->setToolTip(tr("Energy change between iterations below which the "
+                                           "optimisation is converged."));
+    form->addRow(tr("Energy tol [kJ/mol]:"), m_energyConvergenceSpin);
+
+    // Claude Generated 2026 - Atoms held in place. "Heavy atoms" relaxes only the
+    // hydrogens: the usual way to bring an X-ray structure to a method's minimum
+    // without moving what the diffraction determined (X-H bonds from X-ray are
+    // systematically short).
+    m_freezeCombo = new QComboBox(this);
+    m_freezeCombo->addItem(tr("None"), QStringLiteral("none"));
+    m_freezeCombo->addItem(tr("Heavy atoms (relax H only)"), QStringLiteral("heavy"));
+    m_freezeCombo->addItem(tr("Hydrogens"), QStringLiteral("hydrogens"));
+    m_freezeCombo->addItem(tr("Selection"), QStringLiteral("selection"));
+    m_freezeCombo->setToolTip(tr("Atoms that keep their position during the optimisation"));
+    form->addRow(tr("Hold atoms:"), m_freezeCombo);
+    m_freezeEdit = new QLineEdit(this);
+    m_freezeEdit->setPlaceholderText(tr("e.g. 1:20,F2 (one-based)"));
+    m_freezeEdit->setToolTip(tr("Atoms to hold, in curcuma's selection grammar: 1:20 is the first "
+                                "twenty atoms, F2 the second fragment"));
+    m_freezeEdit->setEnabled(false);
+    form->addRow(QString(), m_freezeEdit);
+    connect(m_freezeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+        m_freezeEdit->setEnabled(m_freezeCombo->currentData().toString() == QLatin1String("selection"));
+    });
 
     // Claude Generated 2026 - Opt-in: keep the force-field parameters/topology
     // fixed while interactively dragging atoms during a geometry optimization.
@@ -927,6 +1068,18 @@ void SimulationControlWidget::setupUI()
     m_statusLabel->setStyleSheet("color: gray; font-size: 11px;");
     m_statusLabel->setWordWrap(true);
     innerLayout->addWidget(m_statusLabel);
+#if defined(QURCUMA_REMOTE) && defined(USE_SFTP)
+    // Claude Generated 2026 - after a remote run: open its session directory in the Remote segment of
+    // the Project dock (SFTP browser). Hidden until a run reported its session directory.
+    m_showResultsButton = new QPushButton(tr("Show results in Remote"), this);
+    m_showResultsButton->setFlat(true);
+    m_showResultsButton->setIcon(QIcon::fromTheme(QStringLiteral("folder-remote")));
+    m_showResultsButton->setVisible(false);
+    connect(m_showResultsButton, &QPushButton::clicked, this, [this]() {
+        emit showRemoteResultsRequested(m_resultsComputer, m_resultsDir);
+    });
+    innerLayout->addWidget(m_showResultsButton, 0, Qt::AlignLeft);
+#endif
 
     // Initial state pill
     setState(tr("○ Ready"), "gray");
@@ -1002,6 +1155,7 @@ void SimulationControlWidget::setupConnections()
             m_tempOverrideLabel->setVisible(true);
         emit configChanged(buildConfig());
     });
+    connect(m_tempSlider, &TemperatureSlider::rangeChanged, this, &SimulationControlWidget::temperatureRangeChanged);
     // Thermostat: show only the params the chosen type reads. Claude Generated 2026.
     connect(m_thermostatCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
         [this](int) { updateThermostatRows(); emit configChanged(buildConfig()); });
@@ -1018,7 +1172,10 @@ void SimulationControlWidget::setupConnections()
     connect(m_writeTrjCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_perfCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_convergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
+    connect(m_energyConvergenceSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, notifyConfig);
     connect(m_optKeepParamsCheck, &QCheckBox::toggled, this, notifyConfig);
+    connect(m_freezeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
+    connect(m_freezeEdit, &QLineEdit::editingFinished, this, notifyConfig);
     connect(m_rattleEnableCheck, &QCheckBox::toggled, this, notifyConfig);
     connect(m_rattleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, notifyConfig);
     connect(m_rattle12Check, &QCheckBox::toggled, this, notifyConfig);
@@ -1160,7 +1317,10 @@ SimulationConfig SimulationControlWidget::buildConfig() const
     cfg.writeTrajectory = m_writeTrjCheck->isChecked();
     cfg.performanceAnalysis = m_perfCheck->isChecked();
     cfg.convergence = m_convergenceSpin->value();
+    cfg.energyConvergence = m_energyConvergenceSpin->value();
     cfg.optKeepParameters = m_optKeepParamsCheck->isChecked();
+    cfg.freezeMode = m_freezeCombo->currentData().toString();
+    cfg.freezeSelection = m_freezeEdit->text().trimmed();
     cfg.rattleMode    = m_rattleEnableCheck->isChecked() ? m_rattleCombo->currentData().toInt() : 0;
     cfg.rattle12      = m_rattle12Check->isChecked();
     cfg.rattle13      = m_rattle13Check->isChecked();
@@ -1268,7 +1428,8 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
         m_modeCombo, m_methodCombo, m_chargeSpin, m_spinSpin, m_optimizerCombo, m_tempSlider, m_timestepSpin,
         m_stepsSpin, m_maxIterSpin, m_fpsLimitSpin, m_hmassSpin, m_thermostatCombo, m_couplingSpin,
         m_andersenProbSpin, m_noseChainSpin, m_gpuCombo, m_writeTrjCheck, m_perfCheck,
-        m_convergenceSpin, m_optKeepParamsCheck, m_rattleCombo, m_rattle12Check,
+        m_convergenceSpin, m_energyConvergenceSpin, m_optKeepParamsCheck, m_freezeCombo, m_freezeEdit,
+        m_rattleCombo, m_rattle12Check,
         m_rattle13Check, m_rattleTol12Spin, m_rattleTol13Spin, m_rattleMaxIterSpin,
         m_topologyModeCombo, m_reactFormSpin, m_reactBreakSpin, m_reactCheckEverySpin,
         m_reactRefractorySpin, m_reactValenceCapCheck, m_reactExchangeSpin,
@@ -1305,7 +1466,12 @@ void SimulationControlWidget::applyConfig(const SimulationConfig& cfg)
     m_writeTrjCheck->setChecked(cfg.writeTrajectory);
     m_perfCheck->setChecked(cfg.performanceAnalysis);
     m_convergenceSpin->setValue(cfg.convergence);
+    m_energyConvergenceSpin->setValue(cfg.energyConvergence);
     m_optKeepParamsCheck->setChecked(cfg.optKeepParameters);
+    selectData(m_freezeCombo, cfg.freezeMode);
+    m_freezeEdit->setText(cfg.freezeSelection);
+    m_freezeEdit->setEnabled(cfg.freezeMode == QLatin1String("selection"));
+    selectData(m_rattleCombo, cfg.rattleMode);
     if (cfg.rattleMode != 0)
         selectData(m_rattleCombo, cfg.rattleMode);
     m_rattle12Check->setChecked(cfg.rattle12);
@@ -1430,7 +1596,7 @@ void SimulationControlWidget::onStartClicked()
 // thread is busy then).
 void SimulationControlWidget::startQuickOptimization(int maxSteps)
 {
-    if (m_thread && m_thread->isRunning()) {
+    if (m_backend) {
         m_statusLabel->setText(tr("A simulation is already running — stop it first."));
         return;
     }
@@ -1451,47 +1617,31 @@ void SimulationControlWidget::startWithConfig(const SimulationConfig& cfg)
         return;
     }
 
-    // Tear down any prior worker
-    if (m_thread && m_thread->isRunning()) {
-        if (m_worker)
-            m_worker->requestStop();
-        m_thread->quit();
-        m_thread->wait(2000);
-    }
+    // Tear down any prior backend
+    teardownBackend();
 
     if (m_reactEventTable)
         m_reactEventTable->setRowCount(0);   // fresh event log per run
 
-    m_worker = new SimulationWorker;
+    m_backend = createBackend();
     // Claude Generated 2026 - Emit workerStarted BEFORE setMolecule so the
     // MainWindow can re-sync m_atoms with the viewer's *current* geometry
     // (e.g. the final coordinates of the previous MD/Opt run) and re-arm
     // the viewer's throttled moleculeUpdated emit. After this signal,
-    // m_atoms holds the live viewer state and is what the worker should
+    // m_atoms holds the live viewer state and is what the backend should
     // start from.
-    emit workerStarted(m_worker);
-    m_worker->setMolecule(m_atoms);
-    m_worker->setBonds(m_bonds);
-    m_worker->setConfig(cfg);
+    emit workerStarted(m_backend);
+    m_backend->setMolecule(m_atoms);
+    m_backend->setBonds(m_bonds);
+    m_backend->setConfig(cfg);
 
-    m_thread = new QThread(this);
-    m_worker->moveToThread(m_thread);
-
-    connect(m_thread, &QThread::started, m_worker, &SimulationWorker::run);
-    connect(m_worker, &SimulationWorker::frameReady, this, &SimulationControlWidget::onFrameReady);
-    connect(m_worker, &SimulationWorker::finished, this, &SimulationControlWidget::onSimulationFinished);
-    connect(m_worker, &SimulationWorker::paused, this, [this]() {
+    connectBackend();
+    connect(m_backend, &SimulationBackend::paused, this, [this]() {
         m_pauseBtn->setText(tr("▶"));
         m_paused = true;
         setState(tr("⏸ Paused"), "#d4a017");  // amber
+        emit pauseStateChanged(true);
     });
-    connect(m_worker, &SimulationWorker::errorOccurred, this, [this](const QString& msg) {
-        m_statusLabel->setText(tr("Error: %1").arg(msg));
-        onSimulationFinished();
-    });
-    connect(m_worker, &SimulationWorker::finished, m_thread, &QThread::quit);
-    connect(m_worker, &SimulationWorker::finished, m_worker, &QObject::deleteLater);
-    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
 
     m_config = cfg;
 
@@ -1503,7 +1653,7 @@ void SimulationControlWidget::startWithConfig(const SimulationConfig& cfg)
     setRunning(true);
     setState(tr("● Running"), "#27ae60");  // green
     m_statusLabel->setText(tr("Starting..."));
-    m_thread->start();
+    m_backend->start();
 }
 
 // Claude Generated 2026 - Step button: spawn a fresh worker that runs exactly
@@ -1525,34 +1675,15 @@ void SimulationControlWidget::onStepClicked()
     }
     m_stepThrottleTimer.restart();
 
-    // Tear down any prior worker (shouldn't exist if Step is only enabled when idle)
-    if (m_thread && m_thread->isRunning()) {
-        if (m_worker)
-            m_worker->requestStop();
-        m_thread->quit();
-        m_thread->wait(2000);
-    }
+    // Tear down any prior backend (shouldn't exist if Step is only enabled when idle)
+    teardownBackend();
 
-    m_worker = new SimulationWorker;
-    emit workerStarted(m_worker);
-    m_worker->setMolecule(m_atoms);
-    m_worker->setBonds(m_bonds);
-    m_worker->setConfig(buildConfig());
-
-    m_thread = new QThread(this);
-    m_worker->moveToThread(m_thread);
-
-    // Single-shot step: QThread::started → stepOnce() (NOT run()).
-    connect(m_thread, &QThread::started, m_worker, &SimulationWorker::stepOnce);
-    connect(m_worker, &SimulationWorker::frameReady, this, &SimulationControlWidget::onFrameReady);
-    connect(m_worker, &SimulationWorker::finished, this, &SimulationControlWidget::onSimulationFinished);
-    connect(m_worker, &SimulationWorker::errorOccurred, this, [this](const QString& msg) {
-        m_statusLabel->setText(tr("Error: %1").arg(msg));
-        onSimulationFinished();
-    });
-    connect(m_worker, &SimulationWorker::finished, m_thread, &QThread::quit);
-    connect(m_worker, &SimulationWorker::finished, m_worker, &QObject::deleteLater);
-    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
+    m_backend = createBackend();
+    emit workerStarted(m_backend);
+    m_backend->setMolecule(m_atoms);
+    m_backend->setBonds(m_bonds);
+    m_backend->setConfig(buildConfig());
+    connectBackend();
 
     m_config = buildConfig();
 
@@ -1564,36 +1695,283 @@ void SimulationControlWidget::onStepClicked()
     setRunning(true);
     setState(tr("⏭ Stepping"), "#2980b9");  // blue
     m_statusLabel->setText(tr("Stepping once..."));
-    m_thread->start();
+    m_backend->start(true);
+}
+
+// Claude Generated 2026 (WP remote compute R0) - one place that decides where a run
+// happens; the remote backend (stage R2) is chosen here.
+SimulationBackend* SimulationControlWidget::createBackend()
+{
+#ifdef QURCUMA_REMOTE
+    if (m_computeCombo) {
+        const QString host = m_computeCombo->currentData().toString();
+        if (!host.isEmpty()) {
+            auto* rb = new remote::RemoteBackend(host, m_serverCommandEdit->text().trimmed(), this);
+            rb->setServerTrajectory(m_serverTrajectoryCheck->isChecked());
+            return rb;
+        }
+    }
+#endif
+    return new LocalBackend(this);
+}
+
+// Claude Generated 2026 - the computer list was changed in the Settings dialog. The selection is
+// taken from "remote/host", which the combo handler writes and HostProfiles::update renames; the
+// handler is run again so that server command, buttons and GPU choices follow the new list.
+void SimulationControlWidget::refreshComputers()
+{
+#ifdef QURCUMA_REMOTE
+    if (!m_computeCombo)
+        return;
+    AddComputerDialog::fillHostCombo(m_computeCombo, true, QSettings().value(QStringLiteral("remote/host")).toString());
+    emit m_computeCombo->currentIndexChanged(m_computeCombo->currentIndex());
+#endif
+}
+
+// Claude Generated 2026 (WP remote compute R3) - GPU choices of the machine that computes:
+// this build's backends locally; for a host what its server reported on the last connection
+// (all three until the host has been connected once).
+void SimulationControlWidget::refreshGpuChoices()
+{
+    if (!m_gpuCombo)
+        return;
+    QStringList backends;
+#ifdef QURCUMA_REMOTE
+    const QString host = m_computeCombo ? m_computeCombo->currentData().toString() : QString();
+    if (!host.isEmpty()) {
+        const QVariant known = QSettings().value(QStringLiteral("remote/gpu/") + host);
+        backends = known.isValid() ? known.toStringList()
+                                   : QStringList{ QStringLiteral("cuda"), QStringLiteral("rocm"), QStringLiteral("vulkan") };
+        m_gpuCombo->setToolTip(known.isValid()
+            ? tr("GPU backends of %1, as reported by its qurcuma-server.").arg(host)
+            : tr("Not known yet: %1 reports its GPU backends when you first run on it.").arg(host));
+    } else
+#endif
+    {
+        // curcuma loads GPU backends as plugins (libcurcuma_<backend>.so next to the
+        // executable); USE_CUDA etc. are no longer defined for this target, so probe at runtime.
+        for (const std::string& b : gpu_plugin::knownBackends())
+            if (gpu_plugin::available(b))
+                backends << QString::fromStdString(b);
+        m_gpuCombo->setToolTip(tr("GPU acceleration for force field calculations"));
+    }
+    const QString current = m_gpuCombo->currentData().toString();
+    const QSignalBlocker block(m_gpuCombo);
+    m_gpuCombo->clear();
+    m_gpuCombo->addItem(tr("CPU (none)"), "none");
+    static const QMap<QString, QString> names = { { "cuda", "CUDA" }, { "rocm", "ROCm" }, { "vulkan", "Vulkan" } };
+    for (const QString& b : backends)
+        m_gpuCombo->addItem(names.value(b, b), b);
+    if (!backends.isEmpty())
+        m_gpuCombo->addItem(tr("Auto"), "auto");
+    const int idx = m_gpuCombo->findData(current);
+    m_gpuCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+}
+
+void SimulationControlWidget::teardownBackend()
+{
+    if (!m_backend)
+        return;
+    m_backend->requestStop();
+    delete m_backend;
+    m_backend = nullptr;
+}
+
+void SimulationControlWidget::connectBackend()
+{
+#ifdef QURCUMA_REMOTE
+    if (auto* rb = qobject_cast<remote::RemoteBackend*>(m_backend)) {
+        connect(rb, &remote::RemoteBackend::statusText, this, [this](const QString& text) {
+            m_statusLabel->setText(text);
+        });
+        connect(rb, &remote::RemoteBackend::logMessage, this, &SimulationControlWidget::remoteLog);
+#ifdef USE_SFTP
+        if (m_showResultsButton)
+            m_showResultsButton->setVisible(false);  // a new run: the old results button goes
+        connect(rb, &remote::RemoteBackend::sessionResultsAvailable, this,
+                [this](const QString& computer, const QString& dir) {
+                    m_resultsComputer = computer;
+                    m_resultsDir = dir;
+                    if (m_showResultsButton) {
+                        m_showResultsButton->setToolTip(tr("Open %1 on %2 in the Project panel, Remote segment (SFTP)").arg(dir, computer));
+                        m_showResultsButton->setVisible(true);
+                    }
+                });
+#endif
+        connect(rb, &remote::RemoteBackend::capabilities, this, [this](const QJsonObject& welcome) {
+            const QString host = m_computeCombo->currentData().toString();
+            QStringList gpus;
+            for (const QJsonValue& v : welcome.value("gpuBackends").toArray())
+                gpus << v.toString();
+            QSettings().setValue(QStringLiteral("remote/gpu/") + host, gpus);
+            refreshGpuChoices();
+        });
+    }
+#endif
+    connect(m_backend, &SimulationBackend::frameReady, this, &SimulationControlWidget::onFrameReady);
+    connect(m_backend, &SimulationBackend::finished, this, &SimulationControlWidget::onSimulationFinished);
+    connect(m_backend, &SimulationBackend::errorOccurred, this, [this](const QString& msg) {
+        m_statusLabel->setText(tr("Error: %1").arg(msg));
+        m_statusLabel->setToolTip(msg);
+        emit remoteLog(tr("Error: %1").arg(msg));  // the status label is short; the Output panel keeps it
+        onSimulationFinished();
+    });
 }
 
 void SimulationControlWidget::onPauseClicked()
 {
-    if (!m_worker)
+    // The button toggles; pauseRun()/resumeRun() are the idempotent halves, which
+    // is what a caller that cannot see the button needs. Claude Generated 2026.
+    if (m_paused)
+        resumeRun();
+    else
+        pauseRun();
+}
+
+void SimulationControlWidget::pauseRun()
+{
+    if (!m_backend || m_paused)
         return;
-    if (m_paused) {
-        m_worker->requestResume();
-        m_pauseBtn->setText(tr("⏸"));
-        setState(tr("● Running"), "#27ae60");  // green
-        m_paused = false;
-    } else {
-        m_worker->requestPause();
-        m_pauseBtn->setText(tr("▶"));
-        setState(tr("⏸ Paused"), "#d4a017");  // amber
-        m_paused = true;
+    m_backend->requestPause();
+    m_pauseBtn->setText(tr("▶"));
+    setState(tr("⏸ Paused"), "#d4a017");  // amber
+    m_paused = true;
+    publishLiveState();
+    emit pauseStateChanged(m_paused);
+}
+
+void SimulationControlWidget::resumeRun()
+{
+    if (!m_backend || !m_paused)
+        return;
+    m_backend->requestResume();
+    m_pauseBtn->setText(tr("⏸"));
+    setState(tr("● Running"), "#27ae60");  // green
+    m_paused = false;
+    publishLiveState();
+    emit pauseStateChanged(m_paused);
+}
+
+bool SimulationControlWidget::isRunning() const
+{
+    return m_backend != nullptr;
+}
+
+/// The userData of every item of @p box, which is what buildConfig() reads.
+static QStringList comboValues(const QComboBox* box)
+{
+    QStringList values;
+    if (!box)
+        return values;
+    for (int i = 0; i < box->count(); ++i) {
+        const QString value = box->itemData(i).toString();
+        if (!value.isEmpty())
+            values << value;
     }
+    return values;
+}
+
+void SimulationControlWidget::requestExternalForces(const QVector<int>& atoms,
+    const QVector<QVector3D>& forces, double alpha, int maxShells)
+{
+    emit externalForcesRequested(atoms, forces, alpha, maxShells);
+}
+
+void SimulationControlWidget::clearExternalForces()
+{
+    emit externalForcesCleared();
+}
+
+void SimulationControlWidget::requestExternalPotentials(const QJsonArray& potentials)
+{
+    emit externalPotentialsRequested(potentials);
+}
+
+QStringList SimulationControlWidget::methodValues() const { return comboValues(m_methodCombo); }
+QStringList SimulationControlWidget::optimizerValues() const { return comboValues(m_optimizerCombo); }
+QStringList SimulationControlWidget::thermostatValues() const { return comboValues(m_thermostatCombo); }
+QStringList SimulationControlWidget::gpuValues() const { return comboValues(m_gpuCombo); }
+QStringList SimulationControlWidget::topologyValues() const { return comboValues(m_topologyModeCombo); }
+
+void SimulationControlWidget::setLiveTemperature(double kelvin)
+{
+    if (m_tempSlider)
+        m_tempSlider->setValue(kelvin);   // emits valueChanged -> temperatureChanged
+}
+
+bool SimulationControlWidget::startRun(const SimulationConfig& cfg, QString* error)
+{
+    const auto fail = [error](const QString& message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+    if (isRunning())
+        return fail(tr("a simulation is already running -- stop it first"));
+    if (m_atoms.isEmpty())
+        return fail(tr("no structure is loaded"));
+
+    // Drive the controls from the config, then start from the controls, so the
+    // operator sees in the dock exactly what was asked for.
+    applyConfig(cfg);
+    SimulationConfig effective = buildConfig();
+    // Fields the dock has no control for do not survive that round trip and have to
+    // be carried over by hand. optSingleShot is the one that matters: without it an
+    // optimisation started from outside gets the interactive keep-alive loop, which
+    // restarts for ever by design and has no reason to when nobody is holding a
+    // mouse. Claude Generated 2026.
+    effective.optSingleShot = cfg.optSingleShot;
+    startWithConfig(effective);
+    if (!isRunning())
+        return fail(tr("the run did not start; see the Output dock"));
+    if (error)
+        error->clear();
+    return true;
+}
+
+void SimulationControlWidget::publishLiveState()
+{
+    // m_running, not isRunning(). setRunning(true) is called BEFORE the worker
+    // thread is started, so asking the thread here reports "not running" for the
+    // whole window between the start command and the first frame -- during which a
+    // caller was told nothing was going on and gave up on the run it had just
+    // asked for. Claude Generated 2026.
+    m_liveState.running = m_running;
+    m_liveState.paused = m_paused;
+    m_liveState.mode = m_liveState.running
+        ? (m_config.mode == SimulationConfig::Mode::MolecularDynamics
+                ? QStringLiteral("md") : QStringLiteral("opt"))
+        : QString();
+    m_liveState.method = m_config.method;
+    m_liveState.totalSteps = m_config.steps;
+    m_liveState.targetTemperature = m_tempSlider ? m_tempSlider->value() : m_config.temperature;
+
+    // The container's volume, so a caller can turn the atom masses into a density
+    // without reaching into the config from another thread. Auto-sized walls
+    // (all bounds zero) have no volume to report -- curcuma picks those at run
+    // time. Claude Generated 2026.
+    m_liveState.containerVolume = m_config.containerVolume();
+    if (!m_liveState.running) {
+        m_liveState.paused = false;
+    }
+    emit liveStateChanged(m_liveState);
 }
 
 void SimulationControlWidget::onStopClicked()
 {
-    if (m_worker)
-        m_worker->requestStop();
+    if (m_backend)
+        m_backend->requestStop();
 }
 
 void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
 {
     if (!frame)
         return;
+
+    // Claude Generated 2026 - hand the frame on before anything else: a watcher
+    // reads the geometry that just arrived, and it must not wait for the label
+    // formatting below.
+    emit frameObserved(frame);
 
     // Measure actual FPS (update every second)
     m_frameCount++;
@@ -1602,6 +1980,11 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
         m_actualFps = 1000.0 * m_frameCount / elapsed;
         m_frameCount = 0;
         m_fpsTimer.restart();
+        // Same line for local and remote runs, so the two rates can be compared in remote.log
+        // (Claude Generated 2026). A limit of 0 is not unthrottled: SimulationWorker paces it at 60 steps/s.
+        remote::appendLog(qobject_cast<remote::RemoteBackend*>(m_backend) ? QStringLiteral("gui remote") : QStringLiteral("gui local"),
+            tr("rate: %1 frames/s received, %2 atoms, %3, fps limit %4, step %5")
+                .arg(m_actualFps, 0, 'f', 1).arg(m_atoms.size()).arg(m_config.method).arg(m_config.fpsLimit).arg(frame->step));
     }
 
     // Format FPS string: red when actual < configured limit
@@ -1612,11 +1995,20 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
         fpsText = tr("%1 fps").arg(m_actualFps, 0, 'f', 1);
     }
 
+    // Claude Generated 2026 - keep the live record in step with the label, so a
+    // caller outside the dock reads the same numbers the operator is looking at.
+    m_liveState.step = frame->step;
+    m_liveState.energy = frame->energy;
+    m_liveState.kineticEnergy = frame->ekin;
+    m_liveState.timeFs = frame->step * m_config.timestep;
+    m_liveState.externalWork = frame->externalWork;
+
     if (m_config.mode == SimulationConfig::Mode::MolecularDynamics) {
         const double kB_Eh = 3.1668114e-6;
         double tempK = (frame->ekin > 0 && !m_atoms.isEmpty())
             ? (2.0 * frame->ekin) / (3.0 * m_atoms.size() * kB_Eh)
             : 0.0;
+        m_liveState.temperature = tempK;
         m_statusLabel->setText(
             tr("Step %1 | E= %2 Eh | T≈ %3 K | %4")
                 .arg(frame->step)
@@ -1663,6 +2055,8 @@ void SimulationControlWidget::onFrameReady(SimulationFramePtr frame)
                 addRow(p, tr("broken"));
         }
     }
+
+    publishLiveState();
 }
 
 // Claude Generated 2026 - Reaction events of a reactive GFN-FF run: one row per
@@ -1735,9 +2129,14 @@ void SimulationControlWidget::updateReactEventsVisibility()
 void SimulationControlWidget::onSimulationFinished(const QString& reason, bool aborted)
 {
     setRunning(false);
-    m_worker = nullptr;
-    m_thread = nullptr;
-    m_paused = false;
+    if (m_backend) {
+        m_backend->deleteLater();  // its thread has finished; the backend goes with it
+        m_backend = nullptr;
+    }
+    if (m_paused) {
+        m_paused = false;
+        emit pauseStateChanged(false);
+    }
 
     // Report WHY the run ended, not just that it did. An abort (unstable dynamics,
     // a runaway temperature, a broken topology) otherwise reads exactly like a
@@ -1789,6 +2188,9 @@ void SimulationControlWidget::onModeChanged(int /*index*/)
     m_methodForm->setRowVisible(m_maxIterSpin, !isMD);
     m_advancedForm->setRowVisible(m_hmassSpin, isMD);
     m_advancedForm->setRowVisible(m_convergenceSpin, !isMD);
+    m_advancedForm->setRowVisible(m_energyConvergenceSpin, !isMD);
+    m_advancedForm->setRowVisible(m_freezeCombo, !isMD);
+    m_advancedForm->setRowVisible(m_freezeEdit, !isMD);
     m_advancedForm->setRowVisible(m_optKeepParamsCheck, !isMD);
     updateReactEventsVisibility();        // reactive groups are MD + gfnff + react only
 
@@ -1838,6 +2240,8 @@ void SimulationControlWidget::setRecipeMenu(QMenu* menu)
 void SimulationControlWidget::setRunning(bool running)
 {
     m_running = running;
+    if (!running)
+        m_paused = false;
     if (m_recipeButton)
         m_recipeButton->setEnabled(!running);
     m_startBtn->setEnabled(!running);
@@ -1850,6 +2254,13 @@ void SimulationControlWidget::setRunning(bool running)
     // time. Its own availability is controlled by setResetEnabled().
     m_modeCombo->setEnabled(!running);
     m_methodCombo->setEnabled(!running);
+#ifdef QURCUMA_REMOTE
+    if (m_computeCombo) {
+        m_computeCombo->setEnabled(!running);
+        m_serverCommandEdit->setEnabled(!running && !m_computeCombo->currentData().toString().isEmpty());
+        m_serverTrajectoryCheck->setEnabled(!running && !m_computeCombo->currentData().toString().isEmpty());
+    }
+#endif
     m_chargeSpin->setEnabled(!running);
     m_spinSpin->setEnabled(!running);
     m_optimizerCombo->setEnabled(!running);
@@ -1879,6 +2290,7 @@ void SimulationControlWidget::setRunning(bool running)
     m_writeTrjCheck->setEnabled(!running);
     m_perfCheck->setEnabled(!running);
     m_convergenceSpin->setEnabled(!running);
+    m_energyConvergenceSpin->setEnabled(!running);
     if (m_optKeepParamsCheck)
         m_optKeepParamsCheck->setEnabled(!running);
     m_rattleEnableCheck->setEnabled(!running);
@@ -1905,6 +2317,8 @@ void SimulationControlWidget::setRunning(bool running)
     m_rmsdMtdDtSpin->setEnabled(!running && m_rmsdMtdWtmtdCheck->isChecked());
 
     emit simulationRunningChanged(running);
+
+    publishLiveState();
 }
 
 // Claude Generated 2026 - Update the state pill (color-coded run-state indicator
@@ -1915,4 +2329,48 @@ void SimulationControlWidget::setState(const QString& label, const QString& colo
         return;
     m_stateLabel->setText(QStringLiteral("<span style='color:%1; font-weight:600;'>%2</span>")
                               .arg(color, label.toHtmlEscaped()));
+}
+
+double SimulationControlWidget::temperature() const
+{
+    return m_tempSlider ? m_tempSlider->value() : 0.0;
+}
+
+void SimulationControlWidget::setTemperature(double kelvin)
+{
+    if (m_tempSlider)
+        m_tempSlider->setValue(qBound(m_tempSlider->minimum(), kelvin, m_tempSlider->maximum()));
+}
+
+double SimulationControlWidget::temperatureMinimum() const
+{
+    return m_tempSlider ? m_tempSlider->minimum() : 0.0;
+}
+
+double SimulationControlWidget::temperatureMaximum() const
+{
+    return m_tempSlider ? m_tempSlider->maximum() : 0.0;
+}
+
+// The slider keeps its value inside the new range (ThermoTrack::setRange clamps it).
+void SimulationControlWidget::setTemperatureRange(double minimum, double maximum)
+{
+    if (!m_tempSlider)
+        return;
+    maximum = qMax(maximum, minimum + 1.0);
+    m_tempSlider->setRange(minimum, maximum);
+}
+
+QString SimulationControlWidget::method() const
+{
+    return m_methodCombo ? m_methodCombo->currentData().toString() : QString();
+}
+
+void SimulationControlWidget::setMethod(const QString& key)
+{
+    if (!m_methodCombo || !m_methodCombo->isEnabled())  // locked while a run is active
+        return;
+    const int index = m_methodCombo->findData(key);
+    if (index >= 0)
+        m_methodCombo->setCurrentIndex(index);
 }

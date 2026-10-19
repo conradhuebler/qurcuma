@@ -195,6 +195,7 @@ void TemperatureSlider::setRange(double mn, double mx)
     m_maxSpin->setValue(mx);
     m_track->setRange(mn, mx);
     onTrackChanged(m_track->value());
+    emit rangeChanged(m_track->minimum(), m_track->maximum());
 }
 
 void TemperatureSlider::onTrackChanged(double v)
@@ -217,4 +218,5 @@ void TemperatureSlider::onSpinRangeChanged()
         mx = mn + 1.0;
     m_track->setRange(mn, mx);
     onTrackChanged(m_track->value());
+    emit rangeChanged(m_track->minimum(), m_track->maximum());
 }

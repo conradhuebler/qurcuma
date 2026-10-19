@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "view.h"
+#include "core/moleculedata.h"  // moldata::Atom / ::Bond
 #include <QString>
 #include <QVector>
 #include <QFile>
@@ -50,8 +50,8 @@ public:
 
     // Convert VTF data to MoleculeViewer format
     static void convertToMoleculeViewer(const VTFFrame& vtfFrame, 
-                                      QVector<MoleculeViewer::Atom>& atoms,
-                                      QVector<MoleculeViewer::Bond>& bonds);
+                                      QVector<moldata::Atom>& atoms,
+                                      QVector<moldata::Bond>& bonds);
 
 private:
     bool parseAsciiFormat(const QString& filePath, QVector<VTFFrame>& frames);

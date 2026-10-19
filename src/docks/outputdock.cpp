@@ -6,11 +6,17 @@
 
 #include "outputdock.h"
 
+#include "core/loghub.h"
+
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTextEdit>
+#include <QTimer>
 #include <QVBoxLayout>
 
 OutputDock::OutputDock(QWidget* parent)
@@ -31,6 +37,13 @@ void OutputDock::setupUI()
     outputLabel->setStyleSheet(QStringLiteral("font-weight: bold;"));
     outputHeaderLayout->addWidget(outputLabel);
     outputHeaderLayout->addStretch();
+
+    QPushButton* copyOutputButton = new QPushButton;
+    copyOutputButton->setIcon(QIcon::fromTheme(QStringLiteral("edit-copy")));
+    copyOutputButton->setToolTip(tr("Copy the log (the selection, or all of it)"));
+    copyOutputButton->setMaximumWidth(30);
+    connect(copyOutputButton, &QPushButton::clicked, this, &OutputDock::copyOutput);
+    outputHeaderLayout->addWidget(copyOutputButton);
 
     QPushButton* clearOutputButton = new QPushButton;
     clearOutputButton->setIcon(QIcon::fromTheme(QStringLiteral("edit-clear")));
@@ -54,6 +67,18 @@ QTextEdit* OutputDock::outputView() const
     return m_outputView;
 }
 
+void OutputDock::copyOutput()
+{
+    if (!m_outputView)
+        return;
+    const QString selected = m_outputView->textCursor().selectedText();
+    // selectedText() joins lines with U+2029; the clipboard wants real newlines.
+    const QString text = selected.isEmpty()
+        ? m_outputView->toPlainText()
+        : QString(selected).replace(QChar(0x2029), QLatin1Char('\n'));
+    QGuiApplication::clipboard()->setText(text);
+}
+
 void OutputDock::appendOutput(const QString& text)
 {
     if (m_outputView) {
@@ -66,6 +91,7 @@ void OutputDock::appendOutput(const QString& text)
 
 void OutputDock::clearOutput()
 {
+    m_pending.clear();
     if (m_outputView)
         m_outputView->clear();
 }
@@ -80,4 +106,39 @@ void OutputDock::setText(const QString& text, bool scrollToBottom)
         if (bar)
             bar->setValue(bar->maximum());
     }
+}
+
+// Claude Generated 2026 - LogHub subscription.
+void OutputDock::followLogHub(LogHub* hub)
+{
+    if (!hub || !m_outputView)
+        return;
+
+    if (!m_flushTimer) {
+        m_flushTimer = new QTimer(this);
+        m_flushTimer->setSingleShot(true);
+        m_flushTimer->setInterval(100);  // ms; one append per burst, not per line
+        connect(m_flushTimer, &QTimer::timeout, this, &OutputDock::flushPending);
+    }
+
+    // Whatever the hub collected before the dock existed (startup messages).
+    const QVector<LogRecord> backlog = hub->query({});
+    for (const LogRecord& record : backlog)
+        m_pending.append(LogHub::formatForView(record));
+    flushPending();
+
+    // Queued: records reach the hub from the simulation worker thread too.
+    connect(hub, &LogHub::appended, this, [this](const LogRecord& record) {
+        m_pending.append(LogHub::formatForView(record));
+        if (m_flushTimer && !m_flushTimer->isActive())
+            m_flushTimer->start();
+    }, Qt::QueuedConnection);
+}
+
+void OutputDock::flushPending()
+{
+    if (m_pending.isEmpty() || !m_outputView)
+        return;
+    m_outputView->append(m_pending.join(QLatin1Char('\n')));
+    m_pending.clear();
 }

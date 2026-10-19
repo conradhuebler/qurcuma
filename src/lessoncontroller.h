@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "lesson.h"  // Lesson, LessonStructure, atomsToXyz/xyzToAtoms + MoleculeViewer::Atom
+#include "lesson.h"  // Lesson, LessonStructure, atomsToXyz/xyzToAtoms + MolAtom
 
 #include <QModelIndex>
 #include <QObject>
@@ -92,7 +92,7 @@ signals:
     void lessonOpened(const QStringList& panels);
 
 private:
-    int appendStructureFromAtoms(const QString& name, const QVector<MoleculeViewer::Atom>& atoms);
+    int appendStructureFromAtoms(const QString& name, const QVector<MolAtom>& atoms);
     void refreshMetaWidget();
     void showStructureDetails(int row);
 

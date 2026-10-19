@@ -1,6 +1,6 @@
 # WP: Remote-Rechnen und VR
 
-Status: Plan (kein Code), Stand 2026-10-01. Nichts davon ist implementiert; alle Aussagen über vorhandenen Code sind auf den Stand dieses Datums bezogen und am Quelltext gelesen, nicht gebaut oder gemessen.
+Status: Stand 2026-10-01. R0 ist umgesetzt (`SimulationBackend`/`LocalBackend` in `src/simulationbackend.*`, `src/moleculetypes.h`; baut, 7 Test-Targets laufen, GUI-Lauf vom Operator noch nicht geprueft). R1 ist umgesetzt (`src/remote/`: Protokoll, Dateirichtlinie, `qurcuma-server`, Tests `test_remote_protocol` und `test_remote_loopback`; Loopback an einer 3-Atom-GFN-FF-Optimierung geprueft, nicht ueber zwei Rechner, kein MD-Lauf). R2 ist umgesetzt (`RemoteBackend`, `SshTunnel`, "Compute on" im Simulation-Dock; getestet mit einem Python-Ersatz fuer ssh, nicht mit echtem ssh, nicht im GUI; die Capabilities von B (Methoden-/GPU-Liste) ersetzen die lokale Liste noch nicht). R3 ist umgesetzt (Karenzzeit auf dem Server, Wiederanbinden mit `attach`, `finished` fuer zurueckkehrende Clients, GPU-Liste je Host aus `welcome`; `test_remote_reconnect`; Methodenliste von B und Aufraeumen alter Sitzungsverzeichnisse nicht umgesetzt). R4 ist umgesetzt (Protokoll `list`/`getFile` mit Chunks und Pruefsumme, Pfadpruefung, `RemoteFiles`, Dialog File > Remote Files statt eines Docks, Option "vollstaendige Trajektorie auf dem Server"; `test_remote_files`; Dialog nicht im GUI geprueft). Im Okt. 2026 wurden `list`/`getFile`, `RemoteFiles`, der Dialog und `test_remote_files` wieder entfernt; Dateien auf B zeigt das SFTP-Remote-Segment des Project-Docks, die Option "vollstaendige Trajektorie auf dem Server" bleibt. R5 ist nicht implementiert; alle Aussagen über vorhandenen Code sind auf den Stand dieses Datums bezogen und am Quelltext gelesen, nicht gebaut oder gemessen.
 
 ## Ziel
 
@@ -41,7 +41,7 @@ A: qurcuma (GUI, Viewer, spaeter VR)            B: qurcuma-server (Qt Core, curc
 
 ## Verbindung und Sicherheit
 
-- A startet pro Sitzung einen Prozess `ssh -L <lokalPort>:127.0.0.1:<remotePort> <Host> qurcuma-server --port <remotePort> --token <zufall> --once`. Host-Auswahl aus `SshConfigParser`, Pfad zum Server pro Host einstellbar. Auth, Schluessel und ProxyJump liefert OpenSSH.
+- A startet pro Sitzung einen Prozess zwei ssh-Prozesse: `ssh <Host> '<server> --port 0 --token-stdin --once'` (Token ueber stdin, nicht auf der Kommandozeile von B) und danach `ssh -N -L <lokal>:127.0.0.1:<port> <Host>`. Host-Auswahl aus `SshConfigParser`, Pfad zum Server pro Host einstellbar. Auth, Schluessel und ProxyJump liefert OpenSSH.
 - Der Server lauscht nur auf `127.0.0.1`. Der Token ist trotzdem noetig: andere Benutzer auf B koennen localhost erreichen.
 - Parameter-Durchreichung ist eine Angriffsflaeche: `mdExtraParams` und Dateiparameter greifen auf Pfade auf B zu. Der Server prueft Schluessel gegen die Registry und behandelt Dateiparameter nach den Regeln in "Dateizugriff".
 - Erweiterung auf TCP: Transport hinter einer kleinen Schnittstelle (`Transport`: SSH-Tunnel, spaeter TCP+TLS mit Token/Zertifikat). Erst entscheiden, wenn SSH laeuft.
@@ -52,7 +52,7 @@ A: qurcuma (GUI, Viewer, spaeter VR)            B: qurcuma-server (Qt Core, curc
 2. **R1 Protokoll und Server**: `src/remote/` mit Serialisierung (Config, Atome, Frame, `putFile`), Sitzungsverzeichnis und Pfadpruefung (Test: `..`, absolute Pfade, Symlinks werden abgelehnt) und `qurcuma-server`; Test `tests/test_remote_protocol.cpp` (Roundtrip aller Felder) und ein Loopback-Test ohne GUI: Server + Testclient auf einem Rechner, ein deterministischer Lauf (Optimierung oder NVE bei fester Threadzahl) liefert dieselben Positionen wie der lokale Worker.
 3. **R2 Client und Verbindung**: `RemoteBackend`, `SshTunnel`, Dock-Auswahl "Rechnen auf: dieser Rechner / <Host>", Capabilities von B ersetzen die lokale GPU-/Methodenliste, Statuszeile mit Frame-Rate, verworfenen Frames und Round-Trip-Zeit. Erster Test auf zwei Rechnern durch den Operator.
 4. **R3 Robustheit**: Wiederverbinden und Wiederanbinden an einen laufenden Lauf (`attach`), Verhalten bei Abbruch (Lauf weiter bis Timeout, danach Stop), Arbeitsverzeichnis je Sitzung auf B (stale-`stop`-Datei, siehe `src/CLAUDE.md`), Trajektorie-Schreiber auf A aus den Frames; Dateien auf B bleiben ein spaeterer Schritt (siehe "Dateizugriff").
-5. **R4 Dateien auf B** (Datei-Dock fuer B, `getFile`, vollstaendige Trajektorie von B; siehe "Dateizugriff").
+5. **R4 Dateien auf B** (Datei-Dock fuer B, `getFile`, vollstaendige Trajektorie von B; siehe "Dateizugriff"). Nachtrag Okt. 2026: `list`/`getFile`, `--browse` und der Dialog File > Remote Files sind wieder entfernt; Dateien auf B werden ueber SFTP im Remote-Segment des Project-Docks angesehen, "Show results in Remote" oeffnet dort das Sitzungsverzeichnis.
 6. **R5 VR** (eigene Stufe, siehe unten; unabhaengig von R4).
 
 ## VR-Stufe (R5)
@@ -118,6 +118,7 @@ Spaetere Stufe "Dateien auf B" (nicht Teil von R0 bis R3), Optionen:
 - Dateibaum von B im Datei-Dock: Listen/Lesen ueber das Protokoll (`list`, `getFile`) mit Wurzel `<server-root>` und derselben Pfadpruefung, oder ueber `sftpcache` (libssh, `USE_SFTP`) mit eigener Anmeldung. Das Protokoll braucht keine zweite Verbindung und erbt Token und Tunnel; SFTP deckt beliebige Pfade ab, hat aber eigene Authentifizierung und die `USE_SFTP`-Abhaengigkeit.
 - Strukturen von B laden: `getFile` liefert die Bytes, A parst sie lokal und ruft danach den normalen Pfad auf.
 - Entscheidung zwischen Protokoll und SFTP erst dann, mit Blick auf den Bedarf (nur Sitzungsergebnisse oder beliebige Verzeichnisse auf B).
+- Entschieden (Okt. 2026): SFTP. Der Protokollweg (`list`/`getFile`) ist entfernt; das Remote-Segment des Project-Docks zeigt beliebige Verzeichnisse auf B und nach einem Lauf das Sitzungsverzeichnis.
 
 ## Nicht im Umfang (zunaechst)
 

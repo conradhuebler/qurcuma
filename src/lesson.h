@@ -17,7 +17,7 @@
 #pragma once
 
 #include "simulationworker.h"   // SimulationConfig
-#include "view.h"               // MoleculeViewer::Atom
+#include "moleculetypes.h"      // MolAtom
 
 #include <QJsonObject>
 #include <QString>
@@ -96,9 +96,9 @@ Lesson lessonFromJson(const QJsonObject& obj, QString* error = nullptr);
 bool extractLesson(Lesson& lesson, const QString& targetDir, QString* error = nullptr);
 
 /** @brief Build XYZ text from viewer atoms (count / comment / "El x y z" lines). */
-QString atomsToXyz(const QVector<MoleculeViewer::Atom>& atoms, const QString& comment);
+QString atomsToXyz(const QVector<MolAtom>& atoms, const QString& comment);
 
 /** @brief Parse an inline XYZ string (as produced by atomsToXyz / embedded in a
  *  lesson) into viewer atoms. Returns false if the text is not valid XYZ.
  *  Bonds are left to the viewer's auto-detection. Claude Generated 2026. */
-bool xyzToAtoms(const QString& xyz, QVector<MoleculeViewer::Atom>& atoms);
+bool xyzToAtoms(const QString& xyz, QVector<MolAtom>& atoms);

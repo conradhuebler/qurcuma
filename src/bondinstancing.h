@@ -3,15 +3,17 @@
 // QQuick3DInstancing subclass for bond cylinders. The scene controller computes the
 // per-segment transform (orientation quaternion from view.cpp's Y->bond math) and
 // colour; this class just uploads them. Replaces the Qt3D BondInstancingSystem.
+// Also used for every other segment-like table (measurement lines, arrows, walls, NCI).
 // Claude Generated.
 #pragma once
 
 #include <QColor>
 #include <QQuaternion>
-#include <QQuick3DInstancing>
 #include <QVector3D>
 
-class BondInstancing : public QQuick3DInstancing
+#include "tableinstancing.h"
+
+class BondInstancing : public TableInstancing
 {
     Q_OBJECT
 public:
@@ -25,11 +27,4 @@ public:
     };
 
     void setSegments(const QVector<Segment>& segments);
-
-protected:
-    QByteArray getInstanceBuffer(int* instanceCount) override;
-
-private:
-    QByteArray m_buffer;
-    int m_count = 0;
 };
