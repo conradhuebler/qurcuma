@@ -6,6 +6,7 @@
 
 #include "atomselection.h"
 #include <cutechat/toolregistry.h>
+#include <src/capabilities/ionize.h>
 #include "fragmentlibrary.h"
 #include "moleculebridge.h"
 #include "scenefiller.h"
@@ -675,6 +676,129 @@ int registerEditTools(ToolRegistry& registry, const EditToolContext& context)
             note += QStringLiteral(" This is a random packing, not an equilibrated liquid: run it "
                                    "and watch the energy settle before reading anything out of it.");
             return ToolResult::success(data, note);
+        };
+        spec.available = whenEditable(viewer);
+        add(spec);
+    }
+
+    // --- add_counterions ----------------------------------------------------
+    //
+    // curcuma's ionize() is a pure function and fast, so it runs inside the call
+    // rather than through the job queue. It replaces solvent molecules (default
+    // water) by monovalent ions; the charge is stated by the caller, it is not
+    // read off the geometry. A periodic wall (wall_potential pbc) gives the cell
+    // for the minimum image convention. Claude Generated 2026.
+    {
+        ToolSpec spec = base(QStringLiteral("add_counterions"),
+            QStringLiteral("Neutralise a solvated structure: replace solvent molecules by monovalent "
+                           "counter-ions (anions for a positive system, cations for a negative one) "
+                           "until the total charge is target_charge. 'charge' is the total charge of "
+                           "the structure as it is now and must be given -- it cannot be read off the "
+                           "geometry (a protonated amine looks like an amine). Only ions far from the "
+                           "solute and from each other are placed; if fewer fit than needed the call "
+                           "fails and changes nothing. Undoable with Ctrl+Z."),
+            ToolEffect::Mutate, R"JSON({
+              "type": "object",
+              "properties": {
+                "charge":        { "type": "integer",
+                                   "description": "total charge of the structure now, e.g. 15 for a 30-mer protonated on every second unit" },
+                "target_charge": { "type": "integer", "description": "wanted total charge afterwards (default 0)" },
+                "anion":         { "type": "string", "description": "element of the negative ion (default Cl)" },
+                "cation":        { "type": "string", "description": "element of the positive ion (default Na)" },
+                "solvent":       { "type": "string", "description": "formula of the solvent molecule that is replaced (default H2O)" },
+                "min_solute_distance": { "type": "number", "minimum": 0,
+                                         "description": "Angstrom, replaced solvent to nearest solute atom (default 6)" },
+                "min_ion_distance":    { "type": "number", "minimum": 0,
+                                         "description": "Angstrom, between two added ions (default 7)" },
+                "seed":          { "type": "integer", "minimum": 0, "description": "same seed, same ions (default 1)" }
+              },
+              "required": ["charge"]
+            })JSON");
+        spec.handler = [viewer, containerWall](const QJsonObject& args) {
+            const ToolResult blocked = refusedIfNotEditable(viewer);
+            if (!blocked.ok)
+                return blocked;
+
+            const QVector<moldata::Atom> existing = viewer->getCurrentFrameAtoms();
+            if (existing.isEmpty())
+                return ToolResult::failure(QStringLiteral("no structure is loaded"));
+
+            curcuma::IonizeOptions options;
+            options.charge = args.value(QStringLiteral("charge")).toInt();
+            options.target_charge = args.value(QStringLiteral("target_charge")).toInt(0);
+            options.anion = args.value(QStringLiteral("anion")).toString(QStringLiteral("Cl")).toStdString();
+            options.cation = args.value(QStringLiteral("cation")).toString(QStringLiteral("Na")).toStdString();
+            options.solvent = args.value(QStringLiteral("solvent")).toString(QStringLiteral("H2O")).toStdString();
+            options.min_solute_distance = args.value(QStringLiteral("min_solute_distance")).toDouble(6.0);
+            options.min_ion_distance = args.value(QStringLiteral("min_ion_distance")).toDouble(7.0);
+            options.seed = quint32(args.value(QStringLiteral("seed")).toInt(1));
+
+            curcuma::Molecule molecule = atomsToMolecule(existing);
+            bool periodic = false;
+            ToolContainer wall;
+            if (containerWall && containerWall(&wall) && !wall.sphere && wall.potential == 2) {
+                const QVector3D extent = wall.max - wall.min;
+                Eigen::Matrix3d cell = Eigen::Matrix3d::Zero();
+                cell(0, 0) = extent.x();
+                cell(1, 1) = extent.y();
+                cell(2, 2) = extent.z();
+                // The cell starts at the origin in curcuma; move the atoms with the box corner.
+                molecule = curcuma::Molecule();
+                for (const moldata::Atom& atom : existing) {
+                    const QVector3D p = atom.position - wall.min;
+                    molecule.addPair({ Elements::String2Element(atom.element.toStdString()),
+                        Position(p.x(), p.y(), p.z()) });
+                }
+                molecule.setUnitCell(cell, true);
+                periodic = true;
+            }
+
+            const curcuma::IonizeResult result = curcuma::ionize(molecule, options);
+            if (!result.ok)
+                return ToolResult::failure(QString::fromStdString(result.error));
+
+            QJsonObject data;
+            data.insert(QStringLiteral("ions_added"), result.ions_added);
+            data.insert(QStringLiteral("ion"), QString::fromStdString(result.ion));
+            data.insert(QStringLiteral("final_charge"), result.final_charge);
+            data.insert(QStringLiteral("solvent_molecules"), result.solvent_molecules);
+            data.insert(QStringLiteral("candidates"), result.candidates);
+            data.insert(QStringLiteral("periodic"), periodic);
+            if (result.ions_added == 0) {
+                data.insert(QStringLiteral("atom_count"), existing.size());
+                return ToolResult::success(data, QStringLiteral("Already at the target charge; nothing added."));
+            }
+
+            // Remove the replaced solvent, then append the ions: they come last, as in
+            // the curcuma result. Positions are taken back out of the box frame.
+            QVector<int> replaced;
+            for (int index : result.replaced_atoms)
+                replaced.append(index);
+            const curcuma::Molecule& out = result.molecule;
+            const int total = int(out.AtomCount());
+            QVector<moldata::Atom> ions;
+            for (int i = total - result.ions_added; i < total; ++i) {
+                const std::pair<int, Position> a = out.Atom(i);
+                moldata::Atom ion;
+                ion.element = QString::fromStdString(Elements::ElementAbbr[a.first]);
+                ion.position = QVector3D(float(a.second.x()), float(a.second.y()), float(a.second.z()));
+                if (periodic)
+                    ion.position += wall.min;
+                ions.append(ion);
+            }
+            viewer->selectAtoms(replaced, /*append=*/false);
+            viewer->deleteSelection();
+            viewer->appendMolecule(ions, {}, /*startPlacement=*/false);
+
+            const int now = viewer->getCurrentFrameAtoms().size();
+            data.insert(QStringLiteral("atom_count"), now);
+            return ToolResult::success(data,
+                QStringLiteral("Replaced %1 %2 molecule(s) by %3 %4 ion(s); total charge %5, %6 atoms. "
+                               "The ions sit where the solvent oxygen was and are not equilibrated: "
+                               "minimise or run briefly before reading anything out of the system.")
+                    .arg(result.ions_added).arg(QString::fromStdString(options.solvent))
+                    .arg(result.ions_added).arg(QString::fromStdString(result.ion))
+                    .arg(result.final_charge).arg(now));
         };
         spec.available = whenEditable(viewer);
         add(spec);

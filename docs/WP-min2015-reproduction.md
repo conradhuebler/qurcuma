@@ -57,6 +57,13 @@ Next:
 - **D. Analysis tools** (important for the cluster workflow): `radius_of_gyration`, `rdf`, `hbonds` over a
   returned trajectory; WASA new. Capability inventory tool (reads off the same data as B).
 
+Later:
+
+- **F. Snakemake export**: the finished protocol (B) can be written out as a `Snakefile` plus `config.yaml`
+  (one rule per stage, files in and out, temperatures as a wildcard) for running on a cluster. Depends on B.
+  Points to settle then: curcuma's timestamped output directories (`-no_bmt` / `-bak`), one working
+  directory per rule (a stale `stop` file aborts MD), restart of multi-day MD runs.
+
 Last:
 
 - **E. Polymer as an offline job**: job folder with `job.json` (`_command: polymerbuild`), run by
