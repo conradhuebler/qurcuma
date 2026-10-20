@@ -49,8 +49,12 @@ Now:
   ensemble, temperature(s), pressure, length, time step, thermostat/barostat coupling, `analysis[]`). The
   model fills it from the prose. Tool `check_protocol` (read-only) marks each stage `ready` or `blocked`
   with the reason and the WP item, returns the arguments for `run_simulation`, `add_counterions`,
-  `fill_container`, and saves `protocol.json` on request. A list of temperatures in one stage means
-  parallel runs. A stage the stack cannot run (NPT) is accepted and marked `blocked`. The capability list
+  `fill_container`, and saves `protocol.json` on request. Several temperatures are a scientific statement:
+  `series: independent` (each run starts from the same state), `chained` (each starts from the end of the
+  previous) or `ramp` (one run with a temperature schedule, see curcuma TEMPERATURE_RAMP.md). Whether
+  independent runs execute in parallel or one after another is a resource decision of the executor, not
+  part of the protocol; `check_protocol` refuses a parallel request for `chained` and `ramp`. Which
+  `series` Min 2015 used is not stated in the setup summary and has to be read in the paper. A stage the stack cannot run (NPT) is accepted and marked `blocked`. The capability list
   (name, status, code location) exists once in C++ and is read by `check_protocol` and the inventory tool;
   a test checks that the named locations exist. Stage progress goes to a `status.json` in the project
   folder (written after each finished stage), so a run can stop between stages and continue from the next
