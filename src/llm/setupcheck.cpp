@@ -61,8 +61,11 @@ const QVector<Capability> kCapabilities = {
         "add_counterions replaces solvent molecules by monovalent ions (curcuma ionize). Tested on a "
         "constructed water box only.",
         "qurcuma:src/llm/tools_edit.cpp", "" },
-    { "analysis.rg", S::Partial, "Radius of gyration exists in curcuma Molecule; no tool.",
-        "curcuma:src/core/molecule.h", "D" },
+    { "analysis.rg", S::Available,
+        "analyze_trajectory computes the radius of gyration of a selection over a trajectory file, streamed "
+        "frame by frame, with a block error. Tested on constructed geometry and a generated 28,000-atom "
+        "file; real MD trajectories not tried; no unwrapping across periodic boundaries.",
+        "qurcuma:src/llm/tools_compute.cpp", "" },
     { "analysis.rdf", S::Partial, "RDF exists in the curcuma Analysis capability; no tool.",
         "curcuma:src/capabilities/analysis.h", "D" },
     { "analysis.hbonds", S::Partial, "Hydrogen-bond detection exists in curcuma; no tool.",

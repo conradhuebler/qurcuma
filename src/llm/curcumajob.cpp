@@ -8,6 +8,7 @@
 #include "moleculebridge.h"
 
 #include <src/capabilities/rmsd.h>
+#include <src/capabilities/trajprops.h>
 #include <src/core/curcuma_logger.h>
 #include <src/core/energycalculator.h>
 #include <src/core/molecule.h>
@@ -16,6 +17,7 @@
 #include "generated/parameter_registry.h"
 
 #include <QElapsedTimer>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QThread>
 #include <QUuid>
@@ -114,6 +116,8 @@ protected:
                 runSinglePoint(result);
             else if (m_request.command == QLatin1String("rmsd"))
                 runRmsd(result);
+            else if (m_request.command == QLatin1String("trajprops"))
+                runTrajprops(result);
             else
                 result.error = QStringLiteral("no in-process runner for \"%1\"").arg(m_request.command);
         } catch (const std::exception& e) {
@@ -203,6 +207,45 @@ private:
         result.ok = true;
     }
 
+    /// Claude Generated 2026 - Streams a trajectory file frame by frame (curcuma
+    /// TrajectoryProperties), so a 30 ns run of a solvated polymer is no problem for
+    /// memory. The per-frame CSV goes next to the trajectory.
+    void runTrajprops(CurcumaJobResult& result)
+    {
+        if (m_request.file.isEmpty()) {
+            result.error = QStringLiteral("trajprops needs a trajectory file");
+            return;
+        }
+        json module = json::object();
+        const QJsonObject& args = m_request.controller;
+        for (auto it = args.begin(); it != args.end(); ++it) {
+            const QJsonValue value = it.value();
+            if (value.isBool())
+                module[it.key().toStdString()] = value.toBool();
+            else if (value.isDouble())
+                module[it.key().toStdString()] = value.toDouble();
+            else
+                module[it.key().toStdString()] = value.toString().toStdString();
+        }
+        json controller = json::object();
+        controller["trajprops"] = module;
+
+        curcuma::TrajectoryProperties props(controller, true);
+        m_driver = &props;
+        props.pinOutputDir(QFileInfo(m_request.file).absolutePath().toStdString());
+        props.setFile(m_request.file.toStdString());
+        props.start();
+        m_driver = nullptr;
+
+        if (!props.error().empty()) {
+            result.error = QString::fromStdString(props.error());
+            return;
+        }
+        result.results = QJsonDocument::fromJson(
+            QByteArray::fromStdString(props.Results().dump())).object();
+        result.ok = true;
+    }
+
     CurcumaJob* m_owner = nullptr;
     LogHub* m_hub = nullptr;
     CurcumaJobRequest m_request;
@@ -242,7 +285,7 @@ CurcumaJob::~CurcumaJob()
 
 QStringList CurcumaJob::supportedCommands()
 {
-    return { QStringLiteral("sp"), QStringLiteral("rmsd") };
+    return { QStringLiteral("sp"), QStringLiteral("rmsd"), QStringLiteral("trajprops") };
 }
 
 bool CurcumaJob::isRunning() const

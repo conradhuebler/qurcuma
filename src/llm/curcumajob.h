@@ -31,7 +31,8 @@ class LogHub;
 /// What to calculate. The structure travels as atoms rather than a path, because
 /// the interesting case is "the thing currently on screen", which has no file.
 struct CurcumaJobRequest {
-    QString command;                    ///< "sp" | "rmsd"
+    QString command;                    ///< "sp" | "rmsd" | "trajprops"
+    QString file;                       ///< trajprops: the trajectory on disk (it is streamed, not loaded)
     QVector<moldata::Atom> atoms;       ///< the structure, or the reference for rmsd
     QVector<moldata::Atom> secondAtoms; ///< the target, for commands that take two
     QJsonObject controller;             ///< curcuma controller, module-nested

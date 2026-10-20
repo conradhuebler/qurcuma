@@ -24,5 +24,5 @@ struct ComputeToolContext {
     std::function<QString()> workingDirectory;
 };
 
-/// Register run_single_point, job_status and describe_job. Returns how many.
+/// Register run_single_point, analyze_trajectory, job_status and describe_job. Returns how many.
 int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& context);

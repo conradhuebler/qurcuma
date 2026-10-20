@@ -280,6 +280,76 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
         add(spec);
     }
 
+    // --- analyze_trajectory --------------------------------------------------
+    //
+    // A trajectory from a long run -- possibly from a cluster -- is read frame by
+    // frame in curcuma (TrajectoryProperties), never loaded into the scene, so a
+    // solvated polymer of tens of thousands of atoms and thousands of frames is no
+    // problem for memory. Claude Generated 2026.
+    {
+        ToolSpec spec;
+        spec.name = QStringLiteral("analyze_trajectory");
+        spec.category = QStringLiteral("compute");
+        spec.description = QStringLiteral(
+            "Compute a property of a trajectory FILE (xyz, vtf) without loading it into the scene: "
+            "frame by frame, one frame in memory. So far the radius of gyration (mass-weighted about "
+            "the centre of mass) of an atom selection, e.g. selection \"F1\" for the polymer chain, "
+            "with mean, standard deviation over frames, and a block standard error of the mean "
+            "(frames of an MD run are correlated, so the standard deviation divided by sqrt(frames) "
+            "understates the uncertainty). last_fraction 0.3333 takes the last third of the file, "
+            "e.g. the last 10 ns of 30 ns. Coordinates are used as stored: a chain wrapped around a "
+            "periodic boundary gives a wrong value. Returns a job_id; ask job_status. The per-frame "
+            "series is written as CSV next to the trajectory.");
+        spec.effect = ToolEffect::Compute;
+        spec.affinity = ToolAffinity::Any;
+        spec.paramSchema = schemaFromJson(R"JSON({
+          "type": "object",
+          "properties": {
+            "path":          { "type": "string", "description": "trajectory file, relative to the working directory" },
+            "quantity":      { "type": "string", "enum": ["gyration"] },
+            "selection":     { "type": "string",
+                               "description": "atoms in curcuma's selection grammar, resolved once on the first frame used: \"F1\" first fragment, \"1:780\" one-based range; empty = all atoms" },
+            "mass_weighted": { "type": "boolean", "description": "default true" },
+            "first_frame":   { "type": "integer", "minimum": 0 },
+            "last_frame":    { "type": "integer", "description": "-1 = to the end (default)" },
+            "stride":        { "type": "integer", "minimum": 1, "description": "every N-th frame (default 1)" },
+            "last_fraction": { "type": "number", "minimum": 0, "maximum": 1,
+                               "description": "only the last fraction of the file; overrides first_frame and last_frame" },
+            "blocks":        { "type": "integer", "minimum": 1, "description": "blocks for the block error (default 5)" }
+          },
+          "required": ["path"]
+        })JSON");
+
+        const std::function<QString()> workingDirectory = context.workingDirectory;
+        spec.handler = [job, workingDirectory](const QJsonObject& args) {
+            const QString path = resolveToolPath(args.value(QStringLiteral("path")).toString(), workingDirectory);
+            if (!QFileInfo::exists(path))
+                return ToolResult::failure(QStringLiteral("no such file: %1").arg(path));
+
+            CurcumaJobRequest request;
+            request.command = QStringLiteral("trajprops");
+            request.file = path;
+            QJsonObject controller = args;
+            controller.remove(QStringLiteral("path"));
+            request.controller = controller;
+
+            QString error;
+            int position = 0;
+            const QString jobId = job->start(request, &error, &position);
+            if (jobId.isEmpty())
+                return ToolResult::failure(error);
+
+            QJsonObject data;
+            data.insert(QStringLiteral("status"), position == 0 ? QStringLiteral("started") : QStringLiteral("queued"));
+            data.insert(QStringLiteral("job_id"), jobId);
+            data.insert(QStringLiteral("file"), path);
+            return ToolResult::success(data, QStringLiteral(
+                "Started; a long trajectory takes minutes. Ask job_status with job_id \"%1\" and "
+                "wait_seconds rather than polling.").arg(jobId));
+        };
+        add(spec);
+    }
+
     // --- job_status ---------------------------------------------------------
     {
         ToolSpec spec;

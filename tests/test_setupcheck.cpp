@@ -119,9 +119,9 @@ int main(int argc, char** argv)
             && prepare[2].toObject().value("arguments").toObject().value("charge").toInt() == 15,
         "system preparation: open, fill, ions with charge 15");
     const QJsonArray analysis = r.value("analysis").toArray();
-    check(analysis.size() == 2 && analysis[0].toObject().value("state").toString() == "partial"
+    check(analysis.size() == 2 && analysis[0].toObject().value("state").toString() == "ready"
             && analysis[1].toObject().value("state").toString() == "blocked",
-        "Rg partial (no tool), WASA blocked");
+        "Rg ready (analyze_trajectory), WASA blocked");
 
     // --- non-periodic version runs where it can ---------------------------------------
     QJsonObject open = parse(kMin2015);

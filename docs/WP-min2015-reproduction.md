@@ -65,8 +65,15 @@ Now:
 
 Next:
 
-- **D. Analysis tools** (important for the cluster workflow): `radius_of_gyration`, `rdf`, `hbonds` over a
-  returned trajectory; WASA new. Capability inventory tool (reads off the same data as B).
+- **D. Analysis tools** (important for the cluster workflow). Existing `Measurement` and `UnifiedAnalysis`
+  load frames into memory and cannot take a pair selection for the RDF, so a streaming capability `-trajprops`
+  was added to curcuma (branch `feature/trajectory-props`, `docs/TRAJPROPS.md` there).
+  - Done: radius of gyration with block error; qurcuma tool `analyze_trajectory` (job via `job_status`).
+    Machine-tested only (constructed geometry, 28,000 atoms x 100 frames in 3.8 s at 33 MB); real MD
+    trajectories and the GUI path not tried.
+  - Open, in this order: `hbonds` (solute-water, water-water), `rdf` (selection pairs, minimum image with a
+    cell), `sasa` (Shrake-Rupley with a water probe), water relaxation. Each as a quantity of `trajprops`.
+  - Capability inventory tool: done as `list_capabilities`.
 
 Later:
 
