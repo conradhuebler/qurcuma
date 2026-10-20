@@ -45,9 +45,16 @@ Now:
   to a target total charge with Cl-/Na+ by replacing solvent molecules (density stays fixed). Input:
   system XYZ, `charge` of the solute, ion type; solute/solvent split by connectivity. Then a qurcuma tool.
   curcuma has no solvent packing today (`fill_container` lives in qurcuma, `src/scenefiller.h`).
-- **B. Protocol input pipeline**: the structured form of the setup (system, force field, ensemble per stage,
-  temperatures, stage lengths, output interval) that the assistant fills from the prose and returns as the
-  ordered workflow, flagging steps the stack cannot run. Shape and storage still to be decided.
+- **B. Protocol and check**: the setup as one JSON (`source`, `system`, `method`, `stages[]` with type,
+  ensemble, temperature(s), pressure, length, time step, thermostat/barostat coupling, `analysis[]`). The
+  model fills it from the prose. Tool `check_protocol` (read-only) marks each stage `ready` or `blocked`
+  with the reason and the WP item, returns the arguments for `run_simulation`, `add_counterions`,
+  `fill_container`, and saves `protocol.json` on request. A list of temperatures in one stage means
+  parallel runs. A stage the stack cannot run (NPT) is accepted and marked `blocked`. The capability list
+  (name, status, code location) exists once in C++ and is read by `check_protocol` and the inventory tool;
+  a test checks that the named locations exist. Stage progress goes to a `status.json` in the project
+  folder (written after each finished stage), so a run can stop between stages and continue from the next
+  open one.
 - **C. Gaps 5 and 6** written as curcuma task lists: periodic GFN-FF (non-bonded terms, long-range
   electrostatics; verified against a non-periodic reference) and a barostat (needs a variable cell in
   `SimpleMD`; scnp parser currently warns "pressure control not fully implemented").
@@ -63,6 +70,10 @@ Later:
   (one rule per stage, files in and out, temperatures as a wildcard) for running on a cluster. Depends on B.
   Points to settle then: curcuma's timestamped output directories (`-no_bmt` / `-bak`), one working
   directory per rule (a stale `stop` file aborts MD), restart of multi-day MD runs.
+
+- **G. `curcuma -pipeline protocol.json`** (after C): curcuma runs the stages itself, writes the status
+  after each, and continues with `-from <stage>`. Mid-stage restart rests on the MD `restart_file` /
+  `write_restart_frequency`; that it resumes cleanly over days with thermostat and barostat is not checked.
 
 Last:
 
