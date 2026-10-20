@@ -38,7 +38,12 @@ The protocol (last row group) is an output of the assistant: a workflow list, no
 
 1. **Capability inventory tool**: read-only, lists supported/unsupported setup features with a code location.
 2. **Analysis tools** over existing code: `radius_of_gyration`, `rdf`, `hbonds`; WASA new.
-3. **`build_polymer` tool** wrapping curcuma `polymerbuild` (sequence, fragment files, caps); alternatively load a finished file.
+3. **Polymer as an offline job**: qurcuma writes a job folder (JSON input with `_command: polymerbuild`,
+   fragment files copied in, a run script); `curcuma -import_config job.json` runs it on any machine
+   (JSON-driven invocation exists in `src/main.cpp`; that it works for `polymerbuild` is not yet tried,
+   and the available curcuma binaries do not start here). qurcuma then loads `<name>_final.xyz` from the
+   returned folder into the session. Curcuma-side changes go on branch `feature/polymerbuild-job`
+   (off master HEAD, not pushed).
 4. **Ion placement** in curcuma, then a tool.
 5. **Protocol output**: the assistant returns the ordered workflow (minimise -> NVT -> NPT -> production,
    temperatures, lengths) as text from the setup, marking steps the stack cannot run yet.
