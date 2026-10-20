@@ -41,7 +41,7 @@ cluster; the analysis tools then work on the returned trajectory in a qurcuma se
 
 Now:
 
-- **A. Ion placement** (curcuma, branch `feature/ions`): a capability that neutralises a solvated system
+- **A. Ion placement** (curcuma `-ionize` on branch `feature/ions`, commit 01d62e21, tested on a constructed water box; qurcuma tool `add_counterions` in `src/llm/tools_edit.cpp`, builds, not run in the GUI): a capability that neutralises a solvated system
   to a target total charge with Cl-/Na+ by replacing solvent molecules (density stays fixed). Input:
   system XYZ, `charge` of the solute, ion type; solute/solvent split by connectivity. Then a qurcuma tool.
   curcuma has no solvent packing today (`fill_container` lives in qurcuma, `src/scenefiller.h`).
