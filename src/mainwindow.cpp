@@ -85,6 +85,7 @@
 #include "llm/tools_compute.h"
 #include "llm/tools_edit.h"
 #include "llm/tools_files.h"
+#include "llm/tools_protocol.h"
 #include "llm/tools_simulation.h"
 #ifdef USE_LLM
 #include "docks/qurcumachathost.h"
@@ -5099,6 +5100,10 @@ void MainWindow::createDockWidgets()
             return true;
         };
         registerEditTools(ToolRegistry::instance(), editContext);
+
+        ProtocolToolContext protocolContext;
+        protocolContext.workingDirectory = [this] { return m_workingDirectory; };
+        registerProtocolTools(ToolRegistry::instance(), protocolContext);
 
         FileToolContext fileContext;
         fileContext.viewer = m_moleculeView;

@@ -4,6 +4,7 @@ Newest first; one line per fact. Entries from August 2026 and earlier: [docs/cha
 
 ## Oktober 2026 - README und Docs
 
+- **Protocol tools `list_capabilities`, `check_protocol`, `save_protocol`, `protocol_stage`**: a published MD setup as JSON is checked stage by stage against one capability list (`src/llm/setupcheck.cpp`; ready / blocked with reason and work package / invalid); progress goes to `status.json` in the project folder. `test_setupcheck` (31 checks incl. that every listed code location exists, Min 2015 written out); tools not yet driven by a model or in the GUI ([WP-min2015-reproduction](docs/WP-min2015-reproduction.md))
 - **Tool `add_counterions`**: replaces solvent molecules by monovalent ions to a target charge via curcuma `ionize()` (`src/llm/tools_edit.cpp`); the charge is passed by the caller, a pbc wall supplies the cell. Builds; not driven in the GUI or by a model, needs curcuma `feature/ions` ([WP-min2015-reproduction](docs/WP-min2015-reproduction.md))
 - **README**: Abschnitte Remote Computing, Assistant and Scripts und VR; Requirements nennen die optionalen Qt-Module (WebSockets, Network, Quick 3D XR) und libssh mit ihren CMake-Schaltern; curcuma, CuteChart und CuteChat kommen per FetchContent, nicht als Submodul. Die Aussagen stammen aus `CMakeLists.txt` und den Docs, die GUI wurde dafür nicht gestartet.
 - **`docs/WP-remote-compute-vr.md`**: `USE_SFTP` ist standardmäßig AN (stand als AUS im Text).

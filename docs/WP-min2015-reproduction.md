@@ -45,7 +45,7 @@ Now:
   to a target total charge with Cl-/Na+ by replacing solvent molecules (density stays fixed). Input:
   system XYZ, `charge` of the solute, ion type; solute/solvent split by connectivity. Then a qurcuma tool.
   curcuma has no solvent packing today (`fill_container` lives in qurcuma, `src/scenefiller.h`).
-- **B. Protocol and check**: the setup as one JSON (`source`, `system`, `method`, `stages[]` with type,
+- **B. Protocol and check** (implemented: `src/llm/setupcheck.*`, `src/llm/tools_protocol.*`, tools `list_capabilities`, `check_protocol`, `save_protocol`, `protocol_stage`; `test_setupcheck` 31 checks; builds, tools not driven by a model or in the GUI): the setup as one JSON (`source`, `system`, `method`, `stages[]` with type,
   ensemble, temperature(s), pressure, length, time step, thermostat/barostat coupling, `analysis[]`). The
   model fills it from the prose. Tool `check_protocol` (read-only) marks each stage `ready` or `blocked`
   with the reason and the WP item, returns the arguments for `run_simulation`, `add_counterions`,

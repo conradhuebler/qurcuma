@@ -208,6 +208,8 @@ set(SOURCES
     src/llm/tools_compute.cpp  # Claude Generated 2026
     src/llm/tools_edit.cpp  # Claude Generated 2026 - structure editing
     src/llm/tools_files.cpp  # Claude Generated 2026 - merge from / save to disk
+    src/llm/setupcheck.cpp  # Claude Generated 2026 - capability list and protocol check
+    src/llm/tools_protocol.cpp  # Claude Generated 2026 - protocol tools
     src/llm/tools_simulation.cpp  # Claude Generated 2026 - interactive MD / opt
     src/llm/curcuma_schemas.cpp  # Claude Generated 2026
     src/llm/tools_palette.cpp  # Claude Generated 2026 - tools in the command palette
@@ -294,6 +296,8 @@ set(HEADERS
     src/llm/tools_compute.h  # Claude Generated 2026
     src/llm/tools_edit.h  # Claude Generated 2026 - structure editing
     src/llm/tools_files.h  # Claude Generated 2026 - merge from / save to disk
+    src/llm/setupcheck.h  # Claude Generated 2026
+    src/llm/tools_protocol.h  # Claude Generated 2026
     src/llm/tools_simulation.h  # Claude Generated 2026 - interactive MD / opt
     src/llm/curcuma_schemas.h  # Claude Generated 2026
     src/llm/tools_palette.h  # Claude Generated 2026 - tools in the command palette
@@ -935,6 +939,15 @@ target_include_directories(test_scenefiller PRIVATE
 )
 add_test(NAME scenefiller COMMAND test_scenefiller)
 set_tests_properties(scenefiller PROPERTIES LABELS qurcuma)
+
+add_executable(test_setupcheck tests/test_setupcheck.cpp src/llm/setupcheck.cpp)
+target_link_libraries(test_setupcheck PRIVATE Qt6::Core)
+target_include_directories(test_setupcheck PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/llm)
+target_compile_definitions(test_setupcheck PRIVATE
+    QURCUMA_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    CURCUMA_SOURCE_DIR="${curcuma_SOURCE_DIR}")
+add_test(NAME setupcheck COMMAND test_setupcheck)
+set_tests_properties(setupcheck PROPERTIES LABELS qurcuma)
 
 add_executable(test_buildtools tests/test_buildtools.cpp src/buildtools.cpp src/elementdata.cpp
     src/fragmentlibrary.cpp)
