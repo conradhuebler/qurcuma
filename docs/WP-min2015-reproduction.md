@@ -34,18 +34,31 @@ Decided: GFN-FF replaces PCFF. Blocking gaps: periodic GFN-FF (non-bonded terms,
 electrostatics; implemented and verified against a non-periodic reference), a barostat, ion placement.
 The protocol (last row group) is an output of the assistant: a workflow list, not an executing tool.
 
-## Work packages (proposed order)
+## Work packages
 
-Start point is a finished polymer XYZ (built elsewhere or by hand).
+Start point is a finished polymer XYZ (built elsewhere or by hand). Simulations may run for days on a
+cluster; the analysis tools then work on the returned trajectory in a qurcuma session.
 
-1. **Capability inventory tool**: read-only, lists supported/unsupported setup features with a code location.
-2. **Analysis tools** over existing code: `radius_of_gyration`, `rdf`, `hbonds`; WASA new.
-3. **Ion placement** in curcuma, then a tool.
-4. **Protocol output**: the assistant returns the ordered workflow (minimise -> NVT -> NPT -> production,
-   temperatures, lengths) as text from the setup, marking steps the stack cannot run yet.
-5. **Periodic GFN-FF + verification** (curcuma; the container wall in `simplemd.h` is a stopgap).
-6. **Barostat** (curcuma), after 5.
-7. **Polymer as an offline job** (low priority): job folder with `job.json` (`_command: polymerbuild`),
-   run by `curcuma -import_config job.json`, result `<name>_final.xyz` loaded into the session. The JSON
-   route exists in `src/main.cpp` but is untried for `polymerbuild`. Branch `feature/polymerbuild-job` in
-   `external/curcuma` is created and empty.
+Now:
+
+- **A. Ion placement** (curcuma, branch `feature/ions`): a capability that neutralises a solvated system
+  to a target total charge with Cl-/Na+ by replacing solvent molecules (density stays fixed). Input:
+  system XYZ, `charge` of the solute, ion type; solute/solvent split by connectivity. Then a qurcuma tool.
+  curcuma has no solvent packing today (`fill_container` lives in qurcuma, `src/scenefiller.h`).
+- **B. Protocol input pipeline**: the structured form of the setup (system, force field, ensemble per stage,
+  temperatures, stage lengths, output interval) that the assistant fills from the prose and returns as the
+  ordered workflow, flagging steps the stack cannot run. Shape and storage still to be decided.
+- **C. Gaps 5 and 6** written as curcuma task lists: periodic GFN-FF (non-bonded terms, long-range
+  electrostatics; verified against a non-periodic reference) and a barostat (needs a variable cell in
+  `SimpleMD`; scnp parser currently warns "pressure control not fully implemented").
+
+Next:
+
+- **D. Analysis tools** (important for the cluster workflow): `radius_of_gyration`, `rdf`, `hbonds` over a
+  returned trajectory; WASA new. Capability inventory tool (reads off the same data as B).
+
+Last:
+
+- **E. Polymer as an offline job**: job folder with `job.json` (`_command: polymerbuild`), run by
+  `curcuma -import_config job.json`, result `<name>_final.xyz`. The JSON route exists in `src/main.cpp`
+  but is untried for `polymerbuild`. Branch `feature/polymerbuild-job` in `external/curcuma` is empty.
