@@ -36,16 +36,16 @@ The protocol (last row group) is an output of the assistant: a workflow list, no
 
 ## Work packages (proposed order)
 
+Start point is a finished polymer XYZ (built elsewhere or by hand).
+
 1. **Capability inventory tool**: read-only, lists supported/unsupported setup features with a code location.
 2. **Analysis tools** over existing code: `radius_of_gyration`, `rdf`, `hbonds`; WASA new.
-3. **Polymer as an offline job**: qurcuma writes a job folder (JSON input with `_command: polymerbuild`,
-   fragment files copied in, a run script); `curcuma -import_config job.json` runs it on any machine
-   (JSON-driven invocation exists in `src/main.cpp`; that it works for `polymerbuild` is not yet tried,
-   and the available curcuma binaries do not start here). qurcuma then loads `<name>_final.xyz` from the
-   returned folder into the session. Curcuma-side changes go on branch `feature/polymerbuild-job`
-   (off master HEAD, not pushed).
-4. **Ion placement** in curcuma, then a tool.
-5. **Protocol output**: the assistant returns the ordered workflow (minimise -> NVT -> NPT -> production,
+3. **Ion placement** in curcuma, then a tool.
+4. **Protocol output**: the assistant returns the ordered workflow (minimise -> NVT -> NPT -> production,
    temperatures, lengths) as text from the setup, marking steps the stack cannot run yet.
-6. **Periodic GFN-FF + verification** (curcuma; the container wall in `simplemd.h` is a stopgap).
-7. **Barostat** (curcuma), after 6.
+5. **Periodic GFN-FF + verification** (curcuma; the container wall in `simplemd.h` is a stopgap).
+6. **Barostat** (curcuma), after 5.
+7. **Polymer as an offline job** (low priority): job folder with `job.json` (`_command: polymerbuild`),
+   run by `curcuma -import_config job.json`, result `<name>_final.xyz` loaded into the session. The JSON
+   route exists in `src/main.cpp` but is untried for `polymerbuild`. Branch `feature/polymerbuild-job` in
+   `external/curcuma` is created and empty.
