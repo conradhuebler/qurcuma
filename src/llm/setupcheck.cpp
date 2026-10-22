@@ -71,7 +71,9 @@ const QVector<Capability> kCapabilities = {
     { "analysis.hbonds", S::Available,
         "analyze_trajectory quantity=hbonds counts geometric hydrogen bonds (distance, angle, elements adjustable) "
         "between two groups or inside one. Tested on hand-built water dimers; counts on real water not compared "
-        "with another program. An energy criterion from the GFN-FF hydrogen-bond terms does not exist yet.",
+        "with another program. hb_criterion=energy counts GFN-FF triples below an energy limit (full GFN-FF "
+        "evaluation per frame, memory grows steeply with size; not calibrated against the geometric count on "
+        "real water). Counting during an MD run does not exist yet.",
         "qurcuma:src/llm/tools_compute.cpp", "" },
     { "analysis.wasa", S::Missing, "No water-accessible surface area output (only a GBSA grid in solvation).",
         "curcuma:src/core/solvation/lebedev_grid.h", "D" },

@@ -302,7 +302,10 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
             "standard deviation divided by sqrt(frames) understates the uncertainty). last_fraction "
             "0.3333 takes the last third of the file, e.g. the last 10 ns of 30 ns. Coordinates are used "
             "as stored: a chain wrapped around a periodic boundary gives a wrong gyration radius, and no "
-            "hydrogen bond is found across a boundary. Returns a job_id; ask job_status. The per-frame "
+            "hydrogen bond is found across a boundary. hb_criterion energy counts GFN-FF hydrogen-bond "
+            "triples whose energy is below hb_energy_limit (kJ/mol, negative) instead; it needs the total "
+            "charge of the system, costs a full GFN-FF evaluation per frame (use stride; memory grows steeply "
+            "with atom count) and writes a histogram of the triple energies to calibrate the limit. Returns a job_id; ask job_status. The per-frame "
             "series is written as CSV next to the trajectory.");
         spec.effect = ToolEffect::Compute;
         spec.affinity = ToolAffinity::Any;
@@ -317,6 +320,12 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
             "hb_distance":   { "type": "number", "minimum": 0, "description": "hbonds: largest donor-acceptor distance in Angstrom (default 3.5)" },
             "hb_angle":      { "type": "number", "minimum": 0, "maximum": 180, "description": "hbonds: smallest D-H...A angle in degrees (default 150)" },
             "hb_bond_length": { "type": "number", "minimum": 0, "description": "hbonds: a hydrogen within this distance of a donor atom belongs to it (default 1.3 A)" },
+            "hb_criterion":  { "type": "string", "enum": ["geometric", "energy"], "description": "hbonds: distance and angle (default) or GFN-FF triple energy" },
+            "hb_energy_limit": { "type": "number", "description": "hbonds, energy: a triple counts when its energy is below this, kJ/mol (default 0 = every attractive triple)" },
+            "hb_hist_bins":  { "type": "integer", "minimum": 1, "description": "hbonds, energy: bins of the triple-energy histogram (default 40)" },
+            "hb_hist_max":   { "type": "number", "minimum": 0, "description": "hbonds, energy: histogram covers 0 down to minus this, kJ/mol (default 20)" },
+            "charge":        { "type": "integer", "description": "hbonds, energy: total charge of the system (default 0; a protonated polymer needs its charge)" },
+            "threads":       { "type": "integer", "minimum": 1, "description": "hbonds, energy: threads of the GFN-FF evaluation (default 1)" },
             "hb_elements":   { "type": "string", "description": "hbonds: element symbols of donors and acceptors, comma separated (default N,O)" },
             "mass_weighted": { "type": "boolean", "description": "default true" },
             "first_frame":   { "type": "integer", "minimum": 0 },
