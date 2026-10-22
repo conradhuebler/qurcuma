@@ -114,6 +114,16 @@ Last:
   bonds" and a coordination-number warning at step 02: a chain of directly bonded quaternary carbons. Checked on one
   4-mer, geometry not inspected. A fragment with -CH2-C(CH3)(CO2CH2CH2N(CH3)2)- (one `Xx` on the CH2, one on the
   quaternary carbon) is needed; check the build by the composition per unit and the topology warnings.
+- Corrected unit tried (constructed by hand from `pdmaema.xyz`: one `Xx` replaced by CH2-`Xx`, tetrahedral, C-C 1.54 A;
+  C8H15NO2 + 2 Xx, 28 atoms). Findings of a `(A)4` build with it: (a) the two `Xx` must be the LAST two atoms of the
+  fragment file, otherwise `polymerbuild` reports an unbound atom and a bond count off by one against its template;
+  (b) the 4-mer is C32H62N4O8 with the correct head-to-tail backbone (quaternary C and CH2 alternate, each quaternary
+  C carries CH3 and the ester); (c) **the two chain-end cap hydrogens are not bonded** (2.6 and 2.9 A from the
+  nearest carbon): `PolymerBuild::applyCapping` only changes the element of the last `Xx` and keeps its position.
+  The same two unbound H appear with the original fragment, so this is a `polymerbuild` defect, not a fragment
+  problem. After moving them onto the open valence and a GFN-FF optimisation (330 iterations, not converged: gradient
+  norm 8e-4) the cap hydrogen on the first quaternary carbon is crowded (C-H 1.18 A, H...H 1.61 A). Not yet fixed in
+  curcuma; not yet a 30-mer; the geometry was not inspected visually.
 - Alternating protonation needs a second fragment (N-protonated, charge +1) and a sequence such as `(AB)15`;
   whether `polymerbuild` carries the charge into the result is not checked. Tacticity is not a parameter, it follows
   from the fragment orientation.
