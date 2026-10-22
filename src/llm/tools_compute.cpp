@@ -302,7 +302,13 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
             "standard deviation divided by sqrt(frames) understates the uncertainty). last_fraction "
             "0.3333 takes the last third of the file, e.g. the last 10 ns of 30 ns. Coordinates are used "
             "as stored: a chain wrapped around a periodic boundary gives a wrong gyration radius, and no "
-            "hydrogen bond is found across a boundary. hb_criterion energy counts GFN-FF hydrogen-bond "
+            "hydrogen bond is found across a boundary. quantity rdf: radial distribution function g(r) and "
+            "running coordination number n(r) between selection and selection_b (identical groups when "
+            "selection_b and rdf_elements_b are empty), optionally narrowed by element; it needs the cell "
+            "(cell \"Lx,Ly,Lz\" in Angstrom, orthorhombic, minimum image) or rdf_volume, because an xyz "
+            "file has none. quantity sasa: solvent-accessible surface area (Shrake-Rupley, probe sphere "
+            "1.4 A = water, Bondi radii) of the atoms in selection; sasa_occluders group (default) lets only "
+            "those atoms cover each other, all lets every atom cover. hb_criterion energy counts GFN-FF hydrogen-bond "
             "triples whose energy is below hb_energy_limit (kJ/mol, negative) instead; it needs the total "
             "charge of the system, costs a full GFN-FF evaluation per frame (use stride; memory grows steeply "
             "with atom count) and writes a histogram of the triple energies to calibrate the limit. Returns a job_id; ask job_status. The per-frame "
@@ -313,13 +319,23 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
           "type": "object",
           "properties": {
             "path":          { "type": "string", "description": "trajectory file, relative to the working directory" },
-            "quantity":      { "type": "string", "enum": ["gyration", "hbonds"] },
+            "quantity":      { "type": "string", "enum": ["gyration", "hbonds", "rdf", "sasa"] },
             "selection":     { "type": "string",
                                "description": "atoms in curcuma's selection grammar, resolved once on the first frame used: \"F1\" first fragment, \"1:780\" one-based range, a leading ! for all atoms except the rest; empty = all atoms" },
             "selection_b":   { "type": "string", "description": "hbonds: the second group; empty counts bonds inside selection" },
             "hb_distance":   { "type": "number", "minimum": 0, "description": "hbonds: largest donor-acceptor distance in Angstrom (default 3.5)" },
             "hb_angle":      { "type": "number", "minimum": 0, "maximum": 180, "description": "hbonds: smallest D-H...A angle in degrees (default 150)" },
             "hb_bond_length": { "type": "number", "minimum": 0, "description": "hbonds: a hydrogen within this distance of a donor atom belongs to it (default 1.3 A)" },
+            "rdf_elements_a": { "type": "string", "description": "rdf: keep only these elements of the first group (symbols, comma separated)" },
+            "rdf_elements_b": { "type": "string", "description": "rdf: keep only these elements of the second group" },
+            "rdf_r_max":     { "type": "number", "minimum": 0, "description": "rdf: largest distance in Angstrom (default 10; at most half the shortest cell edge)" },
+            "rdf_bin_width": { "type": "number", "minimum": 0, "description": "rdf: bin width in Angstrom (default 0.05)" },
+            "cell":          { "type": "string", "description": "rdf: orthorhombic cell \"Lx,Ly,Lz\" in Angstrom" },
+            "rdf_volume":    { "type": "number", "minimum": 0, "description": "rdf without a cell: volume in A^3 for the density" },
+            "sasa_probe":    { "type": "number", "minimum": 0, "description": "sasa: probe sphere radius in Angstrom (default 1.4)" },
+            "sasa_points":   { "type": "integer", "minimum": 10, "description": "sasa: test points per atom (default 960)" },
+            "sasa_radii":    { "type": "string", "description": "sasa: radius overrides \"Na:2.27,Cl:1.75\"; the default set covers H C N O F P S Cl Br I" },
+            "sasa_occluders": { "type": "string", "enum": ["group", "all"], "description": "sasa: what covers the surface atoms (default group)" },
             "hb_criterion":  { "type": "string", "enum": ["geometric", "energy"], "description": "hbonds: distance and angle (default) or GFN-FF triple energy" },
             "hb_energy_limit": { "type": "number", "description": "hbonds, energy: a triple counts when its energy is below this, kJ/mol (default 0 = every attractive triple)" },
             "hb_hist_bins":  { "type": "integer", "minimum": 1, "description": "hbonds, energy: bins of the triple-energy histogram (default 40)" },

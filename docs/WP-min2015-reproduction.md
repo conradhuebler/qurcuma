@@ -22,9 +22,9 @@ Not run on real input; no GUI check.
 | 1 fs Velocity-Verlet, unconstrained bonds | available | `timestep`, `rattle off` |
 | Minimisation | available | `run_simulation mode=opt` |
 | 100 ps NVT then 900 ps NPT, then 3 x 30 ns | partly | NVT segment possible; NPT impossible; no staged protocol/queue tool; `set_temperature` adjusts live only |
-| Rg of the chain | exists in code, no tool | `Molecule::GyrationRadius` / `GyrationRadiusPBC`, `Analysis` (`gyration.radius`) |
-| RDF, H-bond count | exists in code, no tool | `Analysis` RDF settings, `hbonds.h` |
-| WASA (Shrake-Rupley, water probe) | missing | only GBSA Lebedev grid in `solvation/`, no SASA output |
+| Rg of the chain | tool | `analyze_trajectory` quantity gyration (streamed, block error); machine-tested only |
+| RDF, H-bond count | tool | `analyze_trajectory` quantities rdf and hbonds (geometric, or by GFN-FF triple energy); opt-in log during MD with `curcuma -md -hb_log_frequency`; (`hbonds.h` in curcuma is the H4 correction, not a detector) |
+| WASA (Shrake-Rupley, water probe) | tool | `analyze_trajectory` quantity sasa; the radius set of the reference study is unknown |
 | Water relaxation / residence times | missing | no analysis |
 | Statement of gaps by the assistant | missing | no tool returns a capability inventory; the assistant only sees tool schemas |
 
@@ -79,8 +79,11 @@ Next:
   - Done: opt-in logging of the energy-based count during MD (`curcuma -md -hb_log_frequency N`, CLI and cluster
     runs; not an argument of `run_simulation` / the Simulation dock). The trajectory equals the reference run
     (`scripts/md_reference_compare.py` in curcuma).
-  - Open, in this order: calibration on a real trajectory, `rdf`
-    (selection pairs, minimum image with a cell), `sasa` (Shrake-Rupley with a water probe), water relaxation.
+  - Done: `rdf` (two groups, element filters, orthorhombic cell) and `sasa` (Shrake-Rupley, probe 1.4 A, Bondi radii)
+    in `trajprops` and `analyze_trajectory`. TODO: the literature references of all analysis methods were written by
+    the AI from memory and are unchecked (curcuma `TODO.md`, `docs/TRAJPROPS.md`); the radius set Min 2015 used for
+    the WASA is unknown and must be read in the paper.
+  - Open, in this order: calibration on a real trajectory, water relaxation / residence times.
   - Capability inventory tool: done as `list_capabilities`.
 
 Later:

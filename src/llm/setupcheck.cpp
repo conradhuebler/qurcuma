@@ -66,8 +66,11 @@ const QVector<Capability> kCapabilities = {
         "frame by frame, with a block error. Tested on constructed geometry and a generated 28,000-atom "
         "file; real MD trajectories not tried; no unwrapping across periodic boundaries.",
         "qurcuma:src/llm/tools_compute.cpp", "" },
-    { "analysis.rdf", S::Partial, "RDF exists in the curcuma Analysis capability; no tool.",
-        "curcuma:src/capabilities/analysis.h", "D" },
+    { "analysis.rdf", S::Available,
+        "analyze_trajectory quantity=rdf: g(r) and n(r) between two atom groups with element filters and block error; "
+        "needs an orthorhombic cell or a volume (xyz has none). Tested on a lattice against an independent "
+        "neighbour count; real trajectories not tried. Literature references unchecked (curcuma TODO.md).",
+        "qurcuma:src/llm/tools_compute.cpp", "" },
     { "analysis.hbonds", S::Available,
         "analyze_trajectory quantity=hbonds counts geometric hydrogen bonds (distance, angle, elements adjustable) "
         "between two groups or inside one. Tested on hand-built water dimers; counts on real water not compared "
@@ -81,8 +84,11 @@ const QVector<Capability> kCapabilities = {
         "run_simulation and not set by the Simulation dock, so it applies to CLI and cluster runs only. CPU run "
         "checked on water dimers; the GPU path was only compiled.",
         "curcuma:src/capabilities/simplemd.h", "" },
-    { "analysis.wasa", S::Missing, "No water-accessible surface area output (only a GBSA grid in solvation).",
-        "curcuma:src/core/solvation/lebedev_grid.h", "D" },
+    { "analysis.wasa", S::Available,
+        "analyze_trajectory quantity=sasa: Shrake-Rupley solvent-accessible surface of an atom group, probe 1.4 A, "
+        "Bondi radii for H C N O F P S Cl Br I. Tested against the analytic area of overlapping spheres (worst "
+        "deviation 0.22 %); the radius set of the reference study is not known; real trajectories not tried.",
+        "qurcuma:src/llm/tools_compute.cpp", "" },
     { "analysis.water_dynamics", S::Missing, "No water relaxation or residence-time analysis.",
         "curcuma:src/capabilities/analysis.h", "D" },
 };

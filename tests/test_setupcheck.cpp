@@ -120,8 +120,8 @@ int main(int argc, char** argv)
         "system preparation: open, fill, ions with charge 15");
     const QJsonArray analysis = r.value("analysis").toArray();
     check(analysis.size() == 2 && analysis[0].toObject().value("state").toString() == "ready"
-            && analysis[1].toObject().value("state").toString() == "blocked",
-        "Rg ready (analyze_trajectory), WASA blocked");
+            && analysis[1].toObject().value("state").toString() == "ready",
+        "Rg and WASA ready (analyze_trajectory)");
 
     // --- non-periodic version runs where it can ---------------------------------------
     QJsonObject open = parse(kMin2015);
