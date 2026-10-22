@@ -131,18 +131,17 @@ Last:
 - To the operator's knowledge the water collapse in thermostatted GFN-FF MD of a polymer in water is fixed; the
   curcuma page `docs/MD_LARGE_SYSTEMS.md` says it was not re-measured after the fix, and it has not been re-run here.
 
-## Handover to another machine (collected, not yet done)
+## Handover to another machine
 
-Nothing below has been pushed. curcuma branches, each on top of the previous one, tip `feature/polymerbuild-caps`:
-`feature/ions` (01d62e21) -> `feature/trajectory-props` (041184f3) -> `feature/hbond-energies` (92c28a22) ->
-`feature/hbond-energy-criterion` (bf18b3a3) -> `feature/md-hbond-log` (15a9ef87) -> `feature/rdf-sasa` (b4a9941f) -> `feature/polymerbuild-caps` (964cc685).
-`feature/polymerbuild-job` is empty (master). qurcuma: `feature/paper-setup-min2015` needs the curcuma tip to build.
-To push as one development branch, the tip can be pushed under a new name; the stacking is linear (11 commits above
-master).
+curcuma development branch on the server: `feature/polymer-md-workflow` (the local stack of branches, tip
+`feature/polymerbuild-caps` 2337f20f, 11 commits above master 8edb8d15: ions, trajprops, hydrogen-bond energies on
+CPU/CUDA/ROCm, energy criterion, MD log, rdf and sasa, polymerbuild caps and PDMAEMA). qurcuma development branch:
+`feature/paper-setup-min2015` (20 commits above main 909430d). `feature/polymerbuild-job` is empty (master).
 
-To collect in the vault (rules in `00 Regeln.md`): a project note for this work; method notes (hydrogen-bond criteria,
-g(r), SASA, block error) with the references and the "unchecked" mark; a Labor entry for the measurements made
-(reference comparison of the MD log, timings of the analysis quantities, the SASA deviation of 0.22 %); open
-questions (radius set of the reference study, calibration of the energy limit, the PDMAEMA fragment, whether the
-second SimpleMD run in one process has different initial velocities).
+On the other machine: clone qurcuma on that branch, clone curcuma on its branch INTO `external/curcuma`
+(`git clone -b feature/polymer-md-workflow https://github.com/conradhuebler/curcuma external/curcuma`; CuteChart and
+CuteChat as usual). With a local `external/curcuma` present, qurcuma's CMake uses it as it is; on a fresh clone without
+it, CMake would fetch curcuma `master`, which lacks this work. The same work is also kept as patches in the vault
+(`_artefacts/2026-10-22_*.patch`, `git am` onto the base commits named above).
 
+To collect in the vault: done in `Projekte/PDMAEMA-Nachbau (Min 2015) mit curcuma und qurcuma` and the notes it links.
