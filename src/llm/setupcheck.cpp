@@ -75,6 +75,12 @@ const QVector<Capability> kCapabilities = {
         "evaluation per frame, memory grows steeply with size; not calibrated against the geometric count on "
         "real water). Counting during an MD run does not exist yet.",
         "qurcuma:src/llm/tools_compute.cpp", "" },
+    { "md.hbond_log", S::Partial,
+        "curcuma -md -hb_log_frequency N writes the hydrogen bonds (GFN-FF triples below an energy limit, per "
+        "direction) every N steps; opt-in, the trajectory is identical to a run without it. Not an argument of "
+        "run_simulation and not set by the Simulation dock, so it applies to CLI and cluster runs only. CPU run "
+        "checked on water dimers; the GPU path was only compiled.",
+        "curcuma:src/capabilities/simplemd.h", "" },
     { "analysis.wasa", S::Missing, "No water-accessible surface area output (only a GBSA grid in solvation).",
         "curcuma:src/core/solvation/lebedev_grid.h", "D" },
     { "analysis.water_dynamics", S::Missing, "No water relaxation or residence-time analysis.",

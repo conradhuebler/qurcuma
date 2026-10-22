@@ -76,7 +76,10 @@ Next:
   - Done: GFN-FF triple energies on CPU and (compiled only) CUDA/ROCm; `hb_criterion energy` in `trajprops` and
     `analyze_trajectory` with a histogram for calibrating the limit. Not calibrated against the geometric count on
     real water; memory per frame grows steeply with atom count (2.1 GB at 5184 atoms, 28,000 not tried).
-  - Open, in this order: calibration on a real trajectory, logging the energy-based count during MD, `rdf`
+  - Done: opt-in logging of the energy-based count during MD (`curcuma -md -hb_log_frequency N`, CLI and cluster
+    runs; not an argument of `run_simulation` / the Simulation dock). The trajectory equals the reference run
+    (`scripts/md_reference_compare.py` in curcuma).
+  - Open, in this order: calibration on a real trajectory, `rdf`
     (selection pairs, minimum image with a cell), `sasa` (Shrake-Rupley with a water probe), water relaxation.
   - Capability inventory tool: done as `list_capabilities`.
 
