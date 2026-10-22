@@ -121,9 +121,12 @@ Last:
   C carries CH3 and the ester); (c) **the two chain-end cap hydrogens are not bonded** (2.6 and 2.9 A from the
   nearest carbon): `PolymerBuild::applyCapping` only changes the element of the last `Xx` and keeps its position.
   The same two unbound H appear with the original fragment, so this is a `polymerbuild` defect, not a fragment
-  problem. After moving them onto the open valence and a GFN-FF optimisation (330 iterations, not converged: gradient
-  norm 8e-4) the cap hydrogen on the first quaternary carbon is crowded (C-H 1.18 A, H...H 1.61 A). Not yet fixed in
-  curcuma; not yet a 30-mer; the geometry was not inspected visually.
+  problem. A first repair of the caps (hydrogen opposite the sum of the three bond vectors) failed: the raw
+  geometry is distorted and one H landed 0.40 A from a carbon (noticed by the operator). The second repair puts
+  each cap H at 1.09 A on the sphere around its carbon where it is farthest from every other atom, then GFN-FF
+  optimises (364 iterations, converged: gradient norm 4.7e-4, E = -16.398271 Eh): 106 atoms, 105 bonds (a tree), C-H
+  1.09 to 1.10 A, C-C 1.52 to 1.56 A, closest non-bonded pair 2.01 A. Not a 30-mer, not protonated, geometry not
+  inspected visually. The fix belongs in `applyCapping` of curcuma and is not done there.
 - Alternating protonation needs a second fragment (N-protonated, charge +1) and a sequence such as `(AB)15`;
   whether `polymerbuild` carries the charge into the result is not checked. Tacticity is not a parameter, it follows
   from the fragment orientation.
