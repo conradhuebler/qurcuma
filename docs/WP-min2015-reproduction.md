@@ -102,3 +102,39 @@ Last:
 - **E. Polymer as an offline job**: job folder with `job.json` (`_command: polymerbuild`), run by
   `curcuma -import_config job.json`, result `<name>_final.xyz`. The JSON route exists in `src/main.cpp`
   but is untried for `polymerbuild`. Branch `feature/polymerbuild-job` in `external/curcuma` is empty.
+
+## Polymer for the first run: PDMAEMA
+
+- The polymer in curcuma's test set (`test_cases/molecules/larger/polymer.xyz`) is PEO, not PDMAEMA.
+- curcuma has `src/molecules/pdmaema.xyz`, a repeat-unit fragment with two `Xx` connection points for
+  `polymerbuild`. **It is not a correct PDMAEMA repeat unit.** Both `Xx` sit on the same quaternary carbon
+  (C2 bears CH3, the ester and both connection points) and the fragment has no backbone CH2: it is C7H13NO2 (+2 Xx),
+  the real unit is C8H15NO2. `curcuma -polymerbuild -sequence "(A)4"` with it gave C28H54N4O8 (94 atoms) instead of
+  the expected C32H62N4O8, and logged bond-length retries (1.76 A against 1.50 A), "19 missing bonds, 90 extra
+  bonds" and a coordination-number warning at step 02: a chain of directly bonded quaternary carbons. Checked on one
+  4-mer, geometry not inspected. A fragment with -CH2-C(CH3)(CO2CH2CH2N(CH3)2)- (one `Xx` on the CH2, one on the
+  quaternary carbon) is needed; check the build by the composition per unit and the topology warnings.
+- Alternating protonation needs a second fragment (N-protonated, charge +1) and a sequence such as `(AB)15`;
+  whether `polymerbuild` carries the charge into the result is not checked. Tacticity is not a parameter, it follows
+  from the fragment orientation.
+- The first run is a scaled-down system (about 800 to 1500 waters, 50 to 100 ps) to find where the chain breaks,
+  not a reproduction of 9000 waters and 30 ns. Basis of the estimate: curcuma measured about 130 to 150 ms per MD
+  step at 7320 atoms (13 Oct 2026, CPU and ROCm); 28,000 atoms were not measured. Charged multi-fragment systems
+  (polymer and Cl- ions) run on the CPU method, not on the GPU (curcuma `TODO.md`).
+- To the operator's knowledge the water collapse in thermostatted GFN-FF MD of a polymer in water is fixed; the
+  curcuma page `docs/MD_LARGE_SYSTEMS.md` says it was not re-measured after the fix, and it has not been re-run here.
+
+## Handover to another machine (collected, not yet done)
+
+Nothing below has been pushed. curcuma branches, each on top of the previous one, tip `feature/rdf-sasa`:
+`feature/ions` (01d62e21) -> `feature/trajectory-props` (041184f3) -> `feature/hbond-energies` (92c28a22) ->
+`feature/hbond-energy-criterion` (bf18b3a3) -> `feature/md-hbond-log` (15a9ef87) -> `feature/rdf-sasa` (b4a9941f).
+`feature/polymerbuild-job` is empty (master). qurcuma: `feature/paper-setup-min2015` (5a3d8e2) needs the curcuma tip to
+build. To push as one development branch, `feature/rdf-sasa` can be pushed under a new name; the stacking is linear.
+
+To collect in the vault (rules in `00 Regeln.md`): a project note for this work; method notes (hydrogen-bond criteria,
+g(r), SASA, block error) with the references and the "unchecked" mark; a Labor entry for the measurements made
+(reference comparison of the MD log, timings of the analysis quantities, the SASA deviation of 0.22 %); open
+questions (radius set of the reference study, calibration of the energy limit, the PDMAEMA fragment, whether the
+second SimpleMD run in one process has different initial velocities).
+
