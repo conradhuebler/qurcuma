@@ -106,27 +106,21 @@ Last:
 ## Polymer for the first run: PDMAEMA
 
 - The polymer in curcuma's test set (`test_cases/molecules/larger/polymer.xyz`) is PEO, not PDMAEMA.
-- curcuma has `src/molecules/pdmaema.xyz`, a repeat-unit fragment with two `Xx` connection points for
-  `polymerbuild`. **It is not a correct PDMAEMA repeat unit.** Both `Xx` sit on the same quaternary carbon
-  (C2 bears CH3, the ester and both connection points) and the fragment has no backbone CH2: it is C7H13NO2 (+2 Xx),
-  the real unit is C8H15NO2. `curcuma -polymerbuild -sequence "(A)4"` with it gave C28H54N4O8 (94 atoms) instead of
-  the expected C32H62N4O8, and logged bond-length retries (1.76 A against 1.50 A), "19 missing bonds, 90 extra
-  bonds" and a coordination-number warning at step 02: a chain of directly bonded quaternary carbons. Checked on one
-  4-mer, geometry not inspected. A fragment with -CH2-C(CH3)(CO2CH2CH2N(CH3)2)- (one `Xx` on the CH2, one on the
-  quaternary carbon) is needed; check the build by the composition per unit and the topology warnings.
-- Corrected unit tried (constructed by hand from `pdmaema.xyz`: one `Xx` replaced by CH2-`Xx`, tetrahedral, C-C 1.54 A;
-  C8H15NO2 + 2 Xx, 28 atoms). Findings of a `(A)4` build with it: (a) the two `Xx` must be the LAST two atoms of the
-  fragment file, otherwise `polymerbuild` reports an unbound atom and a bond count off by one against its template;
-  (b) the 4-mer is C32H62N4O8 with the correct head-to-tail backbone (quaternary C and CH2 alternate, each quaternary
-  C carries CH3 and the ester); (c) **the two chain-end cap hydrogens are not bonded** (2.6 and 2.9 A from the
-  nearest carbon): `PolymerBuild::applyCapping` only changes the element of the last `Xx` and keeps its position.
-  The same two unbound H appear with the original fragment, so this is a `polymerbuild` defect, not a fragment
-  problem. A first repair of the caps (hydrogen opposite the sum of the three bond vectors) failed: the raw
-  geometry is distorted and one H landed 0.40 A from a carbon (noticed by the operator). The second repair puts
-  each cap H at 1.09 A on the sphere around its carbon where it is farthest from every other atom, then GFN-FF
-  optimises (364 iterations, converged: gradient norm 4.7e-4, E = -16.398271 Eh): 106 atoms, 105 bonds (a tree), C-H
-  1.09 to 1.10 A, C-C 1.52 to 1.56 A, closest non-bonded pair 2.01 A. Not a 30-mer, not protonated, geometry not
-  inspected visually. The fix belongs in `applyCapping` of curcuma and is not done there.
+- curcuma's `src/molecules/pdmaema.xyz` was not a correct PDMAEMA repeat unit: both `Xx` sat on the same quaternary
+  carbon and the backbone CH2 was missing (C7H13NO2 instead of C8H15NO2; a 4-mer came out as C28H54N4O8).
+  Corrected on curcuma branch `feature/polymerbuild-caps` (964cc685): the file is now
+  -CH2-C(CH3)(COOCH2CH2N(CH3)2)- (28 atoms, constructed by hand from the old one) with the two `Xx` as the LAST two
+  atoms (otherwise `polymerbuild` reports an unbound atom).
+- `polymerbuild` also left the two chain-end cap hydrogens unbound (2.6 to 2.9 A from the nearest carbon), with the
+  old and the new fragment alike. Cause: the persistent topology holds heavy-atom bonds only, so an open `Xx` that was
+  turned into H for an intermediate optimisation or MD had no bond and drifted away (1.07 A in the fragment, about
+  2.9 A after the optimisation). Fixed by `appendCapBonds()` at the five places where the bond list reaches the force
+  field. The raw 4-mer from `curcuma -polymerbuild -sequence "(A)4"` is now C32H62N4O8, 106 atoms, 105 bonds (a
+  tree), all atoms bonded, C-H 1.09 to 1.10 A, C-C 1.50 to 1.56 A. New test `polymerbuild_pdmaema` fails without the
+  fix and passes with it. Covered: one fragment, `(A)4`, the sequential path. Not run: the sub-chain (divide and
+  conquer) path, cold MD on remaining overlaps, a second fragment `(AB)n`, `cap` other than H, a 30-mer.
+  `polymerbuild` still logs "verifyAndFixTopology ... missing/extra bonds" at the connection steps (pre-optimisation
+  geometry); not investigated.
 - Alternating protonation needs a second fragment (N-protonated, charge +1) and a sequence such as `(AB)15`;
   whether `polymerbuild` carries the charge into the result is not checked. Tacticity is not a parameter, it follows
   from the fragment orientation.
@@ -139,11 +133,12 @@ Last:
 
 ## Handover to another machine (collected, not yet done)
 
-Nothing below has been pushed. curcuma branches, each on top of the previous one, tip `feature/rdf-sasa`:
+Nothing below has been pushed. curcuma branches, each on top of the previous one, tip `feature/polymerbuild-caps`:
 `feature/ions` (01d62e21) -> `feature/trajectory-props` (041184f3) -> `feature/hbond-energies` (92c28a22) ->
-`feature/hbond-energy-criterion` (bf18b3a3) -> `feature/md-hbond-log` (15a9ef87) -> `feature/rdf-sasa` (b4a9941f).
-`feature/polymerbuild-job` is empty (master). qurcuma: `feature/paper-setup-min2015` (5a3d8e2) needs the curcuma tip to
-build. To push as one development branch, `feature/rdf-sasa` can be pushed under a new name; the stacking is linear.
+`feature/hbond-energy-criterion` (bf18b3a3) -> `feature/md-hbond-log` (15a9ef87) -> `feature/rdf-sasa` (b4a9941f) -> `feature/polymerbuild-caps` (964cc685).
+`feature/polymerbuild-job` is empty (master). qurcuma: `feature/paper-setup-min2015` needs the curcuma tip to build.
+To push as one development branch, the tip can be pushed under a new name; the stacking is linear (11 commits above
+master).
 
 To collect in the vault (rules in `00 Regeln.md`): a project note for this work; method notes (hydrogen-bond criteria,
 g(r), SASA, block error) with the references and the "unchecked" mark; a Labor entry for the measurements made
