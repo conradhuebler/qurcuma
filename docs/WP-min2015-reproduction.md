@@ -71,8 +71,12 @@ Next:
   - Done: radius of gyration with block error; qurcuma tool `analyze_trajectory` (job via `job_status`).
     Machine-tested only (constructed geometry, 28,000 atoms x 100 frames in 3.8 s at 33 MB); real MD
     trajectories and the GUI path not tried.
-  - Open, in this order: `hbonds` (solute-water, water-water), `rdf` (selection pairs, minimum image with a
-    cell), `sasa` (Shrake-Rupley with a water probe), water relaxation. Each as a quantity of `trajprops`.
+  - Done: `hbonds`, geometric (distance, angle, elements adjustable; two groups per direction), also in
+    `analyze_trajectory`. Counts on real water not compared with another program.
+  - Open, in this order: GFN-FF energy criterion for `hbonds` (1. per-triple energies from
+    `FFWorkspace::calcHydrogenBonds`, today only summed, CPU only; 2. `energy` mode in `trajprops` with a
+    histogram to calibrate the limit against the geometric count; 3. logging the count during MD), `rdf`
+    (selection pairs, minimum image with a cell), `sasa` (Shrake-Rupley with a water probe), water relaxation.
   - Capability inventory tool: done as `list_capabilities`.
 
 Later:

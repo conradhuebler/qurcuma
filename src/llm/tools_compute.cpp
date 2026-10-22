@@ -292,13 +292,17 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
         spec.category = QStringLiteral("compute");
         spec.description = QStringLiteral(
             "Compute a property of a trajectory FILE (xyz, vtf) without loading it into the scene: "
-            "frame by frame, one frame in memory. So far the radius of gyration (mass-weighted about "
-            "the centre of mass) of an atom selection, e.g. selection \"F1\" for the polymer chain, "
-            "with mean, standard deviation over frames, and a block standard error of the mean "
-            "(frames of an MD run are correlated, so the standard deviation divided by sqrt(frames) "
-            "understates the uncertainty). last_fraction 0.3333 takes the last third of the file, "
-            "e.g. the last 10 ns of 30 ns. Coordinates are used as stored: a chain wrapped around a "
-            "periodic boundary gives a wrong value. Returns a job_id; ask job_status. The per-frame "
+            "frame by frame, one frame in memory. quantity gyration: radius of gyration (mass-weighted "
+            "about the centre of mass) of the atoms in selection, e.g. \"F1\" for the polymer chain. "
+            "quantity hbonds: geometric hydrogen bonds D-H...A (donor to acceptor distance at most "
+            "hb_distance, angle D-H...A at least hb_angle; defaults 3.5 A and 150 deg), between "
+            "selection and selection_b counted per direction (\"!F1\" means everything except F1), or "
+            "inside selection when selection_b is empty. Statistics: mean, standard deviation over "
+            "frames and a block standard error of the mean (frames of an MD run are correlated, so the "
+            "standard deviation divided by sqrt(frames) understates the uncertainty). last_fraction "
+            "0.3333 takes the last third of the file, e.g. the last 10 ns of 30 ns. Coordinates are used "
+            "as stored: a chain wrapped around a periodic boundary gives a wrong gyration radius, and no "
+            "hydrogen bond is found across a boundary. Returns a job_id; ask job_status. The per-frame "
             "series is written as CSV next to the trajectory.");
         spec.effect = ToolEffect::Compute;
         spec.affinity = ToolAffinity::Any;
@@ -306,9 +310,14 @@ int registerComputeTools(ToolRegistry& registry, const ComputeToolContext& conte
           "type": "object",
           "properties": {
             "path":          { "type": "string", "description": "trajectory file, relative to the working directory" },
-            "quantity":      { "type": "string", "enum": ["gyration"] },
+            "quantity":      { "type": "string", "enum": ["gyration", "hbonds"] },
             "selection":     { "type": "string",
-                               "description": "atoms in curcuma's selection grammar, resolved once on the first frame used: \"F1\" first fragment, \"1:780\" one-based range; empty = all atoms" },
+                               "description": "atoms in curcuma's selection grammar, resolved once on the first frame used: \"F1\" first fragment, \"1:780\" one-based range, a leading ! for all atoms except the rest; empty = all atoms" },
+            "selection_b":   { "type": "string", "description": "hbonds: the second group; empty counts bonds inside selection" },
+            "hb_distance":   { "type": "number", "minimum": 0, "description": "hbonds: largest donor-acceptor distance in Angstrom (default 3.5)" },
+            "hb_angle":      { "type": "number", "minimum": 0, "maximum": 180, "description": "hbonds: smallest D-H...A angle in degrees (default 150)" },
+            "hb_bond_length": { "type": "number", "minimum": 0, "description": "hbonds: a hydrogen within this distance of a donor atom belongs to it (default 1.3 A)" },
+            "hb_elements":   { "type": "string", "description": "hbonds: element symbols of donors and acceptors, comma separated (default N,O)" },
             "mass_weighted": { "type": "boolean", "description": "default true" },
             "first_frame":   { "type": "integer", "minimum": 0 },
             "last_frame":    { "type": "integer", "description": "-1 = to the end (default)" },

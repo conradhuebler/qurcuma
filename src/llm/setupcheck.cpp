@@ -68,8 +68,11 @@ const QVector<Capability> kCapabilities = {
         "qurcuma:src/llm/tools_compute.cpp", "" },
     { "analysis.rdf", S::Partial, "RDF exists in the curcuma Analysis capability; no tool.",
         "curcuma:src/capabilities/analysis.h", "D" },
-    { "analysis.hbonds", S::Partial, "Hydrogen-bond detection exists in curcuma; no tool.",
-        "curcuma:src/core/hbonds.h", "D" },
+    { "analysis.hbonds", S::Available,
+        "analyze_trajectory quantity=hbonds counts geometric hydrogen bonds (distance, angle, elements adjustable) "
+        "between two groups or inside one. Tested on hand-built water dimers; counts on real water not compared "
+        "with another program. An energy criterion from the GFN-FF hydrogen-bond terms does not exist yet.",
+        "qurcuma:src/llm/tools_compute.cpp", "" },
     { "analysis.wasa", S::Missing, "No water-accessible surface area output (only a GBSA grid in solvation).",
         "curcuma:src/core/solvation/lebedev_grid.h", "D" },
     { "analysis.water_dynamics", S::Missing, "No water relaxation or residence-time analysis.",
