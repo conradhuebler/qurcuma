@@ -2,6 +2,16 @@
 
 Newest first; one line per fact. Entries from August 2026 and earlier: [docs/changelog/AIChangelog_2026-08-and-earlier.md](docs/changelog/AIChangelog_2026-08-and-earlier.md).
 
+## November 2026 - VR-Bedienbarkeit nach dem UX-Test
+
+- **VR-Fortbewegung**: Tempo-Stufen Langsam/Normal/Schnell (15/35/90 cm/s, vorher 150), Stick-Kennlinie quadratisch, sanftes Anfahren/Bremsen, Komfort-Vignette beim Gehen (`VrVignette.qml`); Plan und Befunde in [docs/WP-vr-usability.md](docs/WP-vr-usability.md).
+- **VR-Zoom am Molekül**: rechter Stick vor/zurück skaliert um die Molekülmitte, beide Grip-Tasten auseinander/zusammen ebenso.
+- **VR-Molekülgröße**: `moleculeSize` ist jetzt der Durchmesser der Hüllkugel; vorher wurde auf den Radius (`sceneExtent`) eingepasst, das Molekül war doppelt so groß wie angezeigt. Die Preview-Attrappe rechnet `sceneExtent` jetzt wie `SceneController`.
+- **VR-Layout ohne Überdeckung**: Hilfe, Tutorial und Dateibrowser neben dem Molekül; Menüleiste (Griff jetzt rechts) und Konsolen-Panels unter seiner Hüllkugel, Neigungen aus Panelhöhen berechnet.
+- **VR-Lesbarkeit**: Schriften etwa +25 %, Textgröße Normal/Groß/XL (`VrPanelHost.uiScale`); Hilfe kompakt, einzeilig.
+- **VR-Tutorial**: `VrPanelTutorial.qml`, Schritt für Schritt, hakt Schritte bei ausgeführter Geste ab; aus Menüleiste, Hilfe und Desktop (Ansicht ▸ Start VR Tutorial). Desktop-Menüs VR Movement Speed / VR Text Size, gespeichert in `Settings`.
+- Geprüft: Build, qmllint, Panels und Vignette in `spikes/vr_preview`. Nicht geprüft: Headset (Steuerung, Vignette in Stereo, Tutorial-Ablauf).
+
 ## Oktober 2026 - README und Docs
 
 - **README**: Abschnitte Remote Computing, Assistant and Scripts und VR; Requirements nennen die optionalen Qt-Module (WebSockets, Network, Quick 3D XR) und libssh mit ihren CMake-Schaltern; curcuma, CuteChart und CuteChat kommen per FetchContent, nicht als Submodul. Die Aussagen stammen aus `CMakeLists.txt` und den Docs, die GUI wurde dafür nicht gestartet.

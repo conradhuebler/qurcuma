@@ -15,8 +15,11 @@
 // rectangle and hands the button under the ray to the controller (viewerxr.qml Hand); touchHit()
 // does the same for a tracked hand's pinch point (VrHandInput.qml).
 //
-// Moving (Claude Generated 2026): a handle below the panel (above for the menu bar), like a window's
-// title bar. Holding it
+// Text size (Claude Generated 2026): uiScale enlarges the whole panel (pixels per cm divided by it),
+// so text, buttons and gaps grow together and the panel's layout stays as designed.
+//
+// Moving (Claude Generated 2026): a handle below the panel (beside it for the menu bar, which sits
+// between the molecule and the console panels), like a window's title bar. Holding it
 // (trigger or pinch) calls moveCentreTo(), which turns the target point into yaw, pitch and distance
 // (placeYaw/placePitch/placeDistance), so a moved panel still faces the head. The layout's own
 // yaw/pitch/distance come back with resetPlacement() ("Recenter").
@@ -38,6 +41,12 @@ Node {
     property Item panel: null
     /// Panel this one belongs to (null = placed on its own); its place is then relative to the anchor's.
     property Node anchorHost: null
+    /// Text size factor (Style.textScales); panel pixels per scene cm are Style.pixelsPerCm / uiScale.
+    property real uiScale: 1
+    readonly property real pxPerCm: Style.pixelsPerCm / uiScale
+    /// Size of the panel in the scene (cm), for the layout
+    readonly property real sceneWidth: surface.width
+    readonly property real sceneHeight: surface.height
 
     /// Place the user moved the panel to (moved = true), else the layout's
     property bool moved: false
@@ -51,10 +60,14 @@ Node {
     /// Handle state, driven by the hands and controllers: rays/pinch points on it, and held
     property int handleHoverCount: 0
     property bool handleHeld: false
-    /// Handle above the panel instead of below (the menu bar: below it sit the console panels)
-    property bool handleAbove: false
-    /// Top edge of the handle in surface space (cm; the panel spans y 0 .. -height)
-    readonly property real handleTop: handleAbove ? Style.handleGap + Style.handleHeight
+    /// Handle to the right of the panel instead of below it (the menu bar: above it is the molecule,
+    /// below it the console panels; Claude Generated 2026). It then stands upright.
+    property bool handleRight: false
+    /// Handle rectangle in surface space (cm; the panel spans x 0 .. width, y 0 .. -height)
+    readonly property real handleWidth: handleRight ? Style.handleHeight : Style.handleWidth
+    readonly property real handleHeight: handleRight ? Math.min(Style.handleWidth, surface.height) : Style.handleHeight
+    readonly property real handleLeft: handleRight ? surface.width + Style.handleGap : (surface.width - handleWidth) / 2
+    readonly property real handleTop: handleRight ? -(surface.height - handleHeight) / 2
                                                   : -surface.height - Style.handleGap
 
     eulerRotation.y: placeYaw
@@ -65,35 +78,37 @@ Node {
         XrItem {
             id: surface
             visible: host.visible
-            width: host.panel ? host.panel.width / Style.pixelsPerCm : 1
-            height: host.panel ? host.panel.height / Style.pixelsPerCm : 1
+            width: host.panel ? host.panel.width / host.pxPerCm : 1
+            height: host.panel ? host.panel.height / host.pxPerCm : 1
             position: Qt.vector3d(-width / 2, height / 2, -host.placeDistance)
-            pixelsPerUnit: Style.pixelsPerCm
+            pixelsPerUnit: host.pxPerCm
             manualPixelsPerUnit: true
             color: "transparent"   // default is white, which would show around the rounded corners
             contentItem: host.panel
         }
 
-        // Handle: centred below (or above) the panel in the panel's plane. The item is the target area; the
-        // pill inside it is what the user sees, lit while hovered, blue while held.
+        // Handle: centred below (or right of) the panel in the panel's plane. The item is the target area;
+        // the pill inside it is what the user sees, lit while hovered, blue while held.
         XrItem {
             id: handleSurface
             visible: host.visible
-            width: Style.handleWidth
-            height: Style.handleHeight
-            position: Qt.vector3d(-width / 2, surface.height / 2 + host.handleTop, -host.placeDistance)
+            width: host.handleWidth
+            height: host.handleHeight
+            position: Qt.vector3d(-surface.width / 2 + host.handleLeft, surface.height / 2 + host.handleTop, -host.placeDistance)
             pixelsPerUnit: Style.pixelsPerCm
             manualPixelsPerUnit: true
             color: "transparent"
             contentItem: Item {
-                width: Style.handleWidth * Style.pixelsPerCm
-                height: Style.handleHeight * Style.pixelsPerCm
+                width: host.handleWidth * Style.pixelsPerCm
+                height: host.handleHeight * Style.pixelsPerCm
                 Rectangle {
                     readonly property bool lit: host.handleHoverCount > 0 || host.handleHeld
+                    readonly property real across: lit ? 16 : 11
+                    readonly property real along: (host.handleRight ? parent.height : parent.width) * (lit ? 0.8 : 0.65)
                     anchors.centerIn: parent
-                    width: parent.width * (lit ? 0.8 : 0.65)
-                    height: lit ? 16 : 11
-                    radius: height / 2
+                    width: host.handleRight ? across : along
+                    height: host.handleRight ? along : across
+                    radius: Math.min(width, height) / 2
                     color: host.handleHeld ? Style.handleHeld : lit ? Style.handleHover : Style.handle
                     border.width: lit ? 2 : 0
                     border.color: Style.hoverRing
@@ -139,12 +154,12 @@ Node {
 
     function hitAt(x, y) {
         if (x >= 0 && x <= surface.width && y <= 0 && y >= -surface.height) {
-            var px = x * Style.pixelsPerCm
-            var py = -y * Style.pixelsPerCm
+            var px = x * host.pxPerCm
+            var py = -y * host.pxPerCm
             return { host: host, handle: false, button: buttonAt(px, py), x: px, y: py }
         }
-        var handleLeft = (surface.width - Style.handleWidth) / 2
-        if (x >= handleLeft && x <= handleLeft + Style.handleWidth && y <= host.handleTop && y >= host.handleTop - Style.handleHeight)
+        if (x >= host.handleLeft && x <= host.handleLeft + host.handleWidth
+                && y <= host.handleTop && y >= host.handleTop - host.handleHeight)
             return { host: host, handle: true, button: null, x: 0, y: 0 }
         return null
     }
@@ -165,13 +180,13 @@ Node {
     /// that left the track keeps going, like a mouse drag); null if the ray points away from it.
     function panelPointOnRay(origin, direction) {
         var p = planePointOnRay(origin, direction)
-        return p ? Qt.point(p.x * Style.pixelsPerCm, -p.y * Style.pixelsPerCm) : null
+        return p ? Qt.point(p.x * host.pxPerCm, -p.y * host.pxPerCm) : null
     }
 
     /// Panel pixels of a scene point projected onto the panel's plane (hand drags).
     function panelPointAt(point) {
         var p = surface.mapPositionFromScene(point)
-        return Qt.point(p.x * Style.pixelsPerCm, -p.y * Style.pixelsPerCm)
+        return Qt.point(p.x * host.pxPerCm, -p.y * host.pxPerCm)
     }
 
     /// Topmost visible VrButton or drag target at a point of the panel (panel pixels), null if none.

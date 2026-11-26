@@ -14,6 +14,7 @@ Open code tasks only, at most 3 lines each. Feature wishes: `docs/ROADMAP.md`. P
 - Remembered models are stored under `llm/models/<profile>` (was `llm/model/<profile>`); the model is chosen once again after the update.
 
 ## Remote
+- VR usability (docs/WP-vr-usability.md): try on the headset; tune `Style.walkSpeeds`, `vignetteMaxOpacity`, `zoomRate`, console pitches.
 - Remote compute (A controls/visualizes, B computes) and VR: plan in `docs/WP-remote-compute-vr.md`; R0 to R4 are in, next R5 (VR). Open: server method list not shown in the dock; old session directories on B are not cleaned up; reconnect over a real link and "Show results in Remote" are not exercised (real ssh runs between two machines work, Oct 2026).
 
 - Trajectory name: the worker's molecule has no basename, so curcuma writes `.snapshots/.trj.xyz` (hidden) in the working directory, also for local runs with "write trajectory". Give the molecule a name or set the basename.

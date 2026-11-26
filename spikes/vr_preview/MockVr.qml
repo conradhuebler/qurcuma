@@ -30,6 +30,9 @@ QtObject {
     property string currentDir: "/home/user/structures"
     property var entries: []
     property bool handInput: stateName === "hands"   // layout within arm's reach (Claude Generated 2026)
+    /// Comfort (Claude Generated 2026): Style.walkSpeeds / Style.textScales index; state "large" = 1
+    property int walkSpeedLevel: 1
+    property int textSizeLevel: stateName === "large" ? 1 : stateName === "xlarge" ? 2 : 0
 
     // ---- VrSession signals (callable from the panels, as on the C++ object) ---------------------
     signal command(string name)
@@ -37,6 +40,7 @@ QtObject {
     signal fileRequested(string path)
     signal grabForce(int source, int atomIndex, vector3d displacement)
     signal grabReleased(int source)
+    signal tutorialRequested()
 
     readonly property var tree: ({
         "/home/user": ["structures/"],

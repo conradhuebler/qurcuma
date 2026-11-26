@@ -15,13 +15,19 @@
 //   trigger on the molecule, no simulation = carry it: it follows the ray point, keeping its offset
 //                                     (Claude Generated 2026)
 //   grip                            = rotate the molecule with the hand (also while carrying it)
+//   both grips, hands apart/together = scale the molecule about the point between the controllers
 //   trigger elsewhere               = rotate the molecule with the hand
 //   A / X                           = select the atom under the ray
 //   B / Y                           = hide / show the panels
 // The thumbsticks are the one exception (Claude Generated 2026), they move the user, not the scene:
-//   left stick                      = walk (horizontal, relative to where the head looks)
+//   left stick                      = walk (horizontal, relative to where the head looks), at the
+//                                     speed level vr.walkSpeedLevel, easing in and out, with a
+//                                     comfort vignette while moving (UX test 2026-10)
 //   right stick left / right        = snap turn by 45 degrees about the head
-// The help panel (VrPanelHelp.qml) explains the same; keep both in sync.
+//   right stick up / down           = zoom: scale the molecule about its centre (UX test 2026-10:
+//                                     "zoom more intuitively right at the molecule", not by flying in)
+// The help panel (VrPanelHelp.qml) and the tutorial (VrPanelTutorial.qml) explain the same; keep them
+// in sync. Finished gestures are reported to the tutorial (VrScene.reportAction).
 //
 // Input mode (vr.handInput, Claude Generated 2026): the above is the controller mode. In hand mode the
 // tracked hands (VrHandInput.qml) pinch and touch instead; the controllers' rays, triggers and sticks
@@ -59,6 +65,14 @@ XrView {
         z: 0
         camera: XrCamera { id: headCamera; clipNear: 1; clipFar: 10000 }
 
+        // Comfort vignette, following the head (Claude Generated 2026): darkens the edge of the view
+        // in proportion to the walking speed, gone when standing still.
+        VrVignette {
+            position: headCamera.position
+            rotation: headCamera.rotation
+            strength: Style.vignetteMaxOpacity * Math.min(1, xrView.walkVelocity.length() / Style.walkSpeeds[1])
+        }
+
         Hand {
             id: rightHand
             controller: XrController.ControllerRight
@@ -82,46 +96,107 @@ XrView {
         }
     }
 
-    // ---- locomotion: left stick walks, right stick snap-turns (Claude Generated 2026) -----------
-    // The user moves, not the scene: both act on the XrOrigin, which carries head and hands, so the
-    // molecule, the panels and the surroundings stay where they are. Qt Quick 3D is y-up, -z forward;
-    // walking stays in the horizontal x/z plane.
+    // ---- locomotion: left stick walks, right stick snap-turns and zooms (Claude Generated 2026) ---
+    // The user moves, not the scene: walking and turning act on the XrOrigin, which carries head and
+    // hands, so the molecule, the panels and the surroundings stay where they are. Qt Quick 3D is
+    // y-up, -z forward; walking stays in the horizontal x/z plane.
     // Controller mode only: a hand holding the molecule must not be turned under it.
     XrInputAction { id: walkX; enabled: !vr.handInput; hand: XrInputAction.LeftHand; actionId: XrInputAction.ThumbstickX }
     XrInputAction { id: walkY; enabled: !vr.handInput; hand: XrInputAction.LeftHand; actionId: XrInputAction.ThumbstickY }
     XrInputAction { id: turnX; enabled: !vr.handInput; hand: XrInputAction.RightHand; actionId: XrInputAction.ThumbstickX }
+    XrInputAction { id: zoomY; enabled: !vr.handInput; hand: XrInputAction.RightHand; actionId: XrInputAction.ThumbstickY }
 
     /// Stick deflection below this is ignored (resting sticks never read exactly 0).
     readonly property real stickDeadzone: 0.15
     /// True while a snap turn rotates the origin: the hands must not read it as a rotate gesture.
     property bool turning: false
+    /// Walking velocity (cm/s, scene axes), eased towards the stick's target (Claude Generated 2026)
+    property vector3d walkVelocity: Qt.vector3d(0, 0, 0)
+    /// Full-tilt speed of the chosen level (Style.walkSpeeds; VrSession.walkSpeedLevel)
+    readonly property real walkSpeed: Style.walkSpeeds[Math.max(0, Math.min(Style.walkSpeeds.length - 1, vr.walkSpeedLevel))]
+    /// Distance walked since the last report to the tutorial (cm)
+    property real walkedDistance: 0
+
+    /// Stick deflection beyond the deadzone, 0..1, shaped by Style.walkCurve: a gentle tilt is slow.
+    function stickAmount(tilt) {
+        if (tilt <= stickDeadzone)
+            return 0
+        return Math.pow(Math.min(1, (tilt - stickDeadzone) / (1 - stickDeadzone)), Style.walkCurve)
+    }
 
     FrameAnimation {
-        running: !vr.handInput && Math.hypot(walkX.value, walkY.value) > xrView.stickDeadzone
-        onTriggered: xrView.walk(frameTime)
+        running: !vr.handInput && (Math.hypot(walkX.value, walkY.value) > xrView.stickDeadzone
+                                   || xrView.walkVelocity.length() > 0)
+        onTriggered: xrView.walk(Math.min(frameTime, 0.1))
+        onRunningChanged: if (!running) xrView.walkVelocity = Qt.vector3d(0, 0, 0)
     }
 
-    /// Move the origin by the left stick for @p dt seconds: forward = where the head looks,
-    /// flattened to the floor; speed rises from 0 at the deadzone to Style.walkSpeed at full tilt.
+    /// Move the origin for @p dt seconds. Target velocity from the left stick: forward = where the
+    /// head looks, flattened to the floor, speed = walkSpeed * stickAmount(tilt). The velocity
+    /// approaches it exponentially (Style.walkEaseSeconds), so starts and stops are gentle, not a jerk.
     function walk(dt) {
-        var x = walkX.value
-        var y = walkY.value
+        var target = Qt.vector3d(0, 0, 0)
+        var x = vr.handInput ? 0 : walkX.value
+        var y = vr.handInput ? 0 : walkY.value
         var tilt = Math.hypot(x, y)
-        if (tilt <= stickDeadzone)
-            return
         var look = headCamera.sceneRotation.times(Qt.vector3d(0, 0, -1))
         var forward = Qt.vector3d(look.x, 0, look.z)
-        if (forward.length() < 1e-3)   // looking straight up or down: no heading
-            return
-        forward = forward.normalized()
-        var right = Qt.vector3d(-forward.z, 0, forward.x)
-        var speed = Style.walkSpeed * Math.min(1, (tilt - stickDeadzone) / (1 - stickDeadzone)) / tilt
-        origin.position = origin.position.plus(forward.times(y * speed * dt).plus(right.times(x * speed * dt)))
+        if (tilt > stickDeadzone && forward.length() >= 1e-3) {   // no heading looking straight up or down
+            forward = forward.normalized()
+            var right = Qt.vector3d(-forward.z, 0, forward.x)
+            var speed = walkSpeed * stickAmount(tilt) / tilt
+            target = forward.times(y * speed).plus(right.times(x * speed))
+        }
+        var k = 1 - Math.exp(-dt / Style.walkEaseSeconds)
+        var v = walkVelocity.plus(target.minus(walkVelocity).times(k))
+        if (target.length() === 0 && v.length() < 1)   // nearly stopped: stop
+            v = Qt.vector3d(0, 0, 0)
+        walkVelocity = v
+        origin.position = origin.position.plus(v.times(dt))
+        walkedDistance += v.length() * dt
+        if (walkedDistance > 30) {
+            walkedDistance = 0
+            scene.reportAction("walk")
+        }
     }
 
-    // One turn per push: the stick has to come back towards the centre before the next one.
-    readonly property int turnDirection: vr.handInput ? 0 : turnX.value > 0.6 ? 1 : turnX.value < -0.6 ? -1 : 0
+    // One turn per push: the stick has to come back towards the centre before the next one. Only a
+    // mainly sideways push turns, a mainly forward/back one zooms.
+    readonly property int turnDirection: vr.handInput || Math.abs(turnX.value) < Math.abs(zoomY.value) ? 0
+                                         : turnX.value > 0.6 ? 1 : turnX.value < -0.6 ? -1 : 0
     onTurnDirectionChanged: if (turnDirection !== 0) snapTurn(-turnDirection * Style.snapTurnDegrees)
+
+    // Zoom (Claude Generated 2026): right stick forward = larger, back = smaller, about the molecule's
+    // centre, continuous; at full tilt the size changes by e^Style.zoomRate per second.
+    FrameAnimation {
+        running: !vr.handInput && Math.abs(zoomY.value) > xrView.stickDeadzone
+                 && Math.abs(zoomY.value) > Math.abs(turnX.value)
+        onTriggered: {
+            var amount = xrView.stickAmount(Math.abs(zoomY.value)) * (zoomY.value > 0 ? 1 : -1)
+            scene.zoomMolecule(Math.exp(Style.zoomRate * amount * Math.min(frameTime, 0.1)))
+        }
+    }
+
+    // Both grips held (Claude Generated 2026): scale the molecule by the change of the distance
+    // between the controllers, about their midpoint, which also carries it (as two pinching hands do
+    // in VrHandInput.qml): anchor' = middle + s (anchor - lastMiddle).
+    readonly property bool twoHandScale: rightHand.squeezeDown && leftHand.squeezeDown
+    property real lastSpread: 0   // 0 = start anew with the next update
+    property vector3d lastMiddle
+    onTwoHandScaleChanged: lastSpread = 0
+    function spread() {
+        var middle = rightHand.scenePosition.plus(leftHand.scenePosition).times(0.5)
+        var gap = rightHand.scenePosition.minus(leftHand.scenePosition).length()
+        if (lastSpread > 0 && gap > 0) {
+            var oldSize = scene.moleculeSize
+            var newSize = Math.max(scene.minMoleculeSize, Math.min(scene.maxMoleculeSize, oldSize * gap / lastSpread))
+            var s = newSize / oldSize
+            scene.moleculeSize = newSize
+            scene.moveMoleculeTo(middle.plus(scene.moleculeAnchor.scenePosition.minus(lastMiddle).times(s)))
+        }
+        lastMiddle = middle
+        lastSpread = gap
+    }
 
     /// Turn the user by @p degrees (> 0 = left) about the vertical axis through the head, so the
     /// head stays in place: origin' = head + R (origin - head), rotation' = R rotation.
@@ -134,6 +209,7 @@ XrView {
         turning = false
         rightHand.lastRotation = rightHand.sceneRotation
         leftHand.lastRotation = leftHand.sceneRotation
+        scene.reportAction("turn")
     }
 
     // ---- molecule and panels -----------------------------------------------------------------
@@ -229,8 +305,14 @@ XrView {
         property vector3d moleculeGrabOffset
         readonly property bool triggerDown: active && trigger.value > 0.5
         readonly property bool squeezeDown: active && squeeze.value > 0.5
-        readonly property bool rotating: !pressing && grabAtom < 0 && (squeezeDown || (triggerDown && !movingMolecule))
+        /// both grips scale the molecule instead (viewerxr twoHandScale)
+        readonly property bool rotating: !pressing && grabAtom < 0 && !thisHand.view.twoHandScale
+                                         && (squeezeDown || (triggerDown && !movingMolecule))
         property quaternion lastRotation: Qt.quaternion(1, 0, 0, 0)
+        /// Tutorial (Claude Generated 2026): degrees turned in this rotate gesture, and where a carry
+        /// started; each reported once it is more than a twitch.
+        property real rotatedDegrees: 0
+        property vector3d carryStart
 
         XrInputAction { id: trigger; enabled: thisHand.active; hand: thisHand.inputHand; actionId: XrInputAction.TriggerValue }
         XrInputAction { id: squeeze; enabled: thisHand.active; hand: thisHand.inputHand; actionId: XrInputAction.SqueezeValue }
@@ -238,7 +320,14 @@ XrView {
             enabled: thisHand.active
             hand: thisHand.inputHand
             actionId: XrInputAction.Button1Pressed   // A (right) / X (left)
-            onPressedChanged: if (pressed) vr.atomPicked(thisHand.atomUnderRay())
+            onPressedChanged: {
+                if (!pressed)
+                    return
+                var atom = thisHand.atomUnderRay()
+                vr.atomPicked(atom)
+                if (atom >= 0)
+                    thisHand.vrScene.reportAction("select")
+            }
         }
         XrInputAction {
             hand: thisHand.inputHand
@@ -292,6 +381,8 @@ XrView {
         function carryMolecule() {
             var target = thisHand.scenePosition.plus(aimDirection().times(moleculeGrabDistance))
             thisHand.vrScene.moveMoleculeTo(target.plus(moleculeGrabOffset))
+            if (target.minus(carryStart).length() > 10)
+                thisHand.vrScene.reportAction("carry")
         }
 
         // Panel and button under the ray. Lights the button (rayHoverCount: both hands may point at
@@ -341,6 +432,8 @@ XrView {
             updatePanelHit()
             if (movingMolecule)
                 carryMolecule()
+            if (thisHand.view.twoHandScale)
+                thisHand.view.spread()   // either hand moving changes the spread
         }
         onActiveChanged: updatePanelHit()   // off: drops the hover light of the button under the ray
         onSceneRotationChanged: {
@@ -354,8 +447,11 @@ XrView {
             var d = thisHand.sceneRotation.times(thisHand.lastRotation.inverted())
             thisHand.vrScene.moleculeAnchor.rotation = d.times(thisHand.vrScene.moleculeAnchor.rotation)
             thisHand.lastRotation = thisHand.sceneRotation
+            rotatedDegrees += 2 * Math.acos(Math.min(1, Math.abs(d.scalar))) * 180 / Math.PI
+            if (rotatedDegrees > 30)
+                thisHand.vrScene.reportAction("rotate")
         }
-        onRotatingChanged: if (rotating) lastRotation = thisHand.sceneRotation
+        onRotatingChanged: if (rotating) { lastRotation = thisHand.sceneRotation; rotatedDegrees = 0 }
 
         onTriggerDownChanged: {
             if (triggerDown) {
@@ -388,6 +484,7 @@ XrView {
                         moleculeGrabDistance = distance
                         var grabAt = thisHand.scenePosition.plus(aimDirection().times(distance))
                         moleculeGrabOffset = thisHand.vrScene.moleculeAnchor.scenePosition.minus(grabAt)
+                        carryStart = grabAt
                         movingMolecule = true
                     }
                     return
@@ -406,6 +503,7 @@ XrView {
                 if (movingHost) {
                     movingHost.handleHeld = false
                     movingHost = null
+                    thisHand.vrScene.reportAction("panelMove")
                 }
                 if (button) {
                     button.rayDown = false

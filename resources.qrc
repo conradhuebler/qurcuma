@@ -21,6 +21,10 @@
         <file>src/qml/VrPanelView.qml</file>
         <file>src/qml/VrPanelFiles.qml</file>
         <file>src/qml/VrPanelHelp.qml</file>
+        <file>src/qml/VrPanelTutorial.qml</file>
+        <file>src/qml/VrVignette.qml</file>
+        <file>src/qml/VrVignette.vert</file>
+        <file>src/qml/VrVignette.frag</file>
         <file>src/qml/VrMenuBar.qml</file>
         <file>src/qml/VrButton.qml</file>
         <file>src/qml/VrStepper.qml</file>

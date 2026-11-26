@@ -13,6 +13,7 @@
 #include <algorithm>  // Claude Generated - for std::min/std::max
 #include <QAbstractSpinBox>
 #include <QActionGroup>
+#include <functional>
 #include <QApplication>
 #include <QClipboard>
 #include <QCheckBox>
@@ -1210,8 +1211,8 @@ void MainWindow::createMenus()
     // (also when the headset session ends on its own).
     QAction* vrAction = viewMenu->addAction(QIcon::fromTheme("camera-video"), tr("Show in &VR Headset"));
     vrAction->setCheckable(true);
-    vrAction->setToolTip(tr("Show the scene in an OpenXR headset (e.g. WiVRn). Right trigger rotates, "
-                            "A selects the atom under the controller ray."));
+    vrAction->setToolTip(tr("Show the scene in an OpenXR headset (e.g. WiVRn). The headset opens with a "
+                            "help panel; View > Start VR Tutorial walks a new user through the controls."));
     connect(vrAction, &QAction::triggered, this, [this, vrAction](bool on) {
         if (!m_moleculeView->setVrActive(on)) {
             vrAction->setChecked(false);
@@ -1255,6 +1256,47 @@ void MainWindow::createMenus()
         });
     m_moleculeView->setVrHandInput(m_settings.vrHandInput());
     (m_settings.vrHandInput() ? vrHandsAction : vrControllersAction)->setChecked(true);
+
+    // Claude Generated 2026 - Headset comfort (UX test 2026-10): walking speed and text size, set
+    // beforehand by whoever runs a demo, or in the headset's View panel. Remembered.
+    const auto addLevelMenu = [this, viewMenu](const QString& title, const QStringList& names, int current,
+                                               const std::function<void(int)>& apply) {
+        QMenu* menu = viewMenu->addMenu(title);
+        auto* group = new QActionGroup(this);
+        QList<QAction*> actions;
+        for (int i = 0; i < names.size(); ++i) {
+            QAction* action = menu->addAction(names[i]);
+            action->setCheckable(true);
+            action->setChecked(i == current);
+            group->addAction(action);
+            connect(action, &QAction::triggered, this, [apply, i] { apply(i); });
+            actions.append(action);
+        }
+        return actions;
+    };
+    const QList<QAction*> walkActions = addLevelMenu(tr("VR &Movement Speed"),
+        { tr("&Slow"), tr("&Normal"), tr("&Fast") }, m_settings.vrWalkSpeedLevel(),
+        [this](int level) { m_moleculeView->setVrWalkSpeedLevel(level); });
+    const QList<QAction*> textActions = addLevelMenu(tr("VR &Text Size"),
+        { tr("&Normal"), tr("&Large"), tr("E&xtra Large") }, m_settings.vrTextSizeLevel(),
+        [this](int level) { m_moleculeView->setVrTextSizeLevel(level); });
+    connect(m_moleculeView, &MoleculeViewer::vrWalkSpeedLevelChanged, this, [this, walkActions](int level) {
+        walkActions.value(level)->setChecked(true);
+        m_settings.setVrWalkSpeedLevel(level);
+    });
+    connect(m_moleculeView, &MoleculeViewer::vrTextSizeLevelChanged, this, [this, textActions](int level) {
+        textActions.value(level)->setChecked(true);
+        m_settings.setVrTextSizeLevel(level);
+    });
+    m_moleculeView->setVrWalkSpeedLevel(m_settings.vrWalkSpeedLevel());
+    m_moleculeView->setVrTextSizeLevel(m_settings.vrTextSizeLevel());
+
+    // Claude Generated 2026 - Guided tour of the headset controls, started for the headset user.
+    QAction* vrTutorialAction = viewMenu->addAction(tr("Start VR &Tutorial"));
+    vrTutorialAction->setToolTip(tr("Shows a step-by-step introduction to the controls in the headset"));
+    vrTutorialAction->setEnabled(false);
+    connect(vrTutorialAction, &QAction::triggered, this, [this] { m_moleculeView->startVrTutorial(); });
+    connect(m_moleculeView, &MoleculeViewer::vrActiveChanged, vrTutorialAction, &QAction::setEnabled);
 
     // Claude Generated 2026 - Surroundings of the headset scene: a 360 degree panorama as the sky
     // box and/or a 3D scene file around the user. Remembered; a file that is gone is skipped.
