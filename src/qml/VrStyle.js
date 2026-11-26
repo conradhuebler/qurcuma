@@ -3,9 +3,10 @@
 // (stylesheets/dark.qss: backgrounds #1e1e1e/#252525/#2d2d2d, border #3d3d3d, text #e0e0e0, buttons
 // #0d47a1 -> #1565c0 on hover) and the state colours of the Simulation dock.
 //
-// Panel pixels are millimetres: VrPanelHost maps 10 px to 1 cm. Panels hang 55-60 cm from the head,
-// where 1 degree is about 10 mm, so body text is about 1.2 degrees tall and a button about 4 degrees,
-// a target a hand-held controller ray can hold.
+// Panel pixels are millimetres at text size "Normal": VrPanelHost maps 10 px to 1 cm, divided by the
+// text size factor (textScales). Panels hang 55-60 cm from the head, where 1 degree is about 10 mm,
+// so body text is about 1.5 degrees tall (UX test 2026-10: 1.2 degrees was hard to read, above all for
+// short-sighted users) and a button about 5 degrees, a target a hand-held controller ray can hold.
 .pragma library
 
 var pixelsPerCm = 10
@@ -53,22 +54,33 @@ var aborted = "#c0392b"
 var idle = "#7f8c8d"
 
 // ---- metrics (px = mm) -----------------------------------------------------------------------
-var fontTitle = 15
-var fontBody = 12
-var fontSmall = 10
-var fontButton = 13
-var padding = 14
+var fontTitle = 18
+var fontBody = 15
+var fontSmall = 13
+var fontButton = 16
+var padding = 16
 var spacing = 8
 var radius = 12
-var headerHeight = 24
-var buttonHeight = 44
+var headerHeight = 28
+var buttonHeight = 48
 var buttonRadius = 8
 var panelGapDegrees = 3      // gap between the edges of neighbouring console panels (Claude Generated 2026)
 var listRowHeight = 36
 
 // ---- locomotion and surroundings (Claude Generated 2026) ----------------------------------------
-var walkSpeed = 150          // cm/s at full left-stick tilt, a brisk walk
+// UX test 2026-10: 150 cm/s at full tilt carried users through the molecule "suddenly and
+// exhausting"; ratings split 2/2/2, so the speed is a choice (VrSession.walkSpeedLevel) with a
+// cautious default, the stick answers with tilt^walkCurve (fine control near the centre) and the
+// speed eases in and out over walkEaseSeconds instead of jumping.
+var walkSpeeds = [15, 35, 90]               // cm/s at full tilt: Slow, Normal (default), Fast
+var walkSpeedNames = ["Slow", "Normal", "Fast"]
+var walkCurve = 2
+var walkEaseSeconds = 0.35   // time constant of the speed's approach to the stick's target
+var vignetteMaxOpacity = 0.75   // comfort vignette at full walking speed (0 = off)
 var snapTurnDegrees = 45     // right-stick snap turn
+// Zoom at the molecule (controllers): right stick up/down scales it about its centre, at most by
+// e^zoomRate per second; both grips held and pulled apart scale it like a pinch with both hands.
+var zoomRate = 1.2
 var eyeHeight = 160          // cm, floor below the starting head when the runtime has no floor
 
 // ---- hand input: pinch and direct touch (Claude Generated 2026) ---------------------------------
@@ -91,8 +103,26 @@ var highlightMargin = 0.2       // Angstrom   // pinch point over an atom
 var handJoint = "#c8d4e0"
 
 // ---- thermostat slider (Claude Generated 2026) ---------------------------------------------------
-var tempTrackHeight = 200    // px = mm: a 20 cm track, 1000 K range = 5 K per mm
+var tempTrackHeight = 150    // px = mm at text size Normal: a 15 cm track (was 20; keeps the Simulation panel low enough)
 var tempRangeStep = 50       // K per press of the min / max buttons
+
+// ---- text size (Claude Generated 2026) -----------------------------------------------------------
+// Panel scale factors for VrSession.textSizeLevel: everything on the panels grows together.
+var textScales = [1.0, 1.2, 1.4]
+var textScaleNames = ["Normal", "Large", "XL"]
+
+// ---- layout (Claude Generated 2026) ---------------------------------------------------------------
+// UX test 2026-10: "no overlap of molecule and control panels in the default layout". VrScene derives
+// the panel pitches from the molecule's bounding sphere at its default size and the panels' heights.
+var moleculePitch = 3        // degrees above eye height (the space below goes to the panels)
+var layoutGapDegrees = 2     // between the molecule's sphere, the menu bar and the console panels
+var consoleLowestPitch = -40 // the console panels never go lower; a big molecule may then reach them
+var consoleLowestPitchHands = -48   // hand input: 45 cm away, chest height, where relaxed arms reach
+var infoGapDegrees = 4       // between the molecule's sphere and help / tutorial / file browser
+
+// ---- tutorial (Claude Generated 2026) -------------------------------------------------------------
+var tutorialDone = "#27ae60"
+var tutorialAdvanceMilliseconds = 1200   // a finished step shows its tick this long, then the next one
 
 // ---- movable panels (Claude Generated 2026) ------------------------------------------------------
 var handleWidth = 16         // cm: target area of a panel's handle (the pill drawn inside is smaller)

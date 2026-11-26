@@ -57,7 +57,8 @@ Item {
             instancing: mockMolecule.tables
             headPosition: Qt.vector3d(0, 0, 0)
             filesVisible: root.stateName === "files"
-            helpVisible: root.stateName === "help"
+            helpVisible: root.stateName === "help" || root.stateName === "large" || root.stateName === "xlarge"
+            tutorialVisible: root.stateName === "tutorial"
             structureVisible: root.stateName !== "hidden"
             simulationVisible: root.stateName !== "hidden"
             viewVisible: root.stateName !== "hidden"

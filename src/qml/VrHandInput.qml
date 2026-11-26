@@ -18,6 +18,7 @@
 //                                         (within Style.moleculeTouch of an atom, not only on one)
 //   both hands holding atoms, pull apart = resize the molecule about the point between the hands
 //   quick pinch (tap) on an atom        = select it
+// Each finished gesture is reported to the tutorial (VrScene.reportAction; Claude Generated 2026).
 // A pinch is read from the tracked joints (thumb-to-index distance with hysteresis, Style.pinch*),
 // not from a runtime pinch action, so any runtime with XR_EXT_hand_tracking works.
 //
@@ -295,16 +296,23 @@ Node {
                 else if (!cancelled && button === hoverButton && button.enabled)
                     button.clicked()
             }
-            if (action === "move" && actionHost)
+            if (action === "move" && actionHost) {
                 actionHost.handleHeld = false
+                if (!cancelled)
+                    root.vrScene.reportAction("panelMove")
+            }
+            if (action === "hold" && !cancelled && pinchPoint.minus(pressPoint).length() > 5)
+                root.vrScene.reportAction("carry")   // held and moved it by more than 5 cm
             actionHost = null
             if (grabAtom >= 0) {
                 grabAtom = -1
                 root.session.grabReleased(hand.grabSource)
             }
             action = ""
-            if (tap)
+            if (tap) {
                 root.session.atomPicked(tapAtom)
+                root.vrScene.reportAction("select")
+            }
         }
 
         function cancel() {

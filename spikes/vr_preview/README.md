@@ -21,7 +21,8 @@ spikes/vr_preview/build/vr_preview --state running
 
 - `--state`: `idle`, `trajectory`, `running`, `paused`, `aborted`, `files` (file browser open),
   `help` (help panel open), `hidden` (panels hidden, only the menu bar),
-  `overlays` (three picked carbons with measurement lines, as the desktop draws them)
+  `overlays` (three picked carbons with measurement lines, as the desktop draws them),
+  `tutorial` (tutorial panel, step 1), `hands` (hand-input layout), `large` / `xlarge` (text size, help open)
 - `--yaw` / `--pitch`: head direction in degrees (yaw > 0 = left, pitch > 0 = up; default 0 / -12).
   The Simulation panel sits at about yaw 45, the View panel at about yaw -35, both at pitch -28.
 - `--fov`, `--size WxH`: horizontal field of view, window size

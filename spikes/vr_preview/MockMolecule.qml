@@ -123,7 +123,8 @@ Node {
         atomList.instances = list
         positions = pos
         sceneCenter = lo.plus(hi).times(0.5)
-        sceneExtent = Math.max(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z) + 1.0
+        // as SceneController::computeBounds: half the box diagonal, the bounding sphere's radius
+        sceneExtent = Math.max(2.0, 0.5 * hi.minus(lo).length())
 
         var blist = []
         for (var b = 0; b < bonds.length; ++b)

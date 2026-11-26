@@ -71,6 +71,11 @@ public:
     // Claude Generated 2026 - VR input: false = controllers (ray + trigger), true = tracked hands (pinch)
     bool vrHandInput() const;
     void setVrHandInput(bool on);
+    // Claude Generated 2026 - VR comfort: walking speed 0 slow / 1 normal / 2 fast, text size 0..2
+    int vrWalkSpeedLevel() const;
+    void setVrWalkSpeedLevel(int level);
+    int vrTextSizeLevel() const;
+    void setVrTextSizeLevel(int level);
 
     // Claude Generated 2026 - "Use Invocation Directory" preference.
     // When enabled, the directory from which qurcuma was launched

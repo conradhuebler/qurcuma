@@ -228,3 +228,22 @@ void VrSession::setHandInput(bool on)
     m_handInput = on;
     emit handInputChanged();
 }
+
+// Claude Generated 2026 - Comfort levels of the headset (walking speed, text size), 0..2 each.
+void VrSession::setWalkSpeedLevel(int level)
+{
+    level = qBound(0, level, 2);
+    if (level == m_walkSpeedLevel)
+        return;
+    m_walkSpeedLevel = level;
+    emit walkSpeedLevelChanged();
+}
+
+void VrSession::setTextSizeLevel(int level)
+{
+    level = qBound(0, level, 2);
+    if (level == m_textSizeLevel)
+        return;
+    m_textSizeLevel = level;
+    emit textSizeLevelChanged();
+}

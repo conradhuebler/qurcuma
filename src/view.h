@@ -536,12 +536,23 @@ public slots:
     /// Headset input: tracked hands (pinch) instead of controllers (ray + trigger). Claude Generated 2026.
     void setVrHandInput(bool on);
     bool vrHandInput() const { return m_vrHandInput; }
+    /// Headset comfort (Claude Generated 2026): walking speed 0 slow / 1 normal / 2 fast and text
+    /// size 0 normal / 1 large / 2 extra large; kept for the next session when none runs.
+    void setVrWalkSpeedLevel(int level);
+    int vrWalkSpeedLevel() const { return m_vrWalkSpeedLevel; }
+    void setVrTextSizeLevel(int level);
+    int vrTextSizeLevel() const { return m_vrTextSizeLevel; }
+    /// Open the guided tutorial in the headset; false without a VR session. Claude Generated 2026.
+    bool startVrTutorial();
     void updateVrStatus();  // refresh the in-headset panel text (no-op without a session)
 
 signals:
     void vrActiveChanged(bool active);
     /// The headset input mode changed (desktop menu or the headset's View panel).
     void vrHandInputChanged(bool on);
+    /// Headset comfort levels changed (desktop menu or the headset's View panel).
+    void vrWalkSpeedLevelChanged(int level);
+    void vrTextSizeLevelChanged(int level);
     /// Headset panel asked for a simulation action ("simStartMD", "simStartOpt", "simStop", "simPause",
     /// "simTempUp", "simTempDown"); MainWindow owns the simulation and carries it out.
     void vrSimulationCommand(const QString& name);
@@ -859,6 +870,8 @@ private:
     QString m_vrSurroundings;   // 3D scene file around the headset user (empty = none)
     double m_vrSurroundingsScale = 100.0;  // cm per unit of that file (100 = metres)
     bool m_vrHandInput = false;            // headset input: hands (pinch) instead of controllers
+    int m_vrWalkSpeedLevel = 1;            // headset walking speed: 0 slow, 1 normal, 2 fast
+    int m_vrTextSizeLevel = 0;             // headset text size: 0 normal, 1 large, 2 extra large
     QWidget* m_controlPanel = nullptr;
 
     // Claude Generated - Frame control widgets (shown/hidden based on frame count)

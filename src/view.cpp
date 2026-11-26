@@ -5609,6 +5609,8 @@ bool MoleculeViewer::setVrActive(bool on)
     }
     m_vr = new VrSession(m_scene, this);
     m_vr->setHandInput(m_vrHandInput);   // before start(): the scene is laid out for the right mode
+    m_vr->setWalkSpeedLevel(m_vrWalkSpeedLevel);
+    m_vr->setTextSizeLevel(m_vrTextSizeLevel);
     if (!m_vr->start()) {
         delete m_vr;
         m_vr = nullptr;
@@ -5638,6 +5640,8 @@ bool MoleculeViewer::setVrActive(bool on)
     connect(m_vr, &VrSession::fileRequested, this, &MoleculeViewer::vrFileRequested);
     // The input mode can be switched in the headset (View panel, or B / Y in hands mode).
     connect(m_vr, &VrSession::handInputChanged, this, [this] { setVrHandInput(m_vr->handInput()); });
+    connect(m_vr, &VrSession::walkSpeedLevelChanged, this, [this] { setVrWalkSpeedLevel(m_vr->walkSpeedLevel()); });
+    connect(m_vr, &VrSession::textSizeLevelChanged, this, [this] { setVrTextSizeLevel(m_vr->textSizeLevel()); });
     connect(m_vr, &VrSession::grabReleased, this, [this](int source) { emit atomGrabReleased(source); });
     connect(m_vr, &VrSession::command, this, [this](const QString& name) {
         if (name == QLatin1String("playPause"))
@@ -5751,6 +5755,45 @@ void MoleculeViewer::setVrHandInput(bool on)
         m_vr->setHandInput(on);
 #endif
     emit vrHandInputChanged(on);
+}
+
+// Claude Generated 2026 - Headset comfort levels (UX test 2026-10); kept for the next session.
+void MoleculeViewer::setVrWalkSpeedLevel(int level)
+{
+    level = qBound(0, level, 2);
+    if (level == m_vrWalkSpeedLevel)
+        return;
+    m_vrWalkSpeedLevel = level;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setWalkSpeedLevel(level);
+#endif
+    emit vrWalkSpeedLevelChanged(level);
+}
+
+void MoleculeViewer::setVrTextSizeLevel(int level)
+{
+    level = qBound(0, level, 2);
+    if (level == m_vrTextSizeLevel)
+        return;
+    m_vrTextSizeLevel = level;
+#ifdef QURCUMA_HAS_XR
+    if (m_vr)
+        m_vr->setTextSizeLevel(level);
+#endif
+    emit vrTextSizeLevelChanged(level);
+}
+
+// Claude Generated 2026 - Guided tutorial in the headset, started from the desktop (demo supervisor).
+bool MoleculeViewer::startVrTutorial()
+{
+#ifdef QURCUMA_HAS_XR
+    if (m_vr) {
+        m_vr->startTutorial();
+        return true;
+    }
+#endif
+    return false;
 }
 
 // Claude Generated 2026 - Sky box panorama and 3D surroundings of the headset scene.

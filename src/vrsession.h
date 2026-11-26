@@ -85,6 +85,11 @@ class VrSession : public QObject {
     /// true = tracked hands (pinch, direct manipulation, VrHandInput.qml). Written by the desktop menu
     /// and by the headset's View panel.
     Q_PROPERTY(bool handInput READ handInput WRITE setHandInput NOTIFY handInputChanged)
+    /// Comfort (Claude Generated 2026, UX test 2026-10): walking speed of the left stick (index into
+    /// VrStyle.js walkSpeeds: 0 slow, 1 normal, 2 fast) and the panels' text size (index into
+    /// textScales: 0 normal, 1 large, 2 extra large). Written by the desktop menu and the View panel.
+    Q_PROPERTY(int walkSpeedLevel READ walkSpeedLevel WRITE setWalkSpeedLevel NOTIFY walkSpeedLevelChanged)
+    Q_PROPERTY(int textSizeLevel READ textSizeLevel WRITE setTextSizeLevel NOTIFY textSizeLevelChanged)
 public:
     /// Grab sources of the two hands (controllers or tracked hands); 0 is the desktop mouse.
     static constexpr int RightGrabSource = 1;
@@ -140,6 +145,12 @@ public:
 
     bool handInput() const { return m_handInput; }
     void setHandInput(bool on);
+    int walkSpeedLevel() const { return m_walkSpeedLevel; }
+    void setWalkSpeedLevel(int level);   // clamped to 0..2
+    int textSizeLevel() const { return m_textSizeLevel; }
+    void setTextSizeLevel(int level);    // clamped to 0..2
+    /// Open the guided tutorial in the headset (desktop View ▸ Start VR Tutorial). Claude Generated 2026.
+    Q_INVOKABLE void startTutorial() { emit tutorialRequested(); }
 
     QString currentDir() const { return m_currentDir; }
     QVariantList entries() const { return m_entries; }
@@ -178,6 +189,10 @@ signals:
     void simulationStatusChanged();
     void surroundingsChanged();
     void handInputChanged();
+    void walkSpeedLevelChanged();
+    void textSizeLevelChanged();
+    /// The headset scene opens its tutorial at the first step.
+    void tutorialRequested();
     void structureChanged();
 
 private:
@@ -208,6 +223,8 @@ private:
     QUrl m_surroundings;
     double m_surroundingsScale = 100.0;
     bool m_handInput = false;
+    int m_walkSpeedLevel = 1;
+    int m_textSizeLevel = 0;
 
     void refreshEntries();
 };

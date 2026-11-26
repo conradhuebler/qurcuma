@@ -327,6 +327,29 @@ void Settings::setVrHandInput(bool on)
     m_settings.sync();
 }
 
+// Claude Generated 2026 - VR comfort levels (UX test 2026-10)
+int Settings::vrWalkSpeedLevel() const
+{
+    return qBound(0, m_settings.value(QStringLiteral("vr/walkSpeedLevel"), 1).toInt(), 2);
+}
+
+void Settings::setVrWalkSpeedLevel(int level)
+{
+    m_settings.setValue(QStringLiteral("vr/walkSpeedLevel"), level);
+    m_settings.sync();
+}
+
+int Settings::vrTextSizeLevel() const
+{
+    return qBound(0, m_settings.value(QStringLiteral("vr/textSizeLevel"), 0).toInt(), 2);
+}
+
+void Settings::setVrTextSizeLevel(int level)
+{
+    m_settings.setValue(QStringLiteral("vr/textSizeLevel"), level);
+    m_settings.sync();
+}
+
 // Claude Generated 2026 - "Use Invocation Directory" preference
 bool Settings::useInvocationDirectoryEnabled() const
 {

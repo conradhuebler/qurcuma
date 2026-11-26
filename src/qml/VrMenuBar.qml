@@ -1,9 +1,11 @@
 // Copyright (C) 2025 - 2026 Conrad Hübler <Conrad.Huebler@gmx.net>
-// See-through menu bar of the headset scene (Claude Generated 2026): one toggle per panel plus Help.
+// See-through menu bar of the headset scene (Claude Generated 2026): one toggle per panel plus Help and
+// the guided Tutorial (VrPanelTutorial.qml, Claude Generated 2026).
 // Order as the panels stand, left to right: Simulation, Structure, View.
 // It stays visible when the panels are hidden, so the way back is always in sight. A lit button means
 // the panel is shown. B / Y on either controller hides or shows all panels at once (viewerxr.qml).
-//   vrScene: VrScene (structureVisible, simulationVisible, viewVisible, helpVisible)
+//   vrScene: VrScene (structureVisible, simulationVisible, viewVisible, helpVisible, tutorialVisible,
+//            startTutorial())
 import QtQuick
 import "VrStyle.js" as Style
 
@@ -12,7 +14,7 @@ Rectangle {
 
     required property var vrScene
 
-    readonly property real buttonWidth: 88
+    readonly property real buttonWidth: 104
 
     width: row.implicitWidth + 2 * Style.spacing
     height: Style.buttonHeight + 2 * Style.spacing
@@ -59,6 +61,18 @@ Rectangle {
             tone: "ghost"
             highlighted: bar.vrScene.helpVisible
             onClicked: bar.vrScene.helpVisible = !bar.vrScene.helpVisible
+        }
+        VrButton {
+            width: bar.buttonWidth
+            text: "Tutorial"
+            tone: "ghost"
+            highlighted: bar.vrScene.tutorialVisible
+            onClicked: {
+                if (bar.vrScene.tutorialVisible)
+                    bar.vrScene.tutorialVisible = false
+                else
+                    bar.vrScene.startTutorial()
+            }
         }
     }
 }
